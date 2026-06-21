@@ -19,6 +19,22 @@
 - [x] 期权实战交易框架记录（卖方哲学、Tastytrade 规则、Vol Risk Premium）→ learning.md
 - [x] 数据库/基础设施决策：PostgreSQL on Railway（放弃 DuckDB）
 
+## ✅ Done (V2 Scaffold)
+- [x] React Router 多页路由：/learn、/analyze、/scan
+- [x] NavBar 组件：页面导航
+- [x] /learn：V1 所有组件完整保留（Learn.jsx）
+- [x] /analyze：标的分析页（mock data），IV状态、方向信号、期限结构、策略推荐
+- [x] /scan：扫描器页（mock data），过滤条件、结果列表、点击跳转 Analyze
+- [x] mock data：9个标的（AAPL/SPY/QQQ/TSLA/MSFT/XOM/GLD/NVDA/AMD）
+- [x] Analyze ↔ Scan 联动：扫描器点击行自动填入并分析
+
+## ✅ Done (Infrastructure)
+- [x] Git repo 初始化，branch: master
+- [x] GitHub repo: whicter/quantrift_options-lab
+- [x] Mac Studio: /Users/congrenhan/Documents/quantrift_options-lab（SSH push）
+- [x] 本机: /Users/cohan/Documents/quantrift_options-lab（HTTPS pull）
+- [x] 工作流确认：本机开发 → rsync → Mac Studio push
+
 ## 📋 V1 Backlog (Polish)
 - [ ] Strategy comparison mode (side by side, 2 strategies)
 - [ ] IV Rank badge per strategy in sidebar (Low/Med/High indicator)
@@ -43,22 +59,22 @@
 **Infrastructure**
 - [ ] Railway: 创建 Node.js 后端 Service
 - [ ] Railway: 添加 PostgreSQL Service，配置 DATABASE_URL
-- [ ] 建表: iv_history（含 source 字段）, option_chain, scanner_configs
+- [x] 建表 schema 已定义：server/src/migrate.js（iv_history, scanner_configs）
 - [ ] 前端 Vercel 部署，通过环境变量指向 Railway 后端
 
 **Mac Studio 数据采集脚本**
-- [ ] Python 定时脚本：每日 4:30pm ET 采集 IV + 期权链 → 写入 Railway PostgreSQL
-  - Tastytrade 认证：remember-token 自动续期，过期时发邮件提醒
-  - 采集字段：iv_rank, iv30, hv30, iv_hv_diff, earnings_date, term_structure
+- [x] Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）
+  - Tastytrade 认证：collector/auth.py，remember-token 自动续期，过期时发邮件提醒
+  - 采集字段：iv_rank, iv30, hv30/60/90, iv_hv_diff, earnings_date, term_structure
 - [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway
 - [ ] 服务层自动切换：252天历史满后改为自算 IV Rank，停止调用 Tastytrade
 
 **前端路由（Vite + React Router）**
-- [ ] 安装 react-router-dom，配置多页路由
+- [x] 安装 react-router-dom，配置多页路由
 - [ ] `/` 落地页（产品介绍）
-- [ ] `/learn` → 现有 V1 App.jsx 内容（组件直接复用）
-- [ ] `/analyze` → V2 标的分析页
-- [ ] `/scan` → V2 扫描器页
+- [x] `/learn` → V1 教育工具（Learn.jsx）
+- [x] `/analyze` → V2 标的分析页（mock data）
+- [x] `/scan` → V2 扫描器页（mock data）
 
 **V2 核心流程（ticker-first）**
 - [ ] 用户输入标的 → 系统分析（不再要求用户先选策略）

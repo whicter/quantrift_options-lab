@@ -272,6 +272,64 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 - 期权 legs 用 **JSONB 列**存储，不提前固定 schema
 - `iv_history.source`: `'tastytrade'` | `'ib'` | `'yfinance'` | `'self'`（自算）
 
+## Git & Deployment Workflow
+
+### 项目信息
+- **本地路径**: `/Users/cohan/Documents/quantrift_options-lab`
+- **Mac Studio 路径**: `/Users/congrenhan/Documents/quantrift_options-lab`
+- **GitHub repo**: `https://github.com/whicter/quantrift_options-lab`
+
+### Git 设置说明
+- **本机**：公司网络封锁 SSH port 22/443 到外部，只能用 HTTPS 连 GitHub
+  - remote URL: `https://whicter@github.com/whicter/quantrift_options-lab.git`
+  - 只 pull，不 push
+- **Mac Studio**：SSH 正常，负责 push 到 GitHub
+  - remote URL: `git@github.com:whicter/quantrift_options-lab.git`
+
+### 日常工作流
+
+**本机开发完成后：**
+```bash
+# 1. 本机提交
+cd /Users/cohan/Documents/quantrift_options-lab
+git add . && git commit -m "描述"
+
+# 2. 拷贝到 Mac Studio
+rsync -av --exclude='.git' \
+  /Users/cohan/Documents/quantrift_options-lab/ \
+  mac-studio:/Users/congrenhan/Documents/quantrift_options-lab/
+
+# 3. Mac Studio push 到 GitHub
+ssh -A mac-studio "cd /Users/congrenhan/Documents/quantrift_options-lab && \
+  git add . && git commit -m '描述' && git push"
+```
+
+**本机 pull 最新代码：**
+```bash
+cd /Users/cohan/Documents/quantrift_options-lab && git pull
+```
+
+### SSH Config（本机 ~/.ssh/config）
+```
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile ~/.ssh/id_ed25519
+
+Host github.com          ← 注意：SSH 在公司网络不通，实际用 HTTPS
+  HostName ssh.github.com
+  Port 443
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+
+Host mac-studio
+  HostName mac-studio.quantrift.io
+  User congrenhan
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  ProxyCommand /opt/homebrew/bin/cloudflared access ssh --hostname %h
+```
+
 ## Frontend Architecture
 
 ### 路由结构
