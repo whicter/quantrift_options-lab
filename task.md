@@ -34,6 +34,10 @@
 - [x] Mac Studio: /Users/congrenhan/Documents/quantrift_options-lab（SSH push）
 - [x] 本机: /Users/cohan/Documents/quantrift_options-lab（HTTPS pull）
 - [x] 工作流确认：本机开发 → rsync → Mac Studio push
+- [x] 项目结构重组：frontend/ + server/ + collector/ 单 repo
+- [x] server/：Node.js Express API（/api/metrics, /api/scan, /health）
+- [x] collector/：Python IV 采集脚本（auth.py + collect.py，Tastytrade → PostgreSQL）
+- [x] 代码已同步至 GitHub（本机 → Mac Studio → push）
 
 ## 📋 V1 Backlog (Polish)
 - [ ] Strategy comparison mode (side by side, 2 strategies)
@@ -57,10 +61,13 @@
 - [x] remember-token 自动续期机制验证通过（全自动，无需人工介入）
 
 **Infrastructure**
-- [ ] Railway: 创建 Node.js 后端 Service
-- [ ] Railway: 添加 PostgreSQL Service，配置 DATABASE_URL
-- [x] 建表 schema 已定义：server/src/migrate.js（iv_history, scanner_configs）
-- [ ] 前端 Vercel 部署，通过环境变量指向 Railway 后端
+- [ ] Railway: 创建 PostgreSQL Service，获取 DATABASE_URL
+- [ ] Railway: 创建 Node.js Service，部署 server/，注入 DATABASE_URL
+- [ ] 跑 migrate.js 建表（iv_history, scanner_configs）
+- [x] 建表 schema 已定义：server/src/migrate.js
+- [ ] Mac Studio collector：配 .env，python auth.py --login，加 cron
+- [ ] Vercel: 部署 frontend/，注入 VITE_API_URL → Railway URL
+- [ ] 前端：mock data → 真实 API 调用
 
 **Mac Studio 数据采集脚本**
 - [x] Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）

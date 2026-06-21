@@ -2,25 +2,74 @@
 
 ## Architecture
 
+### Monorepo 结构
+
 ```
-options-lab/
+quantrift_options-lab/
+├── frontend/          → Vercel（React 19 + Vite）
+├── server/            → Railway（Node.js Express API）
+├── collector/         → Mac Studio cron（Python IV 采集）
+├── CLAUDE.md / wiki.md / task.md / learning.md / README.md
+```
+
+### frontend/ 结构
+
+```
+frontend/src/
+├── data/
+│   ├── strategies.js         # 86 strategy definitions, 7 categories
+│   ├── greeksKnowledge.js    # Greeks 知识库
+│   └── mockAnalysis.js       # V2 mock data（9 symbols）
+├── lib/
+│   └── blackscholes.js       # BS pricing engine + Greeks
+├── store/
+│   └── useStrategyStore.js   # Zustand global state
+├── components/
+│   ├── Sidebar.jsx
+│   ├── PayoffChart.jsx
+│   ├── GreeksCharts.jsx
+│   ├── RightPanel.jsx
+│   ├── StrategyNotes.jsx
+│   ├── GreeksKnowledge.jsx
+│   └── NavBar.jsx            # 顶部导航
+├── pages/
+│   ├── Learn.jsx             # /learn — V1 教育工具
+│   ├── Analyze.jsx           # /analyze — V2 标的分析
+│   └── Scan.jsx              # /scan — V2 扫描器
+└── App.jsx                   # BrowserRouter + Routes
+```
+
+### server/ 结构
+
+```
+server/
 ├── src/
-│   ├── data/
-│   │   ├── strategies.js         # 86 strategy definitions, 7 categories
-│   │   └── greeksKnowledge.js    # Greeks 知识库：GREEKS(5) + GREEKS_INTERACTIONS(12)
-│   ├── lib/
-│   │   └── blackscholes.js       # BS pricing engine + Greeks
-│   ├── store/
-│   │   └── useStrategyStore.js   # Zustand: global app state
-│   ├── components/
-│   │   ├── Sidebar.jsx           # Left: search, filters, strategy list, Greeks nav button
-│   │   ├── PayoffChart.jsx       # Main P&L canvas chart
-│   │   ├── GreeksCharts.jsx      # 6-panel Greeks canvas charts with DTE slider
-│   │   ├── RightPanel.jsx        # Right: scenario inputs + risk metrics + leg editor
-│   │   ├── StrategyNotes.jsx     # Bottom: 9-card notes grid
-│   │   └── GreeksKnowledge.jsx   # Greeks 知识库页面（tab切换视图）
-│   ├── App.jsx                   # view state: 'strategy' | 'greeks'
-│   └── main.jsx
+│   ├── index.js              # Express app 入口
+│   ├── db.js                 # PostgreSQL pool（reads DATABASE_URL）
+│   ├── migrate.js            # 建表脚本（run once）
+│   └── routes/
+│       ├── metrics.js        # GET /api/metrics?symbols=AAPL,SPY
+│       └── scan.js           # GET /api/scan?minIvr=30&maxIvr=80
+├── package.json
+└── .env.example
+```
+
+**API 端点：**
+
+| 端点 | 说明 |
+|---|---|
+| `GET /health` | 健康检查 |
+| `GET /api/metrics?symbols=X,Y` | 返回最新 IV 数据（最多 50 个）|
+| `GET /api/scan?minIvr=&maxIvr=&minIvHv=&limit=` | 扫描器过滤 |
+
+### collector/ 结构
+
+```
+collector/
+├── auth.py       # Tastytrade 认证：remember-token 自动续期；--login 手动登录
+├── collect.py    # 每日定时采集：Tastytrade API → PostgreSQL iv_history
+├── requirements.txt
+└── .env.example
 ```
 
 ## State Shape (Zustand)
