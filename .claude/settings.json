@@ -1,18 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git *)",
-      "Bash(rsync *mac-studio*)",
-      "Bash(ssh mac-studio *)",
-      "Bash(npm *)",
-      "Bash(node *)",
-      "Bash(python *)",
-      "Bash(python3 *)",
-      "Bash(pip *)",
-      "Bash(mkdir *)",
-      "Bash(ls *)",
-      "Bash(find *)",
-      "Bash(cat *)"
+      "Bash(*)"
     ]
   }
 }
