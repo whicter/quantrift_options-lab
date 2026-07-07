@@ -38,7 +38,8 @@
 - [x] server/：Node.js Express API（/api/metrics, /api/scan, /health）
 - [x] collector/：Python IV 采集脚本（auth.py + collect.py，Tastytrade → PostgreSQL）
 - [x] 代码已同步至 GitHub（本机 → Mac Studio → push）
-- [x] .claude/settings.json：Bash 白名单（git/rsync/ssh/npm/node/python）
+- [x] .claude/settings.json：Bash(*) 全放行白名单
+- [x] .claude_session：session UUID 固化，`cr` 命令一键恢复对话
 
 ## 📋 V1 Backlog (Polish)
 - [ ] Strategy comparison mode (side by side, 2 strategies)
