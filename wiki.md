@@ -422,3 +422,58 @@ src/
 - 后端 + DB: Railway（Node.js Service + PostgreSQL Service）
 - 数据采集: Mac Studio Python 脚本 → Railway PostgreSQL
 - 前端通过 REST API 调用 Railway 后端
+
+## V2 分析框架：GEX + 期权链 + 大单
+
+### 三层信号叠加逻辑
+
+```
+层级 1: GEX 环境（市场结构）
+  正GEX → 做市商 long gamma → 价格稳定 → 卖方策略友好
+  负GEX → 做市商 short gamma → 波动放大 → 降低卖方敞口
+
+层级 2: 期权链信号（方向 + 情绪）
+  PCR高 + IV put skew大 → 市场恐慌 → 可能是顶部，考虑 put spread
+  PCR低 + IV call skew大 → 市场贪婪 → 可能是顶部，考虑 call spread
+  Max Pain → 到期价格收敛目标
+  OI wall    → 支撑/阻力参考，帮助选 spread 边界
+
+层级 3: 大单验证（机构意图）
+  大量 call sweep → 机构看涨，方向性信号
+  大量 put sweep  → 机构对冲/看跌
+  异常 OI delta   → 有人在悄悄建仓
+```
+
+### 实战组合示例
+
+```
+场景: SPY 当前 450，正GEX环境，GEX wall at 455
+期权链: Max Pain = 448，PCR = 1.2（偏空情绪）
+大单: 上周出现大量 445 put 买入（机构对冲）
+
+结论:
+  - 价格大概率在 445-455 之间震荡
+  - 卖方策略：Iron Condor 445/448/452/455
+  - 到期收敛到 Max Pain 448 有利
+
+```
+
+### 数据来源 & 计算
+
+| 信号 | 数据来源 | 成本 | 计算方式 |
+|---|---|---|---|
+| GEX by strike | IB 期权链（OI + Gamma） | 免费 | Σ(Gamma × OI × 100 × Spot²)，call为正，put为负 |
+| PCR | IB 期权链（成交量 + OI） | 免费 | put_vol / call_vol，put_oi / call_oi |
+| IV Skew | IB 期权链（每个行权价 IV） | 免费 | 直接从链数据读取 |
+| Max Pain | IB 期权链（OI × 行权价） | 免费 | 计算各行权价的总期权价值，取最小点 |
+| OI 变化 | IB 期权链每日对比 | 免费 | 今日OI - 昨日OI |
+| 真实 Sweep | Unusual Whales API | $50/月 | 实时多交易所大单扫描 |
+
+### 新增 API 端点规划（server/）
+
+```
+GET /api/chain/:symbol         # 完整期权链（IB）
+GET /api/gex/:symbol           # GEX by strike + 净GEX
+GET /api/chain/:symbol/stats   # PCR / Max Pain / IV Skew / OI wall
+GET /api/unusual/:symbol       # 异常OI变化 top 合约
+```

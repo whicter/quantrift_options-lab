@@ -97,6 +97,22 @@
 - [ ] Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值
 - [ ] Push notifications: email + web push 当扫描命中条件
 
+**GEX + 期权链分析（免费，基于 IB 期权链）**
+- [ ] GEX by strike：Σ(Gamma × OI × 100 × Spot²)，正负 GEX 判断做市商对冲方向
+  - 正GEX = 价格稳定，适合卖方；负GEX = 波动放大，慎卖方
+  - GEX wall（最大GEX行权价）= 价格磁铁/阻力位
+- [ ] PCR（Put/Call Ratio）：OI + 成交量两个维度，辅助判断市场情绪
+- [ ] IV Skew 图：各行权价 IV 可视化，put skew 大 = 市场恐慌/保险需求高
+- [ ] Max Pain 计算：到期时期权买方亏损最大的行权价
+- [ ] OI 集中度热图：大量 OI 堆积的行权价 → 支撑/阻力参考
+- [ ] /analyze 页面新增：GEX 环境指示（正/负）、GEX wall 位置、Max Pain、PCR
+
+**大单 / Unusual Activity（免费方案）**
+- [ ] 每日 OI 变动追踪：OI delta 异常大的合约 → 机构建仓信号
+- [ ] Unusual OI scanner：按 OI 变化量 / 成交量 vs OI 比值筛选
+- [ ] /scan 新增过滤器：Unusual OI、PCR 异常、GEX 环境
+- [ ] （付费扩展）Unusual Whales API：真实 sweep / dark pool 数据，$50/月
+
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
 - [ ] 订阅分层: 免费（教育工具）/ 付费（scanner + alerts + live data）
