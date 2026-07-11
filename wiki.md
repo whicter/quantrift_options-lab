@@ -337,23 +337,38 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 
 ### 日常工作流
 
-**本机开发完成后：**
+**本机开发完成后 → push 到 GitHub：**
 ```bash
 # 1. 本机提交
 cd /Users/cohan/Documents/quantrift_options-lab
-git add . && git commit -m "描述"
+git add -A && git commit -m "描述"
 
-# 2. 拷贝到 Mac Studio
-rsync -av --exclude='.git' \
+# 2. 同步到 Mac Studio（exclude 无用目录）
+rsync -av --exclude='.git' --exclude='node_modules' --exclude='dist' \
   /Users/cohan/Documents/quantrift_options-lab/ \
   mac-studio:/Users/congrenhan/Documents/quantrift_options-lab/
 
 # 3. Mac Studio push 到 GitHub
-ssh -A mac-studio "cd /Users/congrenhan/Documents/quantrift_options-lab && \
-  git add . && git commit -m '描述' && git push"
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_options-lab && \
+  git add -A && git commit -m '描述' && git push"
 ```
 
-**本机 pull 最新代码：**
+**Mac Studio 有改动 → 同步回本机：**
+```bash
+# 1. 先看 Mac Studio 改了什么
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_options-lab && git diff && git status --short"
+
+# 2. Mac Studio 提交并 push
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_options-lab && \
+  git add -A && git commit -m '描述' && git push"
+
+# 3. 把改动的文件 rsync 回本机
+rsync -av \
+  mac-studio:/Users/congrenhan/Documents/quantrift_options-lab/改动的文件 \
+  /Users/cohan/Documents/quantrift_options-lab/
+```
+
+**本机 pull 最新代码（GitHub → 本机）：**
 ```bash
 cd /Users/cohan/Documents/quantrift_options-lab && git pull
 ```
