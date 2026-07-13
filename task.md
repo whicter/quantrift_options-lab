@@ -28,6 +28,26 @@
 - [x] mock data：9个标的（AAPL/SPY/QQQ/TSLA/MSFT/XOM/GLD/NVDA/AMD）
 - [x] Analyze ↔ Scan 联动：扫描器点击行自动填入并分析
 
+## ✅ Done (Phase 1 — /analyze 4-Tab UI)
+- [x] /analyze 重构为 4-tab 布局（Tab 导航 + URL 状态 ?tab=0-3）
+- [x] Tab 1 今日概览：sector chips、3个 Q&A 卡片、conclusion card、badge 组（格局/动量/信号/GEX）、剧本 playbook、推荐卡
+- [x] Tab 2 日内变化：Kalman Filter 趋势图 Canvas、Trend Spread 动量柱、输出 badge、3格辅助信息（趋势格局/期权结构/RVol）
+- [x] Tab 3 数据解读：GEX by Strike Canvas（带 Put/Call Wall 竖线、当前价箭头）、3 核心数字（GEX Total/PCR/IV ATM）、Unusual Activity 列表、结论文本
+- [x] Tab 4 信号追踪：筹码标尺 Canvas（竖向密度图）、上方压力/下方支撑卡、观察结论
+- [x] mockAnalysis.js 扩展：9 标的增加 sector/gexTotal/gexByStrike/putWall/callWall/pcr/unusualActivity/trend/conclusion/scenarios 字段
+- [x] Canvas 全部支持 devicePixelRatio + ResizeObserver（Retina 适配）
+
+## ✅ Done (Phase 2 — /weekly Weekly Recap UI)
+- [x] /weekly 路由 + /weekly/:symbol 参数路由（App.jsx + NavBar）
+- [x] Weekly.jsx：5段导航（?sec=0-4）、符号切换链接、prev/next 按钮、进度计数
+- [x] weeklyMock.js：AAPL/SPY/QQQ 数据，含 week/candles(5)/gammaByDay(Mon-Fri)/gammaMigration/maxPain/smartMoney/scenarios
+- [x] Sec1 本周定调：K线图 Canvas（5根OHLC）+ CME Gauge Canvas（半圆弧仪表盘）、定调文字
+- [x] Sec2 Gamma迁徙：星期选择器、GEX 日内图 Canvas（随天切换）、Call/Put Wall 迁移表
+- [x] Sec3 交割偏离：MaxPain vs FridayClose 偏离条形图、偏离 badge（中性/警告/空方）
+- [x] Sec4 资金暗线：Smart Money 每日流入水平柱 Canvas、累计流向 + 背离 badge
+- [x] Sec5 下周分叉：多头/空头剧本卡片（触发条件/价格目标/观察重点）
+- [x] index.css：新增 ~170行 Phase 1 样式 + ~200行 Phase 2 样式（.wk-* 类）
+
 ## ✅ Done (Infrastructure)
 - [x] Git repo 初始化，branch: master
 - [x] GitHub repo: whicter/quantrift_options-lab

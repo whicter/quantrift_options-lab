@@ -19,7 +19,8 @@ frontend/src/
 ├── data/
 │   ├── strategies.js         # 86 strategy definitions, 7 categories
 │   ├── greeksKnowledge.js    # Greeks 知识库
-│   └── mockAnalysis.js       # V2 mock data（9 symbols）
+│   ├── mockAnalysis.js       # V2 mock data（9 symbols，含 GEX/scenarios 扩展）
+│   └── weeklyMock.js         # 周复盘 mock data（AAPL/SPY/QQQ，含 5日 gammaByDay）
 ├── lib/
 │   └── blackscholes.js       # BS pricing engine + Greeks
 ├── store/
@@ -34,9 +35,21 @@ frontend/src/
 │   └── NavBar.jsx            # 顶部导航
 ├── pages/
 │   ├── Learn.jsx             # /learn — V1 教育工具
-│   ├── Analyze.jsx           # /analyze — V2 标的分析
-│   └── Scan.jsx              # /scan — V2 扫描器
-└── App.jsx                   # BrowserRouter + Routes
+│   ├── Analyze.jsx           # /analyze — V2 标的分析（4-tab，?tab=0-3）
+│   ├── Scan.jsx              # /scan — V2 扫描器
+│   ├── Weekly.jsx            # /weekly/:symbol — 周复盘（5-section，?sec=0-4）
+│   ├── analyze/
+│   │   ├── Tab1Overview.jsx  # 今日概览：sector/Q&A/conclusion/playbook
+│   │   ├── Tab2Trend.jsx     # 日内变化：KF趋势图/Trend Spread Canvas
+│   │   ├── Tab3Options.jsx   # 数据解读：GEX by Strike Canvas/PCR/Unusual
+│   │   └── Tab4Signals.jsx   # 信号追踪：筹码标尺 Canvas/Wall距离
+│   └── weekly/
+│       ├── Sec1Tone.jsx      # 本周定调：K线Canvas/CME Gauge Canvas
+│       ├── Sec2Gamma.jsx     # Gamma迁徙：日选择器/GEX日图Canvas/迁移表
+│       ├── Sec3Pinning.jsx   # 交割偏离：MaxPain vs FridayClose 条形图
+│       ├── Sec4Money.jsx     # 资金暗线：Smart Money 水平柱Canvas
+│       └── Sec5Playbook.jsx  # 下周分叉：多头/空头剧本卡片
+└── App.jsx                   # BrowserRouter + Routes（含 /weekly + /weekly/:symbol）
 ```
 
 ### server/ 结构
@@ -400,8 +413,10 @@ Host mac-studio
 ```
 /              → 落地页（产品介绍，吸引注册）
 /learn         → V1 教育工具（现有 options-lab 所有组件）
-/analyze       → V2 标的分析 + 策略推荐
+/analyze       → V2 标的分析 + 策略推荐（4-tab：今日概览/日内变化/数据解读/信号追踪）
 /scan          → V2 扫描器（批量筛选）
+/weekly        → 周复盘入口（无标的时显示快捷链接）
+/weekly/:symbol → 周复盘详情（5-section：本周定调/Gamma迁徙/交割偏离/资金暗线/下周分叉）
 /portfolio     → V3 持仓追踪
 ```
 
