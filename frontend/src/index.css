@@ -750,3 +750,152 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-ivr-bar-wrap { display: flex; align-items: center; gap: 6px; }
 .scan-ivr-bar { height: 4px; border-radius: 2px; min-width: 4px; max-width: 80px; }
 .scan-ivr-tag { font-size: 10px; font-weight: 700; }
+
+/* ─── V2 Phase 1 — Tab navigation ──────────────────────────────── */
+.az-tabs {
+  display: flex; gap: 2px; margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.az-tab-btn {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  padding: 8px 18px; border-radius: 6px 6px 0 0;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.az-tab-btn:hover { color: var(--text); }
+.az-tab-btn-active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+.az-tab-content { padding-top: 4px; }
+
+/* ─── Sector chips ──────────────────────────────────────────────── */
+.az-sector-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.az-chip {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 20px; font-size: 11px; color: var(--text-dim);
+  padding: 3px 10px; white-space: nowrap;
+}
+
+/* ─── Q&A cards ─────────────────────────────────────────────────── */
+.az-question-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.az-q-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.az-q-card-bear { border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.04); }
+.az-q-num { font-size: 10px; color: var(--blue); font-weight: 700; letter-spacing: 0.05em; }
+.az-q-question { font-size: 13px; font-weight: 600; color: var(--text); }
+.az-q-answer { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+/* ─── Conclusion card ───────────────────────────────────────────── */
+.az-conclusion-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px;
+}
+.az-conclusion-badges { display: flex; flex-wrap: wrap; gap: 12px; }
+.az-badge-group { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.az-badge-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.az-badge {
+  font-size: 11px; font-weight: 700; padding: 3px 10px;
+  border-radius: 4px; white-space: nowrap;
+}
+.az-badge-bull { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+.az-badge-bear { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+.az-badge-neutral { background: var(--bg-hover); color: var(--text-dim); border: 1px solid var(--border); }
+.az-badge-warn { background: rgba(234,179,8,0.15); color: var(--yellow); border: 1px solid rgba(234,179,8,0.3); }
+.az-conclusion-text { font-size: 12px; color: var(--text-dim); line-height: 1.6; border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* ─── Scenario playbook ─────────────────────────────────────────── */
+.az-scenario-row { display: flex; gap: 10px; }
+.az-scenario {
+  flex: 1; border-radius: 6px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.az-scenario-bull { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); }
+.az-scenario-bear { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); }
+.az-scenario-title { font-size: 11px; font-weight: 700;
+  color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px; }
+.az-scenario-bull .az-scenario-title { color: var(--green); }
+.az-scenario-bear .az-scenario-title { color: var(--red); }
+.az-scenario-line { font-size: 12px; color: var(--text-dim); }
+.az-scenario-line strong { color: var(--text); }
+.az-scenario-hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+/* ─── Tab 2 Trend ───────────────────────────────────────────────── */
+.tab-trend { display: flex; flex-direction: column; gap: 12px; }
+.az-trend-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.az-mini-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+}
+.az-mini-badge.green { background: rgba(34,197,94,0.15); color: var(--green); }
+.az-mini-badge.red { background: rgba(239,68,68,0.15); color: var(--red); }
+.az-mini-badge.yellow { background: rgba(234,179,8,0.15); color: var(--yellow); }
+.az-output-badges { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px 0; }
+.az-aux-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.az-aux-cell {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+}
+.az-aux-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+.az-aux-val { font-size: 15px; font-weight: 700; }
+.c-green { color: var(--green); }
+.c-red { color: var(--red); }
+.c-yellow { color: var(--yellow); }
+.c-gray { color: var(--text-dim); }
+.c-white { color: var(--text); }
+
+/* ─── Tab 3 Options / GEX ───────────────────────────────────────── */
+.tab-options { display: flex; flex-direction: column; gap: 12px; }
+.az-gex-numbers {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.az-gex-num {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 3px;
+}
+.az-gex-num-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.az-gex-num-val { font-size: 20px; font-weight: 800; }
+.az-gex-num-sub { font-size: 10px; color: var(--text-muted); }
+.az-unusual-list { display: flex; flex-direction: column; gap: 6px; }
+.az-unusual-item {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-hover); border-radius: 5px; padding: 6px 10px;
+  font-size: 12px;
+}
+.az-unusual-type { font-weight: 700; font-size: 11px; min-width: 36px; }
+.az-unusual-strike { font-weight: 700; min-width: 48px; }
+.az-unusual-at { color: var(--text-muted); }
+.az-unusual-date { color: var(--text-dim); min-width: 82px; }
+.az-unusual-vol { color: var(--text-muted); margin-left: auto; }
+.az-options-conclusion {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 14px;
+  font-size: 12px; color: var(--text-dim); line-height: 1.6;
+}
+
+/* ─── Tab 4 Signals / Chip ruler ────────────────────────────────── */
+.tab-signals { }
+.az-signals-layout { display: grid; grid-template-columns: 1fr 280px; gap: 12px; }
+@media (max-width: 720px) { .az-signals-layout { grid-template-columns: 1fr; } }
+.az-chip-ruler-wrap { }
+.az-signals-info { display: flex; flex-direction: column; gap: 10px; }
+.az-wall-dist {
+  border-radius: 6px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.az-wall-dist-call { background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2); }
+.az-wall-dist-put { background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.2); }
+.az-wall-dist-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+.az-wall-dist-call .az-wall-dist-label { color: var(--red); }
+.az-wall-dist-put .az-wall-dist-label { color: var(--green); }
+.az-wall-dist-price { font-size: 22px; font-weight: 800; color: var(--text); }
+.az-wall-dist-num { font-size: 12px; color: var(--text-dim); }
+.az-signals-obs {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.az-obs-title { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+.az-obs-text { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.az-obs-note { font-size: 10px; color: var(--text-muted); font-style: italic; line-height: 1.4; }
