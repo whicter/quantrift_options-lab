@@ -14,6 +14,9 @@ export default function NavBar() {
         <NavLink to="/scan" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           扫描器
         </NavLink>
+        <NavLink to="/weekly" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+          周复盘
+        </NavLink>
       </div>
     </nav>
   );
