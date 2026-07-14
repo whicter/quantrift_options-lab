@@ -254,7 +254,11 @@
   - 2026-07-14 verified HTTP 200
   - 返回 rows 限定在 watchlist 内，不再包含 extra symbols such as `NFLX`
   - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
-- [ ] UI verified：`/scan` 点击立即扫描显示真实 rows
+- [x] UI verified：`/scan` 点击立即扫描显示真实 rows
+  - 2026-07-14 Playwright Core + local Chrome smoke verified `https://www.quantrift.io/scan`
+  - 操作：打开 `/scan` → 点击 `立即扫描`
+  - 页面显示 `找到 8 个标的`，可见 rows 包含 `AMD` / `META` / `GOOGL`
+  - `/api/scan` response row count = 8，payload 包含 `source=tastytrade`、`price_source=ib_internal`、`price_status=covered`
 
 ---
 
