@@ -68,6 +68,67 @@ frontend user request
 
 原因：延迟、IB pacing limit、Gateway session/2FA、本地机器可用性和数据授权边界都不适合作为公开 SaaS 请求路径。
 
+## 1.2 快照缓存与新鲜度架构
+
+真实数据源上线后，用户输入 `AAPL` 不应直接同步请求 provider。产品体验应基于“先读缓存快照、必要时后台刷新”的模式：
+
+```text
+用户请求
+  → Railway API
+  → PostgreSQL 最新快照
+  → 若 fresh：立即返回
+  → 若 stale：返回旧快照 + enqueue refresh
+  → 若 missing：返回 queued/unavailable 状态 + enqueue refresh
+  → collector / worker 异步刷新 provider
+```
+
+缓存层级：
+
+| 层级 | 作用 | 建议数据 |
+| --- | --- | --- |
+| PostgreSQL snapshot cache | 产品事实来源 | `option_chain_snapshots`, `gex_snapshots`, `symbol_metrics_snapshots`, `scanner_results_snapshots` |
+| API memory cache | 降低重复请求和 DB 压力 | metrics 30-60s, GEX 30-120s, scanner 1-5min |
+| Frontend stale-while-revalidate | 保持页面稳定，不因刷新清空内容 | 保留上一份结果，后台刷新，显示 freshness 状态 |
+
+API response 应统一携带数据状态：
+
+```json
+{
+  "symbol": "AAPL",
+  "snapshot_ts": "2026-07-14T20:30:00.000Z",
+  "source": "licensed_options_provider",
+  "freshness": "fresh",
+  "is_stale": false,
+  "refresh_status": "none"
+}
+```
+
+状态定义：
+
+| 字段 | 可选值 | 含义 |
+| --- | --- | --- |
+| `freshness` | `fresh`, `stale`, `missing`, `unavailable` | 当前返回数据的新鲜度和可用性 |
+| `refresh_status` | `none`, `queued`, `refreshing`, `failed` | 后台刷新任务状态 |
+
+不同数据的刷新频率应分开定义：
+
+| 数据类型 | 建议刷新频率 | 说明 |
+| --- | --- | --- |
+| IV Rank / IV30 / HV | 每日或收盘后 | 当前 Phase 3B 的主数据 |
+| Earnings | 每日 | 低频元数据 |
+| Option chain quote / IV / Greeks | 1-5 分钟 | 需要授权 provider；不应每次用户请求现拉 |
+| Open interest | 每日或 provider 更新后 | 多数数据源非实时 |
+| GEX / Walls / Gamma Flip | option chain 刷新后重新计算，1-5 分钟级 | 由快照派生 |
+| Scanner results | 1-5 分钟预计算 | 不在用户请求时全市场扫描 |
+| Weekly recap | 每日/每周 | 可离线生成 |
+
+刷新请求需要 rate limit 和 budget：
+
+- 单个 symbol refresh 至少间隔 60 秒。
+- 同一用户的手动刷新需要限频。
+- 全局 provider request budget 需要独立记录，避免超出供应商限制。
+- `provider_fetch_jobs` 应记录 symbol、job type、status、attempts、last_error、created_at、started_at、finished_at。
+
 ---
 
 ## 2. 架构原则

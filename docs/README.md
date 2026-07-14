@@ -73,12 +73,15 @@ Open http://localhost:5173
 - User requests should read precomputed snapshots from Railway PostgreSQL through the Railway API
 - Public user requests must not synchronously depend on a local Mac Studio IB Gateway
 - Future data ingestion should use provider adapters so IB can be replaced by licensed production data without changing frontend contracts
+- Production data UX should use snapshot cache + stale-while-revalidate: return fresh snapshots immediately, return stale-but-labeled snapshots while refreshing, and show queued/unavailable states instead of fake mock data when a symbol has no data
+- Scanner results should be precomputed/cached, not full-market recalculated on every user request
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
-- [ ] V2: Python IV collector on Mac Studio (daily cron)
+- [x] V2: Python IV collector on Mac Studio (daily cron)
 - [x] V2: Vercel deployment
 - [ ] V2: GEX data model + licensed options data provider abstraction
+- [ ] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

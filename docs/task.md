@@ -129,7 +129,7 @@
 - [x] Railway: 创建 Node.js Service，部署 server/，注入 DATABASE_URL
 - [x] 跑 migrate.js 建表（iv_history, scanner_configs）
 - [x] 建表 schema 已定义：server/src/migrate.js
-- [ ] Mac Studio collector：配 .env，python auth.py --login，加 cron
+- [x] Mac Studio collector：配 .env，python auth.py --login，加 cron
 - [x] Vercel: 部署 frontend/，注入 VITE_API_BASE_URL → Railway URL
 - [x] 前端：mock data → 真实 API 调用
 - [x] 生产验收：quantrift.io 308 → www，www 200，Railway /health、/api/metrics、/api/scan 均返回成功（2026-07-14）
@@ -138,6 +138,7 @@
 - [x] Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）
   - Tastytrade 认证：collector/auth.py，remember-token 自动续期，过期时发邮件提醒
   - 采集字段：iv_rank, iv30, hv30/60/90, iv_hv_diff, earnings_date, term_structure
+  - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
 - [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway
 - [ ] 服务层自动切换：252天历史满后改为自算 IV Rank，停止调用 Tastytrade
 
@@ -190,6 +191,22 @@
 - [ ] Max Pain 计算：到期时期权买方亏损最大的行权价
 - [ ] OI 集中度热图：大量 OI 堆积的行权价 → 支撑/阻力参考
 - [ ] /analyze 页面新增：GEX 环境指示（正/负）、Call Wall、Put Wall、Global GEX、Local Gamma、Gamma Flip、Max Pain、PCR
+
+**Phase 3C — Cache & Freshness Architecture（真实数据源上线体验）**
+- [ ] 定义 snapshot freshness policy：IV/HV daily，earnings daily，option chain 1-5min，OI daily/provider cadence，GEX/Walls/Gamma Flip 随 chain refresh，scanner 1-5min
+- [ ] PostgreSQL schema：`option_chain_snapshots`、`gex_snapshots`、`symbol_metrics_snapshots`、`scanner_results_snapshots`、`provider_fetch_jobs`
+- [ ] API contract：所有真实数据 endpoint 返回 `snapshot_ts`、`source`、`freshness`、`is_stale`、`refresh_status`
+- [ ] `/api/gex/:symbol` 行为：fresh → 200 data；stale → 200 stale data + enqueue refresh；missing → queued/unavailable 状态；不可同步等待 provider
+- [ ] `/api/chain/:symbol` 行为：只读最新授权 provider 快照；不从用户请求路径直连本地 Mac Studio / IB Gateway
+- [ ] `/api/scan` 行为：读取 `scanner_results_snapshots` 或 latest materialized result；不在请求时全市场重算
+- [ ] `provider_fetch_jobs` worker：记录 symbol、job_type、status、attempts、last_error、created_at、started_at、finished_at
+- [ ] Refresh rate limit：单 symbol 至少 60 秒间隔；同一用户手动 refresh 限频；全局 provider request budget 记录
+- [ ] API memory cache：metrics 30-60s，GEX 30-120s，scanner 1-5min
+- [ ] Frontend stale-while-revalidate：保留上一份数据，后台刷新，不因 refresh 清空页面
+- [ ] 前端状态文案：fresh / stale but usable / refreshing / missing / unavailable
+- [ ] 缺失数据体验：不要用 mock data 伪装真实数据；显示“正在准备数据”或“该 symbol 暂无授权数据”
+- [ ] 监控：provider fetch failure、stale snapshot age、job queue backlog、rate-limit hit、empty snapshot count
+- [ ] 回滚策略：关闭 manual refresh，仅返回已有 snapshot；保留旧 endpoint contract 不破坏前端
 
 **大单 / Unusual Activity（免费方案）**
 - [ ] 每日 OI 变动追踪：OI delta 异常大的合约 → 机构建仓信号

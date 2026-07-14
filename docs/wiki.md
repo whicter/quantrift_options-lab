@@ -598,6 +598,75 @@ provider.fetchOptionChainStats(symbol)
 - `licensed_options_provider`：公开/付费产品的默认生产数据源。
 - `fixture_provider`：本地开发和测试。
 
+### Snapshot cache / freshness contract
+
+生产 API 不应在用户输入 symbol 时同步拉 provider。标准流程：
+
+```text
+GET /api/gex/AAPL
+  → read latest gex_snapshots / option_chain_snapshots
+  → fresh: return 200 with data
+  → stale: return 200 with stale data + enqueue refresh
+  → missing: return 202 queued or 404 unavailable state
+  → worker refreshes provider asynchronously
+```
+
+核心表规划：
+
+| 表 | 作用 | 关键字段 |
+| --- | --- | --- |
+| `option_chain_snapshots` | 存储授权 provider 的期权链快照 | `symbol`, `snapshot_ts`, `expiration`, `strike`, `option_type`, `bid`, `ask`, `mid`, `iv`, `delta`, `gamma`, `theta`, `vega`, `open_interest`, `volume`, `source` |
+| `gex_snapshots` | 存储 GEX / Walls / Gamma Flip 派生结果 | `symbol`, `snapshot_ts`, `spot`, `global_gex`, `local_gamma`, `call_wall`, `put_wall`, `gamma_flip`, `gamma_regime`, `source` |
+| `symbol_metrics_snapshots` | 存储 IV/HV/earnings 等 symbol-level 指标 | `symbol`, `date`, `iv30`, `hv30`, `iv_rank`, `iv_percentile`, `earnings_date`, `source` |
+| `scanner_results_snapshots` | 存储预计算扫描结果 | `scan_key`, `snapshot_ts`, `filters`, `results`, `source` |
+| `provider_fetch_jobs` | 存储后台刷新队列 | `symbol`, `job_type`, `status`, `attempts`, `last_error`, `created_at`, `started_at`, `finished_at` |
+
+统一 response metadata：
+
+```json
+{
+  "symbol": "AAPL",
+  "snapshot_ts": "2026-07-14T20:30:00.000Z",
+  "source": "licensed_options_provider",
+  "freshness": "fresh",
+  "is_stale": false,
+  "refresh_status": "none",
+  "data": {}
+}
+```
+
+字段含义：
+
+| 字段 | 可选值 | 说明 |
+| --- | --- | --- |
+| `freshness` | `fresh`, `stale`, `missing`, `unavailable` | 页面是否能信任当前快照 |
+| `refresh_status` | `none`, `queued`, `refreshing`, `failed` | 后台刷新任务状态 |
+
+数据新鲜度目标：
+
+| 数据 | 新鲜度目标 |
+| --- | --- |
+| IV Rank / IV30 / HV | daily / after close |
+| Earnings | daily |
+| Option chain quote / IV / Greeks | 1-5 min |
+| Open interest | daily or provider update cadence |
+| GEX / Walls / Gamma Flip | after chain refresh, normally 1-5 min |
+| Scanner results | precomputed, 1-5 min |
+| Weekly recap | daily / weekly |
+
+前端 UX：
+
+- `fresh`：正常显示。
+- `stale`：继续显示旧数据，标注 snapshot time，并提示后台刷新中。
+- `missing`：显示“正在准备数据”，不要显示 mock 结果伪装成真实数据。
+- `unavailable`：明确说明该 symbol 暂无授权数据或 provider 暂不可用。
+
+刷新限制：
+
+- 单个 symbol 的手动 refresh 至少间隔 60 秒。
+- scanner 不应在用户请求时全市场重算，应读取 `scanner_results_snapshots`。
+- provider 请求预算需要独立记录，避免超出供应商 rate limit 或成本预算。
+
 ### 新增 API 端点规划（server/）
 
 ```
@@ -605,4 +674,5 @@ GET /api/chain/:symbol         # 最新期权链快照（生产来自授权 prov
 GET /api/gex/:symbol           # GEX by strike + Global GEX + Local Gamma + Gamma Flip
 GET /api/chain/:symbol/stats   # PCR / Max Pain / IV Skew / Call Wall / Put Wall / OI Wall / Gamma Wall
 GET /api/unusual/:symbol       # 异常OI变化 top 合约
+POST /api/refresh/:symbol      # 手动请求后台刷新，需 rate limit
 ```

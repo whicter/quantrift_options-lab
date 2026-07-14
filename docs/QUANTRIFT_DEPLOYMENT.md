@@ -1031,7 +1031,7 @@ LIMIT 10;
 | Railway `/health` 接口 | 已完成 |
 | 生产域名和 API curl 验收 | 已完成（2026-07-14） |
 | Railway Healthcheck Path | 需要在平台中确认 |
-| collector 定时运行 | 需要持续确认 |
+| collector 定时运行 | 已安装（Mac Studio cron，1:30pm PT / 4:30pm ET，2026-07-14 首次写入 21 rows） |
 | collector 失败告警 | 建议补充 |
 | 数据新鲜度告警 | 建议补充 |
 | 数据库 migration | 建议补充 |
@@ -1155,3 +1155,69 @@ user request
 ```
 
 该路径存在授权、延迟、pacing limit、Gateway session、2FA、本地机器可用性和故障隔离问题。
+
+## 19. Cache / Freshness 运行约束
+
+真实 options provider 接入后，生产体验应以快照缓存为中心，而不是按用户请求实时现拉数据。
+
+请求路径：
+
+```text
+Vercel frontend
+  → Railway API
+  → PostgreSQL latest snapshot
+  → optional API memory cache
+  → response with freshness metadata
+```
+
+刷新路径：
+
+```text
+collector / worker
+  → licensed provider
+  → PostgreSQL snapshots
+  → provider_fetch_jobs status
+```
+
+Endpoint 行为：
+
+| Endpoint | Fresh snapshot | Stale snapshot | Missing snapshot |
+| --- | --- | --- | --- |
+| `/api/metrics` | 200 data | 200 stale data + refresh if needed | 202 queued / unavailable |
+| `/api/gex/:symbol` | 200 data | 200 stale data + enqueue refresh | 202 queued / unavailable |
+| `/api/chain/:symbol` | 200 data | 200 stale data + enqueue refresh | 202 queued / unavailable |
+| `/api/scan` | 200 precomputed result | 200 stale result + refresh if needed | empty state, no mock substitution |
+
+Response metadata must include:
+
+```json
+{
+  "snapshot_ts": "2026-07-14T20:30:00.000Z",
+  "source": "licensed_options_provider",
+  "freshness": "fresh",
+  "is_stale": false,
+  "refresh_status": "none"
+}
+```
+
+Operational rules:
+
+- Do not synchronously call provider from a normal user request.
+- Do not call local Mac Studio / IB Gateway from public Railway request path.
+- Do not substitute mock data when a production symbol is missing.
+- For stale data, return the latest usable snapshot and clearly mark it stale.
+- Manual refresh should create or reuse a `provider_fetch_jobs` row.
+- Per-symbol refresh should be rate-limited to at least 60 seconds.
+- Scanner results should be precomputed and cached; avoid full-market scans in request path.
+- Track provider budget, stale snapshot age, failed jobs, queue backlog and empty snapshots.
+
+Suggested TTLs:
+
+| Data | TTL / cadence |
+| --- | --- |
+| IV Rank / IV30 / HV | daily or after close |
+| Earnings | daily |
+| Option chain quote / IV / Greeks | 1-5 minutes |
+| Open interest | provider cadence, often daily |
+| GEX / Walls / Gamma Flip | after option chain refresh |
+| Scanner results | 1-5 minutes |
