@@ -162,3 +162,51 @@
 - IBKR Web API (OAuth): better for production, requires application approval
 - TWS API: socket-based, Python library `ib_insync` is the best wrapper
 - Paper trading available on separate port (7497 vs 7496 for live)
+
+## Current Scanner / Analyze Logic (Phase 3B-3)
+
+当前 scanner 和 analyze 不是完整期权链推荐系统，而是 IV-first 的半真实版本。
+
+### Scanner
+
+真实输入：
+- Tastytrade `iv_history`: IV Rank, IV Percentile, IV30, HV30, IV-HV diff, earnings date.
+- IB internal `price_history`: latest close, latest price date, price source, price coverage status.
+
+当前过滤：
+- `minIvr <= IV Rank <= maxIvr`
+- `iv_hv_diff >= minIvHv`
+- universe 限定为 watchlist
+- 排序按 `iv_rank DESC`
+
+当前策略标签：
+- `IV Rank >= 50` → `Iron Condor`
+- `30 <= IV Rank < 50` → `Iron Condor`
+- `IV Rank < 30` → `Long Straddle`
+
+这些标签是 IV-only educational labels，不是完整推荐。原因：
+- 没有真实 option chain bid/ask、OI、volume、Greeks。
+- 没有真实 liquidity filter。
+- 没有真实 DTE/strike selection。
+- 没有真实 POP。
+- 没有 GEX / Call Wall / Put Wall / Gamma Flip。
+- 没有 MA/RSI/MACD trend engine。
+
+### Analyze
+
+真实部分：
+- IV Rank / IV30 / HV30 / earnings 来自 `/api/metrics`
+- Latest close / 60日 OHLCV / RVol 来自 `/api/prices/:symbol`
+
+占位部分：
+- GEX by strike
+- Call Wall / Put Wall
+- PCR OI / PCR Volume
+- Unusual Activity
+- Strategy legs
+- Option-chain-derived POP
+
+当前原则：
+- 不把 mock shell 伪装成真实 options data。
+- 不把 IB internal data 当作公开/付费产品的默认 option-chain data。
+- 在没有 chain/liquidity/GEX 前，scanner 只能作为 IV-first watchlist triage。

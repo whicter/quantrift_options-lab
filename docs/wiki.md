@@ -495,9 +495,73 @@ src/
 
 ## V2 分析框架：GEX + 期权链 + 大单
 
-### 三层信号叠加逻辑
+### 当前 Analyze / Scanner 算法口径（Phase 3B-3）
 
+当前产品不是完整自动交易/完整期权链 scanner。它是 ticker-first 的半真实数据闭环：
+
+```text
+真实数据：
+  Tastytrade market metrics → IV Rank / IV Percentile / IV30 / HV30 / earnings
+  IB internal price adapter → 60日 OHLCV / latest close / RVol
+
+仍为展示壳或待接入：
+  GEX by strike
+  Call Wall / Put Wall
+  PCR OI / PCR Volume
+  Unusual Activity
+  Max Pain
+  option-chain liquidity / bid-ask spread / Greeks
+  technical trend signals such as MA50/MA200/RSI/MACD
 ```
+
+#### `/api/scan` 当前逻辑
+
+`/api/scan` 读取 `iv_history` 中每个 watchlist symbol 的最新一条 IV 记录，并左连接 `price_history` 最新价格。
+
+筛选条件：
+- `minIvr`：最低 IV Rank。
+- `maxIvr`：最高 IV Rank。
+- `minIvHv`：最低 IV30 - HV30 差值。
+- `limit`：返回数量上限。
+- universe：只扫描 watchlist；不扫描 `iv_history` 中的 extra symbols。
+
+排序：
+- 按 `iv_rank DESC` 排序。
+
+返回字段：
+- IV：`iv30`, `hv30`, `iv_rank`, `iv_percentile`, `iv_hv_diff`, `earnings_date`, `source`
+- Price：`price_close`, `price_date`, `price_source`, `price_status`
+
+#### Scanner 前端策略标签
+
+当前 scanner 的策略标签是 IV-only 规则，不是完整链数据推荐：
+
+| 条件 | 当前标签 | 含义 |
+|---|---|---|
+| `IV Rank >= 50` | `Iron Condor` | 高 IV，但趋势/GEX/链数据未接入时，默认使用定义风险中性卖方结构 |
+| `30 <= IV Rank < 50` | `Iron Condor` | 中等 IV，偏小仓位/定义风险观察 |
+| `IV Rank < 30` | `Long Straddle` | 低 IV 环境可观察买方波动结构，但不代表已有事件催化 |
+
+重要边界：
+- `POP` 当前是规则占位值，不来自真实 option chain。
+- `Direction` 当前显示 `待接入趋势`，不使用 mock MA/RSI/MACD 伪装真实趋势。
+- 真正的 scanner 需要 option-chain liquidity、bid/ask、OI、volume、Greeks、DTE、GEX、Wall、Gamma Flip 和事件风险。
+
+#### `/analyze` 当前逻辑
+
+`/analyze` 当前使用：
+- 真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings。
+- 真实 `/api/prices/:symbol` 覆盖 latest price、60日 price history、RVol。
+- 仍使用 mock shell 展示 GEX、Walls、PCR、Unusual Activity、策略 legs 和部分结论。
+
+因此当前 analyze 输出应理解为：
+
+```text
+真实：IV 状态 + price history + RVol
+占位：GEX / option positioning / exact strategy legs / option-chain-derived POP
+```
+
+上线前不得把 mock shell 当作授权 options data 或交易建议。
 
 ### 产品核心指标
 
@@ -534,6 +598,10 @@ User inputs AAPL
 ```
 
 这种路径会暴露本地机器、IB session、2FA、pacing limit 和授权风险。
+
+### 三层信号叠加逻辑
+
+```text
 层级 1: GEX 环境（市场结构）
   正GEX → 做市商 long gamma → 价格稳定 → 卖方策略友好
   负GEX → 做市商 short gamma → 波动放大 → 降低卖方敞口

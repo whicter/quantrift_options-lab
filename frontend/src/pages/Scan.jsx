@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { scanMock, DEFAULT_WATCHLIST } from '../data/mockAnalysis';
-import { getDataStatus } from '../lib/api';
+import { getDataStatus, getScan } from '../lib/api';
 
 const STRATEGY_OPTIONS = [
   'Iron Condor',
@@ -21,6 +20,62 @@ const IVR_LABEL = (ivr) =>
 const DIR_COLOR = (score) =>
   score > 0.3 ? 'var(--green)' : score < -0.3 ? 'var(--red)' : 'var(--text-dim)';
 
+function pct(value) {
+  if (value == null) return null;
+  return Number(value) * 100;
+}
+
+function recommendFromIv(row) {
+  const ivRank = Number(row.iv_rank ?? 0);
+  const ivHvDiff = pct(row.iv_hv_diff) ?? 0;
+
+  if (ivRank >= 50) {
+    return {
+      strategy: 'Iron Condor',
+      reason: `IV Rank ${Math.round(ivRank)}%，IV-HV ${ivHvDiff.toFixed(1)}pt；真实趋势/链数据未接入，默认使用定义风险中性卖方结构。`,
+      params: { pop: 66 },
+    };
+  }
+
+  if (ivRank >= 30) {
+    return {
+      strategy: 'Iron Condor',
+      reason: `IV Rank ${Math.round(ivRank)}%，波动率中等；方向未确认前偏向小仓位定义风险结构。`,
+      params: { pop: 62 },
+    };
+  }
+
+  return {
+    strategy: 'Long Straddle',
+    reason: `IV Rank ${Math.round(ivRank)}%，低 IV 环境；若有催化或预期波动扩张，可考虑买方波动结构。`,
+    params: { pop: 42 },
+  };
+}
+
+function toScanRow(row) {
+  const recommendation = recommendFromIv(row);
+  return {
+    symbol: row.symbol,
+    price: row.price_close == null ? null : Number(row.price_close).toFixed(2),
+    ivRank: Math.round(Number(row.iv_rank ?? 0)),
+    iv30: pct(row.iv30)?.toFixed(1) ?? '--',
+    hv30: pct(row.hv30)?.toFixed(1) ?? '--',
+    direction: { score: 0, label: '待接入趋势' },
+    recommendation,
+    earnings: {
+      date: row.earnings_date ? String(row.earnings_date).slice(0, 10) : null,
+      warning: false,
+    },
+    dataMeta: {
+      source: row.source,
+      date: row.date ? String(row.date).slice(0, 10) : null,
+      priceSource: row.price_source,
+      priceDate: row.price_date ? String(row.price_date).slice(0, 10) : null,
+      priceStatus: row.price_status || 'missing',
+    },
+  };
+}
+
 function IVRBar({ value }) {
   return (
     <div className="scan-ivr-bar-wrap">
@@ -38,6 +93,7 @@ export default function Scan() {
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [dataStatus, setDataStatus] = useState(null);
 
   useEffect(() => {
@@ -50,13 +106,22 @@ export default function Scan() {
     );
   }
 
-  function handleScan() {
+  async function handleScan() {
     setLoading(true);
-    setTimeout(() => {
-      const res = scanMock({ minIvr, maxIvr, strategies: selectedStrategies });
-      setResults(res);
+    setError('');
+
+    try {
+      const rows = await getScan({ minIvr, maxIvr, limit: 100 });
+      const liveRows = rows
+        .map(toScanRow)
+        .filter(d => selectedStrategies.length === 0 || selectedStrategies.includes(d.recommendation.strategy));
+      setResults(liveRows);
+    } catch {
+      setResults([]);
+      setError('真实 scanner API 暂时不可用。');
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   }
 
   function handleRowClick(symbol) {
@@ -64,9 +129,13 @@ export default function Scan() {
   }
 
   function priceStatus(symbol) {
-    const row = dataStatus?.symbols?.find(item => item.symbol === symbol);
-    return row?.price?.status || 'missing';
+    const row = results?.find(item => item.symbol === symbol);
+    if (row?.dataMeta?.priceStatus) return row.dataMeta.priceStatus;
+    const statusRow = dataStatus?.symbols?.find(item => item.symbol === symbol);
+    return statusRow?.price?.status || 'missing';
   }
+
+  const watchlist = dataStatus?.expected_symbols || [];
 
   return (
     <div className="scan-page">
@@ -119,9 +188,9 @@ export default function Scan() {
           </div>
 
           <div className="scan-filter-section">
-            <div className="scan-filter-label">Watchlist（{DEFAULT_WATCHLIST.length} 个标的）</div>
+            <div className="scan-filter-label">Watchlist（{watchlist.length || '...'} 个标的）</div>
             <div className="scan-watchlist">
-              {DEFAULT_WATCHLIST.map(sym => (
+              {watchlist.slice(0, 24).map(sym => (
                 <span key={sym} className="scan-wl-tag">{sym}</span>
               ))}
             </div>
@@ -134,6 +203,7 @@ export default function Scan() {
 
         {/* 结果列表 */}
         <div className="scan-results">
+          {error && <div className="az-error">{error}</div>}
           {results === null ? (
             <div className="scan-empty">
               <div className="scan-empty-icon">⬆</div>
@@ -169,7 +239,7 @@ export default function Scan() {
                     title="点击查看详细分析"
                   >
                     <span className="scan-symbol">{d.symbol}</span>
-                    <span>${d.price}</span>
+                    <span>{d.price == null ? '--' : `$${d.price}`}</span>
                     <span><IVRBar value={d.ivRank} /></span>
                     <span>
                       <span style={{ color: 'var(--red)' }}>{d.iv30}%</span>

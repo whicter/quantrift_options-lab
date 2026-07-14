@@ -210,6 +210,51 @@
 
 ---
 
+## ✅ Phase 3B-3 — Scanner 接入真实 IV + Price Coverage
+
+### Backend/API
+- [x] `/api/scan` 限定 collector watchlist
+  - 使用 `server/watchlist.txt` fallback，避免 Railway server-only 部署读不到 `collector/watchlist.txt`
+  - 不再扫描 `iv_history` 中的 extra symbols
+- [x] `/api/scan` 返回 latest `price_history` 字段
+  - `price_close`
+  - `price_date`
+  - `price_source`
+  - `price_status`
+- [x] `/api/scan` 继续按真实 IV 数据筛选
+  - `minIvr`
+  - `maxIvr`
+  - `minIvHv`
+  - `limit`
+
+### Frontend
+- [x] `frontend/src/lib/api.js` 新增 `getScan()`
+- [x] `Scan.jsx` 从 mock scanner 改为调用真实 `/api/scan`
+- [x] Scanner watchlist 显示来自 `/api/status/data`
+- [x] Scanner table 使用真实 price close 和 price coverage status
+- [x] Strategy filter 仍在前端基于当前 IV-only recommendation 过滤
+- [x] Direction column 明确显示 `待接入趋势`，不再把 mock MA/RSI/MACD 当真实趋势
+
+### Current Scanner Logic
+- [x] 当前 scanner 是 IV-only 第一版，不是完整 options scanner
+  - `IV Rank >= 50`：默认 `Iron Condor`，理由是高 IV 且趋势/链数据未接入时优先使用定义风险中性卖方结构
+  - `30 <= IV Rank < 50`：默认 `Iron Condor`，小仓位/定义风险
+  - `IV Rank < 30`：默认 `Long Straddle`，只表示低 IV 适合观察买方波动结构，不代表已有事件催化
+  - POP 为规则占位值，不来自真实 option chain
+- [x] 已写入文档：`docs/wiki.md`、`docs/learning.md`
+
+### Verification
+- [x] Node syntax verified：`node --check server/src/routes/scan.js`
+- [x] Frontend build verified：`npm run build`
+- [x] Local API verified：`curl -f "http://localhost:3002/api/scan?minIvr=0&maxIvr=100&limit=10"`
+  - 返回真实 Tastytrade IV rows
+  - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
+  - 结果限定在 watchlist 内
+- [ ] Production API verified after deploy：Railway `/api/scan?minIvr=0&maxIvr=100&limit=10`
+- [ ] UI verified：`/scan` 点击立即扫描显示真实 rows
+
+---
+
 ## 📋 V1 Backlog (Polish)
 - [ ] Strategy comparison mode (side by side, 2 strategies)
 - [ ] IV Rank badge per strategy in sidebar (Low/Med/High indicator)
