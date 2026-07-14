@@ -178,6 +178,13 @@
 - [ ] Global GEX：跨到期、跨行权价聚合 net GEX
 - [ ] Local Gamma：当前价附近（如 spot ±1%、expected move、最近 3-5 个 strikes）的 Gamma/GEX 集中度
 - [ ] Gamma Flip：net GEX 从正变负或负变正的关键价格区间
+  - 计算方式：构建 spot ±10%（或可配置范围）的 price grid，对每个价格点重新计算每张期权 gamma，再聚合 net_gex(price)
+  - Flip 点定义：net_gex(price) 穿越 0 的价格；如无精确穿越，取 abs(net_gex(price)) 最小的价格
+  - 展示字段：gamma_flip、spot_vs_flip_distance_pct、gamma_regime（positive/negative/near_flip）、confidence、snapshot_ts、source
+  - 操作意义：positive gamma 更偏震荡/均值回归；negative gamma 更偏趋势/波动放大；跌破/突破 flip 代表 dealer hedge regime 可能切换
+  - 风险说明：Gamma Flip 不是独立买卖信号，必须和 Call Wall / Put Wall / Local Gamma / IV / 事件风险一起解读
+- [ ] Gamma regime 解释文案：前端输出“Spot is above/below gamma flip”以及对应的 volatility-dampening / volatility-amplifying 解释
+- [ ] Gamma Flip API contract：/api/gex/:symbol 返回 gamma_curve（price, net_gex）、gamma_flip、current_spot、distance_pct、regime
 - [ ] PCR（Put/Call Ratio）：OI + 成交量两个维度，辅助判断市场情绪
 - [ ] IV Skew 图：各行权价 IV 可视化，put skew 大 = 市场恐慌/保险需求高
 - [ ] Max Pain 计算：到期时期权买方亏损最大的行权价
