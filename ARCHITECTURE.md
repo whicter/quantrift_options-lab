@@ -25,6 +25,49 @@ Persistence: PostgreSQL
 Ingestion: Python collector
 ```
 
+当前生产环境已完成 Vercel + Railway + Railway PostgreSQL 部署。2026-07-14 验证结果：
+
+- `https://quantrift.io` 返回 HTTP 308，并跳转至 `https://www.quantrift.io/`。
+- `https://www.quantrift.io` 返回 HTTP 200。
+- Railway API `/health` 返回 `{"status":"ok"}`。
+- Railway API `/api/metrics?symbols=AAPL` 能读取 `public.iv_history` 并返回 AAPL 指标。
+- Railway API `/api/scan?minIvr=0&maxIvr=100&limit=5` 能返回扫描结果。
+- 当前验收样例数据的 `source` 为 `test`；collector 持续采集真实市场数据仍需单独确认。
+
+## 1.1 产品数据边界
+
+Options Lab 的目标产品能力包括 Call Wall、Put Wall、Global GEX、Local Gamma、Gamma Flip、strike-level GEX、Max Pain、PCR、IV Skew、OI concentration 和 Unusual OI delta。
+
+这些指标依赖 option chain、open interest、volume、Greeks、IV 和 underlying price。生产系统应采用以下原则：
+
+- 用户请求只读取 Railway API 返回的已采集/预计算快照。
+- 普通用户输入 `AAPL` 时，不应同步触发本地 Mac Studio 或 IB Gateway 拉取 option chain。
+- IB Gateway 可以作为 internal research adapter，用于个人研究、算法验证和字段探索。
+- 公开/付费产品的默认 option chain 数据源必须是具备相应授权和再分发权利的 provider。
+- GEX 计算、API response 和前端 UI 不应绑定具体 provider；应通过 provider adapter 和数据库快照隔离数据源。
+
+建议数据流：
+
+```text
+licensed options provider / internal IB adapter
+  → collector / ingestion job
+  → option_chain_snapshots + gex_snapshots in PostgreSQL
+  → Railway API
+  → frontend
+```
+
+不建议的生产数据流：
+
+```text
+frontend user request
+  → Railway API
+  → local Mac Studio IB Gateway
+  → synchronous option chain fetch
+  → response
+```
+
+原因：延迟、IB pacing limit、Gateway session/2FA、本地机器可用性和数据授权边界都不适合作为公开 SaaS 请求路径。
+
 ---
 
 ## 2. 架构原则
@@ -114,6 +157,7 @@ flowchart TB
     Rewrite --> Static
     SPA -->|GET /api/metrics| Express
     SPA -->|GET /api/scan| Express
+    SPA -->|GET /api/gex/:symbol| Express
     Express -->|Parameterized SQL| PG
     Scheduler --> Py
     Market --> Py

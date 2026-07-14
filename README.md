@@ -2,6 +2,22 @@
 
 Interactive options strategy education and analysis tool with payoff diagrams, Greeks visualization, IV analysis, and strategy recommendations.
 
+## Production
+
+| Surface | URL |
+|---|---|
+| Website | https://www.quantrift.io |
+| Root redirect | https://quantrift.io → https://www.quantrift.io |
+| Railway API | https://quantriftoptions-lab-production.up.railway.app |
+
+Production verification on 2026-07-14:
+
+- `https://quantrift.io` returns HTTP 308 to `https://www.quantrift.io/`
+- `https://www.quantrift.io` returns HTTP 200
+- `GET /health` returns `{"status":"ok"}`
+- `GET /api/metrics?symbols=AAPL` returns AAPL IV metrics from `iv_history`
+- `GET /api/scan?minIvr=0&maxIvr=100&limit=5` returns scan results
+
 ## Project Structure
 
 ```
@@ -48,13 +64,21 @@ Open http://localhost:5173
 
 ## Data Sources (V2)
 - IV Rank: Tastytrade API (free, pre-calculated)
-- Option chains: IB API (free, via Mac Studio IB Gateway)
+- Option chains: production must use a licensed options data provider
+- IB API: internal research / algorithm validation only, not the default public product data source
 - Fallback: yfinance
 
+## Product Data Direction
+- Core product signals: Call Wall, Put Wall, Global GEX, Local Gamma, Gamma Flip, Max Pain, PCR, IV Skew, OI concentration, Unusual OI delta
+- User requests should read precomputed snapshots from Railway PostgreSQL through the Railway API
+- Public user requests must not synchronously depend on a local Mac Studio IB Gateway
+- Future data ingestion should use provider adapters so IB can be replaced by licensed production data without changing frontend contracts
+
 ## Roadmap
-- [ ] V2: Railway PostgreSQL + Node.js API (replace mock data)
+- [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
 - [ ] V2: Python IV collector on Mac Studio (daily cron)
-- [ ] V2: Vercel deployment
+- [x] V2: Vercel deployment
+- [ ] V2: GEX data model + licensed options data provider abstraction
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

@@ -74,22 +74,24 @@
 ## 🚀 V2 — Real Data
 
 ### 数据层决策（已确定）
-- [x] 数据源方案：Tastytrade API（IV Rank，免费）+ IB API（期权链，免费）+ yfinance（fallback）
+- [x] 数据源方案：Tastytrade API（IV Rank，免费）+ 授权期权链数据源（生产）+ IB API（内部研究/算法验证）+ yfinance（fallback）
 - [x] 数据采集节点：Mac Studio（复用已有 IB Gateway，clientId=2 与 futures bot 共存）
 - [x] 总数据成本：$0/月（Railway 托管 ~$5/月）
 - [x] 冷启动方案：Tastytrade API 第一天即可提供 IV Rank，同时自积累历史数据
 - [x] Tastytrade 账户注册完成（whicter.han@gmail.com）
 - [x] Tastytrade API 测试通过：/market-metrics 字段确认，认证流程完整验证
 - [x] remember-token 自动续期机制验证通过（全自动，无需人工介入）
+- [x] 生产数据原则：IB Gateway 只作为 internal research adapter，不作为公开/付费产品的默认 option chain 数据源，除非授权和再分发权利已确认
 
 **Infrastructure**
-- [ ] Railway: 创建 PostgreSQL Service，获取 DATABASE_URL
-- [ ] Railway: 创建 Node.js Service，部署 server/，注入 DATABASE_URL
-- [ ] 跑 migrate.js 建表（iv_history, scanner_configs）
+- [x] Railway: 创建 PostgreSQL Service，获取 DATABASE_URL
+- [x] Railway: 创建 Node.js Service，部署 server/，注入 DATABASE_URL
+- [x] 跑 migrate.js 建表（iv_history, scanner_configs）
 - [x] 建表 schema 已定义：server/src/migrate.js
 - [ ] Mac Studio collector：配 .env，python auth.py --login，加 cron
-- [ ] Vercel: 部署 frontend/，注入 VITE_API_URL → Railway URL
-- [ ] 前端：mock data → 真实 API 调用
+- [x] Vercel: 部署 frontend/，注入 VITE_API_BASE_URL → Railway URL
+- [x] 前端：mock data → 真实 API 调用
+- [x] 生产验收：quantrift.io 308 → www，www 200，Railway /health、/api/metrics、/api/scan 均返回成功（2026-07-14）
 
 **Mac Studio 数据采集脚本**
 - [x] Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）
@@ -125,15 +127,21 @@
 - [ ] Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值
 - [ ] Push notifications: email + web push 当扫描命中条件
 
-**GEX + 期权链分析（免费，基于 IB 期权链）**
+**GEX + 期权链分析（生产需授权数据源，IB 仅用于内部验证）**
+- [ ] Phase 3B — GEX Data Model Design：定义 Call Wall / Put Wall / Global GEX / Local Gamma / Gamma Flip / OI Wall / Gamma Wall
+- [ ] 数据源 adapter 抽象：provider.fetchOptionChain(symbol)、provider.fetchUnderlying(symbol)，允许从 IB internal adapter 切换到授权 provider
+- [ ] PostgreSQL schema：option_chain_snapshots、gex_snapshots、wall_snapshots / chain_stats
 - [ ] GEX by strike：Σ(Gamma × OI × 100 × Spot²)，正负 GEX 判断做市商对冲方向
   - 正GEX = 价格稳定，适合卖方；负GEX = 波动放大，慎卖方
-  - GEX wall（最大GEX行权价）= 价格磁铁/阻力位
+  - Call Wall / Put Wall / GEX wall = 价格磁铁/阻力位，但需区分 OI Wall 与 Gamma Wall
+- [ ] Global GEX：跨到期、跨行权价聚合 net GEX
+- [ ] Local Gamma：当前价附近（如 spot ±1%、expected move、最近 3-5 个 strikes）的 Gamma/GEX 集中度
+- [ ] Gamma Flip：net GEX 从正变负或负变正的关键价格区间
 - [ ] PCR（Put/Call Ratio）：OI + 成交量两个维度，辅助判断市场情绪
 - [ ] IV Skew 图：各行权价 IV 可视化，put skew 大 = 市场恐慌/保险需求高
 - [ ] Max Pain 计算：到期时期权买方亏损最大的行权价
 - [ ] OI 集中度热图：大量 OI 堆积的行权价 → 支撑/阻力参考
-- [ ] /analyze 页面新增：GEX 环境指示（正/负）、GEX wall 位置、Max Pain、PCR
+- [ ] /analyze 页面新增：GEX 环境指示（正/负）、Call Wall、Put Wall、Global GEX、Local Gamma、Gamma Flip、Max Pain、PCR
 
 **大单 / Unusual Activity（免费方案）**
 - [ ] 每日 OI 变动追踪：OI delta 异常大的合约 → 机构建仓信号

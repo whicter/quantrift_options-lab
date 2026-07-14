@@ -54,6 +54,32 @@ Python collector
 当前可运行于 Mac Studio
 ```
 
+### 2.1 生产验收记录
+
+最近一次验收：2026-07-14
+
+已验证命令和结果：
+
+```bash
+curl -I https://quantrift.io
+# HTTP/2 308
+# location: https://www.quantrift.io/
+
+curl -I https://www.quantrift.io
+# HTTP/2 200
+
+curl -f https://quantriftoptions-lab-production.up.railway.app/health
+# {"status":"ok"}
+
+curl -f "https://quantriftoptions-lab-production.up.railway.app/api/metrics?symbols=AAPL"
+# {"AAPL":{"symbol":"AAPL","date":"2026-07-14T00:00:00.000Z",...,"source":"test"}}
+
+curl -f "https://quantriftoptions-lab-production.up.railway.app/api/scan?minIvr=0&maxIvr=100&limit=5"
+# [{"symbol":"AAPL","date":"2026-07-14T00:00:00.000Z",...,"source":"test"}]
+```
+
+说明：API 和数据库链路已验证；当前样例数据 `source` 为 `test`，不代表生产 collector 已持续采集真实市场数据。
+
 项目的主要目录：
 
 ```text
@@ -1003,6 +1029,7 @@ LIMIT 10;
 | 前端通过 `VITE_API_BASE_URL` 调用 API | 已完成 |
 | 正式域名 CORS | 已完成 |
 | Railway `/health` 接口 | 已完成 |
+| 生产域名和 API curl 验收 | 已完成（2026-07-14） |
 | Railway Healthcheck Path | 需要在平台中确认 |
 | collector 定时运行 | 需要持续确认 |
 | collector 失败告警 | 建议补充 |
@@ -1083,3 +1110,48 @@ https://quantriftoptions-lab-production.up.railway.app/api/scan?minIvr=0&maxIvr=
 4. 错误与数据新鲜度告警。
 5. 参数校验和 rate limit。
 6. 根据真实流量再决定是否扩容或拆分。
+
+---
+
+## 18. Option Chain 数据源边界
+
+产品目标包含 Call Wall、Put Wall、Global GEX、Local Gamma、Gamma Flip、strike-level GEX、Max Pain、PCR、IV Skew、OI concentration 和 Unusual OI delta。
+
+这些功能依赖 option chain、open interest、volume、Greeks、IV 和 underlying price。生产部署必须遵守：
+
+- IB Gateway 仅作为 internal research adapter / algorithm validation adapter。
+- 除非授权和再分发权利已确认，不把个人 IB Gateway 作为公开/付费产品的默认 option chain 数据源。
+- 普通用户输入 `AAPL` 时，Railway API 应读取 PostgreSQL 中已采集/预计算的快照，不应同步等待 Mac Studio IB Gateway 拉取 option chain。
+- 公开/付费产品的 option chain 数据应来自授权 options data provider。
+- 前端和 API contract 应绑定业务指标，不绑定具体 provider。
+
+推荐生产路径：
+
+```text
+licensed options provider
+  → ingestion job / collector
+  → PostgreSQL option_chain_snapshots / gex_snapshots
+  → Railway API
+  → Vercel frontend
+```
+
+允许的内部验证路径：
+
+```text
+Mac Studio IB Gateway
+  → internal research collector
+  → staging / internal snapshots
+  → GEX algorithm validation
+```
+
+不建议的公开产品路径：
+
+```text
+user request
+  → Railway API
+  → local Mac Studio IB Gateway
+  → synchronous option chain fetch
+  → user response
+```
+
+该路径存在授权、延迟、pacing limit、Gateway session、2FA、本地机器可用性和故障隔离问题。

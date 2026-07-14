@@ -200,7 +200,8 @@ Each chart:
 | 用途 | 来源 | 费用 | 备注 |
 |---|---|---|---|
 | IV Rank（预计算） | Tastytrade API | 免费 | 开空账户即可，无需在此交易 |
-| 实时期权链 | IB API | 免费 | 复用 Mac Studio 已有 IB Gateway |
+| 实时期权链 | 授权 options data provider（生产） | 需确认 | 用于公开/付费产品的 option chain、OI、Greeks、volume、IV surface |
+| 实时期权链验证 | IB API | 免费/内部 | 仅用于个人研究、算法验证和 internal adapter，不作为公开产品默认数据源 |
 | Fallback | yfinance | 免费 | 任一来源挂掉时兜底 |
 | DB 托管 | Railway PostgreSQL | ~$5/月 | 独立 Service |
 
@@ -264,10 +265,25 @@ remember-token 过期时：
 }
 ```
 
-### IB API（实时期权链）
+### 期权链数据源原则
+
+公开/付费产品不能默认依赖个人 IB Gateway 作为核心 option chain 数据源。
+
+原因：
+- IB API 适合个人研究、账户级工具和内部验证，但不应假定具备公开产品的数据再分发权利。
+- IB Gateway session、2FA、pacing limit 和本地机器可用性不适合作为 SaaS 用户请求路径。
+- 用户输入 `AAPL` 时，前端应通过 Railway API 读取 PostgreSQL 中已采集/预计算的快照，而不是同步触发本地 Mac Studio 去 IB Gateway 拉链。
+
+生产原则：
+- IB Gateway = internal research adapter / algorithm validation adapter。
+- Production option chain = 授权 options data provider。
+- 数据源必须通过 provider adapter 抽象，避免前端和 GEX 计算逻辑绑定 IB。
+
+### IB API（内部验证）
 - IB Gateway 跑在 Mac Studio（与期货 bot 共存，使用不同 clientId）
-- clientId=1: futures bot；clientId=2: options IV collector
-- Mac Studio → 每日收盘后定时采集 → 写入 Railway PostgreSQL
+- clientId=1: futures bot；clientId=2: options research collector
+- Mac Studio → 内部采集/验证 option chain 字段和 GEX 算法 → 写入 Railway PostgreSQL 或本地验证库
+- 除非授权和再分发权利已确认，不将 IB 数据作为公开/付费用户的默认生产数据源
 
 ### IV Rank Calculation
 ```
@@ -286,7 +302,8 @@ IV Rank = (current_iv - min_iv_252d) / (max_iv_252d - min_iv_252d) × 100
 Mac Studio（永远在线）
   └── 每日 4:30pm ET 定时任务（Python）
         ├── Tastytrade API → IV Rank / IVx / HV / 财报日
-        ├── IB API (clientId=2) → 实时期权链
+        ├── 授权 options data provider → 生产期权链
+        ├── IB API (clientId=2) → 内部期权链验证
         └── yfinance → fallback
         → 写入 Railway PostgreSQL
 
@@ -320,7 +337,8 @@ Railway Project
 **V2 — 实时数据**
 ```sql
 iv_history      (symbol, date, iv30, hv30, iv_rank, source)  -- IV历史 + 来源标记
-option_chain    (symbol, snap_ts, strike, type, ...)          -- 期权链快照
+option_chain_snapshots (symbol, snapshot_ts, expiration, strike, type, OI, volume, IV, Greeks, bid/ask/mid, source)
+gex_snapshots          (symbol, snapshot_ts, global_gex, local_gamma, gamma_flip, call_wall, put_wall, max_pain, pcr, payload JSONB)
 scanner_configs (id, user_id, filters JSONB)                  -- 扫描器配置
 ```
 
@@ -458,6 +476,42 @@ src/
 ### 三层信号叠加逻辑
 
 ```
+
+### 产品核心指标
+
+Options Lab 的高价值产品层是 options positioning / dealer gamma intelligence，而不是单纯 IV Rank 工具。
+
+核心指标：
+- Call Wall：call-side OI 或 call-side GEX 最集中的 strike。
+- Put Wall：put-side OI 或 put-side absolute GEX 最集中的 strike。
+- OI Wall：按 open interest 计算的筹码集中价位。
+- Gamma Wall：按 GEX 计算的 dealer hedging pressure 集中价位。
+- Global GEX：跨到期、跨行权价聚合的 net GEX。
+- Local Gamma：当前价附近（例如 spot ±1%、expected move、最近 3-5 个 strikes）的 Gamma/GEX 集中度。
+- Gamma Flip：net GEX 从正变负或负变正的关键价格区域。
+- Strike-level GEX：按 strike 展示 call/put/net GEX。
+- Expiration-level GEX：按 expiration 聚合 GEX。
+- Max Pain、PCR、IV Skew、OI concentration、Unusual OI delta。
+
+用户请求路径：
+
+```text
+User inputs AAPL
+  → frontend calls Railway API
+  → API reads latest precomputed snapshots from PostgreSQL
+  → frontend renders GEX / Wall / positioning view
+```
+
+不允许的生产路径：
+
+```text
+User inputs AAPL
+  → Railway API waits for local Mac Studio IB Gateway
+  → IB option chain is pulled synchronously
+  → user waits for chain fetch
+```
+
+这种路径会暴露本地机器、IB session、2FA、pacing limit 和授权风险。
 层级 1: GEX 环境（市场结构）
   正GEX → 做市商 long gamma → 价格稳定 → 卖方策略友好
   负GEX → 做市商 short gamma → 波动放大 → 降低卖方敞口
@@ -492,18 +546,61 @@ src/
 
 | 信号 | 数据来源 | 成本 | 计算方式 |
 |---|---|---|---|
-| GEX by strike | IB 期权链（OI + Gamma） | 免费 | Σ(Gamma × OI × 100 × Spot²)，call为正，put为负 |
-| PCR | IB 期权链（成交量 + OI） | 免费 | put_vol / call_vol，put_oi / call_oi |
-| IV Skew | IB 期权链（每个行权价 IV） | 免费 | 直接从链数据读取 |
-| Max Pain | IB 期权链（OI × 行权价） | 免费 | 计算各行权价的总期权价值，取最小点 |
-| OI 变化 | IB 期权链每日对比 | 免费 | 今日OI - 昨日OI |
+| GEX by strike | 授权期权链（OI + Gamma）；IB 仅内部验证 | 需确认 | Σ(Gamma × OI × 100 × Spot²)，call为正，put为负 |
+| Call Wall / Put Wall | 授权期权链；IB 仅内部验证 | 需确认 | call/put side OI 或 GEX 最大的 strike，产品需标明 OI Wall vs Gamma Wall |
+| Global GEX | 授权期权链；IB 仅内部验证 | 需确认 | 跨到期、跨行权价 Σ net GEX |
+| Local Gamma | 授权期权链；IB 仅内部验证 | 需确认 | 当前价附近窗口内的 Gamma/GEX 集中度 |
+| Gamma Flip | 授权期权链；IB 仅内部验证 | 需确认 | 估算 net GEX 正负切换价格区间 |
+| PCR | 授权期权链（成交量 + OI）；IB 仅内部验证 | 需确认 | put_vol / call_vol，put_oi / call_oi |
+| IV Skew | 授权期权链（每个行权价 IV）；IB 仅内部验证 | 需确认 | 直接从链数据读取 |
+| Max Pain | 授权期权链（OI × 行权价）；IB 仅内部验证 | 需确认 | 计算各行权价的总期权价值，取最小点 |
+| OI 变化 | 授权期权链每日对比；IB 仅内部验证 | 需确认 | 今日OI - 昨日OI |
 | 真实 Sweep | Unusual Whales API | $50/月 | 实时多交易所大单扫描 |
+
+### 原始期权链字段
+
+每个 snapshot 至少需要：
+
+```text
+symbol
+underlying_price
+snapshot_ts
+expiration
+dte
+strike
+type: call / put
+open_interest
+volume
+implied_volatility
+delta
+gamma
+bid
+ask
+mid
+last
+source
+```
+
+### Provider adapter
+
+数据源接口应保持稳定：
+
+```text
+provider.fetchUnderlying(symbol)
+provider.fetchOptionChain(symbol)
+provider.fetchOptionChainStats(symbol)
+```
+
+可选实现：
+- `ib_internal_provider`：内部研究和算法验证。
+- `licensed_options_provider`：公开/付费产品的默认生产数据源。
+- `fixture_provider`：本地开发和测试。
 
 ### 新增 API 端点规划（server/）
 
 ```
-GET /api/chain/:symbol         # 完整期权链（IB）
-GET /api/gex/:symbol           # GEX by strike + 净GEX
-GET /api/chain/:symbol/stats   # PCR / Max Pain / IV Skew / OI wall
+GET /api/chain/:symbol         # 最新期权链快照（生产来自授权 provider）
+GET /api/gex/:symbol           # GEX by strike + Global GEX + Local Gamma + Gamma Flip
+GET /api/chain/:symbol/stats   # PCR / Max Pain / IV Skew / Call Wall / Put Wall / OI Wall / Gamma Wall
 GET /api/unusual/:symbol       # 异常OI变化 top 合约
 ```
