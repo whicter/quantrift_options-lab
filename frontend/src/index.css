@@ -1067,32 +1067,20 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 
 /* ── InsightCarousel ─────────────────────────────────────────── */
 .insight-carousel {
-  display: flex; align-items: flex-start; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
   background: rgba(234,179,8,0.06); border: 1px solid rgba(234,179,8,0.2);
   border-radius: 8px; padding: 10px 12px; margin-top: 12px;
-  min-height: 40px;
+}
+.insight-row {
+  display: flex; align-items: flex-start; gap: 8px;
 }
 .insight-dot {
-  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0; width: 5px; height: 5px; border-radius: 50%;
   background: #eab308; margin-top: 5px;
-  box-shadow: 0 0 6px rgba(234,179,8,0.6);
 }
 .insight-text {
   flex: 1; font-size: 12px; color: #fde047; line-height: 1.55;
-  transition: opacity 0.28s ease;
 }
-.insight-in  { opacity: 1; }
-.insight-out { opacity: 0; }
-.insight-pips {
-  display: flex; flex-direction: column; gap: 4px; align-items: center;
-  margin-top: 2px;
-}
-.insight-pip {
-  width: 4px; height: 4px; border-radius: 50%;
-  background: rgba(234,179,8,0.25);
-  transition: background 0.2s;
-}
-.insight-pip.active { background: #eab308; }
 
 /* ── GEX 4-column numbers ───────────────────────────────────── */
 .az-gex-numbers-4 { grid-template-columns: repeat(4, 1fr); }
