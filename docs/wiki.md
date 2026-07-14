@@ -362,6 +362,7 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 - `GET /api/prices/:symbol?limit=60` 返回最近 OHLCV，供 `/analyze` Tab2 和 `/weekly` Sec1 使用。
 - 2026-07-14 最小闭环已验证：AAPL 通过 `ib_internal` 写入 60 条 `price_history`，本地 API 可读取。
 - 2026-07-14 完整 watchlist 已验证：67/67 symbols 成功，写入 4020 rows，0 failed；`/api/status/data` 本地返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
+- 2026-07-14 生产 API 已验证：`/api/prices/AAPL?limit=3` 返回 HTTP 200，`/api/status/data` 返回 `expected_count=67` 和 `price_history.covered_count=67`。
 - IB symbol normalization：DB/UI canonical symbol 保持原样；IB stock contract symbol 将 `.` 映射为空格，例如 `BRK.B` → `BRK B`。
 
 ## Git & Deployment Workflow

@@ -151,10 +151,10 @@
   - 规则：DB/UI canonical symbol 保持原样；IB `Contract.symbol` 将 `.` 映射为空格，例如 `BRK.B` → `BRK B`
 
 ### Backend/API
-- [ ] 部署 server 后验证生产 `/api/prices/:symbol`
+- [x] 部署 server 后验证生产 `/api/prices/:symbol`
   - `curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"`
   - 返回字段必须包括 `symbol`、`source`、`count`、`latest_date`、`prices[]`
-  - 2026-07-14 当前结果：生产返回 404，原因是本轮 server 代码尚未部署到 Railway。
+  - 2026-07-14 验证结果：HTTP 200，返回 `source=ib_internal`、`count=3`、`freshness=fresh`、`is_stale=false`
 - [x] `/api/status/data` 增加 price coverage 细节
   - watchlist 总数
   - `price_history` covered symbols
@@ -162,6 +162,7 @@
   - stale price symbols
   - latest price date
   - source distribution
+  - 2026-07-14 生产验证：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
 - [x] `/api/prices/:symbol` 增加 freshness 字段
   - `snapshot_ts` 或 `latest_date`
   - `freshness`
@@ -192,8 +193,10 @@
 - [x] Collector runtime verified：完整 watchlist run
 - [x] Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 `freshness=fresh`、`is_stale=false`
 - [x] Local API verified：`curl -f "http://localhost:3002/api/status/data"` 返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
-- [ ] Production API verified：Railway `/api/prices/AAPL?limit=3`
-  - 2026-07-14 当前结果：404，待提交/推送/部署后重测。
+- [x] Production API verified：Railway `/api/prices/AAPL?limit=3`
+  - 2026-07-14 结果：HTTP 200，`freshness=fresh`、`is_stale=false`
+- [x] Production status verified：Railway `/api/status/data`
+  - 2026-07-14 结果：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
 - [ ] UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势
   - 自动浏览器验证未完成：Browser runtime 初始化报 `Cannot redefine property: process`。
 - [ ] UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV
