@@ -339,6 +339,7 @@ Railway Project
 **V2 — 实时数据**
 ```sql
 iv_history      (symbol, date, iv30, hv30, iv_rank, source)  -- IV历史 + 来源标记
+price_history   (symbol, date, open, high, low, close, volume, source, created_at) -- 60天OHLCV，collector每日upsert
 option_chain_snapshots (symbol, snapshot_ts, expiration, strike, type, OI, volume, IV, Greeks, bid/ask/mid, source)
 gex_snapshots          (symbol, snapshot_ts, global_gex, local_gamma, gamma_flip, call_wall, put_wall, max_pain, pcr, payload JSONB)
 scanner_configs (id, user_id, filters JSONB)                  -- 扫描器配置
@@ -353,6 +354,8 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 
 - 期权 legs 用 **JSONB 列**存储，不提前固定 schema
 - `iv_history.source`: `'tastytrade'` | `'ib'` | `'yfinance'` | `'self'`（自算）
+- 60 天 OHLCV 写入 `price_history`，作为趋势图、RVol、weekly recap 的基础输入；不应放在前端 mock 或本地 CSV 中。
+- `price_history` schema 已进入 `server/src/migrate.js`，并已于 2026-07-14 在 Railway PostgreSQL 创建；collector 写入逻辑尚未接入。
 
 ## Git & Deployment Workflow
 
@@ -437,8 +440,16 @@ Host mac-studio
 /scan          → V2 扫描器（批量筛选）
 /weekly        → 周复盘入口（无标的时显示快捷链接）
 /weekly/:symbol → 周复盘详情（5-section：本周定调/Gamma迁徙/交割偏离/资金暗线/下周分叉）
+/api/status/data → 数据覆盖状态：watchlist 覆盖率、missing/stale symbols、source counts、latest_date
 /portfolio     → V3 持仓追踪
 ```
+
+### Weekly Recap 数据化状态
+
+- 完整 5-section mock 仍只有 AAPL / SPY / QQQ。
+- `/weekly/:symbol` 现在会先查真实 `/api/metrics`。
+- 若 symbol 有真实 IV 数据但没有完整 weekly mock，则生成“真实 IV weekly 骨架”，明确标注 price/GEX/flow 尚未接入。
+- 完整数据化需要后续接入 `price_history`、`gex_snapshots`、OI/flow 数据。
 
 ### 框架决策
 - **框架**: 继续用 **Vite + React Router**（不迁移 Next.js）

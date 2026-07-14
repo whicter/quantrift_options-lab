@@ -47,6 +47,7 @@
 - [x] Sec4 资金暗线：Smart Money 每日流入水平柱 Canvas、累计流向 + 背离 badge
 - [x] Sec5 下周分叉：多头/空头剧本卡片（触发条件/价格目标/观察重点）
 - [x] index.css：新增 ~170行 Phase 1 样式 + ~200行 Phase 2 样式（.wk-* 类）
+- [x] /weekly 数据化第一步：AAPL/SPY/QQQ 继续用完整 mock；其他有真实 `/api/metrics` 数据的标的生成真实 IV weekly 骨架，并明确提示 price/GEX/flow 仍待接入
 
 ## ✅ Done (Infrastructure)
 - [x] Git repo 初始化，branch: master
@@ -84,8 +85,9 @@
 
 ### 真实价格历史（趋势图）
 - [ ] **collector 新增 yfinance 每日价格采集**：symbol → 60 天 OHLCV
-  - 写入新表 `price_history (symbol, date, open, high, low, close, volume)`
-  - `server/src/migrate.js` 新增建表语句
+  - 写入 Railway PostgreSQL 新表 `price_history (symbol, date, open, high, low, close, volume, source, created_at)`
+  - 存储位置：数据库，不放前端 mock、不放本地 CSV；collector 每天按 watchlist upsert 最近 60 个交易日
+  - [x] `server/src/migrate.js` 新增建表语句；2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`
   - `collector/collect.py` 新增 yfinance 采集逻辑（与 Tastytrade 同一个 cron job）
 - [ ] **server 新增 `/api/prices/:symbol`** 端点：返回最近 60 天收盘价数组
 - [ ] **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
@@ -96,6 +98,8 @@
 - [ ] **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入
   - Analyze.jsx 现在调用真实 API（task.md 已标注 ✅）—— 确认 IV 字段是否渲染到 Tab3 IV 数字格
   - 如果 Tab3 还显示 mock IV，改为从 API 返回的 `iv30` 字段
+- [x] Analyze 缺失数据 UX：输入未采集标的不再提示固定 AAPL/SPY/QQQ；区分“在 watchlist 但尚未写入”和“不在 watchlist”
+- [x] Analyze 使用真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings；GEX/趋势结构暂用现有展示壳
 
 ### 真实 RVol（yfinance 量能）
 - [ ] 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）
@@ -139,6 +143,8 @@
   - Tastytrade 认证：collector/auth.py，remember-token 自动续期，过期时发邮件提醒
   - 采集字段：iv_rank, iv30, hv30/60/90, iv_hv_diff, earnings_date, term_structure
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
+- [x] 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
+  - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
 - [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway
 - [ ] 服务层自动切换：252天历史满后改为自算 IV Rank，停止调用 Tastytrade
 

@@ -393,6 +393,7 @@ Railway
 | GET | `/health` | 服务存活检查 |
 | GET | `/api/metrics` | 查询一个或多个 symbol 的指标 |
 | GET | `/api/scan` | 按 IV Rank 等条件扫描 |
+| GET | `/api/status/data` | 查询 watchlist 数据覆盖率、缺失标的、stale 标的和 latest_date |
 
 ### 7.3 建议分层
 
@@ -541,6 +542,20 @@ public.iv_history
 ```
 
 语义上，该表保存按 symbol 和交易日期组织的隐含波动率历史及相关字段。
+
+未来 60 天 OHLCV 应存入：
+
+```text
+public.price_history
+```
+
+该表用于趋势图、RVol、weekly recap 和后续技术指标。数据由 collector 每天按 watchlist upsert 最近 60 个交易日，API 只读查询最近窗口。不要把 OHLCV 长期放在前端 mock、浏览器缓存或本地 CSV 中。
+
+当前状态：
+
+- `server/src/migrate.js` 已包含 `price_history` 建表和索引。
+- 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
+- collector 尚未写入 OHLCV，下一步是 yfinance 或授权价格源采集。
 
 具体列定义必须以生产数据库和 migration 为准；在 schema 未纳入代码前，不应仅凭文档猜测字段。
 

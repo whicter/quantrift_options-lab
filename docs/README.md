@@ -61,9 +61,12 @@ Open http://localhost:5173
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
 - Scanner: filter by IVR range, strategy type; click row → detailed analysis
+- Data coverage status API: `/api/status/data`
+- Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 
 ## Data Sources (V2)
 - IV Rank: Tastytrade API (free, pre-calculated)
+- 60-day OHLCV: `price_history` table exists in Railway PostgreSQL; collector ingestion pending
 - Option chains: production must use a licensed options data provider
 - IB API: internal research / algorithm validation only, not the default public product data source
 - Fallback: yfinance

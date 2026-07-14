@@ -368,6 +368,22 @@ public.iv_history
 
 - `/api/metrics`：读取指定 symbol 的隐含波动率历史及派生指标。
 - `/api/scan`：按 IV Rank 等筛选条件扫描标的。
+- `/api/status/data`：读取 watchlist，并汇总 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期。
+  - 默认读取 repo 内 `collector/watchlist.txt`；如果 Railway 只部署 `server/` 子目录，需要设置 `WATCHLIST_PATH` 指向部署环境中的 watchlist 文件。
+
+下一阶段价格历史表：
+
+```text
+public.price_history
+```
+
+用途：保存 watchlist 标的最近 60 个交易日 OHLCV，供趋势图、RVol 和 weekly recap 使用。该表应由 collector upsert 到 Railway PostgreSQL，不应放在前端 mock、本地 CSV 或浏览器缓存中。
+
+状态：
+
+- `server/src/migrate.js` 已包含 `price_history` migration。
+- 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
+- 当前仅完成 schema；OHLCV collector 写入逻辑仍待实现。
 
 系统 schema，例如 `pg_catalog` 和 `information_schema`，不属于业务数据，不应删除。
 
@@ -866,6 +882,7 @@ Collector execution failures
 Collector partial failures
 iv_history latest_date
 iv_history symbol coverage
+GET /api/status/data coverage response
 ```
 
 建议实现：
