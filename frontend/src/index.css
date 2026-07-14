@@ -183,6 +183,43 @@ body {
 .az-price-status { margin-left: 6px; font-weight: 700; }
 .az-price-status.fresh { color: var(--green); }
 .az-price-status.stale { color: var(--yellow); }
+.az-iv-unavailable {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.az-partial-notice {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--yellow);
+  border-radius: 8px;
+  background: var(--yellow-dim);
+  color: var(--text);
+}
+.az-partial-title {
+  color: var(--yellow);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.az-partial-text,
+.az-unavailable-text {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.az-unavailable-panel {
+  max-width: 760px;
+}
 .az-earnings { font-size: 12px; color: var(--text-dim); padding: 4px 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border); }
 .az-earnings-warn { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); }
 

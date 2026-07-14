@@ -113,6 +113,11 @@
   - 真实 IV Rank / IV30 / HV / earnings 覆盖 mock shell
 - [x] Analyze 缺失数据 UX：输入未采集标的不再提示固定 AAPL/SPY/QQQ；区分“在 watchlist 但尚未写入”和“不在 watchlist”
 - [x] Analyze 使用真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings；GEX/趋势结构暂用现有展示壳
+- [x] Analyze price-only fallback：当 symbol 已有 `/api/prices/:symbol` 但 `/api/metrics` 缺失时，不再整页显示“暂无真实数据”
+  - 2026-07-14 case：`PLTR`
+  - Confirmed from production API：`/api/metrics?symbols=PLTR` 返回 `{}`，但 `/api/prices/PLTR?limit=3` 返回 `source=ib_internal`、`freshness=fresh`
+  - UI behavior：显示真实价格、price history 趋势、`IV Rank 暂不可用`，并明确提示 IV / GEX / Walls / option chain 暂未接入
+  - 不生成期权策略结论，不把 mock option analysis 伪装成真实数据
 
 ### 真实 RVol（price_history 量能）
 - [x] 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）

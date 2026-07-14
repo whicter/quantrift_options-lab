@@ -90,6 +90,52 @@ function applyPriceHistory(data, priceData) {
   };
 }
 
+function deriveTrendFromPriceHistory(priceHistory, fallbackTrend = {}) {
+  if (!priceHistory || priceHistory.length < 5) return fallbackTrend;
+
+  const closes = priceHistory.map(bar => bar.close);
+  const latest = closes[closes.length - 1];
+  const prev = closes[Math.max(0, closes.length - 6)];
+  const recent = closes.slice(Math.max(0, closes.length - 20));
+  const avg20 = recent.reduce((sum, close) => sum + close, 0) / recent.length;
+  const change5d = prev ? ((latest / prev) - 1) * 100 : 0;
+  const aboveAvg = latest >= avg20;
+
+  return {
+    ...fallbackTrend,
+    regime: aboveAvg ? '价格强于20日均线' : '价格弱于20日均线',
+    momentum: change5d > 1 ? '向上增强' : change5d < -1 ? '向下减弱' : '横盘整理',
+    signal: aboveAvg && change5d > 0 ? '价格趋势偏强' : !aboveAvg && change5d < 0 ? '价格趋势偏弱' : '等待确认',
+  };
+}
+
+function buildPriceOnlyAnalysis(symbol, priceData) {
+  const mock = getMockAnalysis(symbol) || getMockAnalysis('SPY');
+  const priceHistory = normalizePriceHistory(priceData);
+  const data = applyPriceHistory({ ...mock, symbol }, priceData);
+
+  return {
+    ...data,
+    dataMeta: null,
+    partialData: {
+      type: 'price_only',
+      title: '期权指标暂不可用',
+      message: `${symbol} 已有真实价格数据，但 IV Rank / GEX / Call Wall / Put Wall 等期权数据尚未写入；当前只展示价格趋势，不生成期权策略结论。`,
+    },
+    trend: deriveTrendFromPriceHistory(priceHistory, data.trend),
+    direction: {
+      score: 0,
+      label: 'Price-only',
+      signals: [
+        { name: 'Price History', value: '真实', bullish: true },
+        { name: 'Options Metrics', value: '待接入', bullish: false },
+        { name: 'GEX / Walls', value: '待接入', bullish: false },
+      ],
+    },
+    recommendation: null,
+  };
+}
+
 function PriceStatus({ meta }) {
   if (!meta) return null;
   const stale = meta.isStale || meta.freshness === 'stale';
@@ -97,6 +143,28 @@ function PriceStatus({ meta }) {
     <span className={`az-price-status ${stale ? 'stale' : 'fresh'}`}>
       price {stale ? 'stale' : meta.source} {meta.latestDate}
     </span>
+  );
+}
+
+function PartialDataNotice({ partialData }) {
+  if (!partialData) return null;
+  return (
+    <div className="az-partial-notice">
+      <div className="az-partial-title">{partialData.title}</div>
+      <div className="az-partial-text">{partialData.message}</div>
+    </div>
+  );
+}
+
+function UnavailableOptionsPanel({ symbol }) {
+  return (
+    <div className="az-card az-unavailable-panel">
+      <div className="az-card-title">期权分析暂不可用</div>
+      <div className="az-unavailable-text">
+        {symbol} 目前只有真实价格历史；IV Rank、GEX、Call Wall、Put Wall、PCR、期权腿和 POP 还没有授权数据输入。
+        为避免把 mock 当成真实分析，这些模块暂不展示。
+      </div>
+    </div>
   );
 }
 
@@ -167,8 +235,15 @@ export default function Analyze() {
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
-        setError(buildMissingMessage(sym, status));
-        setResult(null);
+        const priceHistory = normalizePriceHistory(priceData);
+        if (priceHistory.length > 0) {
+          setResult(buildPriceOnlyAnalysis(sym, priceData));
+          setSearchParams({ symbol: sym, tab: 1 });
+          setError('');
+        } else {
+          setError(buildMissingMessage(sym, status));
+          setResult(null);
+        }
         return;
       }
 
@@ -235,12 +310,14 @@ export default function Analyze() {
             {result.dataMeta && (
               <div className="az-data-meta">
                 {result.dataMeta.source} · {result.dataMeta.date}
-                <PriceStatus meta={result.priceMeta} />
               </div>
             )}
+            <PriceStatus meta={result.priceMeta} />
             <div style={{ flex: 1 }} />
             <div style={{ minWidth: 200 }}>
-              <IVGauge value={result.ivRank} />
+              {result.dataMeta ? <IVGauge value={result.ivRank} /> : (
+                <div className="az-iv-unavailable">IV Rank 暂不可用</div>
+              )}
             </div>
             {result.earnings.date && (
               <div className={`az-earnings ${result.earnings.warning ? 'az-earnings-warn' : ''}`}>
@@ -249,6 +326,8 @@ export default function Analyze() {
               </div>
             )}
           </div>
+
+          <PartialDataNotice partialData={result.partialData} />
 
           {/* Tab nav */}
           <div className="az-tabs">
@@ -265,10 +344,11 @@ export default function Analyze() {
 
           {/* Tab content */}
           <div className="az-tab-content">
-            {activeTab === 0 && <Tab1Overview data={result} />}
+            {result.partialData && activeTab !== 1 && <UnavailableOptionsPanel symbol={result.symbol} />}
+            {!result.partialData && activeTab === 0 && <Tab1Overview data={result} />}
             {activeTab === 1 && <Tab2Trend data={result} />}
-            {activeTab === 2 && <Tab3Options data={result} />}
-            {activeTab === 3 && <Tab4Signals data={result} />}
+            {!result.partialData && activeTab === 2 && <Tab3Options data={result} />}
+            {!result.partialData && activeTab === 3 && <Tab4Signals data={result} />}
           </div>
         </>
       )}

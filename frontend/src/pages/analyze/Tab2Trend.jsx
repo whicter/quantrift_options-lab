@@ -162,6 +162,7 @@ function TrendCanvas({ prices, dates, kf, spread }) {
 
 export default function Tab2Trend({ data }) {
   const { trend, price, symbol, pcr, direction } = data;
+  const priceOnly = data.partialData?.type === 'price_only';
   const realHistory = Array.isArray(data.priceHistory) && data.priceHistory.length >= 5 ? data.priceHistory : null;
   const stale = Boolean(data.priceMeta?.isStale || data.priceMeta?.freshness === 'stale');
   const prices = realHistory ? realHistory.map(bar => bar.close) : genPrices(symbol, price);
@@ -173,7 +174,9 @@ export default function Tab2Trend({ data }) {
     `趋势格局：${trend.regime}，KF均线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
     `动量信号：${trend.momentum}，${trend.signal}`,
     `相对量能 RVol ${trend.rvol.toFixed(2)}×${trend.rvol > 1.3 ? '，成交量明显放大，趋势可信度高' : trend.rvol >= 1.0 ? '，量能正常' : '，缩量，趋势可靠性存疑'}`,
-    `期权情绪：PCR ${pcr?.toFixed(2) ?? '--'}，${pcr < 0.6 ? '看多拥挤，逆向需谨慎' : pcr > 1.0 ? '看空拥挤，可能存在反弹机会' : '多空情绪均衡'}`,
+    priceOnly
+      ? '期权情绪：暂不可用，当前没有授权 IV / option chain / GEX 数据'
+      : `期权情绪：PCR ${pcr?.toFixed(2) ?? '--'}，${pcr < 0.6 ? '看多拥挤，逆向需谨慎' : pcr > 1.0 ? '看空拥挤，可能存在反弹机会' : '多空情绪均衡'}`,
   ];
 
   return (
@@ -214,9 +217,9 @@ export default function Tab2Trend({ data }) {
           </div>
         </div>
         <div className="az-aux-cell">
-          <div className="az-aux-label">期权结构</div>
+          <div className="az-aux-label">{priceOnly ? '数据范围' : '期权结构'}</div>
           <div className="az-aux-val c-gray">
-            {pcr < 0.6 ? '看多拥挤' : pcr > 1.0 ? '看空拥挤' : '结构中性'}
+            {priceOnly ? '仅价格' : pcr < 0.6 ? '看多拥挤' : pcr > 1.0 ? '看空拥挤' : '结构中性'}
           </div>
         </div>
         <div className="az-aux-cell">
