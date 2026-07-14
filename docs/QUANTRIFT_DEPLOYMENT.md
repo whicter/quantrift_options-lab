@@ -279,14 +279,14 @@ Railway 会自动注入 `PORT`，生产环境通常不需要手动设置。
 ### 5.2 Railway 环境变量
 
 ```env
-CORS_ORIGIN=https://www.quantrift.io
+CORS_ORIGINS=https://www.quantrift.io,http://localhost:5173,http://127.0.0.1:4173
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 NODE_ENV=production
 ```
 
 | 变量 | 作用 |
 |---|---|
-| `CORS_ORIGIN` | 限制允许调用 API 的浏览器 Origin |
+| `CORS_ORIGINS` | 逗号分隔的浏览器 Origin 白名单；生产站点 + 本地开发 preview |
 | `DATABASE_URL` | 连接同一 Railway 项目中的 PostgreSQL |
 | `NODE_ENV` | 启用生产行为及当前数据库 SSL 分支 |
 | `PORT` | Railway 自动注入，不建议硬编码 |
@@ -563,38 +563,19 @@ Railway PostgreSQL 公网地址
 VITE_API_BASE_URL=https://quantriftoptions-lab-production.up.railway.app
 ```
 
-但生产后端目前只允许：
+生产后端应允许正式站点和本地开发 preview：
 
 ```text
 https://www.quantrift.io
+http://localhost:5173
+http://127.0.0.1:4173
 ```
-
-因此来自 `http://localhost:5173` 的浏览器请求可能被 CORS 阻止。
-
-如需同时支持生产站点和本地开发，建议后端改为允许列表：
 
 ```env
-CORS_ORIGINS=https://www.quantrift.io,http://localhost:5173
+CORS_ORIGINS=https://www.quantrift.io,http://localhost:5173,http://127.0.0.1:4173
 ```
 
-示意：
-
-```js
-const allowedOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map(value => value.trim())
-  .filter(Boolean);
-
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    return callback(new Error(`CORS blocked origin: ${origin}`));
-  },
-}));
-```
+`server/src/index.js` 同时兼容旧变量 `CORS_ORIGIN`，但新配置应使用 `CORS_ORIGINS`。
 
 ### 7.4 Python collector
 

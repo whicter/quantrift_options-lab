@@ -563,6 +563,35 @@ src/
 
 上线前不得把 mock shell 当作授权 options data 或交易建议。
 
+#### Options Positioning 数据层缺口与 IB 过渡方案
+
+当前缺口不是 underlying price，而是 option-chain positioning layer：
+
+| 数据 | 当前状态 | IB Gateway 过渡 | 正式产品要求 |
+|---|---|---|---|
+| 60日 OHLCV / latest close | 已接入 | 已用 `ib_internal` | 可继续作为内部校验 |
+| IV Rank / IV30 / HV30 | 部分接入 Tastytrade | IB 不是主来源 | licensed metrics/provider |
+| Option chain bid/ask/last | 未接入 | 可对有限 symbols 拉 snapshot | licensed options provider |
+| Open Interest / Volume | 未接入 | 可拉取但需处理缺失和节流 | licensed provider + snapshot |
+| Greeks / IV by contract | 未接入 | 可用 IB model greeks 过渡 | licensed provider / model validation |
+| GEX by strike | 未计算 | 可用 IB snapshot 计算验证 | snapshot + reproducible formula |
+| Call Wall / Put Wall | mock shell | 可从 GEX/OI 计算验证 | provider-backed |
+| Gamma Flip | 未接入 | 可从 IB chain grid 计算验证 | provider-backed |
+| Unusual activity / OI delta | 未接入 | IB 历史限制较多，不适合作主源 | specialized provider |
+
+IB Gateway 的定位：
+- `source=ib_internal`
+- 只用于内部研究、算法验证和小范围 watchlist 闭环
+- 不放在公开用户请求路径
+- 不作为公开/付费产品的授权 option-chain 数据源
+
+Phase 3D 的第一版范围：
+- symbols：`AAPL`, `SPY`, `QQQ`, `PLTR`
+- expirations：7-60 DTE
+- strikes：spot ±15% 或每边最多 20 个 strikes
+- rights：calls + puts
+- API：前端只读 `/api/gex/:symbol`、`/api/chain/:symbol` 的最新 PostgreSQL snapshot
+
 ### 产品核心指标
 
 Options Lab 的高价值产品层是 options positioning / dealer gamma intelligence，而不是单纯 IV Rank 工具。

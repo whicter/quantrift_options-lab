@@ -9,8 +9,25 @@ const statusRouter = require('./routes/status');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+function buildCorsOrigin() {
+  const configuredOrigins = (process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
+  if (configuredOrigins.length === 0) return '*';
+
+  return (origin, callback) => {
+    if (!origin || configuredOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS origin not allowed: ${origin}`));
+  };
+}
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: buildCorsOrigin(),
 }));
 app.use(express.json());
 

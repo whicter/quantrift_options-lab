@@ -56,6 +56,30 @@ licensed options provider / internal IB adapter
   → frontend
 ```
 
+Phase 3D 过渡实现采用 IB Gateway internal adapter，但只用于内部闭环验证：
+
+```text
+Mac Studio IB Gateway
+  → ib_option_chain_provider.py
+  → option_chain_snapshots / option_contract_snapshots
+  → gex_snapshots / gex_by_strike_snapshots
+  → /api/gex/:symbol
+  → /analyze / /scan
+```
+
+IB 过渡阶段默认范围：
+
+| 项目 | 过渡阶段限制 |
+| --- | --- |
+| Symbols | `AAPL`, `SPY`, `QQQ`, `PLTR` |
+| Expirations | 7-60 DTE |
+| Strikes | spot ±15% 或每边最多 20 个 strikes |
+| Rights | calls + puts |
+| Source label | `ib_internal` |
+| Public product use | 不允许作为正式授权数据源 |
+
+Provider adapter 必须隔离在 collector 层，API 与前端只依赖数据库 snapshot。未来切换 licensed provider 时，不应改变 `/api/gex/:symbol`、`/api/chain/:symbol` 或前端数据 contract。
+
 不建议的生产数据流：
 
 ```text

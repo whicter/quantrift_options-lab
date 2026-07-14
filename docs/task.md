@@ -336,28 +336,145 @@
 - [ ] Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值
 - [ ] Push notifications: email + web push 当扫描命中条件
 
-**GEX + 期权链分析（生产需授权数据源，IB 仅用于内部验证）**
-- [ ] Phase 3B — GEX Data Model Design：定义 Call Wall / Put Wall / Global GEX / Local Gamma / Gamma Flip / OI Wall / Gamma Wall
-- [ ] 数据源 adapter 抽象：provider.fetchOptionChain(symbol)、provider.fetchUnderlying(symbol)，允许从 IB internal adapter 切换到授权 provider
-- [ ] PostgreSQL schema：option_chain_snapshots、gex_snapshots、wall_snapshots / chain_stats
-- [ ] GEX by strike：Σ(Gamma × OI × 100 × Spot²)，正负 GEX 判断做市商对冲方向
-  - 正GEX = 价格稳定，适合卖方；负GEX = 波动放大，慎卖方
-  - Call Wall / Put Wall / GEX wall = 价格磁铁/阻力位，但需区分 OI Wall 与 Gamma Wall
-- [ ] Global GEX：跨到期、跨行权价聚合 net GEX
-- [ ] Local Gamma：当前价附近（如 spot ±1%、expected move、最近 3-5 个 strikes）的 Gamma/GEX 集中度
-- [ ] Gamma Flip：net GEX 从正变负或负变正的关键价格区间
-  - 计算方式：构建 spot ±10%（或可配置范围）的 price grid，对每个价格点重新计算每张期权 gamma，再聚合 net_gex(price)
-  - Flip 点定义：net_gex(price) 穿越 0 的价格；如无精确穿越，取 abs(net_gex(price)) 最小的价格
-  - 展示字段：gamma_flip、spot_vs_flip_distance_pct、gamma_regime（positive/negative/near_flip）、confidence、snapshot_ts、source
-  - 操作意义：positive gamma 更偏震荡/均值回归；negative gamma 更偏趋势/波动放大；跌破/突破 flip 代表 dealer hedge regime 可能切换
-  - 风险说明：Gamma Flip 不是独立买卖信号，必须和 Call Wall / Put Wall / Local Gamma / IV / 事件风险一起解读
-- [ ] Gamma regime 解释文案：前端输出“Spot is above/below gamma flip”以及对应的 volatility-dampening / volatility-amplifying 解释
-- [ ] Gamma Flip API contract：/api/gex/:symbol 返回 gamma_curve（price, net_gex）、gamma_flip、current_spot、distance_pct、regime
-- [ ] PCR（Put/Call Ratio）：OI + 成交量两个维度，辅助判断市场情绪
-- [ ] IV Skew 图：各行权价 IV 可视化，put skew 大 = 市场恐慌/保险需求高
-- [ ] Max Pain 计算：到期时期权买方亏损最大的行权价
-- [ ] OI 集中度热图：大量 OI 堆积的行权价 → 支撑/阻力参考
-- [ ] /analyze 页面新增：GEX 环境指示（正/负）、Call Wall、Put Wall、Global GEX、Local Gamma、Gamma Flip、Max Pain、PCR
+**Phase 3D — Options Positioning Data Layer（IB internal 过渡版，生产需授权 provider）**
+
+目标：先用 IB Gateway 作为 internal research adapter 跑通 option chain → snapshots → GEX / Wall / Gamma Flip → API → UI 的完整闭环；正式上线前将 provider 切换为具备授权和再分发权利的 options data provider。
+
+边界：
+- [ ] `source=ib_internal` 只允许用于内部研究、算法验证、字段探索和个人使用。
+- [ ] 不把 IB Gateway 放进公开用户请求链路；用户输入 symbol 时 API 只读 PostgreSQL 最新 snapshot。
+- [ ] 不把 IB option chain 数据宣传为正式授权产品数据。
+- [ ] 所有 API response 必须返回 `source`、`snapshot_ts`、`freshness`、`is_stale`、`provider_status`。
+- [ ] provider adapter 必须可替换：IB internal adapter 与未来 licensed provider adapter 使用同一接口。
+
+**Phase 3D-1 — Schema & Provider Contract**
+- [ ] 定义 provider interface：
+  - `fetch_underlying(symbol) -> spot, bid, ask, timestamp, source`
+  - `fetch_option_chain(symbol, expirations, strike_window) -> contracts[]`
+  - `fetch_open_interest(symbol, expirations) -> oi fields`
+  - `fetch_market_snapshot(symbol) -> underlying + option contracts`
+- [ ] 新增 PostgreSQL schema：
+  - `option_chain_snapshots`
+    - `id`, `symbol`, `underlying_price`, `snapshot_ts`, `source`, `provider_status`, `created_at`
+  - `option_contract_snapshots`
+    - `snapshot_id`, `symbol`, `expiry`, `strike`, `right`, `bid`, `ask`, `last`, `mark`, `volume`, `open_interest`, `iv`, `delta`, `gamma`, `theta`, `vega`, `rho`, `bid_size`, `ask_size`
+  - `gex_snapshots`
+    - `snapshot_id`, `symbol`, `global_gex`, `local_gamma`, `gamma_flip`, `gamma_regime`, `spot_vs_flip_distance_pct`, `call_wall`, `put_wall`, `max_pain`, `pcr_oi`, `pcr_volume`
+  - `gex_by_strike_snapshots`
+    - `snapshot_id`, `symbol`, `strike`, `call_gex`, `put_gex`, `net_gex`, `call_oi`, `put_oi`, `call_volume`, `put_volume`
+  - `provider_fetch_jobs`
+    - `symbol`, `job_type`, `status`, `attempts`, `last_error`, `created_at`, `started_at`, `finished_at`
+- [ ] Migration rollback plan：drop new tables only；do not touch `iv_history` or `price_history`.
+
+**Phase 3D-2 — IB Gateway Internal Adapter**
+- [ ] 新增 `collector/providers/ib_option_chain_provider.py`
+- [ ] 使用 IB API `reqSecDefOptParams` 获取 expirations / strikes，避免用 ambiguous `reqContractDetails` 拉全链。
+- [ ] 限定过渡阶段采集范围：
+  - symbols：先 `AAPL`, `SPY`, `QQQ`, `PLTR`
+  - DTE：7-60 days
+  - strikes：spot ±15% 或每边最多 20 个 strikes
+  - rights：call + put
+- [ ] 对每个 option contract 请求 market data snapshot：
+  - bid / ask / last / volume / open interest
+  - model greeks：iv / delta / gamma / theta / vega
+- [ ] 记录 IB pacing / timeout / empty contract：
+  - 每 symbol 最大运行时间
+  - 每批 contract 数量
+  - provider error code
+  - snapshot completeness percentage
+- [ ] 失败策略：
+  - underlying 缺失：整 symbol snapshot fail，不写 partial GEX
+  - chain 缺失：写 job failure，不覆盖旧 snapshot
+  - 部分 contract 缺 Greeks/OI：写 contract row，但 `completeness` 降低；GEX confidence 降级
+
+**Phase 3D-3 — GEX / Wall / Gamma Flip Calculation**
+- [ ] GEX by contract：
+  - call gex = `gamma * open_interest * 100 * spot^2`
+  - put gex = `-gamma * open_interest * 100 * spot^2`
+  - 缺 gamma 或 OI 的 contract 不参与 GEX，并计入 missing ratio
+- [ ] GEX by strike：
+  - `net_gex = sum(call_gex + put_gex)` by strike
+  - `call_oi`, `put_oi`, `call_volume`, `put_volume` by strike
+- [ ] Global GEX：
+  - 跨 expiry、strike 聚合 `net_gex`
+  - 输出 `positive`, `negative`, `near_zero`
+- [ ] Local Gamma：
+  - spot ±1%、spot ± expected move、最近 3-5 个 strikes 三种候选口径先记录
+  - V1 默认使用 spot ±1%
+- [ ] Call Wall / Put Wall：
+  - Call Wall：最大 call-side positive exposure 或最大 call OI strike
+  - Put Wall：最大 put-side negative exposure 或最大 put OI strike
+  - 同时保存 `wall_method=gex` 或 `wall_method=oi`，避免混淆 OI Wall 与 Gamma Wall
+- [ ] Gamma Flip：
+  - 构建 spot ±10% price grid
+  - 对每个 grid price 重新计算每张期权 gamma 和 net GEX
+  - flip = net GEX 穿越 0 的价格；无穿越则取 abs(net_gex) 最小点
+  - 输出 `gamma_curve`, `gamma_flip`, `spot_vs_flip_distance_pct`, `gamma_regime`, `confidence`
+- [ ] PCR：
+  - `pcr_oi = total_put_oi / total_call_oi`
+  - `pcr_volume = total_put_volume / total_call_volume`
+- [ ] Max Pain：
+  - 对每个 expiry 独立计算
+  - V1 输出 nearest expiry max pain + aggregate max pain
+- [ ] Confidence：
+  - 根据 missing Greeks ratio、missing OI ratio、bid/ask availability、snapshot age 计算 high / medium / low
+
+**Phase 3D-4 — API Layer**
+- [ ] `GET /api/options/:symbol/snapshot`
+  - 返回 latest chain snapshot metadata，不返回全量 contracts unless `includeContracts=true`
+- [ ] `GET /api/gex/:symbol`
+  - 返回 `global_gex`, `local_gamma`, `call_wall`, `put_wall`, `gamma_flip`, `gamma_curve`, `pcr`, `max_pain`, `freshness`
+- [ ] `GET /api/chain/:symbol`
+  - 只读 latest snapshot；默认分页 / strike range / expiry filter
+- [ ] `GET /api/status/options`
+  - 返回 watchlist option-chain coverage、latest snapshot age、missing/stale symbols、provider failure count
+- [ ] API 不同步调用 IB Gateway；missing/stale 只返回状态，不在用户请求里等待 provider。
+
+**Phase 3D-5 — Frontend Integration**
+- [ ] `/analyze/:symbol` 或 query symbol 读取 `/api/gex/:symbol`
+- [ ] 若 GEX fresh：
+  - 替换 mock GEX / Call Wall / Put Wall / Gamma Flip / PCR / Max Pain
+  - 显示 source、snapshot time、confidence
+- [ ] 若 GEX missing：
+  - 保留 price-only 或 IV-only 页面
+  - 显示“Options positioning data preparing / unavailable”
+  - 不显示 mock wall/gex 作为真实数据
+- [ ] `/scan` 新增 filters：
+  - gamma regime
+  - near call wall / near put wall
+  - high local gamma
+  - unusual OI / volume
+  - IV Rank + GEX combined scanner
+
+**Phase 3D-6 — Verification**
+- [ ] Unit tests：
+  - GEX sign calculation
+  - wall selection
+  - gamma flip interpolation / nearest-zero fallback
+  - PCR division-by-zero
+  - confidence downgrade
+- [ ] Integration tests：
+  - seeded option snapshot → `/api/gex/:symbol`
+  - missing snapshot → `freshness=missing`
+  - stale snapshot → stale response without synchronous provider call
+- [ ] Runtime smoke with IB Gateway：
+  - `SYMBOLS=PLTR,AAPL PRICE_PROVIDER=ib_internal OPTION_PROVIDER=ib_internal`
+  - record command, source, snapshot counts, missing Greeks/OI ratio, latest snapshot_ts
+- [ ] UI smoke：
+  - PLTR shows price-only before options snapshot
+  - PLTR shows GEX/Wall/Gamma Flip after options snapshot
+- [ ] Disclosure:
+  - Verification result must distinguish `IB internal verified` from `licensed provider verified`.
+
+**Phase 3D-7 — Production Provider Cutover**
+- [ ] Evaluate licensed providers for OPRA/options chain redistribution.
+- [ ] Implement licensed adapter behind same provider interface.
+- [ ] Run side-by-side comparison：IB internal vs licensed provider for AAPL/SPY/QQQ/PLTR.
+- [ ] Cutover condition：
+  - licensed provider snapshot completeness acceptable
+  - API contract unchanged
+  - UI source displays licensed provider
+  - IB internal disabled for public product path
 
 **Phase 3C — Cache & Freshness Architecture（真实数据源上线体验）**
 - [ ] 定义 snapshot freshness policy：IV/HV daily，earnings daily，option chain 1-5min，OI daily/provider cadence，GEX/Walls/Gamma Flip 随 chain refresh，scanner 1-5min
