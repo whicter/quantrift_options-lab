@@ -221,7 +221,8 @@ export default function Analyze() {
   }, []);
 
   async function handleAnalyze(forcedSymbol) {
-    const sym = (forcedSymbol || input).trim().toUpperCase();
+    const rawSymbol = typeof forcedSymbol === 'string' ? forcedSymbol : input;
+    const sym = rawSymbol.trim().toUpperCase();
     if (!sym) return;
     setLoading(true); setError('');
 
@@ -281,7 +282,7 @@ export default function Analyze() {
           onChange={e => setInput(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && handleAnalyze()}
         />
-        <button className="az-btn" onClick={handleAnalyze} disabled={loading}>
+        <button className="az-btn" onClick={() => handleAnalyze()} disabled={loading}>
           {loading ? '分析中...' : '分析'}
         </button>
       </div>
