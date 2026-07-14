@@ -14,10 +14,15 @@ Target: self-use + subscribers. Bilingual (English strategy names, Chinese descr
 
 ## Key Directories
 ```
-src/
-  data/strategies.js     ← All 70+ strategy definitions
-  lib/blackscholes.js    ← BS pricing engine + Greeks
-  components/            ← UI components
+docs/                  ← All project documentation (task.md, wiki.md, learning.md, etc.)
+frontend/src/
+  data/strategies.js       ← All 70+ strategy definitions
+  data/mockAnalysis.js     ← Mock data (9 symbols, GEX/PCR/trend/scenarios)
+  data/companyInfo.js      ← Company info lookup (12 symbols, logo/zh/tagline)
+  lib/blackscholes.js      ← BS pricing engine + Greeks
+  components/              ← UI components (incl. InsightCarousel)
+  pages/analyze/           ← 4-tab analyze page
+  pages/weekly/            ← 5-section weekly recap
   store/useStrategyStore.js ← Zustand global state
 ```
 

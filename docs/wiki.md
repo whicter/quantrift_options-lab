@@ -34,7 +34,7 @@ frontend/src/
 │   ├── StrategyNotes.jsx
 │   ├── GreeksKnowledge.jsx
 │   ├── NavBar.jsx            # 顶部导航
-│   └── InsightCarousel.jsx   # 自动轮播解读条（黄色/淡入淡出/3.8s）
+│   └── InsightCarousel.jsx   # 解读条（黄色静态列表，全部条目一次展示）
 ├── pages/
 │   ├── Learn.jsx             # /learn — V1 教育工具
 │   ├── Analyze.jsx           # /analyze — V2 标的分析（4-tab，?tab=0-3）；header 显示公司 logo + 中文名
@@ -44,7 +44,7 @@ frontend/src/
 │   │   ├── Tab1Overview.jsx  # 今日概览：sector/Q&A/conclusion/playbook + InsightCarousel
 │   │   ├── Tab2Trend.jsx     # 日内变化：KF趋势图/Trend Spread Canvas + InsightCarousel
 │   │   ├── Tab3Options.jsx   # 数据解读：GEX Canvas/4格数字(GEX/PCR OI/PCR Vol/IV)/Unusual + InsightCarousel
-│   │   └── Tab4Signals.jsx   # 信号追踪：价格区间chip/筹码标尺 Canvas/Wall距离 + InsightCarousel
+│   │   └── Tab4Signals.jsx   # 信号追踪：价格区间chip/OI密度分布Canvas(连续填充)/Wall距离 + InsightCarousel
 │   └── weekly/
 │       ├── Sec1Tone.jsx      # 本周定调：公司logo+中文名/K线Canvas/CME Gauge Canvas
 │       ├── Sec2Gamma.jsx     # Gamma迁徙：时间轴滑块(Mon-Fri)/GEX日图Canvas/迁移表
