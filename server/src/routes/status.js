@@ -10,9 +10,12 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 
-const WATCHLIST_PATH = process.env.WATCHLIST_PATH
-  ? path.resolve(process.env.WATCHLIST_PATH)
-  : path.resolve(__dirname, '../../../collector/watchlist.txt');
+const WATCHLIST_CANDIDATES = process.env.WATCHLIST_PATH
+  ? [path.resolve(process.env.WATCHLIST_PATH)]
+  : [
+      path.resolve(__dirname, '../../../collector/watchlist.txt'),
+      path.resolve(__dirname, '../../watchlist.txt'),
+    ];
 
 function toDateString(value) {
   return value?.toISOString?.().slice(0, 10) || (value ? String(value).slice(0, 10) : null);
@@ -42,12 +45,13 @@ function sourceCounts(rows) {
 }
 
 function loadWatchlist() {
-  if (!fs.existsSync(WATCHLIST_PATH)) return [];
+  const watchlistPath = WATCHLIST_CANDIDATES.find(candidate => fs.existsSync(candidate));
+  if (!watchlistPath) return [];
 
   const seen = new Set();
   const symbols = [];
 
-  for (const rawLine of fs.readFileSync(WATCHLIST_PATH, 'utf8').split(/\r?\n/)) {
+  for (const rawLine of fs.readFileSync(watchlistPath, 'utf8').split(/\r?\n/)) {
     const symbol = rawLine.split('#', 1)[0].trim().toUpperCase();
     if (!symbol || seen.has(symbol)) continue;
     seen.add(symbol);
