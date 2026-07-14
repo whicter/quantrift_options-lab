@@ -29,6 +29,23 @@ async function migrate() {
 
     CREATE INDEX IF NOT EXISTS iv_history_symbol_date ON iv_history (symbol, date DESC);
 
+    CREATE TABLE IF NOT EXISTS price_history (
+      id          SERIAL PRIMARY KEY,
+      symbol      TEXT        NOT NULL,
+      date        DATE        NOT NULL,
+      open        NUMERIC(12,4),
+      high        NUMERIC(12,4),
+      low         NUMERIC(12,4),
+      close       NUMERIC(12,4) NOT NULL,
+      volume      BIGINT,
+      source      TEXT        NOT NULL DEFAULT 'yfinance',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (symbol, date)
+    );
+
+    CREATE INDEX IF NOT EXISTS price_history_symbol_date ON price_history (symbol, date DESC);
+    CREATE INDEX IF NOT EXISTS price_history_date ON price_history (date DESC);
+
     CREATE TABLE IF NOT EXISTS scanner_configs (
       id          SERIAL PRIMARY KEY,
       name        TEXT,

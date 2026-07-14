@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const metricsRouter = require('./routes/metrics');
 const scanRouter = require('./routes/scan');
+const statusRouter = require('./routes/status');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -16,6 +17,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/metrics', metricsRouter);
 app.use('/api/scan', scanRouter);
+app.use('/api/status', statusRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
