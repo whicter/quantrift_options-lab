@@ -62,14 +62,17 @@ Open http://localhost:5173
 - Earnings date detection
 - Scanner: filter by IVR range, strategy type; click row → detailed analysis
 - Data coverage status API: `/api/status/data`
+- Price history API: `/api/prices/:symbol`
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 
 ## Data Sources (V2)
 - IV Rank: Tastytrade API (free, pre-calculated)
-- 60-day OHLCV: `price_history` table exists in Railway PostgreSQL; collector ingestion pending
+- 60-day OHLCV: `price_history` in Railway PostgreSQL; `collect_prices.py` writes provider-sourced bars
+- Price provider default: `ib_internal` for local/internal Mac Studio research pipeline
+- Dev/backfill provider: `stooq`, only when explicitly selected
 - Option chains: production must use a licensed options data provider
 - IB API: internal research / algorithm validation only, not the default public product data source
-- Fallback: yfinance
+- yfinance is not the default price or options data path because of rate-limit and licensing/reliability constraints
 
 ## Product Data Direction
 - Core product signals: Call Wall, Put Wall, Global GEX, Local Gamma, Gamma Flip, Max Pain, PCR, IV Skew, OI concentration, Unusual OI delta
@@ -82,6 +85,7 @@ Open http://localhost:5173
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
 - [x] V2: Python IV collector on Mac Studio (daily cron)
+- [x] V2: provider-first 60-day OHLCV pipeline skeleton (`collect_prices.py`, `price_history`, `/api/prices/:symbol`)
 - [x] V2: Vercel deployment
 - [ ] V2: GEX data model + licensed options data provider abstraction
 - [ ] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs

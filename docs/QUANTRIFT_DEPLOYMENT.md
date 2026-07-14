@@ -383,7 +383,12 @@ public.price_history
 
 - `server/src/migrate.js` 已包含 `price_history` migration。
 - 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
-- 当前仅完成 schema；OHLCV collector 写入逻辑仍待实现。
+- `collector/collect_prices.py` 已实现 OHLCV 写入逻辑。
+- 默认 `PRICE_PROVIDER=ib_internal`，通过本地 Mac Studio / IB Gateway 拉取内部价格历史。
+- `PRICE_PROVIDER=stooq` 仅用于显式开发/回填测试，不是生产 options data。
+- Railway API 通过 `GET /api/prices/:symbol?limit=60` 读取最近价格历史。
+- 2026-07-14 最小闭环验证：`SYMBOLS=AAPL collector/venv311/bin/python collector/collect_prices.py` 成功写入 60 rows；Railway `price_history` 中 AAPL date range 为 2026-04-17 → 2026-07-14，source=`ib_internal`。
+- 本地 API 验证：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 成功返回 3 rows，source=`ib_internal`。
 
 系统 schema，例如 `pg_catalog` 和 `information_schema`，不属于业务数据，不应删除。
 

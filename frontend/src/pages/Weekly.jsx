@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { getWeeklyMock } from '../data/weeklyMock';
-import { getDataStatus, getMetrics } from '../lib/api';
+import { getDataStatus, getMetrics, getPrices } from '../lib/api';
 import Sec1Tone from './weekly/Sec1Tone';
 import Sec2Gamma from './weekly/Sec2Gamma';
 import Sec3Pinning from './weekly/Sec3Pinning';
@@ -18,6 +18,55 @@ const SECTIONS = [
 
 function gex(strikes, vals) {
   return strikes.map((strike, i) => ({ strike, gex: vals[i] }));
+}
+
+function normalizePriceHistory(priceData) {
+  return (priceData?.prices || [])
+    .map(bar => ({
+      date: String(bar.date).slice(0, 10),
+      open: Number(bar.open),
+      high: Number(bar.high),
+      low: Number(bar.low),
+      close: Number(bar.close),
+      volume: Number(bar.volume || 0),
+    }))
+    .filter(bar => Number.isFinite(bar.open) && Number.isFinite(bar.high) && Number.isFinite(bar.low) && Number.isFinite(bar.close));
+}
+
+function dayLabel(dateString) {
+  return new Date(`${dateString}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+}
+
+function applyWeeklyPrices(data, priceData) {
+  const bars = normalizePriceHistory(priceData);
+  if (bars.length < 2) return data;
+
+  const weekBars = bars.slice(-5);
+  const latest = bars[bars.length - 1];
+  const prevClose = bars.length > 5 ? bars[bars.length - 6].close : bars[0].close;
+  const weekChange = prevClose ? ((latest.close - prevClose) / prevClose) * 100 : data.weekChange;
+
+  return {
+    ...data,
+    week: `价格截至 ${latest.date}${data.week ? ` · ${data.week}` : ''}`,
+    prevClose: Number(prevClose.toFixed(2)),
+    weekClose: Number(latest.close.toFixed(2)),
+    weekChange: Number(weekChange.toFixed(2)),
+    weekHigh: Number(Math.max(...weekBars.map(bar => bar.high)).toFixed(2)),
+    weekLow: Number(Math.min(...weekBars.map(bar => bar.low)).toFixed(2)),
+    candles: weekBars.map(bar => ({
+      day: dayLabel(bar.date),
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+    })),
+    priceMeta: {
+      source: priceData.source,
+      latestDate: String(priceData.latest_date || latest.date).slice(0, 10),
+      count: priceData.count,
+    },
+  };
 }
 
 function buildWeeklyFromMetrics(symbol, metrics) {
@@ -104,19 +153,25 @@ export default function Weekly() {
   useEffect(() => {
     if (!symbol) return;
     const sym = symbol.toUpperCase();
-    const d = getWeeklyMock(sym);
-    if (d) {
-      setData(d);
-      setError('');
-      return;
-    }
 
-    getMetrics([sym])
-      .then(metrics => {
+    Promise.all([
+      getMetrics([sym]).catch(() => ({})),
+      getPrices(sym, 60).catch(() => null),
+    ])
+      .then(([metrics, priceData]) => {
+        const mock = getWeeklyMock(sym);
+        if (mock) {
+          setData(applyWeeklyPrices(mock, priceData));
+          setError(priceData ? '' : '当前显示完整 weekly 示例结构；真实价格历史尚未写入。');
+          return;
+        }
+
         const row = metrics[sym];
         if (row) {
-          setData(buildWeeklyFromMetrics(sym, row));
-          setError('该标的已有真实 IV 数据；价格/GEX/资金流 weekly 模块仍在接入中。');
+          setData(applyWeeklyPrices(buildWeeklyFromMetrics(sym, row), priceData));
+          setError(priceData
+            ? '该标的已有真实 IV 与价格历史；GEX/资金流 weekly 模块仍在接入中。'
+            : '该标的已有真实 IV 数据；价格/GEX/资金流 weekly 模块仍在接入中。');
         } else {
           setData(null);
           setError(`暂无 ${sym} 的周回顾数据。若该标的在 watchlist 中，需要等 collector 写入后才可生成。`);

@@ -78,31 +78,115 @@
 
 ---
 
-## 🔨 Phase 3B — 半真实数据（yfinance + Tastytrade，无需期权链）
+## ✅ Phase 3B-1 — Provider-first 价格历史闭环（IB internal + Tastytrade）
 
 > 前置条件：Mac Studio collector cron 已配置运行
-> 这部分不需要 IB 或授权期权链，只用 yfinance（价格/量） + Tastytrade（IV）
+> 价格历史默认走 provider adapter。当前默认 `PRICE_PROVIDER=ib_internal`，显式开发/回填可用 `PRICE_PROVIDER=stooq`。yfinance 不作为默认路径。
 
 ### 真实价格历史（趋势图）
-- [ ] **collector 新增 yfinance 每日价格采集**：symbol → 60 天 OHLCV
+- [x] **collector 新增每日价格采集**：symbol → 60 天 OHLCV
   - 写入 Railway PostgreSQL 新表 `price_history (symbol, date, open, high, low, close, volume, source, created_at)`
   - 存储位置：数据库，不放前端 mock、不放本地 CSV；collector 每天按 watchlist upsert 最近 60 个交易日
   - [x] `server/src/migrate.js` 新增建表语句；2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`
-  - `collector/collect.py` 新增 yfinance 采集逻辑（与 Tastytrade 同一个 cron job）
-- [ ] **server 新增 `/api/prices/:symbol`** 端点：返回最近 60 天收盘价数组
-- [ ] **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
+  - [x] `collector/common.py`：共享 `watchlist.txt` loader
+  - [x] `collector/providers/base.py`：`PriceProvider` / `PriceBar` contract
+  - [x] `collector/providers/ib_price_provider.py`：IB Gateway internal adapter，source=`ib_internal`
+  - [x] `collector/providers/stooq_price_provider.py`：显式 dev/backfill adapter，source=`stooq`
+  - [x] `collector/collect_prices.py`：读取 watchlist 或 `SYMBOLS` override，按 provider upsert `price_history`
+  - [x] `collector/requirements.txt`：加入 `ibapi`
+  - [x] `collector/.env.example`：加入 `PRICE_PROVIDER`、`PRICE_HISTORY_LIMIT`、`IB_HOST`、`IB_PORT`、`IB_PRICE_CLIENT_ID`、`IB_TIMEOUT`、`SYMBOLS`
+- [x] **server 新增 `/api/prices/:symbol`** 端点：返回最近 60 天 OHLCV
+  - [x] `server/src/routes/prices.js`
+  - [x] `server/src/index.js` 挂载 `/api/prices`
+  - [x] `frontend/src/lib/api.js` 新增 `getPrices(symbol, limit)`
+- [x] **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
   - KF 计算逻辑不变，输入换成真实价格数组
   - RVol = 当日成交量 / 20日均量（从 price_history 算）
+- [x] **Weekly Sec1 改用真实价格**：`/weekly/:symbol` 优先读取 `/api/prices/:symbol`
+  - AAPL/SPY/QQQ 仍保留完整 5-section mock/GEX/flow 结构
+  - 若有真实价格历史，则覆盖 Sec1 的 weekClose / prevClose / weekHigh / weekLow / 5日 K线
+  - GEX / flow / Max Pain 仍需授权 options data，不能用 mock 伪装成真实
 
 ### 真实 IV（Tastytrade）
-- [ ] **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入
-  - Analyze.jsx 现在调用真实 API（task.md 已标注 ✅）—— 确认 IV 字段是否渲染到 Tab3 IV 数字格
-  - 如果 Tab3 还显示 mock IV，改为从 API 返回的 `iv30` 字段
+- [x] **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入
+  - Analyze.jsx 调用真实 API
+  - 真实 IV Rank / IV30 / HV / earnings 覆盖 mock shell
 - [x] Analyze 缺失数据 UX：输入未采集标的不再提示固定 AAPL/SPY/QQQ；区分“在 watchlist 但尚未写入”和“不在 watchlist”
 - [x] Analyze 使用真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings；GEX/趋势结构暂用现有展示壳
 
-### 真实 RVol（yfinance 量能）
-- [ ] 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）
+### 真实 RVol（price_history 量能）
+- [x] 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）
+
+### Phase 3B-1 验证记录
+- [x] Python syntax verified：`collector/venv311/bin/python -m py_compile collector/collect.py collector/collect_prices.py collector/common.py collector/providers/base.py collector/providers/ib_price_provider.py collector/providers/stooq_price_provider.py`
+- [x] Node syntax verified：`node --check server/src/index.js`、`node --check server/src/routes/prices.js`
+- [x] Frontend build verified：`npm run build` in `frontend/`
+- [x] Collector runtime verified with IB Gateway：`SYMBOLS=AAPL collector/venv311/bin/python collector/collect_prices.py`，写入 60 rows，source=`ib_internal`
+- [x] Database verified：AAPL `price_history` = 60 rows，date range 2026-04-17 → 2026-07-14，source=`ib_internal`
+- [x] Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 3 rows，source=`ib_internal`
+- [ ] Production API verified after deploy：待部署后 curl `/api/prices/:symbol`
+
+---
+
+## 🔨 Phase 3B-2 — 价格历史生产化与 UI 数据状态
+
+### Collector 调度
+- [ ] 在 Mac Studio cron 中新增 `collect_prices.py` 定时任务
+  - 推荐时间：美股收盘后、IV collector 之后，例如 1:35pm PT / 4:35pm ET
+  - 命令：`cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python collect_prices.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect_prices.log 2>&1`
+  - 前置：确认 IB Gateway 在线、API enabled、`IB_PRICE_CLIENT_ID=12` 未与其他 bot 冲突
+- [ ] 跑完整 watchlist 一次 `collect_prices.py`
+  - 记录成功 symbols 数量
+  - 记录失败 symbols 列表
+  - 对失败 symbols 分类：IB contract 解析失败、无权限、pacing/timeout、symbol 格式问题
+- [ ] 为 `BRK.B` 等特殊 ticker 建立 symbol normalization 规则
+  - 输入 symbol
+  - IB contract symbol/localSymbol
+  - UI display symbol
+  - DB canonical symbol
+
+### Backend/API
+- [ ] 部署 server 后验证生产 `/api/prices/:symbol`
+  - `curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"`
+  - 返回字段必须包括 `symbol`、`source`、`count`、`latest_date`、`prices[]`
+- [ ] `/api/status/data` 增加 price coverage 细节
+  - watchlist 总数
+  - `price_history` covered symbols
+  - missing price symbols
+  - stale price symbols
+  - latest price date
+  - source distribution
+- [ ] `/api/prices/:symbol` 增加 freshness 字段
+  - `snapshot_ts` 或 `latest_date`
+  - `freshness`
+  - `is_stale`
+  - `source`
+
+### Frontend
+- [ ] Analyze header 显示价格数据状态
+  - `price ib_internal 2026-07-14`
+  - stale 时显示 `price stale`
+  - missing 时不显示真实价格标记
+- [ ] Tab2Trend 增加真实/示例走势标识
+  - real：`price_history`
+  - fallback：`示例走势`
+  - 不把 fallback 说成真实数据
+- [ ] Weekly Sec1 增加价格来源标识
+  - real：显示 `price_history source + latest_date`
+  - fallback：显示当前为示例 weekly shell
+- [ ] Scan 结果增加 price coverage 状态
+  - 已有 price_history
+  - 缺失 price_history
+  - stale price_history
+
+### Verification
+- [ ] Syntax verified：Python collector files
+- [ ] Syntax verified：Node server routes
+- [ ] Frontend build verified：`npm run build`
+- [ ] Collector runtime verified：完整 watchlist run
+- [ ] Production API verified：Railway `/api/prices/AAPL?limit=3`
+- [ ] UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势
+- [ ] UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV
 
 ---
 
@@ -119,7 +203,7 @@
 ## 🚀 V2 — Real Data
 
 ### 数据层决策（已确定）
-- [x] 数据源方案：Tastytrade API（IV Rank，免费）+ 授权期权链数据源（生产）+ IB API（内部研究/算法验证）+ yfinance（fallback）
+- [x] 数据源方案：Tastytrade API（IV Rank，免费）+ provider-first OHLCV（当前默认 IB internal）+ 授权期权链数据源（生产）+ IB API（内部研究/算法验证）
 - [x] 数据采集节点：Mac Studio（复用已有 IB Gateway，clientId=2 与 futures bot 共存）
 - [x] 总数据成本：$0/月（Railway 托管 ~$5/月）
 - [x] 冷启动方案：Tastytrade API 第一天即可提供 IV Rank，同时自积累历史数据

@@ -17,4 +17,8 @@ export function getDataStatus() {
   return getJson('/api/status/data');
 }
 
+export function getPrices(symbol, limit = 60) {
+  return getJson(`/api/prices/${encodeURIComponent(symbol.toUpperCase())}?limit=${limit}`);
+}
+
 export { API_BASE };

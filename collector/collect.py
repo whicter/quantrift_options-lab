@@ -15,7 +15,6 @@ import os
 import json
 import logging
 from datetime import date, datetime
-from pathlib import Path
 from typing import Optional
 
 import requests
@@ -24,6 +23,7 @@ from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 from auth import get_session_token
+from common import WATCHLIST_PATH, load_watchlist
 
 load_dotenv()
 
@@ -36,31 +36,9 @@ log = logging.getLogger(__name__)
 
 TT_BASE  = 'https://api.tastyworks.com'
 DB_URL   = os.getenv('DATABASE_URL')
-WATCHLIST_PATH = Path(__file__).with_name('watchlist.txt')
 
 # Tastytrade batch limit
 TT_BATCH = 50
-
-
-def load_watchlist(path: Path = WATCHLIST_PATH) -> list[str]:
-    """Load collector symbols from watchlist.txt, preserving order and removing duplicates."""
-    if not path.exists():
-        raise FileNotFoundError(f'Watchlist file not found: {path}')
-
-    symbols = []
-    seen = set()
-
-    for raw_line in path.read_text(encoding='utf-8').splitlines():
-        line = raw_line.split('#', 1)[0].strip().upper()
-        if not line or line in seen:
-            continue
-        symbols.append(line)
-        seen.add(line)
-
-    if not symbols:
-        raise ValueError(f'Watchlist file is empty: {path}')
-
-    return symbols
 
 
 def fetch_metrics(session_token: str, symbols: list[str]) -> dict:

@@ -40,7 +40,7 @@ function calcSpread(prices) {
   });
 }
 
-function TrendCanvas({ prices, kf, spread }) {
+function TrendCanvas({ prices, dates, kf, spread }) {
   const mainRef = useRef(null);
   const spreadRef = useRef(null);
 
@@ -100,10 +100,9 @@ function TrendCanvas({ prices, kf, spread }) {
       ctx.fillStyle = theme.text; ctx.fill();
 
       // X-axis date labels
-      const now = new Date();
       ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
       for (let i = 0; i < prices.length; i += 15) {
-        const d = new Date(now - (prices.length - 1 - i) * 864e5);
+        const d = dates?.[i] ? new Date(`${dates[i]}T00:00:00`) : new Date(Date.now() - (prices.length - 1 - i) * 864e5);
         ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, sx(i), H - 4);
       }
     };
@@ -151,7 +150,7 @@ function TrendCanvas({ prices, kf, spread }) {
     const el = mainRef.current?.parentElement;
     if (el) obs.observe(el);
     return () => obs.disconnect();
-  }, [prices, kf, spread]);
+  }, [prices, dates, kf, spread]);
 
   return (
     <>
@@ -163,7 +162,9 @@ function TrendCanvas({ prices, kf, spread }) {
 
 export default function Tab2Trend({ data }) {
   const { trend, price, symbol, pcr, direction } = data;
-  const prices = genPrices(symbol, price);
+  const realHistory = Array.isArray(data.priceHistory) && data.priceHistory.length >= 5 ? data.priceHistory : null;
+  const prices = realHistory ? realHistory.map(bar => bar.close) : genPrices(symbol, price);
+  const dates = realHistory ? realHistory.map(bar => bar.date) : null;
   const kf = calcKF(prices);
   const spread = calcSpread(prices);
 
@@ -178,12 +179,12 @@ export default function Tab2Trend({ data }) {
     <div className="tab-trend">
       <div className="az-card">
         <div className="az-trend-header">
-          <div className="az-card-title">趋势走势 · Kalman Filter</div>
+          <div className="az-card-title">趋势走势 · Kalman Filter{realHistory ? ' · price_history' : ' · 示例走势'}</div>
           <span className={`az-mini-badge ${trend.regime.includes('多头') ? 'green' : trend.regime.includes('空头') ? 'red' : 'yellow'}`}>
             {trend.regime}
           </span>
         </div>
-        <TrendCanvas prices={prices} kf={kf} spread={spread} />
+        <TrendCanvas prices={prices} dates={dates} kf={kf} spread={spread} />
       </div>
 
       {/* Output badges */}

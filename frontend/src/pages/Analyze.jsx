@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getDataStatus, getMetrics } from '../lib/api';
+import { getDataStatus, getMetrics, getPrices } from '../lib/api';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
@@ -38,6 +38,52 @@ function applyMetrics(data, metrics) {
     earnings: {
       ...data.earnings,
       date: earningsDate,
+    },
+  };
+}
+
+function normalizePriceHistory(priceData) {
+  return (priceData?.prices || [])
+    .map(bar => ({
+      date: String(bar.date).slice(0, 10),
+      open: Number(bar.open),
+      high: Number(bar.high),
+      low: Number(bar.low),
+      close: Number(bar.close),
+      volume: Number(bar.volume || 0),
+    }))
+    .filter(bar => Number.isFinite(bar.close));
+}
+
+function calcRVol(bars) {
+  if (!bars || bars.length < 2) return null;
+  const latest = bars[bars.length - 1];
+  const prior = bars.slice(Math.max(0, bars.length - 21), -1).filter(bar => bar.volume > 0);
+  if (!latest.volume || prior.length === 0) return null;
+  const avg = prior.reduce((sum, bar) => sum + bar.volume, 0) / prior.length;
+  if (!avg) return null;
+  return latest.volume / avg;
+}
+
+function applyPriceHistory(data, priceData) {
+  const priceHistory = normalizePriceHistory(priceData);
+  if (priceHistory.length === 0) return data;
+
+  const latest = priceHistory[priceHistory.length - 1];
+  const rvol = calcRVol(priceHistory);
+
+  return {
+    ...data,
+    price: Number(latest.close.toFixed(2)),
+    priceHistory,
+    priceMeta: {
+      source: priceData.source,
+      latestDate: String(priceData.latest_date || latest.date).slice(0, 10),
+      count: priceData.count,
+    },
+    trend: {
+      ...data.trend,
+      rvol: rvol == null ? data.trend.rvol : Number(rvol.toFixed(2)),
     },
   };
 }
@@ -100,9 +146,10 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [metricsBySymbol, status] = await Promise.all([
+      const [metricsBySymbol, status, priceData] = await Promise.all([
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
+        getPrices(sym, 60).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
 
@@ -114,7 +161,7 @@ export default function Analyze() {
       }
 
       const mock = getMockAnalysis(sym) || getMockAnalysis('SPY');
-      const data = applyMetrics({ ...mock, symbol: sym }, metrics);
+      const data = applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData);
       setResult(data);
       setSearchParams({ symbol: sym, tab: activeTab });
     } catch {
@@ -176,6 +223,7 @@ export default function Analyze() {
             {result.dataMeta && (
               <div className="az-data-meta">
                 {result.dataMeta.source} · {result.dataMeta.date}
+                {result.priceMeta && ` · price ${result.priceMeta.source} ${result.priceMeta.latestDate}`}
               </div>
             )}
             <div style={{ flex: 1 }} />

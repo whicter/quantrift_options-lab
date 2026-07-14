@@ -543,19 +543,22 @@ public.iv_history
 
 语义上，该表保存按 symbol 和交易日期组织的隐含波动率历史及相关字段。
 
-未来 60 天 OHLCV 应存入：
+60 天 OHLCV 存入：
 
 ```text
 public.price_history
 ```
 
-该表用于趋势图、RVol、weekly recap 和后续技术指标。数据由 collector 每天按 watchlist upsert 最近 60 个交易日，API 只读查询最近窗口。不要把 OHLCV 长期放在前端 mock、浏览器缓存或本地 CSV 中。
+该表用于趋势图、RVol、weekly recap 和后续技术指标。数据由 `collector/collect_prices.py` 每天按 watchlist upsert 最近 60 个交易日，API 只读查询最近窗口。不要把 OHLCV 长期放在前端 mock、浏览器缓存或本地 CSV 中。
 
 当前状态：
 
 - `server/src/migrate.js` 已包含 `price_history` 建表和索引。
 - 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
-- collector 尚未写入 OHLCV，下一步是 yfinance 或授权价格源采集。
+- `collector/collect_prices.py` 已实现 provider adapter：默认 `PRICE_PROVIDER=ib_internal`，显式开发/回填可用 `PRICE_PROVIDER=stooq`。
+- `server/src/routes/prices.js` 暴露 `GET /api/prices/:symbol?limit=60`。
+- 前端 `/analyze` Tab2 和 `/weekly` Sec1 会优先使用 `price_history`，没有价格历史时保留清晰 fallback/提示。
+- yfinance 不作为默认路径；后续如接入订阅价格源，应新增 provider adapter，不改变前端 API contract。
 
 具体列定义必须以生产数据库和 migration 为准；在 schema 未纳入代码前，不应仅凭文档猜测字段。
 

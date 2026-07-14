@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const metricsRouter = require('./routes/metrics');
+const pricesRouter = require('./routes/prices');
 const scanRouter = require('./routes/scan');
 const statusRouter = require('./routes/status');
 
@@ -16,6 +17,7 @@ app.use(express.json());
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/metrics', metricsRouter);
+app.use('/api/prices', pricesRouter);
 app.use('/api/scan', scanRouter);
 app.use('/api/status', statusRouter);
 

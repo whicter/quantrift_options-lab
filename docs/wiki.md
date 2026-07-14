@@ -202,9 +202,10 @@ Each chart:
 | 用途 | 来源 | 费用 | 备注 |
 |---|---|---|---|
 | IV Rank（预计算） | Tastytrade API | 免费 | 开空账户即可，无需在此交易 |
+| 60日OHLCV | provider adapter（默认 IB internal；显式 dev/backfill 可用 Stooq） | 免费/内部 | 写入 `price_history`，供趋势图、RVol、weekly recap 使用 |
 | 实时期权链 | 授权 options data provider（生产） | 需确认 | 用于公开/付费产品的 option chain、OI、Greeks、volume、IV surface |
 | 实时期权链验证 | IB API | 免费/内部 | 仅用于个人研究、算法验证和 internal adapter，不作为公开产品默认数据源 |
-| Fallback | yfinance | 免费 | 任一来源挂掉时兜底 |
+| yfinance | 不作为默认路径 | 免费 | 受限于 rate limit、稳定性和授权边界；如未来使用，必须显式作为 adapter 并标注数据等级 |
 | DB 托管 | Railway PostgreSQL | ~$5/月 | 独立 Service |
 
 **Tastytrade API：**
@@ -353,9 +354,13 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 ```
 
 - 期权 legs 用 **JSONB 列**存储，不提前固定 schema
-- `iv_history.source`: `'tastytrade'` | `'ib'` | `'yfinance'` | `'self'`（自算）
+- `iv_history.source`: `'tastytrade'` | `'self'`（自算）等
+- `price_history.source`: `'ib_internal'` | `'stooq'` | future licensed/market-data provider
 - 60 天 OHLCV 写入 `price_history`，作为趋势图、RVol、weekly recap 的基础输入；不应放在前端 mock 或本地 CSV 中。
-- `price_history` schema 已进入 `server/src/migrate.js`，并已于 2026-07-14 在 Railway PostgreSQL 创建；collector 写入逻辑尚未接入。
+- `price_history` schema 已进入 `server/src/migrate.js`，并已于 2026-07-14 在 Railway PostgreSQL 创建。
+- `collector/collect_prices.py` 已实现 provider-first 写入逻辑；默认 `PRICE_PROVIDER=ib_internal`，显式 dev/backfill 可用 `PRICE_PROVIDER=stooq`。
+- `GET /api/prices/:symbol?limit=60` 返回最近 OHLCV，供 `/analyze` Tab2 和 `/weekly` Sec1 使用。
+- 2026-07-14 最小闭环已验证：AAPL 通过 `ib_internal` 写入 60 条 `price_history`，本地 API 可读取。
 
 ## Git & Deployment Workflow
 
@@ -447,9 +452,10 @@ Host mac-studio
 ### Weekly Recap 数据化状态
 
 - 完整 5-section mock 仍只有 AAPL / SPY / QQQ。
-- `/weekly/:symbol` 现在会先查真实 `/api/metrics`。
-- 若 symbol 有真实 IV 数据但没有完整 weekly mock，则生成“真实 IV weekly 骨架”，明确标注 price/GEX/flow 尚未接入。
-- 完整数据化需要后续接入 `price_history`、`gex_snapshots`、OI/flow 数据。
+- `/weekly/:symbol` 现在会查真实 `/api/metrics` 和 `/api/prices/:symbol`。
+- 若存在 `price_history`，Sec1 会用真实 5日 OHLCV 覆盖 weekClose / prevClose / weekHigh / weekLow / 日K线。
+- 若 symbol 有真实 IV 数据但没有完整 weekly mock，则生成“真实 IV weekly 骨架”；若同时有真实价格历史，则 Sec1 使用真实价格。
+- 完整数据化仍需要后续接入 `gex_snapshots`、OI/flow 数据；GEX/flow/Max Pain 不应用 mock 伪装成真实。
 
 ### 框架决策
 - **框架**: 继续用 **Vite + React Router**（不迁移 Next.js）
