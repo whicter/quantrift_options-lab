@@ -1064,3 +1064,92 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   font-size: 10px; color: var(--text-muted); font-style: italic;
   line-height: 1.5; text-align: center; margin-top: 4px;
 }
+
+/* ── InsightCarousel ─────────────────────────────────────────── */
+.insight-carousel {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: rgba(234,179,8,0.06); border: 1px solid rgba(234,179,8,0.2);
+  border-radius: 8px; padding: 10px 12px; margin-top: 12px;
+  min-height: 40px;
+}
+.insight-dot {
+  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  background: #eab308; margin-top: 5px;
+  box-shadow: 0 0 6px rgba(234,179,8,0.6);
+}
+.insight-text {
+  flex: 1; font-size: 12px; color: #fde047; line-height: 1.55;
+  transition: opacity 0.28s ease;
+}
+.insight-in  { opacity: 1; }
+.insight-out { opacity: 0; }
+.insight-pips {
+  display: flex; flex-direction: column; gap: 4px; align-items: center;
+  margin-top: 2px;
+}
+.insight-pip {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(234,179,8,0.25);
+  transition: background 0.2s;
+}
+.insight-pip.active { background: #eab308; }
+
+/* ── GEX 4-column numbers ───────────────────────────────────── */
+.az-gex-numbers-4 { grid-template-columns: repeat(4, 1fr); }
+
+/* ── Price range chip (Tab4) ────────────────────────────────── */
+.az-price-range-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.35);
+  border-radius: 20px; padding: 5px 14px; margin-bottom: 12px;
+}
+.az-range-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.az-range-val { font-size: 14px; font-weight: 700; color: #fde047; font-family: monospace; }
+
+/* ── Company info (Analyze header) ─────────────────────────── */
+.az-company-info { display: flex; align-items: center; gap: 10px; }
+.az-company-logo { width: 32px; height: 32px; border-radius: 6px; object-fit: contain; background: #fff; padding: 2px; }
+.az-company-text { display: flex; flex-direction: column; }
+.az-company-zh { font-size: 14px; font-weight: 500; color: var(--text-dim); margin-left: 6px; }
+.az-company-tagline { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+/* ── Company info (Weekly Sec1) ─────────────────────────────── */
+.wk-company-header { display: flex; align-items: center; gap: 12px; }
+.wk-company-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; background: #fff; padding: 3px; }
+.wk-company-zh { font-size: 14px; font-weight: 500; color: var(--text-dim); }
+.wk-company-tagline { font-size: 11px; color: var(--text-muted); margin-top: 2px; margin-bottom: 2px; }
+
+/* ── Timeline slider (Weekly Sec2) ──────────────────────────── */
+.wk-timeline {
+  padding: 8px 0 28px; margin-bottom: 8px;
+}
+.wk-timeline-track {
+  position: relative; height: 4px;
+  background: rgba(255,255,255,0.1); border-radius: 2px;
+  margin: 0 16px;
+}
+.wk-timeline-progress {
+  position: absolute; left: 0; top: 0; height: 100%;
+  background: linear-gradient(90deg, rgba(96,165,250,0.6), #60a5fa);
+  border-radius: 2px; transition: width 0.25s ease;
+}
+.wk-timeline-node {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 0;
+}
+.wk-timeline-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #1e2336; border: 2px solid rgba(255,255,255,0.2);
+  transition: all 0.2s; z-index: 1;
+}
+.wk-timeline-node:hover .wk-timeline-dot { border-color: rgba(96,165,250,0.7); }
+.wk-timeline-node.active .wk-timeline-dot {
+  background: #60a5fa; border-color: #60a5fa;
+  box-shadow: 0 0 8px rgba(96,165,250,0.6);
+}
+.wk-timeline-label {
+  position: absolute; top: 14px;
+  font-size: 10px; font-family: monospace; color: var(--text-muted);
+  white-space: nowrap; transition: color 0.2s;
+}
+.wk-timeline-node.active .wk-timeline-label { color: #60a5fa; font-weight: 700; }

@@ -61,6 +61,81 @@
 - [x] .claude/settings.json：Bash(*) 全放行白名单
 - [x] .claude_session：session UUID 固化，`cr` 命令一键恢复对话
 
+## 🔨 Phase 3A — UI Polish（纯前端，不依赖真实数据）
+
+> 参考截图：华尔街咖啡馆 MRVL/META 盘中即时分析 + Nokia 周复盘
+> 目标：在现有 mock 数据结构不变的前提下，提升图表质量和交互体验
+
+### GEX 图表改版（/analyze Tab3 + /weekly Sec2）
+- [ ] **GEX 发散柱图**：现在是单向柱（从左/底边画），改为从零轴向两侧延伸
+  - 正 GEX（call side）→ 绿色柱，向上/向右延伸
+  - 负 GEX（put side）→ 红色柱，向下/向左延伸
+  - 零轴画一条灰色基准线
+  - 影响文件：`pages/analyze/Tab3Options.jsx`（GEXChart Canvas）、`pages/weekly/Sec2Gamma.jsx`（GEXDayChart Canvas）
+  - 数据结构不变：`gexByStrike[]{strike, gex}`，正负值已存在于 mock data
+
+### Gamma 迁徙改版（/weekly Sec2）
+- [ ] **时间轴滑块替换按钮**：Mon/Tue/Wed/Thu/Fri 改为横向滑轨 + 拖拽点
+  - 滑轨上5个节点，当前选中节点高亮
+  - 点击节点或拖拽切换日期，GEX 图随之重绘
+  - 影响文件：`pages/weekly/Sec2Gamma.jsx`
+  - CSS：新增 `.wk-timeline-slider` 系列类
+
+### 底部轮播解读句（/analyze 各 Tab）
+- [ ] **每个 Tab 内容区底部加"分析轮播条"**：显示 2-4 条关键结论句，自动轮播（3秒/句）
+  - Tab1：从 conclusion/scenarios 提炼 3 条核心句
+  - Tab2：从 trend.signals 提炼 3 条趋势解读句
+  - Tab3：从 GEX/PCR/unusualActivity 提炼 3 条期权结论句
+  - Tab4：从 wall 距离 + observation 提炼 3 条信号句
+  - 新建通用组件 `components/InsightCarousel.jsx`
+  - 黄色高亮文字，深色背景条，淡入淡出动画
+
+### PCR 拆分显示（/analyze Tab3）
+- [ ] **PCR(OI) 和 PCR(Vol) 分开显示**：现在只有一个 PCR
+  - mockAnalysis.js 每个标的加 `pcrVol` 字段（手写合理值）
+  - Tab3Options.jsx 数字区从 3 格扩展到 4 格：GEX / PCR(OI) / PCR(Vol) / IV
+  - 影响文件：`data/mockAnalysis.js`（加字段）、`pages/analyze/Tab3Options.jsx`（UI）
+
+### 公司信息增强（/analyze + /weekly）
+- [ ] **公司中文名 + 行业描述 lookup 表**：现在只显示 ticker
+  - 新建 `data/companyInfo.js`：9个 mock 标的 + NOK 的中文名、英文全称、logo URL（用 Clearbit/公开 CDN）、sector 描述
+  - /analyze header 显示：ticker + 中文名 + logo（小图标）
+  - /weekly Sec1 显示：logo（大）+ 公司中文名 + ticker
+  - 影响文件：新增 `data/companyInfo.js`、`pages/Analyze.jsx`、`pages/weekly/Sec1Tone.jsx`
+
+### 观察价位区间 chip（/analyze Tab4）
+- [ ] **在 Tab4 头部显示 `$putWall ~ $callWall` 价格区间**
+  - 参考截图：`$240.0 ~ $300.0` 金色背景 chip
+  - 从 data.putWall / data.callWall 生成
+  - 影响文件：`pages/analyze/Tab4Signals.jsx`
+
+---
+
+## 🔨 Phase 3B — 半真实数据（yfinance + Tastytrade，无需期权链）
+
+> 前置条件：Mac Studio collector cron 已配置运行
+> 这部分不需要 IB 或授权期权链，只用 yfinance（价格/量） + Tastytrade（IV）
+
+### 真实价格历史（趋势图）
+- [ ] **collector 新增 yfinance 每日价格采集**：symbol → 60 天 OHLCV
+  - 写入新表 `price_history (symbol, date, open, high, low, close, volume)`
+  - `server/src/migrate.js` 新增建表语句
+  - `collector/collect.py` 新增 yfinance 采集逻辑（与 Tastytrade 同一个 cron job）
+- [ ] **server 新增 `/api/prices/:symbol`** 端点：返回最近 60 天收盘价数组
+- [ ] **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
+  - KF 计算逻辑不变，输入换成真实价格数组
+  - RVol = 当日成交量 / 20日均量（从 price_history 算）
+
+### 真实 IV（Tastytrade）
+- [ ] **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入
+  - Analyze.jsx 现在调用真实 API（task.md 已标注 ✅）—— 确认 IV 字段是否渲染到 Tab3 IV 数字格
+  - 如果 Tab3 还显示 mock IV，改为从 API 返回的 `iv30` 字段
+
+### 真实 RVol（yfinance 量能）
+- [ ] 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）
+
+---
+
 ## 📋 V1 Backlog (Polish)
 - [ ] Strategy comparison mode (side by side, 2 strategies)
 - [ ] IV Rank badge per strategy in sidebar (Low/Med/High indicator)

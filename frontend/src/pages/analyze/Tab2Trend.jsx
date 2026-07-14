@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import InsightCarousel from '../../components/InsightCarousel';
 
 function genPrices(symbol, currentPrice, days = 60) {
   let seed = symbol.split('').reduce((a, c) => a + c.charCodeAt(0), 42);
@@ -163,6 +164,13 @@ export default function Tab2Trend({ data }) {
   const kf = calcKF(prices);
   const spread = calcSpread(prices);
 
+  const insights = [
+    `趋势格局：${trend.regime}，KF均线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
+    `动量信号：${trend.momentum}，${trend.signal}`,
+    `相对量能 RVol ${trend.rvol.toFixed(2)}×${trend.rvol > 1.3 ? '，成交量明显放大，趋势可信度高' : trend.rvol >= 1.0 ? '，量能正常' : '，缩量，趋势可靠性存疑'}`,
+    `期权情绪：PCR ${pcr?.toFixed(2) ?? '--'}，${pcr < 0.6 ? '看多拥挤，逆向需谨慎' : pcr > 1.0 ? '看空拥挤，可能存在反弹机会' : '多空情绪均衡'}`,
+  ];
+
   return (
     <div className="tab-trend">
       <div className="az-card">
@@ -224,6 +232,7 @@ export default function Tab2Trend({ data }) {
           ))}
         </div>
       </div>
+      <InsightCarousel insights={insights} />
     </div>
   );
 }

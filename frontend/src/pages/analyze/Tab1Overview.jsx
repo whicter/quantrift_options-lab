@@ -1,4 +1,5 @@
 import React from 'react';
+import InsightCarousel from '../../components/InsightCarousel';
 
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
@@ -11,11 +12,18 @@ function Badge({ label, value, colorFn }) {
 }
 
 export default function Tab1Overview({ data }) {
-  const { sector, gexTotal, putWall, callWall, pcr, trend, conclusion, scenarios, price, recommendation, earnings } = data;
+  const { sector, gexTotal, putWall, callWall, pcr, trend, conclusion, scenarios, price, recommendation, earnings, iv30 } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
     : `$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+
+  const insights = [
+    `${gexPositive ? '正Gamma' : '负Gamma'}环境（GEX ${gexStr}），做市商${gexPositive ? '减震对冲，价格倾向震荡' : '跟随对冲，波动可能放大'}`,
+    `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
+    `关键区间：上方压力 $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ 下方支撑 $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）`,
+    recommendation ? `推荐策略：${recommendation.strategy}，POP ${recommendation.params.pop}%，DTE ${recommendation.params.dte}天` : null,
+  ].filter(Boolean);
 
   const questions = [
     {
@@ -140,6 +148,7 @@ export default function Tab1Overview({ data }) {
           ))}
         </div>
       </div>
+      <InsightCarousel insights={insights} />
     </div>
   );
 }

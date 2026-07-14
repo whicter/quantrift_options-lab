@@ -97,17 +97,25 @@ export default function Sec2Gamma({ data }) {
     <div className="wk-section">
       <div className="wk-section-subtitle">主力阵地延时摄影</div>
 
-      {/* Day slider */}
-      <div className="wk-day-tabs">
-        {DAYS.map(d => (
-          <button
-            key={d}
-            className={`wk-day-btn ${selectedDay === d ? 'active' : ''}`}
-            onClick={() => setSelectedDay(d)}
-          >
-            {d}
-          </button>
-        ))}
+      {/* Timeline slider */}
+      <div className="wk-timeline">
+        <div className="wk-timeline-track">
+          {DAYS.map((d, i) => (
+            <div
+              key={d}
+              className={`wk-timeline-node ${selectedDay === d ? 'active' : ''}`}
+              style={{ left: `${(i / (DAYS.length - 1)) * 100}%` }}
+              onClick={() => setSelectedDay(d)}
+            >
+              <div className="wk-timeline-dot" />
+              <div className="wk-timeline-label">{d}</div>
+            </div>
+          ))}
+          <div
+            className="wk-timeline-progress"
+            style={{ width: `${(DAYS.indexOf(selectedDay) / (DAYS.length - 1)) * 100}%` }}
+          />
+        </div>
       </div>
 
       {/* GEX chart */}

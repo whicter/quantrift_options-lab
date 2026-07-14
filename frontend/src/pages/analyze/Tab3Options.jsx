@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import InsightCarousel from '../../components/InsightCarousel';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -105,11 +106,21 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
 }
 
 export default function Tab3Options({ data }) {
-  const { gexByStrike, gexTotal, putWall, callWall, pcr, price, iv30, unusualActivity, conclusion } = data;
+  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, conclusion } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
     : `${gexPositive ? '' : '-'}$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+
+  const insights = [
+    `${gexPositive ? '正' : '负'}Gamma ${gexStr}，做市商${gexPositive ? '减震对冲，短线摆动受限' : '跟随对冲，波动可能放大'}`,
+    `PCR(OI) ${pcr?.toFixed(2) ?? '--'}${pcr > 1.1 ? '，看跌持仓堆积，市场情绪偏空' : pcr < 0.6 ? '，看涨持仓主导，情绪偏多' : '，多空持仓较均衡'}` +
+      (pcrVol ? `；PCR(Vol) ${pcrVol.toFixed(2)}${pcrVol > pcr ? '，当日交易偏空' : '，当日交易偏多'}` : ''),
+    `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，隐含波动率偏高，卖方有统计优势' : iv30 > 20 ? '，IV适中，关注方向选策略' : '，IV偏低，买方成本低'}`,
+    unusualActivity?.length
+      ? `大单异动：${unusualActivity[0].type} $${unusualActivity[0].strike} Vol ${unusualActivity[0].vol.toLocaleString()}，机构动向值得关注`
+      : '本期暂无显著大单异动',
+  ];
 
   return (
     <div className="tab-options">
@@ -118,8 +129,8 @@ export default function Tab3Options({ data }) {
         <GEXChart gexByStrike={gexByStrike} putWall={putWall} callWall={callWall} price={price} />
       </div>
 
-      {/* 3 core numbers */}
-      <div className="az-gex-numbers">
+      {/* 4 core numbers */}
+      <div className="az-gex-numbers az-gex-numbers-4">
         <div className="az-gex-num">
           <div className="az-gex-num-label">GEX Total</div>
           <div className={`az-gex-num-val ${gexPositive ? 'c-green' : 'c-red'}`}>{gexStr}</div>
@@ -127,12 +138,19 @@ export default function Tab3Options({ data }) {
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">PCR (OI)</div>
-          <div className={`az-gex-num-val ${pcr < 0.6 ? 'c-green' : pcr > 1.1 ? 'c-red' : 'c-yellow'}`}>{pcr.toFixed(2)}</div>
-          <div className="az-gex-num-sub">{pcr < 0.6 ? '偏多情绪' : pcr > 1.1 ? '偏空情绪' : '中性情绪'}</div>
+          <div className={`az-gex-num-val ${pcr < 0.6 ? 'c-green' : pcr > 1.1 ? 'c-red' : 'c-yellow'}`}>{pcr?.toFixed(2) ?? '--'}</div>
+          <div className="az-gex-num-sub">{pcr < 0.6 ? '持仓偏多' : pcr > 1.1 ? '持仓偏空' : '持仓中性'}</div>
+        </div>
+        <div className="az-gex-num">
+          <div className="az-gex-num-label">PCR (Vol)</div>
+          <div className={`az-gex-num-val ${!pcrVol ? 'c-gray' : pcrVol < 0.6 ? 'c-green' : pcrVol > 1.1 ? 'c-red' : 'c-yellow'}`}>
+            {pcrVol?.toFixed(2) ?? '--'}
+          </div>
+          <div className="az-gex-num-sub">{!pcrVol ? '暂无数据' : pcrVol < 0.6 ? '交易偏多' : pcrVol > 1.1 ? '交易偏空' : '交易中性'}</div>
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">IV ATM</div>
-          <div className={`az-gex-num-val ${iv30 > 40 ? 'c-red' : iv30 > 20 ? 'c-yellow' : 'c-green'}`}>{iv30.toFixed(1)}%</div>
+          <div className={`az-gex-num-val ${iv30 > 40 ? 'c-red' : iv30 > 20 ? 'c-yellow' : 'c-green'}`}>{iv30?.toFixed(1) ?? '--'}%</div>
           <div className="az-gex-num-sub">{iv30 > 40 ? 'IV偏高' : iv30 > 20 ? 'IV适中' : 'IV偏低'}</div>
         </div>
       </div>
@@ -159,6 +177,8 @@ export default function Tab3Options({ data }) {
 
       {/* Conclusion */}
       <div className="az-options-conclusion">{conclusion}</div>
+
+      <InsightCarousel insights={insights} />
     </div>
   );
 }

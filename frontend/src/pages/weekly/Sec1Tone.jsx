@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { getCompanyInfo } from '../../data/companyInfo';
 
 function CandleChart({ candles }) {
   const canvasRef = useRef(null);
@@ -134,14 +135,19 @@ function CMEGauge({ score }) {
 export default function Sec1Tone({ data }) {
   const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, cmeScore, candles, symbol } = data;
   const bull = weekChange >= 0;
+  const co = getCompanyInfo(symbol);
 
   return (
     <div className="wk-section">
       {/* Header row */}
       <div className="wk-tone-header">
-        <div>
-          <div className="wk-sym">{symbol}</div>
-          <div className="wk-week">{week}</div>
+        <div className="wk-company-header">
+          {co && <img className="wk-company-logo" src={co.logo} alt={co.en} onError={e => { e.target.style.display = 'none'; }} />}
+          <div>
+            <div className="wk-sym">{symbol}{co && <span className="wk-company-zh"> {co.zh}</span>}</div>
+            {co && <div className="wk-company-tagline">{co.tagline}</div>}
+            <div className="wk-week">{week}</div>
+          </div>
         </div>
         <div className="wk-price-block">
           <div className="wk-close">${weekClose}</div>

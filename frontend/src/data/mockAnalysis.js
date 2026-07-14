@@ -290,7 +290,7 @@ const MOCK_GEX = {
       { strike: 220, gex: 3100000 }, { strike: 222.5, gex: 1420000 },
       { strike: 225, gex: 820000 }, { strike: 230, gex: 310000 },
     ],
-    putWall: 205, callWall: 220, pcr: 0.52,
+    putWall: 205, callWall: 220, pcr: 0.52, pcrVol: 0.38,
     unusualActivity: [
       { type: 'PUT', strike: 210, date: '2026-07-10', vol: 3241 },
       { type: 'CALL', strike: 220, date: '2026-07-09', vol: 5832 },
@@ -312,7 +312,7 @@ const MOCK_GEX = {
       { strike: 600, gex: 18200000 }, { strike: 605, gex: 9100000 },
       { strike: 610, gex: 4300000 },
     ],
-    putWall: 575, callWall: 595, pcr: 1.20,
+    putWall: 575, callWall: 595, pcr: 1.20, pcrVol: 0.84,
     unusualActivity: [
       { type: 'PUT', strike: 575, date: '2026-07-10', vol: 18420 },
       { type: 'CALL', strike: 595, date: '2026-07-09', vol: 12840 },
@@ -335,7 +335,7 @@ const MOCK_GEX = {
       { strike: 535, gex: 14200000 }, { strike: 540, gex: 7800000 },
       { strike: 545, gex: 3200000 },
     ],
-    putWall: 505, callWall: 530, pcr: 0.65,
+    putWall: 505, callWall: 530, pcr: 0.65, pcrVol: 0.51,
     unusualActivity: [
       { type: 'CALL', strike: 530, date: '2026-07-10', vol: 8341 },
       { type: 'PUT', strike: 505, date: '2026-07-10', vol: 6128 },
@@ -355,7 +355,7 @@ const MOCK_GEX = {
       { strike: 260, gex: 6900000 }, { strike: 265, gex: 3100000 },
       { strike: 270, gex: 1400000 },
     ],
-    putWall: 240, callWall: 260, pcr: 0.88,
+    putWall: 240, callWall: 260, pcr: 0.88, pcrVol: 1.24,
     unusualActivity: [
       { type: 'PUT', strike: 240, date: '2026-07-10', vol: 12841 },
       { type: 'PUT', strike: 245, date: '2026-07-09', vol: 8392 },
@@ -375,7 +375,7 @@ const MOCK_GEX = {
       { strike: 440, gex: 6200000 }, { strike: 445, gex: 3800000 },
       { strike: 450, gex: 1900000 },
     ],
-    putWall: 425, callWall: 440, pcr: 0.48,
+    putWall: 425, callWall: 440, pcr: 0.48, pcrVol: 0.42,
     unusualActivity: [
       { type: 'CALL', strike: 440, date: '2026-07-10', vol: 4821 },
       { type: 'CALL', strike: 445, date: '2026-07-09', vol: 3192 },
@@ -394,7 +394,7 @@ const MOCK_GEX = {
       { strike: 122, gex: 3400000 }, { strike: 124, gex: 2200000 },
       { strike: 125, gex: 1600000 }, { strike: 127, gex: 800000 },
     ],
-    putWall: 115, callWall: 122, pcr: 0.74,
+    putWall: 115, callWall: 122, pcr: 0.74, pcrVol: 0.68,
     unusualActivity: [
       { type: 'CALL', strike: 122, date: '2026-07-10', vol: 2841 },
     ],
@@ -412,7 +412,7 @@ const MOCK_GEX = {
       { strike: 238, gex: 2600000 }, { strike: 240, gex: 3400000 },
       { strike: 243, gex: 2100000 }, { strike: 245, gex: 1200000 },
     ],
-    putWall: 230, callWall: 240, pcr: 0.42,
+    putWall: 230, callWall: 240, pcr: 0.42, pcrVol: 0.35,
     unusualActivity: [
       { type: 'CALL', strike: 240, date: '2026-07-10', vol: 1932 },
     ],
@@ -431,7 +431,7 @@ const MOCK_GEX = {
       { strike: 140, gex: 7200000 }, { strike: 144, gex: 4100000 },
       { strike: 148, gex: 2200000 },
     ],
-    putWall: 130, callWall: 140, pcr: 0.72,
+    putWall: 130, callWall: 140, pcr: 0.72, pcrVol: 0.57,
     unusualActivity: [
       { type: 'CALL', strike: 140, date: '2026-07-10', vol: 9821 },
       { type: 'CALL', strike: 145, date: '2026-07-09', vol: 7142 },
@@ -451,7 +451,7 @@ const MOCK_GEX = {
       { strike: 168, gex: 3800000 }, { strike: 170, gex: 2600000 },
       { strike: 172, gex: 1400000 }, { strike: 175, gex: 700000 },
     ],
-    putWall: 158, callWall: 168, pcr: 0.95,
+    putWall: 158, callWall: 168, pcr: 0.95, pcrVol: 1.10,
     unusualActivity: [
       { type: 'PUT', strike: 160, date: '2026-07-10', vol: 4821 },
     ],

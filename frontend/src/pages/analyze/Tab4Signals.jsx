@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import InsightCarousel from '../../components/InsightCarousel';
 
 function ChipRuler({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -105,8 +106,21 @@ export default function Tab4Signals({ data }) {
   const dToPut = (price - putWall).toFixed(2);
   const nearerCall = Math.abs(callWall - price) < Math.abs(price - putWall);
 
+  const insights = [
+    `观察区间 $${putWall} ~ $${callWall}，当前价 $${price} ${nearerCall ? `距Call Wall仅$${dToCall}（+${pctToCall}%），上方压力明显` : `距Put Wall仅$${dToPut}（-${pctToPut}%），下方支撑关键`}`,
+    `多头剧本：突破 $${scenarios.upTrigger} 确认上攻，目标 $${scenarios.upTarget}`,
+    `空头剧本：跌破 $${scenarios.downTrigger} 触发加速，目标 $${scenarios.downTarget}`,
+    nearerCall
+      ? `价格更靠近Call Wall，突破前建议观望，勿追高；突破后注意Gamma加速`
+      : `价格更靠近Put Wall，跌破则负Gamma放大波动；守住支撑是多头关键`,
+  ];
+
   return (
     <div className="tab-signals">
+      <div className="az-price-range-chip">
+        <span className="az-range-label">观察区间</span>
+        <span className="az-range-val">${putWall} ~ ${callWall}</span>
+      </div>
       <div className="az-signals-layout">
         <div className="az-chip-ruler-wrap az-card">
           <div className="az-card-title">主力筹码标尺</div>
@@ -150,6 +164,7 @@ export default function Tab4Signals({ data }) {
           </div>
         </div>
       </div>
+      <InsightCarousel insights={insights} />
     </div>
   );
 }

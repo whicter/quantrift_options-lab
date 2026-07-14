@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
+import { getCompanyInfo } from '../data/companyInfo';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
@@ -97,7 +98,20 @@ export default function Analyze() {
         <>
           {/* Symbol header */}
           <div className="az-symbol-row">
-            <div className="az-symbol">{result.symbol}</div>
+            {(() => {
+              const co = getCompanyInfo(result.symbol);
+              return co ? (
+                <div className="az-company-info">
+                  <img className="az-company-logo" src={co.logo} alt={co.en} onError={e => { e.target.style.display = 'none'; }} />
+                  <div className="az-company-text">
+                    <div className="az-symbol">{result.symbol} <span className="az-company-zh">{co.zh}</span></div>
+                    <div className="az-company-tagline">{co.tagline}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="az-symbol">{result.symbol}</div>
+              );
+            })()}
             <div className="az-price">${result.price}</div>
             <div style={{ flex: 1 }} />
             <div style={{ minWidth: 200 }}>
