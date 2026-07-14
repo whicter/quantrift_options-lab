@@ -15,6 +15,7 @@ import os
 import json
 import logging
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -35,18 +36,31 @@ log = logging.getLogger(__name__)
 
 TT_BASE  = 'https://api.tastyworks.com'
 DB_URL   = os.getenv('DATABASE_URL')
-
-# All symbols to collect daily. Edit this list as your watchlist grows.
-WATCHLIST = [
-    'AAPL', 'SPY', 'QQQ', 'TSLA', 'MSFT',
-    'XOM', 'GLD', 'NVDA', 'AMD', 'AMZN',
-    'META', 'GOOGL', 'NFLX', 'BA', 'JPM',
-    'GS', 'TLT', 'IWM', 'SMH', 'XLE',
-    'VIX',
-]
+WATCHLIST_PATH = Path(__file__).with_name('watchlist.txt')
 
 # Tastytrade batch limit
 TT_BATCH = 50
+
+
+def load_watchlist(path: Path = WATCHLIST_PATH) -> list[str]:
+    """Load collector symbols from watchlist.txt, preserving order and removing duplicates."""
+    if not path.exists():
+        raise FileNotFoundError(f'Watchlist file not found: {path}')
+
+    symbols = []
+    seen = set()
+
+    for raw_line in path.read_text(encoding='utf-8').splitlines():
+        line = raw_line.split('#', 1)[0].strip().upper()
+        if not line or line in seen:
+            continue
+        symbols.append(line)
+        seen.add(line)
+
+    if not symbols:
+        raise ValueError(f'Watchlist file is empty: {path}')
+
+    return symbols
 
 
 def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
@@ -160,6 +174,8 @@ def upsert_rows(conn, rows: list[dict]):
 def run():
     log.info('=== IV Collector starting ===')
     today = date.today()
+    watchlist = load_watchlist()
+    log.info(f'Loaded {len(watchlist)} symbols from {WATCHLIST_PATH.name}')
 
     # Auth
     session_token = get_session_token()
@@ -172,8 +188,8 @@ def run():
     errors = []
 
     # Batch fetch (TT allows up to 50 per request)
-    for i in range(0, len(WATCHLIST), TT_BATCH):
-        batch = WATCHLIST[i:i + TT_BATCH]
+    for i in range(0, len(watchlist), TT_BATCH):
+        batch = watchlist[i:i + TT_BATCH]
         log.info(f'Fetching metrics for: {", ".join(batch)}')
 
         try:

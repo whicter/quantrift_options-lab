@@ -66,7 +66,7 @@ def renew_session(remember_token):
     resp = requests.post(
         f'{TT_BASE}/sessions',
         headers=_headers(),
-        json={'login': login, 'remember-token': remember_token},
+        json={'login': login, 'remember-token': remember_token, 'remember-me': True},
         timeout=15,
     )
 
@@ -131,7 +131,7 @@ def manual_login():
 
     # Step 1: Initial POST /sessions — expect 403 + challenge token
     print('\n[1/4] Initiating session...')
-    r = _post('/sessions', {'login': login, 'password': password})
+    r = _post('/sessions', {'login': login, 'password': password, 'remember-me': True})
     challenge_token = r.headers.get('x-tastyworks-challenge-token')
     if not challenge_token:
         if r.status_code == 201:
