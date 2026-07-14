@@ -877,10 +877,11 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 
 /* ─── Tab 4 Signals / Chip ruler ────────────────────────────────── */
 .tab-signals { }
-.az-signals-layout { display: grid; grid-template-columns: 1fr 280px; gap: 12px; }
+.az-signals-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
 @media (max-width: 720px) { .az-signals-layout { grid-template-columns: 1fr; } }
-.az-chip-ruler-wrap { }
-.az-signals-info { display: flex; flex-direction: column; gap: 10px; }
+.az-chip-ruler-wrap { min-width: 0; overflow: hidden; }
+.az-chip-ruler-wrap canvas { width: 100%; max-width: 100%; }
+.az-signals-info { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .az-wall-dist {
   border-radius: 6px; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 3px;
