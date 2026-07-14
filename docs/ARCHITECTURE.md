@@ -825,13 +825,14 @@ collector 更新
 | 环境 | 前端 | API | 数据库 |
 |---|---|---|---|
 | Local full stack | localhost:5173 | localhost:3001 | Railway 公网 DB 或本地 DB |
-| Local frontend only | localhost:5173 | Railway API | Railway DB |
+| Local frontend only | localhost:5173 | Railway API | Railway DB，仅临时调试 |
 | Vercel Preview | Preview URL | 明确配置的 API | 对应 DB |
 | Production | www.quantrift.io | Railway Production | Railway Production DB |
 
 风险：
 
 - Preview 不应无意间写生产数据。
+- 本地 UI preview 默认应调用本地 backend；直接调用 Railway production API 只作为临时调试路径。
 - collector 测试不应污染生产 `iv_history`。
 - 若只有一个数据库，应把所有 API 保持只读，并谨慎运行 collector。
 - 长期建议增加 staging 数据库或至少独立 schema。

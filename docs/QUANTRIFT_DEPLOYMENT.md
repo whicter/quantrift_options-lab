@@ -279,14 +279,14 @@ Railway 会自动注入 `PORT`，生产环境通常不需要手动设置。
 ### 5.2 Railway 环境变量
 
 ```env
-CORS_ORIGINS=https://www.quantrift.io,http://localhost:5173,http://127.0.0.1:4173
+CORS_ORIGINS=https://www.quantrift.io
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 NODE_ENV=production
 ```
 
 | 变量 | 作用 |
 |---|---|
-| `CORS_ORIGINS` | 逗号分隔的浏览器 Origin 白名单；生产站点 + 本地开发 preview |
+| `CORS_ORIGINS` | 逗号分隔的浏览器 Origin 白名单；生产默认只允许正式站点 |
 | `DATABASE_URL` | 连接同一 Railway 项目中的 PostgreSQL |
 | `NODE_ENV` | 启用生产行为及当前数据库 SSL 分支 |
 | `PORT` | Railway 自动注入，不建议硬编码 |
@@ -557,22 +557,45 @@ localhost:3001
 Railway PostgreSQL 公网地址
 ```
 
-### 7.3 本地前端连接生产 API
+### 7.3 本地前端连接 API
 
-```env
-VITE_API_BASE_URL=https://quantriftoptions-lab-production.up.railway.app
+默认本地开发链路应使用本地后端服务：
+
+```text
+http://localhost:5173
+  → http://localhost:3001
+  → Railway PostgreSQL 或本地 PostgreSQL
 ```
 
-生产后端应允许正式站点和本地开发 preview：
+本地前端配置：
+
+```env
+VITE_API_URL=http://localhost:3001
+```
+
+本地后端配置：
+
+```env
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:4173
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@YOUR_HOST.proxy.rlwy.net:YOUR_PORT/railway
+```
+
+生产 Railway API 默认只允许：
 
 ```text
 https://www.quantrift.io
-http://localhost:5173
-http://127.0.0.1:4173
 ```
+
+只有在临时调试“本地前端直接打生产 Railway API”时，才短时间加入 localhost：
 
 ```env
 CORS_ORIGINS=https://www.quantrift.io,http://localhost:5173,http://127.0.0.1:4173
+```
+
+调试完成后应恢复为：
+
+```env
+CORS_ORIGINS=https://www.quantrift.io
 ```
 
 `server/src/index.js` 同时兼容旧变量 `CORS_ORIGIN`，但新配置应使用 `CORS_ORIGINS`。
