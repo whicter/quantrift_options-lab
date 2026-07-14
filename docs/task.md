@@ -131,12 +131,17 @@
 ## 🔨 Phase 3B-2 — 价格历史生产化与 UI 数据状态
 
 ### Collector 调度
-- [ ] 在 Mac Studio cron 中新增 `collect_prices.py` 定时任务
-  - 推荐时间：美股收盘后、IV collector 之后，例如 1:35pm PT / 4:35pm ET
-  - 命令：`cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python collect_prices.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect_prices.log 2>&1`
-  - 前置：确认 IB Gateway 在线、API enabled、`IB_PRICE_CLIENT_ID=12` 未与其他 bot 冲突
-  - 2026-07-14 状态：`crontab -l` 可读取，但 `crontab /private/tmp/quantrift_options_crontab.txt` 在当前 Codex 权限环境中挂住；任务尚未安装。
-  - 临时 crontab 文件：`/private/tmp/quantrift_options_crontab.txt` 已包含目标行，可在 macOS Terminal 手动执行 `crontab /private/tmp/quantrift_options_crontab.txt`。
+- [x] 在 Mac Studio 安装 `collect_prices.py` 定时任务
+  - 采用 macOS LaunchAgent，而不是 cron。
+  - 原因：`crontab -l` 可读取，但 `crontab /private/tmp/quantrift_options_crontab.txt` 在当前 Codex/macOS 权限环境中挂住；LaunchAgent 可正常 bootstrap/kickstart。
+  - Label：`com.quantrift.collect-prices`
+  - Installed plist：`/Users/congrenhan/Library/LaunchAgents/com.quantrift.collect-prices.plist`
+  - Runtime：`/Users/congrenhan/.quantrift_options_collector`
+  - Schedule：Monday-Friday 13:35 PT / 16:35 ET
+  - Runtime wrapper：`/Users/congrenhan/.quantrift_options_collector/run_collect_prices.sh`
+  - Logs：`/Users/congrenhan/.quantrift_options_collector/logs/collect_prices.launchd.log`
+  - 2026-07-14 kickstart 验证：`launchctl kickstart -k gui/$(id -u)/com.quantrift.collect-prices`
+  - 2026-07-14 launchd 验证结果：`last exit code = 0`，日志显示 `4020 rows written, 0 failed`
 - [x] 跑完整 watchlist 一次 `collect_prices.py`
   - 成功 symbols 数量：67 / 67
   - 写入 rows：4020
@@ -191,6 +196,7 @@
 - [x] Syntax verified：Node server routes
 - [x] Frontend build verified：`npm run build`
 - [x] Collector runtime verified：完整 watchlist run
+- [x] LaunchAgent verified：`com.quantrift.collect-prices` kickstart 完成，`last exit code = 0`
 - [x] Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 `freshness=fresh`、`is_stale=false`
 - [x] Local API verified：`curl -f "http://localhost:3002/api/status/data"` 返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
 - [x] Production API verified：Railway `/api/prices/AAPL?limit=3`

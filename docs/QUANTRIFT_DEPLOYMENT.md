@@ -391,7 +391,13 @@ public.price_history
 - 本地 API 验证：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 成功返回 3 rows，source=`ib_internal`。
 - 2026-07-14 完整 watchlist 验证：`collector/venv311/bin/python collector/collect_prices.py` 成功处理 67/67 symbols，写入 4020 rows，0 failed。
 - 2026-07-14 Railway DB 覆盖验证：`price_history` 有 67 distinct symbols、4020 rows、date range 2026-04-17 → 2026-07-14、source=`ib_internal`，无少于 60 rows 的 symbol。
-- 当前 cron 安装状态：`crontab -l` 可读；安装更新后的 crontab 在当前 Codex 权限环境中挂住，尚未写入。目标 crontab 已保存至 `/private/tmp/quantrift_options_crontab.txt`，可在 Mac Studio Terminal 手动执行 `crontab /private/tmp/quantrift_options_crontab.txt`。
+- 当前定时任务状态：已改用 macOS LaunchAgent 安装 `com.quantrift.collect-prices`。
+  - Installed plist：`/Users/congrenhan/Library/LaunchAgents/com.quantrift.collect-prices.plist`
+  - Runtime：`/Users/congrenhan/.quantrift_options_collector`
+  - Schedule：Monday-Friday 13:35 PT / 16:35 ET
+  - Logs：`/Users/congrenhan/.quantrift_options_collector/logs/collect_prices.launchd.log`
+  - 2026-07-14 kickstart 验证：`last exit code = 0`，日志显示 `4020 rows written, 0 failed`
+  - 说明：`crontab` 写入在当前 Codex/macOS 权限环境中挂住；LaunchAgent 已验证可运行。
 - 2026-07-14 生产 API 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"` 返回 HTTP 200，`source=ib_internal`、`count=3`、`freshness=fresh`、`is_stale=false`。
 - 2026-07-14 生产 status 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/status/data"` 返回 `expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
 

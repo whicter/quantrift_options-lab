@@ -9,6 +9,7 @@ Provider is selected by PRICE_PROVIDER:
 
 import logging
 import os
+from pathlib import Path
 
 import psycopg2
 from dotenv import load_dotenv
@@ -18,7 +19,7 @@ from common import load_watchlist
 from providers.ib_price_provider import IBPriceProvider
 from providers.stooq_price_provider import StooqPriceProvider
 
-load_dotenv()
+load_dotenv(Path(__file__).with_name('.env'))
 
 logging.basicConfig(
     level=logging.INFO,
