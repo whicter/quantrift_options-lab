@@ -30,17 +30,49 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
       ctx.fillStyle = 'rgba(59,130,246,0.04)';
       ctx.fillRect(PAD.left, sy(callWall), cW, sy(putWall) - sy(callWall));
 
-      // OI density bars (GEX as OI proxy)
-      const maxGex = Math.max(...gexByStrike.map(d => Math.abs(d.gex)));
-      gexByStrike.forEach(({ strike, gex }) => {
-        const y = sy(strike);
-        if (y < PAD.top - 4 || y > H - PAD.bottom + 4) return;
-        const bLen = (Math.abs(gex) / maxGex) * cW * 0.72;
-        ctx.fillStyle = gex >= 0 ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)';
-        ctx.fillRect(PAD.left + 2, y - 5, bLen, 10);
-        ctx.strokeStyle = gex >= 0 ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(PAD.left + 2, y - 5, bLen, 10);
+      // OI density bars — sorted, contiguous, fill full height between strikes
+      const sorted = [...gexByStrike].sort((a, b) => b.strike - a.strike); // high→low (top→bottom in canvas)
+      const visible = sorted.filter(d => {
+        const y = sy(d.strike);
+        return y >= PAD.top - 2 && y <= H - PAD.bottom + 2;
+      });
+      const maxGex = Math.max(...visible.map(d => Math.abs(d.gex))) || 1;
+
+      visible.forEach((d, i) => {
+        const y = sy(d.strike);
+        // bar height = half-distance to neighbors, so bars touch
+        const yAbove = i === 0 ? PAD.top : sy(visible[i - 1].strike);
+        const yBelow = i === visible.length - 1 ? H - PAD.bottom : sy(visible[i + 1].strike);
+        const halfUp = (y - yAbove) / 2;
+        const halfDown = (yBelow - y) / 2;
+        const barTop = y - halfUp + 0.5;
+        const barH = halfUp + halfDown - 1;
+
+        const ratio = Math.abs(d.gex) / maxGex;
+        const bLen = ratio * cW * 0.82;
+
+        // Gradient fill
+        const grad = ctx.createLinearGradient(PAD.left, 0, PAD.left + bLen, 0);
+        if (d.gex >= 0) {
+          grad.addColorStop(0, `rgba(34,197,94,${0.15 + ratio * 0.45})`);
+          grad.addColorStop(1, `rgba(34,197,94,${0.05 + ratio * 0.15})`);
+        } else {
+          grad.addColorStop(0, `rgba(239,68,68,${0.15 + ratio * 0.45})`);
+          grad.addColorStop(1, `rgba(239,68,68,${0.05 + ratio * 0.15})`);
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(PAD.left, barTop, bLen, barH);
+
+        // Left edge accent
+        ctx.fillStyle = d.gex >= 0 ? `rgba(34,197,94,${0.5 + ratio * 0.5})` : `rgba(239,68,68,${0.5 + ratio * 0.5})`;
+        ctx.fillRect(PAD.left, barTop, 2, barH);
+
+        // Strike label at right edge of bar
+        if (ratio > 0.25) {
+          ctx.fillStyle = d.gex >= 0 ? 'rgba(134,239,172,0.85)' : 'rgba(252,165,165,0.85)';
+          ctx.font = '9px monospace'; ctx.textAlign = 'left';
+          ctx.fillText(`$${d.strike}`, PAD.left + bLen + 4, y + 3);
+        }
       });
 
       // Y-axis price ticks
