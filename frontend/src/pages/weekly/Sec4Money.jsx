@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { getChartColors } from '../../lib/theme';
 
 function FlowChart({ dailyFlows }) {
   const canvasRef = useRef(null);
@@ -13,7 +14,8 @@ function FlowChart({ dailyFlows }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       const PAD = { top: 10, right: 80, bottom: 20, left: 14 };
       const cW = W - PAD.left - PAD.right;
@@ -24,7 +26,7 @@ function FlowChart({ dailyFlows }) {
       const zero = PAD.left;
 
       // Zero line
-      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, H - PAD.bottom); ctx.stroke();
 
       dailyFlows.forEach(({ day, flow }, i) => {
@@ -46,7 +48,7 @@ function FlowChart({ dailyFlows }) {
         ctx.fillRect(PAD.left, y, bLen, barH);
 
         // Day label (left)
-        ctx.fillStyle = '#3a4464'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+        ctx.fillStyle = theme.axis; ctx.font = '10px monospace'; ctx.textAlign = 'right';
         ctx.fillText(day, PAD.left - 4, y + barH / 2 + 4);
 
         // Value label (right of bar)

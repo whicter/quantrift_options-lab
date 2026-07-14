@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getChartColors } from '../../lib/theme';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -15,7 +16,8 @@ function GEXDayChart({ gexByStrike, putWall, callWall, price }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       const PAD = { top: 24, right: 14, bottom: 34, left: 14 };
       const cW = W - PAD.left - PAD.right;
@@ -30,7 +32,7 @@ function GEXDayChart({ gexByStrike, putWall, callWall, price }) {
       const sx = s => PAD.left + ((s - minS) / (maxS - minS)) * cW;
       const sh = g => (Math.abs(g) / maxGex) * (cH / 2 - 4);
 
-      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
 
       gexByStrike.forEach(({ strike, gex }) => {
@@ -48,7 +50,7 @@ function GEXDayChart({ gexByStrike, putWall, callWall, price }) {
           ctx.fillStyle = g;
           ctx.fillRect(x - barW / 2, zero, barW, h);
         }
-        ctx.fillStyle = '#2e3650'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = theme.axis; ctx.font = '8px monospace'; ctx.textAlign = 'center';
         ctx.fillText(String(strike), x, H - PAD.bottom + 13);
       });
 

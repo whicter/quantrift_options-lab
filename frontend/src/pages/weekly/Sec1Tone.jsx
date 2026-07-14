@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { getCompanyInfo } from '../../data/companyInfo';
+import { getChartColors } from '../../lib/theme';
 
 function CandleChart({ candles }) {
   const canvasRef = useRef(null);
@@ -14,7 +15,8 @@ function CandleChart({ candles }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       const PAD = { top: 10, right: 8, bottom: 20, left: 8 };
       const cW = W - PAD.left - PAD.right;
@@ -45,7 +47,7 @@ function CandleChart({ candles }) {
         ctx.fillRect(x - bW / 2, top, bW, bodyH);
 
         // Day label
-        ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
         ctx.fillText(c.day, x, H - PAD.bottom + 12);
       });
     };
@@ -69,7 +71,8 @@ function CMEGauge({ score }) {
     canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-    ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+    const theme = getChartColors();
+    ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
     const cx = W / 2, cy = H - 18, r = 70;
     const startA = Math.PI, endA = 0;
@@ -93,7 +96,7 @@ function CMEGauge({ score }) {
     });
 
     // Tick marks
-    ctx.strokeStyle = '#0c0e18'; ctx.lineWidth = 1;
+    ctx.strokeStyle = theme.bg; ctx.lineWidth = 1;
     [0, 25, 50, 75, 100].forEach(v => {
       const a = Math.PI + (v / 100) * Math.PI;
       ctx.beginPath();
@@ -103,7 +106,7 @@ function CMEGauge({ score }) {
     });
 
     // Labels
-    ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
     [[0, '恐慌'], [50, '中性'], [100, '贪婪']].forEach(([v, label]) => {
       const a = Math.PI + (v / 100) * Math.PI;
       const rr = r + 10;
@@ -117,16 +120,16 @@ function CMEGauge({ score }) {
     ctx.lineTo(cx + (r - 6) * Math.cos(needleA), cy + (r - 6) * Math.sin(needleA));
     ctx.lineTo(cx + 8 * Math.cos(needleA - Math.PI / 2), cy + 8 * Math.sin(needleA - Math.PI / 2));
     ctx.closePath();
-    ctx.fillStyle = '#e2e8f0'; ctx.fill();
+    ctx.fillStyle = theme.text; ctx.fill();
 
     // Center hub
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2);
     ctx.fillStyle = '#94a3b8'; ctx.fill();
 
     // Score text
-    ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = theme.text; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
     ctx.fillText(score, cx, cy - r / 2 - 4);
-    ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace';
+    ctx.fillStyle = theme.axis; ctx.font = '9px monospace';
     ctx.fillText('情绪指数', cx, cy - r / 2 + 10);
   }, [score]);
   return <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />;

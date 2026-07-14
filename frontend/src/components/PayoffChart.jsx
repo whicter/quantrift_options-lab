@@ -1,14 +1,12 @@
 import { useEffect, useRef, useMemo } from 'react';
 import useStrategyStore from '../store/useStrategyStore';
 import { bsPrice } from '../lib/blackscholes';
+import { getChartColors } from '../lib/theme';
 
 const COLORS = {
   expiry: '#10d984',
   scenario: '#3b82f6',
   bep: '#f5a623',
-  zero: '#2e3545',
-  grid: '#1e2230',
-  axis: '#555e73',
 };
 
 function drawChart(canvas, data) {
@@ -20,6 +18,7 @@ function drawChart(canvas, data) {
   canvas.height = H * dpr;
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
+  const theme = getChartColors();
 
   const PAD = { top: 16, right: 14, bottom: 30, left: 52 };
   const cW = W - PAD.left - PAD.right;
@@ -33,11 +32,11 @@ function drawChart(canvas, data) {
   const yMap = (v) => PAD.top + (1 - (v - yLo) / (yHi - yLo)) * cH;
 
   // Background
-  ctx.fillStyle = '#13161c';
+  ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, W, H);
 
   // Grid lines
-  ctx.strokeStyle = COLORS.grid;
+  ctx.strokeStyle = theme.grid;
   ctx.lineWidth = 1;
   const ySteps = 5;
   for (let i = 0; i <= ySteps; i++) {
@@ -45,7 +44,7 @@ function drawChart(canvas, data) {
     const y = yMap(v);
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
     // Y label
-    ctx.fillStyle = COLORS.axis;
+    ctx.fillStyle = theme.axis;
     ctx.font = `10px -apple-system, sans-serif`;
     ctx.textAlign = 'right';
     const label = v >= 1000 ? `${(v/1000).toFixed(1)}k` : v <= -1000 ? `${(v/1000).toFixed(1)}k` : v.toFixed(0);
@@ -58,23 +57,23 @@ function drawChart(canvas, data) {
   for (let i = 0; i <= xSteps; i++) {
     const s = minS + ((maxS - minS) / xSteps) * i;
     const x = xMap(s);
-    ctx.fillStyle = COLORS.axis;
+    ctx.fillStyle = theme.axis;
     ctx.fillText(s.toFixed(0), x, H - PAD.bottom + 14);
-    ctx.strokeStyle = COLORS.grid;
+    ctx.strokeStyle = theme.grid;
     ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, H - PAD.bottom); ctx.stroke();
   }
 
   // Zero line
   if (yLo < 0 && yHi > 0) {
     const y0 = yMap(0);
-    ctx.strokeStyle = COLORS.zero;
+    ctx.strokeStyle = theme.gridSoft;
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(PAD.left, y0); ctx.lineTo(W - PAD.right, y0); ctx.stroke();
   }
 
   // Spot vertical line
   const xSpot = xMap(spot);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = theme.gridSoft;
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   ctx.beginPath(); ctx.moveTo(xSpot, PAD.top); ctx.lineTo(xSpot, H - PAD.bottom); ctx.stroke();

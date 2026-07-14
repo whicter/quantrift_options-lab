@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
+import { getChartColors } from '../../lib/theme';
 
 function genPrices(symbol, currentPrice, days = 60) {
   let seed = symbol.split('').reduce((a, c) => a + c.charCodeAt(0), 42);
@@ -54,6 +55,7 @@ function TrendCanvas({ prices, kf, spread }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
+      const theme = getChartColors();
       const PAD = { top: 16, right: 16, bottom: 24, left: 52 };
       const cW = W - PAD.left - PAD.right;
       const cH = H - PAD.top - PAD.bottom;
@@ -63,14 +65,14 @@ function TrendCanvas({ prices, kf, spread }) {
       const sy = v => PAD.top + cH - (v - minP) / (maxP - minP) * cH;
       const sx = i => PAD.left + (i / (prices.length - 1)) * cW;
 
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       // Grid lines
       for (let t = 0; t <= 4; t++) {
         const y = sy(minP + (maxP - minP) * (t / 4));
-        ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.beginPath(); ctx.strokeStyle = theme.grid;
         ctx.lineWidth = 1; ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
-        ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+        ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'right';
         ctx.fillText((minP + (maxP - minP) * (t / 4)).toFixed(1), PAD.left - 4, y + 3);
       }
 
@@ -90,16 +92,16 @@ function TrendCanvas({ prices, kf, spread }) {
       // Price line
       ctx.beginPath();
       prices.forEach((v, i) => i === 0 ? ctx.moveTo(sx(0), sy(v)) : ctx.lineTo(sx(i), sy(v)));
-      ctx.strokeStyle = 'rgba(255,255,255,0.88)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.strokeStyle = theme.text; ctx.lineWidth = 1.5; ctx.stroke();
 
       // Last price dot
       ctx.beginPath();
       ctx.arc(sx(prices.length - 1), sy(prices[prices.length - 1]), 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.fillStyle = theme.text; ctx.fill();
 
       // X-axis date labels
       const now = new Date();
-      ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
       for (let i = 0; i < prices.length; i += 15) {
         const d = new Date(now - (prices.length - 1 - i) * 864e5);
         ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, sx(i), H - 4);
@@ -116,7 +118,8 @@ function TrendCanvas({ prices, kf, spread }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
       const PAD = { top: 6, right: 16, bottom: 14, left: 52 };
       const cW = W - PAD.left - PAD.right;
       const cH = H - PAD.top - PAD.bottom;
@@ -137,9 +140,9 @@ function TrendCanvas({ prices, kf, spread }) {
         }
       });
 
-      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
-      ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+      ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'right';
       ctx.fillText('Trend Spread', PAD.left - 2, PAD.top + 10);
     };
 

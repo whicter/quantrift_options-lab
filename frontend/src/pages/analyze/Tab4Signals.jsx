@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
+import { getChartColors } from '../../lib/theme';
 
 function ChipRuler({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -15,7 +16,8 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       const PAD = { top: 16, right: 12, bottom: 16, left: 52 };
       const cH = H - PAD.top - PAD.bottom;
@@ -72,7 +74,7 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
         ctx.fillRect(PAD.left, barTop, 3, barH);
 
         // Strike label inside bar, near left
-        ctx.fillStyle = 'rgba(180,190,210,0.7)';
+        ctx.fillStyle = theme.text;
         ctx.font = '8px monospace'; ctx.textAlign = 'left';
         ctx.fillText(`$${d.strike}`, PAD.left + 6, y + 3);
       });
@@ -86,9 +88,9 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
         const v = minP + step * i;
         const y = sy(v);
         if (y < PAD.top - 2 || y > H - PAD.bottom + 2) continue;
-        ctx.fillStyle = '#2e3650';
+        ctx.fillStyle = theme.axis;
         ctx.fillText(v.toFixed(v >= 100 ? 0 : 1), PAD.left - 4, y + 3);
-        ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.beginPath(); ctx.strokeStyle = theme.grid;
         ctx.lineWidth = 1; ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
       }
 
@@ -118,9 +120,9 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
       ctx.fillStyle = 'rgba(96,165,250,0.12)'; ctx.fill();
       // Dot
       ctx.beginPath(); ctx.arc(dotX, prY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#60a5fa'; ctx.fill();
+      ctx.fillStyle = theme.spot; ctx.fill();
       // Label
-      ctx.fillStyle = '#60a5fa'; ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = theme.spot; ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'left'; ctx.fillText(`$${price}`, dotX + 12, prY + 4);
     };
 

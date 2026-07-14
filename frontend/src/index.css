@@ -1,6 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  color-scheme: dark;
   --bg: #0b0d10;
   --bg-card: #13161c;
   --bg-hover: #1a1e26;
@@ -23,6 +24,30 @@
   --orange: #f97316;
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f8fb;
+  --bg-card: #ffffff;
+  --bg-hover: #edf2f8;
+  --bg-input: #f1f5f9;
+  --border: #d8e0ea;
+  --border-light: #c7d2df;
+  --text: #172033;
+  --text-dim: #5c687a;
+  --text-muted: #8792a3;
+  --green: #078a54;
+  --green-dim: rgba(7,138,84,0.12);
+  --blue: #2563eb;
+  --blue-dim: rgba(37,99,235,0.12);
+  --red: #dc2626;
+  --red-dim: rgba(220,38,38,0.11);
+  --yellow: #b7791f;
+  --yellow-dim: rgba(183,121,31,0.14);
+  --purple: #7c3aed;
+  --cyan: #0891b2;
+  --orange: #ea580c;
+}
+
 html, body, #root {
   height: 100%;
   background: var(--bg);
@@ -31,6 +56,10 @@ html, body, #root {
   font-size: 13px;
   line-height: 1.5;
   overflow: hidden;
+}
+
+body {
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
 /* ── NavBar ── */
@@ -64,6 +93,33 @@ html, body, #root {
 }
 .nav-link:hover { color: var(--text); background: var(--bg-hover); }
 .nav-link.active { color: var(--blue); background: var(--blue-dim); }
+.theme-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.theme-toggle-btn {
+  min-width: 46px;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.theme-toggle-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.theme-toggle-btn.active {
+  color: #fff;
+  background: var(--blue);
+}
 
 /* ── Layout with navbar offset ── */
 .app { padding-top: 44px; }

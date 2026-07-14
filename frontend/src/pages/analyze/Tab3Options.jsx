@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
+import { getChartColors } from '../../lib/theme';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -15,7 +16,8 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       const PAD = { top: 28, right: 16, bottom: 38, left: 16 };
       const cW = W - PAD.left - PAD.right;
@@ -31,7 +33,7 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
       const sh = g => (Math.abs(g) / maxGex) * (cH / 2 - 4);
 
       // Zero line
-      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
 
       // Bars
@@ -53,11 +55,11 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
         // Value label on taller bars
         if (Math.abs(gex) / maxGex > 0.28) {
           const label = Math.abs(gex) >= 1e6 ? `${(gex / 1e6).toFixed(1)}M` : `${(gex / 1e3).toFixed(0)}K`;
-          ctx.fillStyle = 'rgba(200,210,230,0.85)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+          ctx.fillStyle = theme.text; ctx.font = '8px monospace'; ctx.textAlign = 'center';
           ctx.fillText(label, x, pos ? zero - h - 4 : zero + h + 9);
         }
         // Strike label
-        ctx.fillStyle = '#3a4464'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = theme.axis; ctx.font = '8px monospace'; ctx.textAlign = 'center';
         ctx.fillText(String(strike), x, H - PAD.bottom + 13);
       });
 
@@ -84,14 +86,14 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
       // Current price (blue solid vertical)
       const prx = sx(price);
       if (prx >= PAD.left && prx <= W - PAD.right) {
-        ctx.strokeStyle = 'rgba(96,165,250,1)'; ctx.lineWidth = 2;
+        ctx.strokeStyle = theme.spot; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(prx, PAD.top); ctx.lineTo(prx, H - PAD.bottom); ctx.stroke();
-        ctx.fillStyle = '#60a5fa'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = theme.spot; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`$${price}`, prx, PAD.top - 10);
         // Arrow marker
         ctx.beginPath();
         ctx.moveTo(prx - 5, PAD.top - 1); ctx.lineTo(prx + 5, PAD.top - 1); ctx.lineTo(prx, PAD.top + 6);
-        ctx.closePath(); ctx.fillStyle = '#60a5fa'; ctx.fill();
+        ctx.closePath(); ctx.fillStyle = theme.spot; ctx.fill();
       }
     };
 
