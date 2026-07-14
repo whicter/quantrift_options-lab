@@ -384,25 +384,37 @@
   - `curl -f "http://127.0.0.1:3001/api/status/options"` → `table_exists=true`, `covered_count=0`, `missing_count=67`
 
 **Phase 3D-2 — IB Gateway Internal Adapter**
-- [ ] 新增 `collector/providers/ib_option_chain_provider.py`
-- [ ] 使用 IB API `reqSecDefOptParams` 获取 expirations / strikes，避免用 ambiguous `reqContractDetails` 拉全链。
-- [ ] 限定过渡阶段采集范围：
+- [x] 新增 `collector/providers/ib_option_chain_provider.py`
+- [x] 新增 `collector/collect_options.py`
+  - provider → `option_chain_snapshots`
+  - contracts → `option_contract_snapshots`
+  - job status → `provider_fetch_jobs`
+- [x] 使用 IB API `reqSecDefOptParams` 获取 expirations / strikes，避免用 ambiguous `reqContractDetails` 拉全链。
+- [x] 限定过渡阶段采集范围：
   - symbols：先 `AAPL`, `SPY`, `QQQ`, `PLTR`
   - DTE：7-60 days
   - strikes：spot ±15% 或每边最多 20 个 strikes
   - rights：call + put
-- [ ] 对每个 option contract 请求 market data snapshot：
+- [x] 对每个 option contract 请求 market data snapshot：
   - bid / ask / last / volume / open interest
   - model greeks：iv / delta / gamma / theta / vega
-- [ ] 记录 IB pacing / timeout / empty contract：
+- [x] 记录 IB pacing / timeout / empty contract：
   - 每 symbol 最大运行时间
   - 每批 contract 数量
   - provider error code
   - snapshot completeness percentage
-- [ ] 失败策略：
+- [x] 失败策略：
   - underlying 缺失：整 symbol snapshot fail，不写 partial GEX
   - chain 缺失：写 job failure，不覆盖旧 snapshot
   - 部分 contract 缺 Greeks/OI：写 contract row，但 `completeness` 降低；GEX confidence 降级
+- [x] Runtime smoke with IB Gateway：
+  - Command：`OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 IB_OPTION_CLIENT_ID=43 IB_TIMEOUT=25 venv311/bin/python collect_options.py`
+  - Result：snapshot written，latest `snapshot_id=2`
+  - API verified：`/api/options/PLTR/snapshot` 返回 `source=ib_internal`、`provider_status=partial`、`contract_count=10`
+  - API verified：`/api/status/options` 返回 `covered_count=1`、`covered_symbols=["PLTR"]`
+- [ ] Data quality follow-up：
+  - 当前 IB 返回 chain definition / expiry / strikes，但 option quote、Greeks、OI 均为空：`completeness_pct=0.00`、`missing_greeks_ratio=1.0000`、`missing_oi_ratio=1.0000`
+  - 需要确认 IB market data subscription / delayed options data / generic tick permissions 后再进入 3D-3 GEX 计算
 
 **Phase 3D-3 — GEX / Wall / Gamma Flip Calculation**
 - [ ] GEX by contract：

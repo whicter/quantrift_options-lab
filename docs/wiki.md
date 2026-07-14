@@ -603,6 +603,12 @@ Phase 3D-1 已落地的数据接口：
 
 这些 API 只读 PostgreSQL，不会同步调用 IB Gateway 或任何外部 provider。没有 snapshot 时返回 `freshness=missing`，而不是 fallback 到 mock。
 
+Phase 3D-2 已验证 IB internal adapter 可以写入 bounded option-chain snapshot：
+- 2026-07-14 runtime smoke：`OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=10`
+- 写入 `option_chain_snapshots.snapshot_id=2`
+- `/api/options/PLTR/snapshot` 返回 `source=ib_internal`、`provider_status=partial`、`contract_count=10`
+- 当前限制：IB 返回 chain definition / expirations / strikes，但本次 option quote、Greeks、OI 为空；因此 `completeness_pct=0.00`，不可用于 GEX / Wall / Gamma Flip 计算。
+
 ### 产品核心指标
 
 Options Lab 的高价值产品层是 options positioning / dealer gamma intelligence，而不是单纯 IV Rank 工具。

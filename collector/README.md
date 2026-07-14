@@ -4,6 +4,7 @@ Daily data collection into Railway PostgreSQL.
 
 - `collect.py`: IV / HV / earnings metrics from Tastytrade → `iv_history`
 - `collect_prices.py`: daily OHLCV from a provider adapter → `price_history`
+- `collect_options.py`: bounded option-chain snapshots from provider adapter → `option_chain_snapshots` / `option_contract_snapshots`
 
 ## Setup (Mac Studio)
 
@@ -40,6 +41,20 @@ Price history uses `PRICE_PROVIDER=ib_internal` by default. This requires local 
 venv311/bin/python collect_prices.py
 ```
 
+Option-chain snapshots use `OPTION_PROVIDER=ib_internal` for Phase 3D internal validation. This is not licensed product data and should stay bounded while using IB Gateway:
+
+```bash
+OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=40 venv311/bin/python collect_options.py
+```
+
+Default option-chain scope:
+
+- Symbols: `AAPL,SPY,QQQ,PLTR`
+- DTE: 7-60 days
+- Strikes: spot +/- 15%, capped by `OPTION_MAX_STRIKES_PER_SIDE`
+- Source label: `ib_internal`
+- API behavior: server reads PostgreSQL snapshots only; user requests never call IB Gateway synchronously.
+
 For explicit development/backfill only, Stooq can be selected without changing production defaults:
 
 ```bash
@@ -48,7 +63,9 @@ PRICE_PROVIDER=stooq SYMBOLS=AAPL venv311/bin/python collect_prices.py
 
 ## Watchlist
 
-Both collectors read symbols from `watchlist.txt`. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills.
+IV and price collectors read symbols from `watchlist.txt`. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills.
+
+`collect_options.py` intentionally defaults to `OPTION_SYMBOLS=AAPL,SPY,QQQ,PLTR` instead of the full watchlist to avoid IB pacing and runaway chain requests during the internal transition.
 
 Format:
 
@@ -86,7 +103,8 @@ mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
 - `auth.py` — Tastytrade auth + remember-token auto-renewal
 - `collect.py` — IV collector (Tastytrade → PostgreSQL)
 - `collect_prices.py` — OHLCV collector (provider adapter → PostgreSQL)
-- `providers/` — price provider adapters; `ib_internal` is default, `stooq` is explicit dev/backfill
+- `collect_options.py` — bounded option-chain snapshot collector
+- `providers/` — provider adapters; `ib_internal` is default for internal IB adapters, `stooq` is explicit price dev/backfill
 - `common.py` — shared watchlist loader
 - `watchlist.txt` — Collector symbol list
 - `requirements.txt` — Python dependencies
@@ -99,3 +117,5 @@ mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
 - Source: `tastytrade`
 - Cron installed on Mac Studio: `30 13 * * 1-5`
 - Price history pipeline implemented: provider adapter → `price_history` → `/api/prices/:symbol`
+- Option positioning schema/API implemented: provider adapter → `option_chain_snapshots` → `/api/options/:symbol/snapshot`
+- IB option-chain adapter is internal only and must be replaced by a licensed provider before public product use.
