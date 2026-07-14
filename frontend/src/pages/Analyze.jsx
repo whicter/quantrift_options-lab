@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
+import { getDataStatus, getMetrics } from '../lib/api';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
@@ -13,6 +14,43 @@ const TABS = [
   { id: 2, label: '数据解读' },
   { id: 3, label: '信号追踪' },
 ];
+
+function applyMetrics(data, metrics) {
+  if (!data || !metrics) return data;
+  const iv30 = metrics.iv30 == null ? data.iv30 : Number(metrics.iv30) * 100;
+  const hv30 = metrics.hv30 == null ? data.hv30 : Number(metrics.hv30) * 100;
+  const hv60 = metrics.hv60 == null ? data.hv60 : Number(metrics.hv60) * 100;
+  const ivHvDiff = metrics.iv_hv_diff == null ? data.ivHvDiff : Number(metrics.iv_hv_diff) * 100;
+  const earningsDate = metrics.earnings_date ? String(metrics.earnings_date).slice(0, 10) : data.earnings?.date;
+
+  return {
+    ...data,
+    ivRank: metrics.iv_rank == null ? data.ivRank : Math.round(Number(metrics.iv_rank)),
+    ivPercentile: metrics.iv_percentile == null ? data.ivPercentile : Math.round(Number(metrics.iv_percentile)),
+    iv30: Number(iv30.toFixed(1)),
+    hv30: Number(hv30.toFixed(1)),
+    hv60: Number(hv60.toFixed(1)),
+    ivHvDiff: Number(ivHvDiff.toFixed(1)),
+    dataMeta: {
+      date: metrics.date ? String(metrics.date).slice(0, 10) : null,
+      source: metrics.source,
+    },
+    earnings: {
+      ...data.earnings,
+      date: earningsDate,
+    },
+  };
+}
+
+function buildMissingMessage(symbol, status) {
+  if (!status) {
+    return `暂无 ${symbol} 的真实数据。数据覆盖状态暂时不可用，请稍后再试。`;
+  }
+  if (status.expected_symbols?.includes(symbol)) {
+    return `暂无 ${symbol} 的真实数据：该标的已在 watchlist 中，但 collector 尚未写入最新记录。下次收盘采集后会自动可用。`;
+  }
+  return `暂无 ${symbol} 的真实数据：该标的还不在 collector watchlist 中。加入 watchlist 后，下一次收盘采集完成才会显示。`;
+}
 
 function IVGauge({ value }) {
   const color = value >= 50 ? 'var(--red)' : value >= 30 ? 'var(--yellow)' : 'var(--green)';
@@ -39,6 +77,7 @@ export default function Analyze() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [dataStatus, setDataStatus] = useState(null);
   const activeTab = parseInt(searchParams.get('tab') || '0');
 
   const setTab = t => {
@@ -50,26 +89,47 @@ export default function Analyze() {
     const sym = searchParams.get('symbol');
     if (sym) {
       setInput(sym.toUpperCase());
-      const data = getMockAnalysis(sym);
-      if (data) setResult(data);
+      handleAnalyze(sym);
     }
+    getDataStatus().then(setDataStatus).catch(() => {});
   }, []);
 
-  function handleAnalyze() {
-    const sym = input.trim().toUpperCase();
+  async function handleAnalyze(forcedSymbol) {
+    const sym = (forcedSymbol || input).trim().toUpperCase();
     if (!sym) return;
     setLoading(true); setError('');
-    setTimeout(() => {
-      const data = getMockAnalysis(sym);
-      if (data) {
-        setResult(data);
-        setSearchParams({ symbol: sym, tab: activeTab });
-      } else {
-        setError(`暂无 ${sym} 的数据，试试 AAPL / SPY / QQQ`);
+
+    try {
+      const [metricsBySymbol, status] = await Promise.all([
+        getMetrics([sym]),
+        dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
+      ]);
+      if (status && !dataStatus) setDataStatus(status);
+
+      const metrics = metricsBySymbol[sym];
+      if (!metrics) {
+        setError(buildMissingMessage(sym, status));
         setResult(null);
+        return;
       }
+
+      const mock = getMockAnalysis(sym) || getMockAnalysis('SPY');
+      const data = applyMetrics({ ...mock, symbol: sym }, metrics);
+      setResult(data);
+      setSearchParams({ symbol: sym, tab: activeTab });
+    } catch {
+      const fallback = getMockAnalysis(sym);
+      if (fallback) {
+        setResult(fallback);
+        setSearchParams({ symbol: sym, tab: activeTab });
+        setError('真实数据 API 暂时不可用，当前显示本地示例结构。');
+      } else {
+        setResult(null);
+        setError(`真实数据 API 暂时不可用，无法确认 ${sym} 是否已采集。`);
+      }
+    } finally {
       setLoading(false);
-    }, 380);
+    }
   }
 
   return (
@@ -113,6 +173,11 @@ export default function Analyze() {
               );
             })()}
             <div className="az-price">${result.price}</div>
+            {result.dataMeta && (
+              <div className="az-data-meta">
+                {result.dataMeta.source} · {result.dataMeta.date}
+              </div>
+            )}
             <div style={{ flex: 1 }} />
             <div style={{ minWidth: 200 }}>
               <IVGauge value={result.ivRank} />

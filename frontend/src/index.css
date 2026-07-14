@@ -179,6 +179,7 @@ body {
 }
 .az-symbol { font-size: 24px; font-weight: 800; }
 .az-price { font-size: 18px; color: var(--text-dim); }
+.az-data-meta { font-size: 11px; color: var(--text-muted); padding: 3px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
 .az-earnings { font-size: 12px; color: var(--text-dim); padding: 4px 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border); }
 .az-earnings-warn { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); }
 
