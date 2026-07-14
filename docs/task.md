@@ -250,7 +250,10 @@
   - 返回真实 Tastytrade IV rows
   - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
   - 结果限定在 watchlist 内
-- [ ] Production API verified after deploy：Railway `/api/scan?minIvr=0&maxIvr=100&limit=10`
+- [x] Production API verified after deploy：Railway `/api/scan?minIvr=0&maxIvr=100&limit=5`
+  - 2026-07-14 verified HTTP 200
+  - 返回 rows 限定在 watchlist 内，不再包含 extra symbols such as `NFLX`
+  - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
 - [ ] UI verified：`/scan` 点击立即扫描显示真实 rows
 
 ---
