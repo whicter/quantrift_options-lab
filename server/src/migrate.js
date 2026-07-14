@@ -52,6 +52,129 @@ async function migrate() {
       filters     JSONB       NOT NULL DEFAULT '{}',
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS option_chain_snapshots (
+      id                    BIGSERIAL PRIMARY KEY,
+      symbol                TEXT        NOT NULL,
+      underlying_price      NUMERIC(14,4),
+      underlying_bid        NUMERIC(14,4),
+      underlying_ask        NUMERIC(14,4),
+      snapshot_ts           TIMESTAMPTZ NOT NULL,
+      source                TEXT        NOT NULL,
+      provider_status       TEXT        NOT NULL DEFAULT 'ok',
+      provider_snapshot_id  TEXT,
+      contract_count        INTEGER     NOT NULL DEFAULT 0,
+      completeness_pct      NUMERIC(6,2),
+      missing_greeks_ratio  NUMERIC(6,4),
+      missing_oi_ratio      NUMERIC(6,4),
+      raw_metadata          JSONB       NOT NULL DEFAULT '{}',
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS option_chain_snapshots_symbol_ts
+      ON option_chain_snapshots (symbol, snapshot_ts DESC);
+    CREATE INDEX IF NOT EXISTS option_chain_snapshots_source_ts
+      ON option_chain_snapshots (source, snapshot_ts DESC);
+
+    CREATE TABLE IF NOT EXISTS option_contract_snapshots (
+      id                    BIGSERIAL PRIMARY KEY,
+      snapshot_id           BIGINT      NOT NULL REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,
+      symbol                TEXT        NOT NULL,
+      expiry                DATE        NOT NULL,
+      strike                NUMERIC(14,4) NOT NULL,
+      option_right          TEXT        NOT NULL CHECK (option_right IN ('C', 'P')),
+      bid                   NUMERIC(14,4),
+      ask                   NUMERIC(14,4),
+      last                  NUMERIC(14,4),
+      mark                  NUMERIC(14,4),
+      volume                BIGINT,
+      open_interest         BIGINT,
+      iv                    NUMERIC(10,6),
+      delta                 NUMERIC(12,8),
+      gamma                 NUMERIC(12,8),
+      theta                 NUMERIC(12,8),
+      vega                  NUMERIC(12,8),
+      rho                   NUMERIC(12,8),
+      bid_size              INTEGER,
+      ask_size              INTEGER,
+      contract_symbol       TEXT,
+      local_symbol          TEXT,
+      con_id                BIGINT,
+      provider_contract_id  TEXT,
+      raw_contract          JSONB       NOT NULL DEFAULT '{}',
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (snapshot_id, expiry, strike, option_right)
+    );
+
+    CREATE INDEX IF NOT EXISTS option_contract_snapshots_snapshot_expiry_strike
+      ON option_contract_snapshots (snapshot_id, expiry, strike, option_right);
+    CREATE INDEX IF NOT EXISTS option_contract_snapshots_symbol_expiry
+      ON option_contract_snapshots (symbol, expiry, strike);
+
+    CREATE TABLE IF NOT EXISTS gex_snapshots (
+      id                          BIGSERIAL PRIMARY KEY,
+      snapshot_id                 BIGINT      NOT NULL UNIQUE REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,
+      symbol                      TEXT        NOT NULL,
+      snapshot_ts                 TIMESTAMPTZ NOT NULL,
+      source                      TEXT        NOT NULL,
+      global_gex                  NUMERIC(20,4),
+      local_gamma                 NUMERIC(20,4),
+      gamma_flip                  NUMERIC(14,4),
+      gamma_regime                TEXT,
+      spot_vs_flip_distance_pct   NUMERIC(10,4),
+      call_wall                   NUMERIC(14,4),
+      put_wall                    NUMERIC(14,4),
+      wall_method                 TEXT,
+      max_pain                    NUMERIC(14,4),
+      pcr_oi                      NUMERIC(10,4),
+      pcr_volume                  NUMERIC(10,4),
+      confidence                  TEXT        NOT NULL DEFAULT 'low',
+      gamma_curve                 JSONB       NOT NULL DEFAULT '[]',
+      raw_metrics                 JSONB       NOT NULL DEFAULT '{}',
+      created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS gex_snapshots_symbol_ts
+      ON gex_snapshots (symbol, snapshot_ts DESC);
+
+    CREATE TABLE IF NOT EXISTS gex_by_strike_snapshots (
+      id              BIGSERIAL PRIMARY KEY,
+      snapshot_id     BIGINT      NOT NULL REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,
+      symbol          TEXT        NOT NULL,
+      strike          NUMERIC(14,4) NOT NULL,
+      call_gex        NUMERIC(20,4),
+      put_gex         NUMERIC(20,4),
+      net_gex         NUMERIC(20,4),
+      call_oi         BIGINT,
+      put_oi          BIGINT,
+      call_volume     BIGINT,
+      put_volume      BIGINT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (snapshot_id, strike)
+    );
+
+    CREATE INDEX IF NOT EXISTS gex_by_strike_snapshots_snapshot_strike
+      ON gex_by_strike_snapshots (snapshot_id, strike);
+
+    CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
+      id              BIGSERIAL PRIMARY KEY,
+      symbol          TEXT        NOT NULL,
+      job_type        TEXT        NOT NULL,
+      provider        TEXT        NOT NULL,
+      status          TEXT        NOT NULL DEFAULT 'queued',
+      attempts        INTEGER     NOT NULL DEFAULT 0,
+      request_params  JSONB       NOT NULL DEFAULT '{}',
+      result_summary  JSONB       NOT NULL DEFAULT '{}',
+      last_error      TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at      TIMESTAMPTZ,
+      finished_at     TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS provider_fetch_jobs_symbol_type_created
+      ON provider_fetch_jobs (symbol, job_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS provider_fetch_jobs_status_created
+      ON provider_fetch_jobs (status, created_at DESC);
   `);
 
   console.log('Migrations complete.');

@@ -343,30 +343,45 @@
 目标：先用 IB Gateway 作为 internal research adapter 跑通 option chain → snapshots → GEX / Wall / Gamma Flip → API → UI 的完整闭环；正式上线前将 provider 切换为具备授权和再分发权利的 options data provider。
 
 边界：
-- [ ] `source=ib_internal` 只允许用于内部研究、算法验证、字段探索和个人使用。
-- [ ] 不把 IB Gateway 放进公开用户请求链路；用户输入 symbol 时 API 只读 PostgreSQL 最新 snapshot。
-- [ ] 不把 IB option chain 数据宣传为正式授权产品数据。
-- [ ] 所有 API response 必须返回 `source`、`snapshot_ts`、`freshness`、`is_stale`、`provider_status`。
-- [ ] provider adapter 必须可替换：IB internal adapter 与未来 licensed provider adapter 使用同一接口。
+- [x] `source=ib_internal` 只允许用于内部研究、算法验证、字段探索和个人使用。
+- [x] 不把 IB Gateway 放进公开用户请求链路；用户输入 symbol 时 API 只读 PostgreSQL 最新 snapshot。
+- [x] 不把 IB option chain 数据宣传为正式授权产品数据。
+- [x] 所有 API response 必须返回 `source`、`snapshot_ts`、`freshness`、`is_stale`、`provider_status`。
+- [x] provider adapter 必须可替换：IB internal adapter 与未来 licensed provider adapter 使用同一接口。
 
 **Phase 3D-1 — Schema & Provider Contract**
-- [ ] 定义 provider interface：
+- [x] 定义 provider interface：
   - `fetch_underlying(symbol) -> spot, bid, ask, timestamp, source`
   - `fetch_option_chain(symbol, expirations, strike_window) -> contracts[]`
-  - `fetch_open_interest(symbol, expirations) -> oi fields`
-  - `fetch_market_snapshot(symbol) -> underlying + option contracts`
-- [ ] 新增 PostgreSQL schema：
+  - 当前文件：`collector/providers/base.py`
+  - 当前实现：`UnderlyingSnapshot`、`OptionContractSnapshot`、`OptionChainSnapshot`、`OptionChainProvider`
+- [x] 新增 IB adapter skeleton：
+  - `collector/providers/ib_option_chain_provider.py`
+  - 只定义 `source=ib_internal` 和接口入口；实采逻辑留给 3D-2
+- [x] 新增 PostgreSQL schema：
   - `option_chain_snapshots`
-    - `id`, `symbol`, `underlying_price`, `snapshot_ts`, `source`, `provider_status`, `created_at`
+    - `id`, `symbol`, `underlying_price`, `underlying_bid`, `underlying_ask`, `snapshot_ts`, `source`, `provider_status`, `provider_snapshot_id`, `contract_count`, `completeness_pct`, `missing_greeks_ratio`, `missing_oi_ratio`, `raw_metadata`, `created_at`
   - `option_contract_snapshots`
-    - `snapshot_id`, `symbol`, `expiry`, `strike`, `right`, `bid`, `ask`, `last`, `mark`, `volume`, `open_interest`, `iv`, `delta`, `gamma`, `theta`, `vega`, `rho`, `bid_size`, `ask_size`
+    - `snapshot_id`, `symbol`, `expiry`, `strike`, `option_right`, `bid`, `ask`, `last`, `mark`, `volume`, `open_interest`, `iv`, `delta`, `gamma`, `theta`, `vega`, `rho`, `bid_size`, `ask_size`, `contract_symbol`, `local_symbol`, `con_id`, `provider_contract_id`, `raw_contract`
   - `gex_snapshots`
-    - `snapshot_id`, `symbol`, `global_gex`, `local_gamma`, `gamma_flip`, `gamma_regime`, `spot_vs_flip_distance_pct`, `call_wall`, `put_wall`, `max_pain`, `pcr_oi`, `pcr_volume`
+    - `snapshot_id`, `symbol`, `snapshot_ts`, `source`, `global_gex`, `local_gamma`, `gamma_flip`, `gamma_regime`, `spot_vs_flip_distance_pct`, `call_wall`, `put_wall`, `wall_method`, `max_pain`, `pcr_oi`, `pcr_volume`, `confidence`, `gamma_curve`, `raw_metrics`
   - `gex_by_strike_snapshots`
     - `snapshot_id`, `symbol`, `strike`, `call_gex`, `put_gex`, `net_gex`, `call_oi`, `put_oi`, `call_volume`, `put_volume`
   - `provider_fetch_jobs`
-    - `symbol`, `job_type`, `status`, `attempts`, `last_error`, `created_at`, `started_at`, `finished_at`
-- [ ] Migration rollback plan：drop new tables only；do not touch `iv_history` or `price_history`.
+    - `symbol`, `job_type`, `provider`, `status`, `attempts`, `request_params`, `result_summary`, `last_error`, `created_at`, `started_at`, `finished_at`
+- [x] 新增只读 API skeleton：
+  - `GET /api/options/:symbol/snapshot`
+  - `GET /api/chain/:symbol`
+  - `GET /api/gex/:symbol`
+  - `GET /api/status/options`
+  - missing snapshot 返回 `freshness=missing`；不触发 provider；不等待 IB Gateway
+- [x] Migration rollback plan：drop new tables only；do not touch `iv_history` or `price_history`.
+- [x] Migration executed：`NODE_ENV=production node src/migrate.js`
+- [x] Local API smoke verified：
+  - `curl -f "http://127.0.0.1:3001/api/options/PLTR/snapshot"` → `freshness=missing`
+  - `curl -f "http://127.0.0.1:3001/api/chain/PLTR"` → `freshness=missing`
+  - `curl -f "http://127.0.0.1:3001/api/gex/PLTR"` → `freshness=missing`
+  - `curl -f "http://127.0.0.1:3001/api/status/options"` → `table_exists=true`, `covered_count=0`, `missing_count=67`
 
 **Phase 3D-2 — IB Gateway Internal Adapter**
 - [ ] 新增 `collector/providers/ib_option_chain_provider.py`
@@ -422,15 +437,15 @@
   - 根据 missing Greeks ratio、missing OI ratio、bid/ask availability、snapshot age 计算 high / medium / low
 
 **Phase 3D-4 — API Layer**
-- [ ] `GET /api/options/:symbol/snapshot`
+- [x] `GET /api/options/:symbol/snapshot`
   - 返回 latest chain snapshot metadata，不返回全量 contracts unless `includeContracts=true`
-- [ ] `GET /api/gex/:symbol`
+- [x] `GET /api/gex/:symbol`
   - 返回 `global_gex`, `local_gamma`, `call_wall`, `put_wall`, `gamma_flip`, `gamma_curve`, `pcr`, `max_pain`, `freshness`
-- [ ] `GET /api/chain/:symbol`
+- [x] `GET /api/chain/:symbol`
   - 只读 latest snapshot；默认分页 / strike range / expiry filter
-- [ ] `GET /api/status/options`
+- [x] `GET /api/status/options`
   - 返回 watchlist option-chain coverage、latest snapshot age、missing/stale symbols、provider failure count
-- [ ] API 不同步调用 IB Gateway；missing/stale 只返回状态，不在用户请求里等待 provider。
+- [x] API 不同步调用 IB Gateway；missing/stale 只返回状态，不在用户请求里等待 provider。
 
 **Phase 3D-5 — Frontend Integration**
 - [ ] `/analyze/:symbol` 或 query symbol 读取 `/api/gex/:symbol`

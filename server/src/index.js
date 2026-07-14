@@ -5,6 +5,9 @@ const metricsRouter = require('./routes/metrics');
 const pricesRouter = require('./routes/prices');
 const scanRouter = require('./routes/scan');
 const statusRouter = require('./routes/status');
+const { router: optionsRouter } = require('./routes/options');
+const chainRouter = require('./routes/chain');
+const gexRouter = require('./routes/gex');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +40,9 @@ app.use('/api/metrics', metricsRouter);
 app.use('/api/prices', pricesRouter);
 app.use('/api/scan', scanRouter);
 app.use('/api/status', statusRouter);
+app.use('/api/options', optionsRouter);
+app.use('/api/chain', chainRouter);
+app.use('/api/gex', gexRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

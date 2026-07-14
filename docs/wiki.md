@@ -592,6 +592,17 @@ Phase 3D 的第一版范围：
 - rights：calls + puts
 - API：前端只读 `/api/gex/:symbol`、`/api/chain/:symbol` 的最新 PostgreSQL snapshot
 
+Phase 3D-1 已落地的数据接口：
+
+| API | 行为 |
+|---|---|
+| `GET /api/options/:symbol/snapshot` | 返回最新 option chain snapshot metadata；`includeContracts=true` 时返回合约行 |
+| `GET /api/chain/:symbol` | 返回最新 option chain snapshot + contract rows |
+| `GET /api/gex/:symbol` | 返回最新 GEX / Wall / Gamma Flip snapshot |
+| `GET /api/status/options` | 返回 watchlist option snapshot coverage |
+
+这些 API 只读 PostgreSQL，不会同步调用 IB Gateway 或任何外部 provider。没有 snapshot 时返回 `freshness=missing`，而不是 fallback 到 mock。
+
 ### 产品核心指标
 
 Options Lab 的高价值产品层是 options positioning / dealer gamma intelligence，而不是单纯 IV Rank 工具。
