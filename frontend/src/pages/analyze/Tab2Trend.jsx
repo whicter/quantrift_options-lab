@@ -163,6 +163,7 @@ function TrendCanvas({ prices, dates, kf, spread }) {
 export default function Tab2Trend({ data }) {
   const { trend, price, symbol, pcr, direction } = data;
   const realHistory = Array.isArray(data.priceHistory) && data.priceHistory.length >= 5 ? data.priceHistory : null;
+  const stale = Boolean(data.priceMeta?.isStale || data.priceMeta?.freshness === 'stale');
   const prices = realHistory ? realHistory.map(bar => bar.close) : genPrices(symbol, price);
   const dates = realHistory ? realHistory.map(bar => bar.date) : null;
   const kf = calcKF(prices);
@@ -179,7 +180,10 @@ export default function Tab2Trend({ data }) {
     <div className="tab-trend">
       <div className="az-card">
         <div className="az-trend-header">
-          <div className="az-card-title">趋势走势 · Kalman Filter{realHistory ? ' · price_history' : ' · 示例走势'}</div>
+          <div className="az-card-title">
+            趋势走势 · Kalman Filter
+            {realHistory ? ` · price_history${stale ? ' stale' : ''}` : ' · 示例走势'}
+          </div>
           <span className={`az-mini-badge ${trend.regime.includes('多头') ? 'green' : trend.regime.includes('空头') ? 'red' : 'yellow'}`}>
             {trend.regime}
           </span>

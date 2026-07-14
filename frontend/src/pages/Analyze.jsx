@@ -80,12 +80,24 @@ function applyPriceHistory(data, priceData) {
       source: priceData.source,
       latestDate: String(priceData.latest_date || latest.date).slice(0, 10),
       count: priceData.count,
+      freshness: priceData.freshness,
+      isStale: Boolean(priceData.is_stale),
     },
     trend: {
       ...data.trend,
       rvol: rvol == null ? data.trend.rvol : Number(rvol.toFixed(2)),
     },
   };
+}
+
+function PriceStatus({ meta }) {
+  if (!meta) return null;
+  const stale = meta.isStale || meta.freshness === 'stale';
+  return (
+    <span className={`az-price-status ${stale ? 'stale' : 'fresh'}`}>
+      price {stale ? 'stale' : meta.source} {meta.latestDate}
+    </span>
+  );
 }
 
 function buildMissingMessage(symbol, status) {
@@ -223,7 +235,7 @@ export default function Analyze() {
             {result.dataMeta && (
               <div className="az-data-meta">
                 {result.dataMeta.source} · {result.dataMeta.date}
-                {result.priceMeta && ` · price ${result.priceMeta.source} ${result.priceMeta.latestDate}`}
+                <PriceStatus meta={result.priceMeta} />
               </div>
             )}
             <div style={{ flex: 1 }} />

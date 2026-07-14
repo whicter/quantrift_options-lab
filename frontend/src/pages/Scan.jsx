@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { scanMock, DEFAULT_WATCHLIST } from '../data/mockAnalysis';
+import { getDataStatus } from '../lib/api';
 
 const STRATEGY_OPTIONS = [
   'Iron Condor',
@@ -37,6 +38,11 @@ export default function Scan() {
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [dataStatus, setDataStatus] = useState(null);
+
+  useEffect(() => {
+    getDataStatus().then(setDataStatus).catch(() => {});
+  }, []);
 
   function toggleStrategy(s) {
     setSelectedStrategies(prev =>
@@ -55,6 +61,11 @@ export default function Scan() {
 
   function handleRowClick(symbol) {
     navigate(`/analyze?symbol=${symbol}`);
+  }
+
+  function priceStatus(symbol) {
+    const row = dataStatus?.symbols?.find(item => item.symbol === symbol);
+    return row?.price?.status || 'missing';
   }
 
   return (
@@ -147,6 +158,7 @@ export default function Scan() {
                   <span>方向</span>
                   <span>推荐策略</span>
                   <span>POP</span>
+                  <span>价格</span>
                   <span>财报</span>
                 </div>
                 {results.map(d => (
@@ -168,6 +180,9 @@ export default function Scan() {
                     <span className="scan-strategy">{d.recommendation.strategy}</span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                       {d.recommendation.params.pop}%
+                    </span>
+                    <span className={`scan-price-status ${priceStatus(d.symbol)}`}>
+                      {priceStatus(d.symbol) === 'covered' ? 'price' : priceStatus(d.symbol)}
                     </span>
                     <span style={{ color: d.earnings.warning ? 'var(--yellow)' : 'var(--text-muted)', fontSize: 11 }}>
                       {d.earnings.date ? d.earnings.date.slice(5) : '—'}

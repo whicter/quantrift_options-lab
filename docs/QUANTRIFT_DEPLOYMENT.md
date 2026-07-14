@@ -389,6 +389,10 @@ public.price_history
 - Railway API 通过 `GET /api/prices/:symbol?limit=60` 读取最近价格历史。
 - 2026-07-14 最小闭环验证：`SYMBOLS=AAPL collector/venv311/bin/python collector/collect_prices.py` 成功写入 60 rows；Railway `price_history` 中 AAPL date range 为 2026-04-17 → 2026-07-14，source=`ib_internal`。
 - 本地 API 验证：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 成功返回 3 rows，source=`ib_internal`。
+- 2026-07-14 完整 watchlist 验证：`collector/venv311/bin/python collector/collect_prices.py` 成功处理 67/67 symbols，写入 4020 rows，0 failed。
+- 2026-07-14 Railway DB 覆盖验证：`price_history` 有 67 distinct symbols、4020 rows、date range 2026-04-17 → 2026-07-14、source=`ib_internal`，无少于 60 rows 的 symbol。
+- 当前 cron 安装状态：`crontab -l` 可读；安装更新后的 crontab 在当前 Codex 权限环境中挂住，尚未写入。目标 crontab 已保存至 `/private/tmp/quantrift_options_crontab.txt`，可在 Mac Studio Terminal 手动执行 `crontab /private/tmp/quantrift_options_crontab.txt`。
+- 当前生产 API 状态：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"` 返回 404，原因是本轮 server 代码尚未部署到 Railway。
 
 系统 schema，例如 `pg_catalog` 和 `information_schema`，不属于业务数据，不应删除。
 

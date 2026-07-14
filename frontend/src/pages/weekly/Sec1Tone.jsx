@@ -136,9 +136,10 @@ function CMEGauge({ score }) {
 }
 
 export default function Sec1Tone({ data }) {
-  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, cmeScore, candles, symbol } = data;
+  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, cmeScore, candles, symbol, priceMeta } = data;
   const bull = weekChange >= 0;
   const co = getCompanyInfo(symbol);
+  const priceStale = Boolean(priceMeta?.isStale || priceMeta?.freshness === 'stale');
 
   return (
     <div className="wk-section">
@@ -150,6 +151,11 @@ export default function Sec1Tone({ data }) {
             <div className="wk-sym">{symbol}{co && <span className="wk-company-zh"> {co.zh}</span>}</div>
             {co && <div className="wk-company-tagline">{co.tagline}</div>}
             <div className="wk-week">{week}</div>
+            <div className={`wk-price-source ${priceMeta ? (priceStale ? 'stale' : 'fresh') : 'missing'}`}>
+              {priceMeta
+                ? `price_history ${priceStale ? 'stale' : priceMeta.source} ${priceMeta.latestDate}`
+                : 'price_history missing · 示例 weekly shell'}
+            </div>
           </div>
         </div>
         <div className="wk-price-block">

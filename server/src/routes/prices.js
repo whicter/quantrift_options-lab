@@ -8,6 +8,21 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 
+const PRICE_STALE_DAYS = parseInt(process.env.PRICE_STALE_DAYS ?? 5, 10);
+
+function toDateString(value) {
+  return value?.toISOString?.().slice(0, 10) || String(value).slice(0, 10);
+}
+
+function daysSince(dateValue) {
+  const dateString = toDateString(dateValue);
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return Math.floor((today - date) / 86400000);
+}
+
 router.get('/:symbol', async (req, res) => {
   const symbol = String(req.params.symbol || '').trim().toUpperCase();
   const limit = Math.min(parseInt(req.query.limit ?? 60), 250);
@@ -34,11 +49,19 @@ router.get('/:symbol', async (req, res) => {
       return res.status(404).json({ error: 'no price history', symbol });
     }
 
+    const latest = rows[rows.length - 1];
+    const ageDays = daysSince(latest.date);
+    const isStale = ageDays == null ? true : ageDays > PRICE_STALE_DAYS;
+
     res.json({
       symbol,
-      source: rows[rows.length - 1].source,
+      source: latest.source,
       count: rows.length,
-      latest_date: rows[rows.length - 1].date,
+      latest_date: latest.date,
+      snapshot_ts: latest.created_at,
+      freshness: isStale ? 'stale' : 'fresh',
+      is_stale: isStale,
+      age_days: ageDays,
       prices: rows.map(row => ({
         date: row.date,
         open: row.open,

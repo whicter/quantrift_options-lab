@@ -135,58 +135,69 @@
   - 推荐时间：美股收盘后、IV collector 之后，例如 1:35pm PT / 4:35pm ET
   - 命令：`cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python collect_prices.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect_prices.log 2>&1`
   - 前置：确认 IB Gateway 在线、API enabled、`IB_PRICE_CLIENT_ID=12` 未与其他 bot 冲突
-- [ ] 跑完整 watchlist 一次 `collect_prices.py`
-  - 记录成功 symbols 数量
-  - 记录失败 symbols 列表
-  - 对失败 symbols 分类：IB contract 解析失败、无权限、pacing/timeout、symbol 格式问题
-- [ ] 为 `BRK.B` 等特殊 ticker 建立 symbol normalization 规则
+  - 2026-07-14 状态：`crontab -l` 可读取，但 `crontab /private/tmp/quantrift_options_crontab.txt` 在当前 Codex 权限环境中挂住；任务尚未安装。
+  - 临时 crontab 文件：`/private/tmp/quantrift_options_crontab.txt` 已包含目标行，可在 macOS Terminal 手动执行 `crontab /private/tmp/quantrift_options_crontab.txt`。
+- [x] 跑完整 watchlist 一次 `collect_prices.py`
+  - 成功 symbols 数量：67 / 67
+  - 写入 rows：4020
+  - 失败 symbols：无
+  - 失败分类：无 IB contract 解析失败、无权限、pacing/timeout、symbol 格式问题
+  - Railway DB 验证：`price_history` source=`ib_internal`，date range 2026-04-17 → 2026-07-14，所有 symbol 均 >=60 rows
+- [x] 为 `BRK.B` 等特殊 ticker 建立 symbol normalization 规则
   - 输入 symbol
   - IB contract symbol/localSymbol
   - UI display symbol
   - DB canonical symbol
+  - 规则：DB/UI canonical symbol 保持原样；IB `Contract.symbol` 将 `.` 映射为空格，例如 `BRK.B` → `BRK B`
 
 ### Backend/API
 - [ ] 部署 server 后验证生产 `/api/prices/:symbol`
   - `curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"`
   - 返回字段必须包括 `symbol`、`source`、`count`、`latest_date`、`prices[]`
-- [ ] `/api/status/data` 增加 price coverage 细节
+  - 2026-07-14 当前结果：生产返回 404，原因是本轮 server 代码尚未部署到 Railway。
+- [x] `/api/status/data` 增加 price coverage 细节
   - watchlist 总数
   - `price_history` covered symbols
   - missing price symbols
   - stale price symbols
   - latest price date
   - source distribution
-- [ ] `/api/prices/:symbol` 增加 freshness 字段
+- [x] `/api/prices/:symbol` 增加 freshness 字段
   - `snapshot_ts` 或 `latest_date`
   - `freshness`
   - `is_stale`
   - `source`
 
 ### Frontend
-- [ ] Analyze header 显示价格数据状态
+- [x] Analyze header 显示价格数据状态
   - `price ib_internal 2026-07-14`
   - stale 时显示 `price stale`
   - missing 时不显示真实价格标记
-- [ ] Tab2Trend 增加真实/示例走势标识
+- [x] Tab2Trend 增加真实/示例走势标识
   - real：`price_history`
   - fallback：`示例走势`
   - 不把 fallback 说成真实数据
-- [ ] Weekly Sec1 增加价格来源标识
+- [x] Weekly Sec1 增加价格来源标识
   - real：显示 `price_history source + latest_date`
   - fallback：显示当前为示例 weekly shell
-- [ ] Scan 结果增加 price coverage 状态
+- [x] Scan 结果增加 price coverage 状态
   - 已有 price_history
   - 缺失 price_history
   - stale price_history
 
 ### Verification
-- [ ] Syntax verified：Python collector files
-- [ ] Syntax verified：Node server routes
-- [ ] Frontend build verified：`npm run build`
-- [ ] Collector runtime verified：完整 watchlist run
+- [x] Syntax verified：Python collector files
+- [x] Syntax verified：Node server routes
+- [x] Frontend build verified：`npm run build`
+- [x] Collector runtime verified：完整 watchlist run
+- [x] Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 `freshness=fresh`、`is_stale=false`
+- [x] Local API verified：`curl -f "http://localhost:3002/api/status/data"` 返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
 - [ ] Production API verified：Railway `/api/prices/AAPL?limit=3`
+  - 2026-07-14 当前结果：404，待提交/推送/部署后重测。
 - [ ] UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势
+  - 自动浏览器验证未完成：Browser runtime 初始化报 `Cannot redefine property: process`。
 - [ ] UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV
+  - 自动浏览器验证未完成：Browser runtime 初始化报 `Cannot redefine property: process`。
 
 ---
 

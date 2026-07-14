@@ -59,7 +59,7 @@ class IBPriceProvider:
             raise TimeoutError(f'IB connection timed out: {self.host}:{self.port}')
 
         contract = Contract()
-        contract.symbol = symbol.upper()
+        contract.symbol = _ib_contract_symbol(symbol)
         contract.secType = 'STK'
         contract.exchange = 'SMART'
         contract.currency = 'USD'
@@ -106,3 +106,8 @@ def _parse_ib_date(value: str) -> date:
     if len(value) == 8 and value.isdigit():
         return datetime.strptime(value, '%Y%m%d').date()
     return datetime.fromisoformat(value).date()
+
+
+def _ib_contract_symbol(symbol: str) -> str:
+    """Map display/DB ticker to IB's stock contract symbol where needed."""
+    return symbol.upper().replace('.', ' ')

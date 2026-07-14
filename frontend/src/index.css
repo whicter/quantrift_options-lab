@@ -180,6 +180,9 @@ body {
 .az-symbol { font-size: 24px; font-weight: 800; }
 .az-price { font-size: 18px; color: var(--text-dim); }
 .az-data-meta { font-size: 11px; color: var(--text-muted); padding: 3px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
+.az-price-status { margin-left: 6px; font-weight: 700; }
+.az-price-status.fresh { color: var(--green); }
+.az-price-status.stale { color: var(--yellow); }
 .az-earnings { font-size: 12px; color: var(--text-dim); padding: 4px 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border); }
 .az-earnings-warn { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); }
 
@@ -786,7 +789,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-table { display: flex; flex-direction: column; gap: 4px; }
 .scan-table-head {
   display: grid;
-  grid-template-columns: 64px 72px 160px 120px 140px 160px 56px 64px;
+  grid-template-columns: 64px 72px 150px 110px 120px 140px 50px 64px 64px;
   padding: 6px 12px;
   font-size: 11px;
   font-weight: 700;
@@ -796,7 +799,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-table-row {
   display: grid;
-  grid-template-columns: 64px 72px 160px 120px 140px 160px 56px 64px;
+  grid-template-columns: 64px 72px 150px 110px 120px 140px 50px 64px 64px;
   align-items: center;
   padding: 10px 12px;
   background: var(--bg-card);
@@ -809,6 +812,10 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-table-row:hover { background: var(--bg-hover); border-color: var(--blue); }
 .scan-symbol { font-weight: 700; font-size: 14px; font-family: monospace; }
 .scan-strategy { font-size: 12px; color: var(--text-dim); }
+.scan-price-status { font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.scan-price-status.covered { color: var(--green); }
+.scan-price-status.stale { color: var(--yellow); }
+.scan-price-status.missing { color: var(--text-muted); }
 
 .scan-ivr-bar-wrap { display: flex; align-items: center; gap: 6px; }
 .scan-ivr-bar { height: 4px; border-radius: 2px; min-width: 4px; max-width: 80px; }
@@ -1037,6 +1044,10 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .wk-sym { font-size: 22px; font-weight: 800; }
 .wk-week { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.wk-price-source { font-size: 10px; margin-top: 3px; font-weight: 800; }
+.wk-price-source.fresh { color: var(--green); }
+.wk-price-source.stale { color: var(--yellow); }
+.wk-price-source.missing { color: var(--text-muted); }
 .wk-price-block { display: flex; flex-direction: column; gap: 2px; }
 .wk-close { font-size: 22px; font-weight: 800; }
 .wk-change { font-size: 14px; font-weight: 600; }

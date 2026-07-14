@@ -65,6 +65,8 @@ function applyWeeklyPrices(data, priceData) {
       source: priceData.source,
       latestDate: String(priceData.latest_date || latest.date).slice(0, 10),
       count: priceData.count,
+      freshness: priceData.freshness,
+      isStale: Boolean(priceData.is_stale),
     },
   };
 }

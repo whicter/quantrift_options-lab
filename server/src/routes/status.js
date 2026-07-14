@@ -14,6 +14,33 @@ const WATCHLIST_PATH = process.env.WATCHLIST_PATH
   ? path.resolve(process.env.WATCHLIST_PATH)
   : path.resolve(__dirname, '../../../collector/watchlist.txt');
 
+function toDateString(value) {
+  return value?.toISOString?.().slice(0, 10) || (value ? String(value).slice(0, 10) : null);
+}
+
+function latestDate(rows) {
+  return rows.reduce((maxDate, row) => {
+    const value = toDateString(row.date);
+    return value && (!maxDate || value > maxDate) ? value : maxDate;
+  }, null);
+}
+
+function latestTimestamp(rows) {
+  return rows.reduce((maxTs, row) => {
+    const value = row.created_at?.toISOString?.() || null;
+    return value && (!maxTs || value > maxTs) ? value : maxTs;
+  }, null);
+}
+
+function sourceCounts(rows) {
+  const counts = {};
+  for (const row of rows) {
+    if (!row.source) continue;
+    counts[row.source] = (counts[row.source] || 0) + 1;
+  }
+  return counts;
+}
+
 function loadWatchlist() {
   if (!fs.existsSync(WATCHLIST_PATH)) return [];
 
@@ -57,59 +84,73 @@ router.get('/data', async (req, res) => {
     }
 
     const latestBySymbol = Object.fromEntries(rows.map(row => [row.symbol, row]));
+    const priceBySymbol = Object.fromEntries(priceRows.map(row => [row.symbol, row]));
     const expectedSet = new Set(watchlist);
     const coveredSymbols = watchlist.filter(symbol => latestBySymbol[symbol]);
     const missingSymbols = watchlist.filter(symbol => !latestBySymbol[symbol]);
-    const latestDate = rows.reduce((maxDate, row) => {
-      const value = row.date?.toISOString?.().slice(0, 10) || String(row.date);
-      return !maxDate || value > maxDate ? value : maxDate;
-    }, null);
+    const currentLatestDate = latestDate(rows);
 
-    const staleSymbols = latestDate
+    const staleSymbols = currentLatestDate
       ? watchlist.filter(symbol => {
           const row = latestBySymbol[symbol];
-          const value = row?.date?.toISOString?.().slice(0, 10) || (row ? String(row.date) : null);
-          return row && value < latestDate;
+          const value = toDateString(row?.date);
+          return row && value < currentLatestDate;
         })
       : [];
 
-    const sourceCounts = {};
-    for (const row of rows) {
-      sourceCounts[row.source] = (sourceCounts[row.source] || 0) + 1;
-    }
+    const priceCoveredSymbols = watchlist.filter(symbol => priceBySymbol[symbol]);
+    const priceMissingSymbols = watchlist.filter(symbol => !priceBySymbol[symbol]);
+    const priceLatestDate = latestDate(priceRows);
+    const priceStaleSymbols = priceLatestDate
+      ? watchlist.filter(symbol => {
+          const row = priceBySymbol[symbol];
+          const value = toDateString(row?.date);
+          return row && value < priceLatestDate;
+        })
+      : [];
 
     res.json({
-      status: missingSymbols.length === 0 && staleSymbols.length === 0 ? 'ok' : 'degraded',
+      status: missingSymbols.length === 0 && staleSymbols.length === 0 && priceMissingSymbols.length === 0 && priceStaleSymbols.length === 0 ? 'ok' : 'degraded',
       generated_at: new Date().toISOString(),
-      latest_date: latestDate,
-      latest_created_at: rows.reduce((maxTs, row) => {
-        const value = row.created_at?.toISOString?.() || null;
-        return value && (!maxTs || value > maxTs) ? value : maxTs;
-      }, null),
+      latest_date: currentLatestDate,
+      latest_created_at: latestTimestamp(rows),
       expected_count: watchlist.length,
       covered_count: coveredSymbols.length,
       missing_count: missingSymbols.length,
       stale_count: staleSymbols.length,
-      source_counts: sourceCounts,
+      source_counts: sourceCounts(rows),
       price_history: {
         table_exists: hasPriceHistory,
-        covered_count: priceRows.filter(row => expectedSet.has(row.symbol)).length,
-        latest_date: priceRows.reduce((maxDate, row) => {
-          const value = row.date?.toISOString?.().slice(0, 10) || String(row.date);
-          return !maxDate || value > maxDate ? value : maxDate;
-        }, null),
+        expected_count: watchlist.length,
+        covered_count: priceCoveredSymbols.length,
+        missing_count: priceMissingSymbols.length,
+        stale_count: priceStaleSymbols.length,
+        latest_date: priceLatestDate,
+        latest_created_at: latestTimestamp(priceRows),
+        source_counts: sourceCounts(priceRows),
+        covered_symbols: priceCoveredSymbols,
+        missing_symbols: priceMissingSymbols,
+        stale_symbols: priceStaleSymbols,
       },
       expected_symbols: watchlist,
       missing_symbols: missingSymbols,
       stale_symbols: staleSymbols,
       symbols: watchlist.map(symbol => {
         const row = latestBySymbol[symbol];
+        const priceRow = priceBySymbol[symbol];
+        const priceStatus = !priceRow ? 'missing' : priceStaleSymbols.includes(symbol) ? 'stale' : 'covered';
         return {
           symbol,
           date: row?.date || null,
           source: row?.source || null,
           created_at: row?.created_at || null,
           status: !row ? 'missing' : staleSymbols.includes(symbol) ? 'stale' : 'covered',
+          price: {
+            date: priceRow?.date || null,
+            source: priceRow?.source || null,
+            created_at: priceRow?.created_at || null,
+            status: priceStatus,
+          },
         };
       }),
       extra_symbols: rows.map(row => row.symbol).filter(symbol => !expectedSet.has(symbol)),
