@@ -61,53 +61,17 @@
 - [x] .claude/settings.json：Bash(*) 全放行白名单
 - [x] .claude_session：session UUID 固化，`cr` 命令一键恢复对话
 
-## 🔨 Phase 3A — UI Polish（纯前端，不依赖真实数据）
+## ✅ Done (Phase 3A — UI Polish)
 
 > 参考截图：华尔街咖啡馆 MRVL/META 盘中即时分析 + Nokia 周复盘
-> 目标：在现有 mock 数据结构不变的前提下，提升图表质量和交互体验
+> 完成于 2026-07-13
 
-### GEX 图表改版（/analyze Tab3 + /weekly Sec2）
-- [ ] **GEX 发散柱图**：现在是单向柱（从左/底边画），改为从零轴向两侧延伸
-  - 正 GEX（call side）→ 绿色柱，向上/向右延伸
-  - 负 GEX（put side）→ 红色柱，向下/向左延伸
-  - 零轴画一条灰色基准线
-  - 影响文件：`pages/analyze/Tab3Options.jsx`（GEXChart Canvas）、`pages/weekly/Sec2Gamma.jsx`（GEXDayChart Canvas）
-  - 数据结构不变：`gexByStrike[]{strike, gex}`，正负值已存在于 mock data
-
-### Gamma 迁徙改版（/weekly Sec2）
-- [ ] **时间轴滑块替换按钮**：Mon/Tue/Wed/Thu/Fri 改为横向滑轨 + 拖拽点
-  - 滑轨上5个节点，当前选中节点高亮
-  - 点击节点或拖拽切换日期，GEX 图随之重绘
-  - 影响文件：`pages/weekly/Sec2Gamma.jsx`
-  - CSS：新增 `.wk-timeline-slider` 系列类
-
-### 底部轮播解读句（/analyze 各 Tab）
-- [ ] **每个 Tab 内容区底部加"分析轮播条"**：显示 2-4 条关键结论句，自动轮播（3秒/句）
-  - Tab1：从 conclusion/scenarios 提炼 3 条核心句
-  - Tab2：从 trend.signals 提炼 3 条趋势解读句
-  - Tab3：从 GEX/PCR/unusualActivity 提炼 3 条期权结论句
-  - Tab4：从 wall 距离 + observation 提炼 3 条信号句
-  - 新建通用组件 `components/InsightCarousel.jsx`
-  - 黄色高亮文字，深色背景条，淡入淡出动画
-
-### PCR 拆分显示（/analyze Tab3）
-- [ ] **PCR(OI) 和 PCR(Vol) 分开显示**：现在只有一个 PCR
-  - mockAnalysis.js 每个标的加 `pcrVol` 字段（手写合理值）
-  - Tab3Options.jsx 数字区从 3 格扩展到 4 格：GEX / PCR(OI) / PCR(Vol) / IV
-  - 影响文件：`data/mockAnalysis.js`（加字段）、`pages/analyze/Tab3Options.jsx`（UI）
-
-### 公司信息增强（/analyze + /weekly）
-- [ ] **公司中文名 + 行业描述 lookup 表**：现在只显示 ticker
-  - 新建 `data/companyInfo.js`：9个 mock 标的 + NOK 的中文名、英文全称、logo URL（用 Clearbit/公开 CDN）、sector 描述
-  - /analyze header 显示：ticker + 中文名 + logo（小图标）
-  - /weekly Sec1 显示：logo（大）+ 公司中文名 + ticker
-  - 影响文件：新增 `data/companyInfo.js`、`pages/Analyze.jsx`、`pages/weekly/Sec1Tone.jsx`
-
-### 观察价位区间 chip（/analyze Tab4）
-- [ ] **在 Tab4 头部显示 `$putWall ~ $callWall` 价格区间**
-  - 参考截图：`$240.0 ~ $300.0` 金色背景 chip
-  - 从 data.putWall / data.callWall 生成
-  - 影响文件：`pages/analyze/Tab4Signals.jsx`
+- [x] **GEX 发散柱图**：已确认 Tab3Options + Sec2Gamma 均已是从零轴向两侧延伸的发散柱，无需修改
+- [x] **时间轴滑块（/weekly Sec2）**：Mon-Fri 按钮改为横向轨道 + 5个节点，当前日期蓝色高亮，CSS `.wk-timeline-*`
+- [x] **底部轮播解读条**：Tab1/2/3/4 底部均加 `InsightCarousel`，新建 `components/InsightCarousel.jsx`，3.8s/条淡入淡出，黄色高亮，dot 进度指示
+- [x] **PCR 拆分（Tab3）**：mockAnalysis.js 加 `pcrVol`（9个标的），Tab3 数字格从3格扩展为4格（GEX/PCR OI/PCR Vol/IV），CSS `.az-gex-numbers-4`
+- [x] **公司信息增强**：新建 `data/companyInfo.js`（12个标的，含中文名/英文全称/logo/tagline）；/analyze header 显示 logo + 中文名；/weekly Sec1 显示大 logo + 中文名
+- [x] **价格区间 chip（Tab4）**：顶部显示 `$putWall ~ $callWall` 金色圆角徽章，CSS `.az-price-range-chip`
 
 ---
 

@@ -19,8 +19,9 @@ frontend/src/
 ├── data/
 │   ├── strategies.js         # 86 strategy definitions, 7 categories
 │   ├── greeksKnowledge.js    # Greeks 知识库
-│   ├── mockAnalysis.js       # V2 mock data（9 symbols，含 GEX/scenarios 扩展）
-│   └── weeklyMock.js         # 周复盘 mock data（AAPL/SPY/QQQ，含 5日 gammaByDay）
+│   ├── mockAnalysis.js       # V2 mock data（9 symbols，含 GEX/scenarios/pcrVol 扩展）
+│   ├── weeklyMock.js         # 周复盘 mock data（AAPL/SPY/QQQ，含 5日 gammaByDay）
+│   └── companyInfo.js        # 公司信息 lookup（12 symbols：中文名/英文名/logo/tagline）
 ├── lib/
 │   └── blackscholes.js       # BS pricing engine + Greeks
 ├── store/
@@ -32,20 +33,21 @@ frontend/src/
 │   ├── RightPanel.jsx
 │   ├── StrategyNotes.jsx
 │   ├── GreeksKnowledge.jsx
-│   └── NavBar.jsx            # 顶部导航
+│   ├── NavBar.jsx            # 顶部导航
+│   └── InsightCarousel.jsx   # 自动轮播解读条（黄色/淡入淡出/3.8s）
 ├── pages/
 │   ├── Learn.jsx             # /learn — V1 教育工具
-│   ├── Analyze.jsx           # /analyze — V2 标的分析（4-tab，?tab=0-3）
+│   ├── Analyze.jsx           # /analyze — V2 标的分析（4-tab，?tab=0-3）；header 显示公司 logo + 中文名
 │   ├── Scan.jsx              # /scan — V2 扫描器
 │   ├── Weekly.jsx            # /weekly/:symbol — 周复盘（5-section，?sec=0-4）
 │   ├── analyze/
-│   │   ├── Tab1Overview.jsx  # 今日概览：sector/Q&A/conclusion/playbook
-│   │   ├── Tab2Trend.jsx     # 日内变化：KF趋势图/Trend Spread Canvas
-│   │   ├── Tab3Options.jsx   # 数据解读：GEX by Strike Canvas/PCR/Unusual
-│   │   └── Tab4Signals.jsx   # 信号追踪：筹码标尺 Canvas/Wall距离
+│   │   ├── Tab1Overview.jsx  # 今日概览：sector/Q&A/conclusion/playbook + InsightCarousel
+│   │   ├── Tab2Trend.jsx     # 日内变化：KF趋势图/Trend Spread Canvas + InsightCarousel
+│   │   ├── Tab3Options.jsx   # 数据解读：GEX Canvas/4格数字(GEX/PCR OI/PCR Vol/IV)/Unusual + InsightCarousel
+│   │   └── Tab4Signals.jsx   # 信号追踪：价格区间chip/筹码标尺 Canvas/Wall距离 + InsightCarousel
 │   └── weekly/
-│       ├── Sec1Tone.jsx      # 本周定调：K线Canvas/CME Gauge Canvas
-│       ├── Sec2Gamma.jsx     # Gamma迁徙：日选择器/GEX日图Canvas/迁移表
+│       ├── Sec1Tone.jsx      # 本周定调：公司logo+中文名/K线Canvas/CME Gauge Canvas
+│       ├── Sec2Gamma.jsx     # Gamma迁徙：时间轴滑块(Mon-Fri)/GEX日图Canvas/迁移表
 │       ├── Sec3Pinning.jsx   # 交割偏离：MaxPain vs FridayClose 条形图
 │       ├── Sec4Money.jsx     # 资金暗线：Smart Money 水平柱Canvas
 │       └── Sec5Playbook.jsx  # 下周分叉：多头/空头剧本卡片
