@@ -918,6 +918,45 @@
 
 ### 实施优先级（下一步）
 
+**P0 — 最高优先级：全量切换至 Polygon（同一 $29/月 key）**
+
+目标：消除对 IB Gateway 的价格依赖，并逐步替换 Tastytrade 的 IV/HV 字段。
+
+| 子任务 | 当前来源 | Polygon 替代 | 时机 |
+|---|---|---|---|
+| 日线 OHLCV（price_history） | IB internal | `/v2/aggs/ticker/{symbol}/range/1/day/{from}/{to}` | ✅ 立即可做 |
+| 30M OHLCV（price_history_30m） | 无 | `/v2/aggs/ticker/{symbol}/range/30/minute/{from}/{to}` | ✅ 顺带采集 |
+| HV30/60/90 | Tastytrade | 从 price_history 自算（log return stddev × √252） | 积累 90 天日线后 |
+| IV Rank / iv_percentile | Tastytrade | 从 option_contract_snapshots ATM IV 自算 | 积累 252 天快照后 |
+| 财报日 earnings_date | Tastytrade | 无 Polygon 替代，保留 Tastytrade 仅取此字段 | 长期保留 |
+
+**P0.1 — Price history 切换（立即执行）**
+- [ ] `collector/providers/polygon_price_provider.py`：新增 Polygon price adapter
+  - `GET /v2/aggs/ticker/{symbol}/range/1/day/{from}/{to}?adjusted=true&sort=asc&apiKey=...`
+  - 同时采集 30M 数据：`/v2/aggs/ticker/{symbol}/range/30/minute/{from}/{to}`（写入 `price_history_30m` 或加 `interval` 字段）
+  - BRK.B 等特殊 ticker 保持现有 normalization 规则
+- [ ] `collector/collect_prices.py`：加入 `PRICE_PROVIDER=polygon` 分支
+- [ ] `collector/ecosystem.config.cjs`：`quantrift-options-prices` 改用 `PRICE_PROVIDER=polygon`
+- [ ] 验证：67 symbols 全部写入，date range 正确，source=`polygon_licensed`
+- [ ] 停用 IB internal price 依赖（保留 `ib_price_provider.py` 文件但不再调度）
+
+**P0.2 — HV 自算（积累 90 天日线后执行）**
+- [ ] `collector/collect.py` 或新增脚本：从 `price_history` 计算 HV30/60/90
+  - `HV30 = stddev(log(close[t]/close[t-1]), window=30) × √252`
+  - 写入 `iv_history.hv30/hv60/hv90`（ON CONFLICT DO UPDATE）
+  - source 字段标记为 `polygon_derived`
+- [ ] 验证与 Tastytrade 现有 HV 值对比（偏差 < 1%）
+- [ ] 切换后停用 Tastytrade HV 字段采集
+
+**P0.3 — IV Rank 自算（积累 252 天快照后执行）**
+- [ ] 新增脚本：从 `option_contract_snapshots` 提取 ATM IV 时序
+  - ATM IV = 最接近 spot 的 call IV（当前 expiry 30-45 DTE）
+  - IV Rank = (ATM IV - 52周最低) / (52周最高 - 52周最低) × 100
+  - 写入 `iv_history.iv_rank / iv30`，source=`polygon_derived`
+- [ ] 切换后停用 Tastytrade iv_rank 采集（保留 earnings_date）
+
+---
+
 **P1 — 数据已有，可立刻做**
 1. Screener 策略扩展：`scanOpportunity.js` 加 Short Strangle / Long Call / Long Put（不依赖新基础设施）
 2. S/R 端点：server 新增 `GET /api/sr/:symbol` + Tab2/Tab4 K线图叠加支撑压力水平线
@@ -930,7 +969,7 @@
 
 **P3 — 需要新数据源**
 7. Reddit Trends（Reddit API 免费，trending tickers → Scan 页"社区热度"列）
-8. 30min Breakout 信号：需日内数据；选项：yfinance `interval='30m'`（免费，有速率限制）或 Polygon Stocks 订阅（需额外费用）
+8. 30min Breakout 信号：Polygon 30M OHLCV（P0.1 顺带采集，P3 做前端信号计算）
 
 ---
 

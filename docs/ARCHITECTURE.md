@@ -799,43 +799,119 @@ collector/ecosystem.config.cjs
 
 ---
 
-## 10. 端到端数据流
+## 10. 端到端数据流（Phase 3F 现状）
 
-### 10.1 写路径
+### 10.1 前端数据需求（Analyze 页面）
 
+| 数据 | 用途 | API 端点 |
+|---|---|---|
+| IV/HV metrics | Tab1 IV Rank、IV-HV diff | `GET /api/metrics?symbols=` |
+| Price history | Tab2 趋势图、RVol | `GET /api/prices/:symbol` |
+| GEX snapshot | Tab1 Call Wall / Put Wall / GEX 图 | `GET /api/gex/:symbol` |
+| Unusual OI | Tab3 期权大单异动 | `GET /api/unusual/:symbol` |
+
+### 10.2 写路径（采集 → 数据库）
+
+**IV / HV metrics**
 ```text
-外部数据源
-    ↓
-Python collector
-    ↓  标准化 / 校验 / 派生
-PostgreSQL public.iv_history
+Tastytrade API  GET /market-metrics?symbols=...
+  → collect.py（每日 4:30pm ET，全量 watchlist，batch 50）
+  → iv_history
+      symbol, date, iv30, hv30, hv60, hv90,
+      iv_rank, iv_percentile, iv_hv_diff,
+      earnings_date, term_structure
 ```
 
-### 10.2 读路径
-
+**Price history（日线 OHLCV）**
 ```text
-用户
-    ↓
-React 页面
-    ↓ HTTPS
-Express API
-    ↓ 参数化 SQL
-PostgreSQL
-    ↓
-JSON
-    ↓
-React 页面展示
+IB Gateway API  reqHistoricalData（daily OHLCV）
+  → collect_prices.py（PM2 cron，Mon-Fri 13:35 PT）
+  → price_history
+      symbol, date, open, high, low, close, volume
 ```
 
-### 10.3 部署路径
+**Option chain snapshot**
+```text
+Polygon.io  GET /v3/snapshot/options/{symbol}?limit=250  （+ next_url 分页）
+  + GET /v2/aggs/ticker/{symbol}/prev  （underlying 前日 OHLCV）
+  → polygon_option_chain_provider.py
+  → run_refresh_worker.py（worker daemon，60s poll）
+      ← schedule_option_refresh.py（scheduler，每 300s，batch 2，max_age 60min）
+  → option_chain_snapshots
+      symbol, snapshot_ts, source, underlying_price,
+      contract_count, completeness_pct, missing_greeks_ratio, missing_oi_ratio
+  → option_contract_snapshots
+      snapshot_id, expiry, strike, option_right,
+      bid, ask, last, mark, volume, open_interest,
+      iv, delta, gamma, theta, vega, rho
+```
+
+**GEX / Walls（派生，无外部 API）**
+```text
+option_chain_snapshots + option_contract_snapshots
+  → compute_gex.py（由 daemon 在 option chain 写入后触发）
+  → gex_snapshots
+      snapshot_id, symbol, global_gex, local_gamma, gamma_flip,
+      gamma_regime, call_wall, put_wall, max_pain, pcr_oi, pcr_volume,
+      confidence, gamma_curve
+  → gex_by_strike_snapshots
+      snapshot_id, strike, call_gex, put_gex, net_gex,
+      call_oi, put_oi, call_volume, put_volume
+```
+
+**Scanner（派生，无外部 API）**
+```text
+iv_history + gex_snapshots + option_contract_snapshots + price_history
+  → materialize_scan.py（每 300s）
+  → scanner_results_snapshots
+      symbol, snapshot_ts, scan_key, iv_rank, iv_hv_diff,
+      trend_score, trend_label, gex_regime, signal_score, ...
+```
+
+**OI Delta / Unusual（派生，无外部 API）**
+```text
+option_contract_snapshots（当前 snapshot vs 前一 snapshot 比较）
+  → materialize_oi_delta.py
+  → option_oi_delta_snapshots
+      symbol, snapshot_ts, strike, expiry, option_right,
+      oi_delta, is_unusual, status
+```
+
+### 10.3 读路径（API → 前端）
+
+```text
+用户输入 symbol
+  → api.js 标准化 + 校验 symbol
+  → Express API routes（in-memory cache 检查）
+      /api/metrics    → iv_history（最新日期）                    cache 60s
+      /api/prices     → price_history（最近 N 天）                无 cache
+      /api/gex        → gex_snapshots JOIN option_chain_snapshots  cache 120s
+      /api/unusual    → option_oi_delta_snapshots（最新 snapshot） cache 60s
+      /api/scan       → scanner_results_snapshots（latest batch）  cache 60s
+  → JSON response 携带 freshness 元数据
+      { freshness, is_stale, age_minutes, refresh_status }
+  → 前端 analyzeData.js 判断是否显示 stale notice
+```
+
+### 10.4 新鲜度判定参数
+
+| 数据 | 判定方式 | 阈值（server env var） |
+|---|---|---|
+| GEX / option snapshot | `snapshot_ts` vs `now` | `OPTIONS_STALE_MINUTES=180` |
+| Scanner | `snapshot_ts` vs `now` | `SCANNER_STALE_MINUTES=5` |
+| IV Rank（iv_history） | `date` vs today | `IV_STALE_DAYS=2` |
+
+option daemon 全周期约 2.8h（67 symbols ÷ 2/batch × 5min），OPTIONS_STALE_MINUTES=180 与此匹配。
+
+### 10.5 部署路径
 
 ```text
 GitHub master
-    ├── frontend/ 变更 → Vercel Build → Vercel Production
-    └── server/ 变更   → Railway Build → Railway API
+  ├── frontend/ 变更 → Vercel Build → Vercel Production
+  └── server/ 变更   → Railway Build → Railway API
 
 collector 更新
-    └── 单独部署或同步到 Mac Studio 执行环境
+  └── rsync 到 Mac Studio → pm2 reload ecosystem.config.cjs --update-env
 ```
 
 ---
@@ -1377,3 +1453,57 @@ Known current monitoring state:
 ```
 
 该架构适合当前项目阶段。近期重点是扩大 bounded option snapshot 覆盖、增加 collector health/coverage alert，并把 scanner/analyze 从 positioning context 推进到 actual contract-level strategy selection。
+
+---
+
+## 25. 数据源覆盖与 Polygon 迁移分析
+
+### 25.1 当前数据源汇总
+
+| 数据类型 | 当前来源 | 采集频率 | 可否迁移至 Polygon |
+|---|---|---|---|
+| IV Rank / iv_percentile / HV30/60/90 | Tastytrade API（免费） | 每日 | 长期可迁移，需先积累 252 天快照 |
+| 财报日 expected-report-date | Tastytrade API（免费） | 每日 | 无 Polygon 替代，可保留 TT 或改用 earnings calendar API |
+| Price history（日线 OHLCV） | IB internal | 每日 Mon-Fri | ✅ 可立即替换为 Polygon 同一 key |
+| Option chain（IV/OI/Greeks/volume） | Polygon.io Options Starter | 连续 daemon | 核心数据源，长期保留 |
+| GEX / Walls / PCR / Max Pain | 内部计算，无外部依赖 | option chain 写入后触发 | — |
+| Scanner / OI Delta | 内部计算，无外部依赖 | 每 5 分钟 | — |
+
+### 25.2 IV/HV 可否来自 Polygon
+
+**Polygon 能提供的：**
+- 每个合约的 `implied_volatility`（per strike + expiry），已写入 `option_contract_snapshots.iv`
+- IV Skew（各 strike IV 曲线）和 Term Structure（各 expiry ATM IV）的数据基础已有
+
+**Polygon 不能直接提供的：**
+- **IV Rank**：需要预计算，Polygon 无此字段。IV Rank = (当前 ATM IV - 52周低) / (52周高 - 52周低)，需从 `option_contract_snapshots` 自积累 252 天 ATM IV 历史后自算
+- **HV30/60/90**（历史波动率）：Polygon 无此字段。可从日线 OHLCV 自算（log return 标准差 × √252），前提是有 60+ 天价格历史
+
+**迁移路线（按优先级）：**
+1. 近期（已有 price_history）：用 `price_history` 自算 HV30 → 替换 Tastytrade HV 字段
+2. 中期（积累 252 天快照后）：从 `option_contract_snapshots` 取 ATM IV 时间序列 → 自算 IV Rank → 停用 Tastytrade IV Rank
+3. 长期保留：Tastytrade 仅用于财报日（`earnings_date`）——或改用其他 earnings calendar
+
+### 25.3 Price history 可否来自 Polygon，作用是什么
+
+**Polygon 可以提供：**
+- 日线 OHLCV：`GET /v2/aggs/ticker/{symbol}/range/1/day/{from}/{to}?apiKey=...`
+- 30 分钟 OHLCV：`GET /v2/aggs/ticker/{symbol}/range/30/minute/{from}/{to}?apiKey=...`
+- 同一 Options Starter key 已在调 `/v2/aggs/ticker/{symbol}/prev`，说明日线历史同样可访问，无额外费用
+
+**替换 IB internal 的优势：**
+- 不依赖 IB Gateway 连接稳定性（IB 掉线时 `collect_prices.py` 会失败）
+- 支持 30M 粒度，直接支持 P3"30min Breakout"信号，无需单独订阅
+
+**Price history 在系统中的 6 个作用：**
+
+| 用途 | 具体逻辑 |
+|---|---|
+| Tab2 趋势图 | 60 天日线 close + Kalman Filter 趋势线 |
+| RVol（相对成交量） | 今日 volume ÷ 20 日均量 |
+| Scanner 趋势信号 | `materialize_scan.py` 计算 trend_score、RSI14、MA20/50/200 |
+| S/R 支撑压力（规划） | `pivot_high / pivot_low` 从 60 天 OHLCV 聚合 S/R zone |
+| Focus Score（规划 P2） | MA 位置 + RSI + 量能参与度组成复合评分 |
+| HV 自算 | stddev(log_return) × √252，替代 Tastytrade HV 字段 |
+
+**建议：** 在 `collect_prices.py` 中新增 `PRICE_PROVIDER=polygon` adapter，与现有 `ib_internal` 和 `stooq` 平行。验证日线数据质量后切换，同时顺带采集 30M 数据写入 `price_history_30m` 或通过 `interval` 字段区分。
