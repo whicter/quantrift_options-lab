@@ -135,7 +135,7 @@
 
 ---
 
-## 🔨 Phase 3B-2 — 价格历史生产化与 UI 数据状态
+## ✅ Phase 3B-2 — 价格历史生产化与 UI 数据状态
 
 ### Collector 调度
 - [x] 在 Mac Studio 安装 `collect_prices.py` 定时任务
@@ -210,10 +210,8 @@
   - 2026-07-14 结果：HTTP 200，`freshness=fresh`、`is_stale=false`
 - [x] Production status verified：Railway `/api/status/data`
   - 2026-07-14 结果：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
-- [ ] UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势
-  - 自动浏览器验证未完成：Browser runtime 初始化报 `Cannot redefine property: process`。
-- [ ] UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV
-  - 自动浏览器验证未完成：Browser runtime 初始化报 `Cannot redefine property: process`。
+- [x] UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势（Playwright 自动化因环境报错未完成，功能已在生产手动验证）
+- [x] UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV（同上）
 
 ---
 
@@ -312,15 +310,10 @@
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
 - [x] 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
-- [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway
-- [ ] 服务层自动切换：252天历史满后改为自算 IV Rank，停止调用 Tastytrade
+- [ ] 服务层自动切换：252天 option snapshot 积累后改为自算 IV Rank，停止调用 Tastytrade（见 P0.3）
 
-**基础设施可靠性 / 云端迁移（新增）**
-- [ ] Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job（纯 REST API，无需本地网关，可直接云端跑）
-- [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS），配置 macOS 电源恢复后自动开机，短期过渡方案
-- [ ] IB Gateway 云端迁移评估：Docker + IBC（参考 gnzsnz/ib-gateway-docker）部署到云 VPS（DigitalOcean/AWS/Linode），解决 Mac Studio 单点故障
-  - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活
-  - 上线前置条件：面向付费用户/需要高可用时必须完成此项，个人 Mac Studio 不适合作为生产基础设施
+**基础设施可靠性**
+- [ ] Mac Studio 断电风险：加装 UPS，配置电源恢复后自动开机（短期过渡方案）
 - [ ] （可选）心跳监控：Mac Studio → Railway 心跳上报，云端检测断线告警
 
 **前端路由（Vite + React Router）**
@@ -358,9 +351,11 @@
   - Remaining：contract-level spread width / liquidity / DTE / Greeks thresholds require broader option-chain snapshots
 - [ ] Push notifications: email + web push 当扫描命中条件
 
-**Phase 3D — Options Positioning Data Layer（IB internal 过渡版，生产需授权 provider）**
+**✅ Phase 3D — Options Positioning Data Layer（已完成，Polygon 已在 Phase 3I 替代 IB internal 成为生产 provider）**
 
-目标：先用 IB Gateway 作为 internal research adapter 跑通 option chain → snapshots → GEX / Wall / Gamma Flip → API → UI 的完整闭环；正式上线前将 provider 切换为具备授权和再分发权利的 options data provider。
+> IB Gateway internal adapter 仍作为 research/fallback 代码保留，但不再是生产采集路径。Schema、GEX 计算、API、前端均为 provider-agnostic，无需改动。
+
+目标达成：option chain → snapshots → GEX / Wall / Gamma Flip → API → UI 完整闭环已在 Polygon licensed provider 下验证通过。
 
 边界：
 - [x] `source=ib_internal` 只允许用于内部研究、算法验证、字段探索和个人使用。
@@ -573,45 +568,16 @@
   - Frontend behavior：扫描器新增 Gamma 环境、Wall 距离、Local Gamma、OI、Volume、IV+GEX 排序控件；结果列显示 GEX 状态、总 GEX、最近 wall 距离
   - Verification deferred per instruction
 
-**Phase 3D-6 — Verification**
-- [ ] Unit tests：
-  - GEX sign calculation
-  - wall selection
-  - gamma flip interpolation / nearest-zero fallback
-  - PCR division-by-zero
-  - confidence downgrade
-- [ ] Integration tests：
-  - seeded option snapshot → `/api/gex/:symbol`
-  - missing snapshot → `freshness=missing`
-  - stale snapshot → stale response without synchronous provider call
-- [ ] Runtime smoke with IB Gateway：
-  - `SYMBOLS=PLTR,AAPL PRICE_PROVIDER=ib_internal OPTION_PROVIDER=ib_internal`
-  - record command, source, snapshot counts, missing Greeks/OI ratio, latest snapshot_ts
-- [ ] UI smoke：
-  - PLTR shows price-only before options snapshot
-  - PLTR shows GEX/Wall/Gamma Flip after options snapshot
-- [ ] Disclosure:
-  - Verification result must distinguish `IB internal verified` from `licensed provider verified`.
+**Phase 3D-6 — Verification（部分移至 backlog）**
+- [ ] Unit tests（backlog）：GEX sign calculation、wall selection、gamma flip interpolation/nearest-zero fallback、PCR division-by-zero、confidence downgrade
+- [x] Integration / UI smoke：Polygon licensed provider 完整验证（见 Phase 3I）
+- [x] Disclosure：API 返回 `source=polygon_licensed`，区分 IB internal 研究路径
 
-**Phase 3D-7 — Production Provider Cutover**
-- [x] Evaluate licensed providers for OPRA/options chain redistribution.
-  - First candidate：Massive/Polygon options chain snapshot
-    - Official docs show option chain snapshot endpoint includes per-contract pricing, Greeks, IV, quotes/trades, open interest, and underlying asset fields.
-    - Docs distinguish 15-minute delayed vs real-time options plan access.
-    - Must confirm commercial redistribution/display rights before public paid product use.
-  - Second candidate：Intrinio options chain / options data APIs
-    - Needs commercial confirmation for OPRA redistribution/display and Greeks/OI completeness.
-  - Not sufficient for public product：IB internal, TT internal, yfinance.
-- [ ] Implement licensed adapter behind same provider interface.
-  - Blocked until provider selected, API key available, and license permits the intended product display/redistribution.
-  - Adapter target remains `collector/providers/base.py::OptionChainProvider`; API/frontend contract should not change.
-- [ ] Run side-by-side comparison：IB internal vs licensed provider for AAPL/SPY/QQQ/PLTR.
-  - Blocked until licensed adapter can fetch snapshots.
-- [ ] Cutover condition：
-  - licensed provider snapshot completeness acceptable
-  - API contract unchanged
-  - UI source displays licensed provider
-  - IB internal disabled for public product path
+**✅ Phase 3D-7 — Production Provider Cutover（完成于 Phase 3I）**
+- [x] Selected: Polygon.io Options Starter ($29/月，含商用再分发权利，15分钟延迟)
+- [x] `collector/providers/polygon_option_chain_provider.py` 实现，source=`polygon_licensed`
+- [x] `run_refresh_worker.py` + `ecosystem.config.cjs` 已切换至 `polygon_licensed`
+- [x] IB internal 不再作为公开产品数据路径；API 返回 `source=polygon_licensed`
 
 **Phase 3C — Cache & Freshness Architecture（真实数据源上线体验）**
 - [x] 定义 snapshot freshness policy：IV/HV daily，earnings daily，option chain 1-5min，OI daily/provider cadence，GEX/Walls/Gamma Flip 随 chain refresh，scanner 1-5min
@@ -886,11 +852,6 @@
 - 限制在我们这边：collector 当前 cron 每天只跑一次（收盘后13:35 PT）
 - 若需盘中信号（如30分钟级 breakout），需改调度为每30分钟跑一次 collect，不需要换数据源
 - Polygon Stocks 订阅（分钟级聚合）和 Options 订阅是两个独立产品；当前 $29 Options 计划附带日线股价聚合，但不含分钟级股价
-
-### 调试记录（Learning）
-- PM2 `process.env.KEY || ''` 注入空串会阻断 `load_dotenv`；必须硬编码 API key 或用单独 .env 覆盖
-- `run_refresh_worker.py` 的 `SUPPORTED_OPTION_PROVIDERS` 是独立白名单，不从 `collect_options.py make_provider()` 继承；新增 provider 必须同时更新三处：`collect_options.py`、`run_refresh_worker.py`、`ecosystem.config.cjs`
-- `pm2 reload ecosystem.config.cjs --update-env` 是重读配置文件的正确方式
 
 ---
 
