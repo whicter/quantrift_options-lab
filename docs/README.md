@@ -73,6 +73,7 @@ Open http://localhost:5173
 - Option chains: production must use a licensed options data provider
 - IB API: internal research / algorithm validation only, not the default public product data source
 - yfinance is not the default price or options data path because of rate-limit and licensing/reliability constraints
+- Licensed options provider direction: Massive/Polygon is the first adapter candidate; Intrinio is the second candidate. Final selection requires explicit OPRA/options display and redistribution rights.
 
 ## Product Data Direction
 - Core product signals: Call Wall, Put Wall, Global GEX, Local Gamma, Gamma Flip, Max Pain, PCR, IV Skew, OI concentration, Unusual OI delta
@@ -87,7 +88,8 @@ Open http://localhost:5173
 - [x] V2: Python IV collector on Mac Studio (daily cron)
 - [x] V2: provider-first 60-day OHLCV pipeline skeleton (`collect_prices.py`, `price_history`, `/api/prices/:symbol`)
 - [x] V2: Vercel deployment
-- [ ] V2: GEX data model + licensed options data provider abstraction
+- [x] V2: GEX data model + licensed options data provider abstraction
+- [ ] V2: Licensed options provider adapter after vendor/key/license selection
 - [ ] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers

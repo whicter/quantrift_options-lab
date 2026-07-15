@@ -569,9 +569,19 @@
   - Verification result must distinguish `IB internal verified` from `licensed provider verified`.
 
 **Phase 3D-7 — Production Provider Cutover**
-- [ ] Evaluate licensed providers for OPRA/options chain redistribution.
+- [x] Evaluate licensed providers for OPRA/options chain redistribution.
+  - First candidate：Massive/Polygon options chain snapshot
+    - Official docs show option chain snapshot endpoint includes per-contract pricing, Greeks, IV, quotes/trades, open interest, and underlying asset fields.
+    - Docs distinguish 15-minute delayed vs real-time options plan access.
+    - Must confirm commercial redistribution/display rights before public paid product use.
+  - Second candidate：Intrinio options chain / options data APIs
+    - Needs commercial confirmation for OPRA redistribution/display and Greeks/OI completeness.
+  - Not sufficient for public product：IB internal, TT internal, yfinance.
 - [ ] Implement licensed adapter behind same provider interface.
+  - Blocked until provider selected, API key available, and license permits the intended product display/redistribution.
+  - Adapter target remains `collector/providers/base.py::OptionChainProvider`; API/frontend contract should not change.
 - [ ] Run side-by-side comparison：IB internal vs licensed provider for AAPL/SPY/QQQ/PLTR.
+  - Blocked until licensed adapter can fetch snapshots.
 - [ ] Cutover condition：
   - licensed provider snapshot completeness acceptable
   - API contract unchanged

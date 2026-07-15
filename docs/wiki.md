@@ -685,6 +685,22 @@ Phase 3D transition provider decision：
 - `tt_internal` rows are internal validation data, not licensed product redistribution data.
 - Formal product launch still requires a paid/licensed options-data source with redistribution rights.
 
+Phase 3D-7 licensed provider evaluation：
+
+| Provider candidate | Why it fits | Open questions | Current decision |
+|---|---|---|---|
+| Massive / Polygon options snapshot | Official docs show option chain snapshot with pricing, Greeks, implied volatility, quotes/trades, open interest, and underlying asset fields; plans distinguish delayed vs real-time options data | Must confirm OPRA/commercial display and redistribution rights for the exact Quantrift product model | First adapter candidate once key/license are available |
+| Intrinio options APIs | Options chain/data APIs are available and may fit a commercial data workflow | Need confirm field completeness for gamma/OI/volume, rate limits, redistribution/display terms, and cost | Second candidate / quote comparison |
+| IB Gateway | Can validate internal formulas and compare snapshots | Not a public product data redistribution source; local gateway is not acceptable request-path dependency | Internal validation only |
+| Tastytrade internal | Useful transitional chain + DXLink data while building schema and GEX logic | Not documented here as a licensed redistribution source for a public SaaS product | Internal validation only |
+
+Cutover rule：
+- Licensed adapter must implement `collector/providers/base.py::OptionChainProvider`.
+- API response shape for `/api/gex/:symbol`, `/api/chain/:symbol`, `/api/scan` must remain stable.
+- `source` must display the licensed provider name, not `ib_internal` or `tt_internal`.
+- Side-by-side comparison must run on `AAPL`, `SPY`, `QQQ`, `PLTR` before disabling internal providers for public product paths.
+- No public/paid product launch until the provider agreement explicitly allows the intended display/redistribution.
+
 Current `tt_internal` behavior：
 - Collector selector：`OPTION_PROVIDER=tt_internal`
 - Diagnostic：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python debug_tastytrade_option_chain.py`

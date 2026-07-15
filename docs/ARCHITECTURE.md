@@ -80,6 +80,17 @@ IB 过渡阶段默认范围：
 
 Provider adapter 必须隔离在 collector 层，API 与前端只依赖数据库 snapshot。未来切换 licensed provider 时，不应改变 `/api/gex/:symbol`、`/api/chain/:symbol` 或前端数据 contract。
 
+Licensed provider cutover status：
+
+| Item | Current decision |
+| --- | --- |
+| First candidate | Massive / Polygon options snapshot API |
+| Second candidate | Intrinio options APIs |
+| Required contract | OPRA/options display and redistribution rights for the intended Quantrift product |
+| Adapter boundary | `collector/providers/base.py::OptionChainProvider` |
+| Public source labels | Licensed provider name only; never `ib_internal` / `tt_internal` for public product paths |
+| Cutover proof | Side-by-side snapshots for `AAPL`, `SPY`, `QQQ`, `PLTR` with acceptable Greeks/OI/volume completeness |
+
 不建议的生产数据流：
 
 ```text
