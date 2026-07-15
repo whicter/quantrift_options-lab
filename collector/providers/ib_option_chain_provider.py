@@ -350,7 +350,7 @@ class IbOptionChainProvider:
             rho=data.rho,
             bid_size=data.bid_size,
             ask_size=data.ask_size,
-            contract_symbol=getattr(contract, 'symbol', None),
+            contract_symbol=_option_contract_symbol(symbol, expiry, strike, right),
             local_symbol=getattr(contract, 'localSymbol', None) or None,
             con_id=getattr(contract, 'conId', None) or None,
             provider_contract_id=str(getattr(contract, 'conId', '')) if getattr(contract, 'conId', None) else None,
@@ -536,6 +536,10 @@ def _parse_dte_buckets(raw: str | None) -> list[tuple[int, int]]:
 
 def _ib_contract_symbol(symbol: str) -> str:
     return symbol.upper().replace('.', ' ')
+
+
+def _option_contract_symbol(symbol: str, expiry: date, strike: float, right: str) -> str:
+    return f'{symbol.upper()}-{expiry.strftime("%Y%m%d")}-{right}-{float(strike):g}'
 
 
 def _mid(bid: float | None, ask: float | None) -> float | None:

@@ -18,6 +18,7 @@ import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import Json, execute_values
 
+from common import load_watchlist
 from providers.ib_option_chain_provider import IbOptionChainProvider
 from providers.tastytrade_option_chain_provider import TastytradeOptionChainProvider
 
@@ -32,11 +33,15 @@ log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
 OPTION_PROVIDER = os.getenv('OPTION_PROVIDER', 'ib_internal').strip().lower()
-DEFAULT_OPTION_SYMBOLS = 'AAPL,SPY,QQQ,PLTR'
 
 
 def load_symbols() -> list[str]:
-    raw_symbols = os.getenv('OPTION_SYMBOLS') or os.getenv('SYMBOLS') or DEFAULT_OPTION_SYMBOLS
+    raw_symbols = os.getenv('OPTION_SYMBOLS') or os.getenv('SYMBOLS')
+    if not raw_symbols:
+        return load_watchlist()
+    if raw_symbols.strip().lower() in {'watchlist', 'all'}:
+        return load_watchlist()
+
     symbols = []
     seen = set()
     for part in raw_symbols.split(','):

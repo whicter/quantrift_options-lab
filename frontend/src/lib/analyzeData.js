@@ -1,0 +1,106 @@
+export function toNumber(value) {
+  if (value == null || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+export function isUsableGex(gexData) {
+  if (!gexData || gexData.freshness === 'missing') return false;
+  if (gexData.is_stale || gexData.freshness !== 'fresh') return false;
+  if (!['high', 'medium'].includes(gexData.confidence)) return false;
+  return toNumber(gexData.global_gex) != null
+    && toNumber(gexData.call_wall) != null
+    && toNumber(gexData.put_wall) != null
+    && Array.isArray(gexData.strikes)
+    && gexData.strikes.length > 0;
+}
+
+export function applyGex(data, gexData) {
+  if (!data || !isUsableGex(gexData)) {
+    return {
+      ...data,
+      partialData: {
+        type: 'gex_unusable',
+        title: 'GEX / Wall 暂不可用',
+        message: gexData?.freshness === 'stale'
+          ? 'GEX/Wall 快照已过期，暂不生成 Call Wall / Put Wall 结论和期权策略腿。'
+          : 'GEX/Wall 快照不可用，暂不生成 Call Wall / Put Wall 结论和期权策略腿。',
+      },
+      gexTotal: null,
+      gexByStrike: [],
+      putWall: null,
+      callWall: null,
+      pcr: null,
+      pcrVol: null,
+      maxPain: null,
+      gammaFlip: null,
+      gammaRegime: null,
+      scenarios: null,
+      conclusion: 'GEX/Wall 数据不可用或已过期；当前不显示 Call Wall / Put Wall 结论。',
+      recommendation: null,
+      gexMeta: gexData && gexData.freshness !== 'missing' ? {
+        source: gexData.source,
+        snapshotTs: gexData.snapshot_ts,
+        freshness: gexData.freshness,
+        confidence: gexData.confidence,
+        reason: gexData.is_stale ? 'stale' : 'unusable',
+      } : null,
+    };
+  }
+
+  const gexByStrike = gexData.strikes
+    .map(row => ({
+      strike: toNumber(row.strike),
+      gex: toNumber(row.net_gex),
+      callGex: toNumber(row.call_gex),
+      putGex: toNumber(row.put_gex),
+      callOi: toNumber(row.call_oi),
+      putOi: toNumber(row.put_oi),
+      callVolume: toNumber(row.call_volume),
+      putVolume: toNumber(row.put_volume),
+    }))
+    .filter(row => row.strike != null && row.gex != null);
+
+  const price = toNumber(gexData.underlying_price) ?? data.price;
+  const callWall = toNumber(gexData.call_wall) ?? data.callWall;
+  const putWall = toNumber(gexData.put_wall) ?? data.putWall;
+  const gammaFlip = toNumber(gexData.gamma_flip);
+  const gexTotal = toNumber(gexData.global_gex) ?? data.gexTotal;
+  const pcr = toNumber(gexData.pcr_oi);
+  const pcrVol = toNumber(gexData.pcr_volume);
+  const upDistance = Math.max(callWall - price, Math.abs(price) * 0.03);
+  const downDistance = Math.max(price - putWall, Math.abs(price) * 0.03);
+  const gexText = Math.abs(gexTotal) >= 1e9
+    ? `$${(Math.abs(gexTotal) / 1e9).toFixed(2)}B`
+    : `$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+
+  return {
+    ...data,
+    price,
+    gexTotal,
+    gexByStrike: gexByStrike.length ? gexByStrike : data.gexByStrike,
+    putWall,
+    callWall,
+    pcr: pcr ?? data.pcr,
+    pcrVol: pcrVol ?? data.pcrVol,
+    maxPain: toNumber(gexData.max_pain),
+    gammaFlip,
+    gammaRegime: gexData.gamma_regime,
+    gexMeta: {
+      source: gexData.source,
+      snapshotTs: gexData.snapshot_ts,
+      freshness: gexData.freshness,
+      confidence: gexData.confidence,
+      providerStatus: gexData.provider_status,
+      wallMethod: gexData.wall_method,
+    },
+    scenarios: {
+      ...data.scenarios,
+      upTrigger: Number(callWall.toFixed(2)),
+      upTarget: Number((callWall + upDistance).toFixed(2)),
+      downTrigger: Number(putWall.toFixed(2)),
+      downTarget: Number((putWall - downDistance).toFixed(2)),
+    },
+    conclusion: `${gexData.gamma_regime === 'positive' ? '正' : gexData.gamma_regime === 'negative' ? '负' : '近零'}Gamma ${gexText}，Call Wall $${callWall.toFixed(2)} / Put Wall $${putWall.toFixed(2)}；PCR(OI) ${(pcr ?? 0).toFixed(2)}，Max Pain $${(toNumber(gexData.max_pain) ?? putWall).toFixed(2)}。`,
+  };
+}

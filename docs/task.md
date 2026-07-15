@@ -741,6 +741,22 @@
   - PLTR showed fake `Call Wall $595 / Put Wall $575` because Analyze initialized from `mockAnalysis` and kept mock walls when real GEX was stale/unusable.
   - GEX stale/unusable now marks the result partial and clears `callWall`, `putWall`, GEX strikes, scenarios and recommendation so mock walls cannot appear as real data.
   - API failure no longer falls back to local mock structures for a typed symbol.
+- [x] Analyze GEX regression tests：
+  - Frontend `npm test` covers stale GEX, missing GEX, and fresh usable GEX merge behavior.
+  - Stale/missing GEX clears mock walls, scenarios and recommendations instead of leaking local mock strategy output.
+- [x] Collector option-chain coverage fix：
+  - Confirmed from Railway DB on 2026-07-15：`price_history` had 67 symbols and `iv_history` had 76 symbols, but `option_chain_snapshots` / `gex_snapshots` only covered PLTR before the fix.
+  - Root cause：`collect_options.py` defaulted to `AAPL,SPY,QQQ,PLTR` instead of `watchlist.txt`; queue worker jobs were also vulnerable to stale `running` states when provider auth exited the process.
+  - `collect_options.py` now defaults to `watchlist.txt`; `OPTION_SYMBOLS` / `SYMBOLS` still provide targeted backfill overrides, and `watchlist` / `all` aliases explicitly select the full watchlist.
+  - `run_refresh_worker.py` now recovers stale `running` jobs, treats unsupported provider names as non-retryable, converts TT auth `SystemExit` into catchable errors, blocks repeated TT auth attempts within the same worker run, and falls back from `tt_internal` to `ib_internal` for option-chain jobs when TT auth is unavailable.
+  - `server/src/lib/refreshJobs.js` now rejects malformed ticker symbols before inserting `provider_fetch_jobs`; internal `__SCAN__` is allowed only for `scanner_materialize`.
+  - Analyze ticker input now handles IME composition safely: it does not force uppercase while Chinese input composition is active, normalizes only on composition end / submit, and rejects malformed artifacts such as `SS'TS'T'XSTX`.
+  - Runtime DB after recovery：option-chain/GEX snapshots exist for PLTR, QQQ and KLAC. STX and TSLA were backfilled through IB Gateway on `127.0.0.1:4001` and wrote `snapshot_id=14` / `snapshot_id=15`, each with 54 contracts.
+  - STX/TSLA IB result：`provider_status=partial`, `completeness_pct=0.00`, `missing_greeks_ratio=1.0000`, `missing_oi_ratio=1.0000`; GEX/Wall was correctly not generated because IB did not return bid/ask, Greeks or OI for those option snapshots.
+  - OI delta materialization now ignores IB rows where `contract_symbol` is only the underlying ticker and falls back to expiry/strike/right keys; STX/TSLA wrote 54 `missing_oi` rows each instead of failing on duplicate conflict.
+  - Verification：collector unittest passed 15 tests; server `npm test` passed 4 tests; frontend `npm test` passed 5 tests; frontend `npm run build` passed; `git diff --check` passed.
+- [ ] Resolve IB option market-data coverage for STX/TSLA/AAPL/SPY: confirm market data type, option quote permissions, generic ticks for OI/Greeks, and snapshot pacing so IB returns bid/ask, Greeks and OI instead of metadata-only contracts.
+- [ ] After TT auth re-login / unlock, continue bounded watchlist backfill with TT primary and IB fallback until option-chain/GEX coverage reaches the intended scanner ingestion pool.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)

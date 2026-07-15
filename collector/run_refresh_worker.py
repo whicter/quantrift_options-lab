@@ -35,8 +35,16 @@ log = logging.getLogger(__name__)
 DB_URL = os.getenv('DATABASE_URL')
 WORKER_BATCH_SIZE = int(os.getenv('REFRESH_WORKER_BATCH_SIZE', '10'))
 WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
+RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
 PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000'))
 SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal'}
+DEFAULT_OPTION_FALLBACK_PROVIDERS = 'ib_internal'
+NON_RETRYABLE_ERROR_PREFIXES = (
+    'unsupported option provider for worker:',
+    'tastytrade auth unavailable:',
+    'tastytrade metrics auth unavailable:',
+    'provider auth unavailable for this worker run:',
+)
 
 
 def fetch_jobs(conn) -> list[dict[str, Any]]:
@@ -65,6 +73,25 @@ def fetch_jobs(conn) -> list[dict[str, Any]]:
         cols = [desc[0] for desc in cur.description]
     conn.commit()
     return [dict(zip(cols, row)) for row in rows]
+
+
+def recover_stale_running_jobs(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE provider_fetch_jobs
+            SET status = 'queued',
+                last_error = 'recovered stale running job after worker timeout',
+                finished_at = NOW()
+            WHERE status = 'running'
+              AND started_at < NOW() - (%s::int * INTERVAL '1 minute')
+              AND attempts < %s
+            """,
+            (RUNNING_JOB_TIMEOUT_MINUTES, WORKER_MAX_ATTEMPTS),
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
 
 
 def finish_job(conn, job_id: int, status: str, summary: dict | None = None, error: str | None = None) -> None:
@@ -135,29 +162,37 @@ def load_chain_snapshot_by_id(conn, snapshot_id: int) -> dict[str, Any] | None:
         return dict(zip(cols, row))
 
 
-def run_option_chain_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
-    symbol = job['symbol']
-    provider_name = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
+def option_fallback_providers(primary_provider: str) -> list[str]:
+    raw = os.getenv('OPTION_FALLBACK_PROVIDERS', DEFAULT_OPTION_FALLBACK_PROVIDERS)
+    providers = []
+    for part in raw.split(','):
+        provider = part.strip().lower()
+        if not provider or provider == primary_provider or provider in providers:
+            continue
+        if provider in SUPPORTED_OPTION_PROVIDERS:
+            providers.append(provider)
+    return providers
 
-    if provider_name == 'licensed_options_provider':
-        raise RuntimeError('licensed options provider adapter is not configured')
-    if provider_name not in SUPPORTED_OPTION_PROVIDERS:
-        raise RuntimeError(f'unsupported option provider for worker: {provider_name}')
 
-    reserve_budget(conn, provider_name, job['job_type'])
+def option_provider_sequence(primary_provider: str, auth_blocked_providers: set[str] | None = None) -> list[str]:
+    auth_blocked_providers = auth_blocked_providers or set()
+    providers = [primary_provider, *option_fallback_providers(primary_provider)]
+    return [
+        provider for provider in providers
+        if not (provider == 'tt_internal' and 'tastytrade' in auth_blocked_providers)
+    ]
 
+
+def fetch_and_persist_option_snapshot(conn, symbol: str, provider_name: str) -> tuple[int, Any]:
     collect_options.OPTION_PROVIDER = provider_name
     provider = collect_options.make_provider()
     snapshot = provider.fetch_option_chain(symbol)
     snapshot_id = collect_options.persist_snapshot(conn, snapshot)
+    return snapshot_id, snapshot
 
-    summary = {
-        'snapshot_id': snapshot_id,
-        'contract_count': len(snapshot.contracts),
-        'provider_status': snapshot.provider_status,
-        'snapshot_ts': snapshot.snapshot_ts.isoformat(),
-    }
 
+def finalize_option_snapshot(conn, snapshot_id: int) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
     try:
         chain_snapshot = load_chain_snapshot_by_id(conn, snapshot_id)
         if not chain_snapshot:
@@ -179,12 +214,74 @@ def run_option_chain_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def run_option_chain_snapshot(conn, job: dict[str, Any], auth_blocked_providers: set[str] | None = None) -> dict[str, Any]:
+    symbol = job['symbol']
+    primary_provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
+
+    if primary_provider not in SUPPORTED_OPTION_PROVIDERS:
+        raise RuntimeError(f'unsupported option provider for worker: {primary_provider}')
+
+    attempted = []
+    last_exc: Exception | None = None
+    for provider_name in option_provider_sequence(primary_provider, auth_blocked_providers):
+        attempted.append(provider_name)
+        try:
+            reserve_budget(conn, provider_name, job['job_type'])
+            snapshot_id, snapshot = fetch_and_persist_option_snapshot(conn, symbol, provider_name)
+        except Exception as exc:
+            conn.rollback()
+            last_exc = exc
+            if provider_name == 'tt_internal' and is_auth_unavailable(exc):
+                if auth_blocked_providers is not None:
+                    auth_blocked_providers.add('tastytrade')
+                log.error('job %s provider %s unavailable; trying fallback: %s', job['id'], provider_name, exc)
+                continue
+            raise
+
+        summary = {
+            'requested_provider': primary_provider,
+            'provider': provider_name,
+            'attempted_providers': attempted,
+            'fallback_from': primary_provider if provider_name != primary_provider else None,
+            'snapshot_id': snapshot_id,
+            'contract_count': len(snapshot.contracts),
+            'provider_status': snapshot.provider_status,
+            'snapshot_ts': snapshot.snapshot_ts.isoformat(),
+        }
+        summary.update(finalize_option_snapshot(conn, snapshot_id))
+        return summary
+
+    raise last_exc or RuntimeError(f'no supported option provider available for {symbol}')
+
+
+def should_retry(exc: Exception) -> bool:
+    message = str(exc)
+    return not any(message.startswith(prefix) for prefix in NON_RETRYABLE_ERROR_PREFIXES)
+
+
+def auth_provider_for_job(job: dict[str, Any]) -> str | None:
+    if job['job_type'] == 'option_chain_snapshot':
+        provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
+        return 'tastytrade' if provider == 'tt_internal' else provider
+    if job['job_type'] == 'symbol_metrics_snapshot':
+        return 'tastytrade'
+    return None
+
+
+def is_auth_unavailable(exc: Exception) -> bool:
+    message = str(exc)
+    return 'auth unavailable' in message or 'requires manual login' in message
+
+
 def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     symbol = job['symbol']
     provider_name = job['provider'] if job['provider'] != 'metrics_provider' else 'tastytrade'
     reserve_budget(conn, provider_name, job['job_type'])
 
-    session_token = collect.get_session_token()
+    try:
+        session_token = collect.get_session_token()
+    except SystemExit as exc:
+        raise RuntimeError('tastytrade metrics auth unavailable: session renewal requires manual login') from exc
     metrics = collect.fetch_metrics(session_token, [symbol])
     item = metrics.get(symbol)
     if not item:
@@ -199,13 +296,29 @@ def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def handle_job(conn, job: dict[str, Any]) -> None:
+def handle_job(conn, job: dict[str, Any], auth_blocked_providers: set[str] | None = None) -> None:
     job_id = job['id']
+    auth_blocked_providers = auth_blocked_providers if auth_blocked_providers is not None else set()
+    auth_provider = auth_provider_for_job(job)
+    if (
+        auth_provider
+        and auth_provider in auth_blocked_providers
+        and not (job['job_type'] == 'option_chain_snapshot' and option_provider_sequence(job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal'), auth_blocked_providers))
+    ):
+        finish_job(
+            conn,
+            job_id,
+            'failed',
+            error=f'provider auth unavailable for this worker run: {auth_provider}',
+        )
+        log.error('job %s failed: provider auth unavailable for this worker run: %s', job_id, auth_provider)
+        return
+
     try:
         if job['job_type'] == 'scanner_materialize':
             summary = run_scanner_materialize()
         elif job['job_type'] == 'option_chain_snapshot':
-            summary = run_option_chain_snapshot(conn, job)
+            summary = run_option_chain_snapshot(conn, job, auth_blocked_providers)
         elif job['job_type'] == 'symbol_metrics_snapshot':
             summary = run_symbol_metrics_snapshot(conn, job)
         else:
@@ -214,7 +327,9 @@ def handle_job(conn, job: dict[str, Any]) -> None:
         log.info('job %s succeeded: %s', job_id, job['job_type'])
     except Exception as exc:
         conn.rollback()
-        status = 'failed' if job.get('attempts', 1) >= WORKER_MAX_ATTEMPTS else 'queued'
+        if auth_provider and is_auth_unavailable(exc):
+            auth_blocked_providers.add(auth_provider)
+        status = 'queued' if should_retry(exc) and job.get('attempts', 1) < WORKER_MAX_ATTEMPTS else 'failed'
         finish_job(conn, job_id, status, error=str(exc))
         log.error('job %s %s: %s', job_id, status, exc)
 
@@ -225,13 +340,17 @@ def run() -> None:
 
     conn = psycopg2.connect(DB_URL)
     try:
+        recovered = recover_stale_running_jobs(conn)
+        if recovered:
+            log.info('Recovered %s stale running jobs', recovered)
         jobs = fetch_jobs(conn)
         if not jobs:
             log.info('No queued refresh jobs')
             return
         log.info('Processing %s refresh jobs', len(jobs))
+        auth_blocked_providers: set[str] = set()
         for job in jobs:
-            handle_job(conn, job)
+            handle_job(conn, job, auth_blocked_providers)
     finally:
         conn.close()
 

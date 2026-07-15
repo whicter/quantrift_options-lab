@@ -1297,6 +1297,11 @@ Known current monitoring state:
 
 - `/api/status/cache` may report `degraded` while historical failed IB jobs or metadata-only option snapshots remain in the 24h window.
 - This is expected monitoring visibility, not a Phase 3C implementation failure.
+- 2026-07-15 collector audit found uneven coverage: `iv_history` and `price_history` covered the watchlist, while option-chain/GEX snapshots initially covered only PLTR. The option collector now defaults to `watchlist.txt`, and targeted backfills remain available through `OPTION_SYMBOLS` / `SYMBOLS`.
+- Refresh worker failure handling now has four guardrails: stale `running` jobs are recovered after timeout, unsupported provider names fail closed instead of requeueing forever, TT auth failures are catchable so worker state is written back to `provider_fetch_jobs`, and option-chain jobs fall back from `tt_internal` to `ib_internal` when TT auth is unavailable.
+- API refresh enqueue rejects malformed ticker symbols before insertion. `__SCAN__` remains an internal sentinel only for `scanner_materialize`.
+- Analyze ticker entry handles IME composition explicitly and rejects malformed ticker artifacts before API calls.
+- Current verified complete option/GEX DB coverage after recovery: PLTR, QQQ and KLAC. STX and TSLA have IB option-chain snapshots, but those snapshots are partial with no bid/ask, Greeks or OI, so GEX/Wall remains unavailable by design.
 
 ## 24. 最终架构概览
 

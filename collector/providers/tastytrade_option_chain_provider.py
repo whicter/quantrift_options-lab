@@ -359,8 +359,8 @@ class TastytradeOptionChainProvider:
 
                 self.session_token = get_session_token()
                 return self.session_token
-            except SystemExit:
-                raise
+            except SystemExit as exc:
+                raise RuntimeError('tastytrade auth unavailable: session renewal requires manual login') from exc
             except Exception:
                 pass
         if not self.login or not self.password:

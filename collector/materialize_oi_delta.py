@@ -51,8 +51,9 @@ def load_symbols() -> list[str]:
 
 
 def contract_key(row: dict[str, Any]) -> str:
-    if row.get('contract_symbol'):
-        return str(row['contract_symbol'])
+    contract_symbol = row.get('contract_symbol')
+    if contract_symbol and contract_symbol != row.get('symbol'):
+        return str(contract_symbol)
     if row.get('provider_contract_id'):
         return str(row['provider_contract_id'])
     return f"{row['expiry']}|{row['strike']}|{row['option_right']}"
@@ -82,7 +83,7 @@ def fetch_contracts(conn, snapshot_id: int) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT contract_symbol, provider_contract_id, expiry, strike, option_right,
+            SELECT symbol, contract_symbol, provider_contract_id, expiry, strike, option_right,
                    bid, ask, volume, open_interest
             FROM option_contract_snapshots
             WHERE snapshot_id = %s

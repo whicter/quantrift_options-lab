@@ -2,9 +2,16 @@ const pool = require('../db');
 
 const DEFAULT_OPTIONS_REFRESH_PROVIDER = process.env.OPTIONS_REFRESH_PROVIDER || 'tt_internal';
 const SUPPORTED_OPTIONS_REFRESH_PROVIDERS = new Set(['ib_internal', 'tt_internal']);
+const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 function isMissingTableError(err) {
   return err?.code === '42P01';
+}
+
+function normalizeRefreshSymbol(symbol, jobType) {
+  const normalized = String(symbol || '').trim().toUpperCase();
+  if (jobType === 'scanner_materialize' && normalized === '__SCAN__') return normalized;
+  return SYMBOL_PATTERN.test(normalized) ? normalized : null;
 }
 
 async function enqueueRefreshJob({
@@ -14,7 +21,8 @@ async function enqueueRefreshJob({
   requestParams = {},
   minIntervalSeconds = parseInt(process.env.REFRESH_MIN_INTERVAL_SECONDS ?? 60, 10),
 }) {
-  if (!symbol || !jobType) return 'none';
+  const normalizedSymbol = normalizeRefreshSymbol(symbol, jobType);
+  if (!normalizedSymbol || !jobType) return 'none';
 
   try {
     const { rows } = await pool.query(
@@ -40,7 +48,7 @@ async function enqueueRefreshJob({
            WHEN EXISTS (SELECT 1 FROM recent) THEN 'queued'
            ELSE 'none'
          END AS refresh_status`,
-      [symbol, jobType, provider, JSON.stringify(requestParams), minIntervalSeconds]
+      [normalizedSymbol, jobType, provider, JSON.stringify(requestParams), minIntervalSeconds]
     );
     return rows[0]?.refresh_status || 'none';
   } catch (err) {
@@ -53,5 +61,6 @@ async function enqueueRefreshJob({
 module.exports = {
   DEFAULT_OPTIONS_REFRESH_PROVIDER,
   SUPPORTED_OPTIONS_REFRESH_PROVIDERS,
+  normalizeRefreshSymbol,
   enqueueRefreshJob,
 };
