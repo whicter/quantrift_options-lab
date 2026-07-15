@@ -80,7 +80,7 @@
 
 ## ✅ Phase 3B-1 — Provider-first 价格历史闭环（IB internal + Tastytrade）
 
-> 前置条件：Mac Studio collector cron 已配置运行
+> 前置条件：Mac Studio PM2 直接运行当前 repo 的 collector
 > 价格历史默认走 provider adapter。当前默认 `PRICE_PROVIDER=ib_internal`，显式开发/回填可用 `PRICE_PROVIDER=stooq`。yfinance 不作为默认路径。
 
 ### 真实价格历史（趋势图）
@@ -139,16 +139,16 @@
 
 ### Collector 调度
 - [x] 在 Mac Studio 安装 `collect_prices.py` 定时任务
-  - 采用 macOS LaunchAgent，而不是 cron。
-  - 原因：`crontab -l` 可读取，但 `crontab /private/tmp/quantrift_options_crontab.txt` 在当前 Codex/macOS 权限环境中挂住；LaunchAgent 可正常 bootstrap/kickstart。
-  - Label：`com.quantrift.collect-prices`
-  - Installed plist：`/Users/congrenhan/Library/LaunchAgents/com.quantrift.collect-prices.plist`
-  - Runtime：`/Users/congrenhan/.quantrift_options_collector`
+  - 当前实现：PM2 直接运行 `/Users/congrenhan/Documents/quantrift_options-lab/collector`，不维护第二份 runtime，不需要同步代码。
+  - PM2 config：`collector/ecosystem.config.cjs`
+  - App：`quantrift-options-prices`
+  - Script：repo 内 `collector/collect_prices.py`
+  - Python：repo 内 `collector/venv311/bin/python`
   - Schedule：Monday-Friday 13:35 PT / 16:35 ET
-  - Runtime wrapper：`/Users/congrenhan/.quantrift_options_collector/run_collect_prices.sh`
-  - Logs：`/Users/congrenhan/.quantrift_options_collector/logs/collect_prices.launchd.log`
-  - 2026-07-14 kickstart 验证：`launchctl kickstart -k gui/$(id -u)/com.quantrift.collect-prices`
-  - 2026-07-14 launchd 验证结果：`last exit code = 0`，日志显示 `4020 rows written, 0 failed`
+  - Environment：直接读取 repo 内 `collector/.env`
+  - 旧 `com.quantrift.collect-prices` LaunchAgent、plist 和 `/Users/congrenhan/.quantrift_options_collector` 运行副本已停止并删除。
+  - 启动命令：`pm2 start collector/ecosystem.config.cjs && pm2 save`
+  - 验证命令：`pm2 status quantrift-options-prices`
 - [x] 跑完整 watchlist 一次 `collect_prices.py`
   - 成功 symbols 数量：67 / 67
   - 写入 rows：4020
@@ -203,7 +203,7 @@
 - [x] Syntax verified：Node server routes
 - [x] Frontend build verified：`npm run build`
 - [x] Collector runtime verified：完整 watchlist run
-- [x] LaunchAgent verified：`com.quantrift.collect-prices` kickstart 完成，`last exit code = 0`
+- [x] Historical LaunchAgent run verified on 2026-07-14；current runtime has migrated to PM2 direct-repository execution（见 Phase 3D-2B）
 - [x] Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 `freshness=fresh`、`is_stale=false`
 - [x] Local API verified：`curl -f "http://localhost:3002/api/status/data"` 返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
 - [x] Production API verified：Railway `/api/prices/AAPL?limit=3`
@@ -409,7 +409,12 @@
   - provider → `option_chain_snapshots`
   - contracts → `option_contract_snapshots`
   - job status → `provider_fetch_jobs`
-- [x] 使用 IB API `reqSecDefOptParams` 获取 expirations / strikes，避免用 ambiguous `reqContractDetails` 拉全链。
+- [x] 使用 IB API `reqSecDefOptParams` 选择 bounded expiration buckets；再按 `expiry + right` 调用 `reqContractDetails` 获取 IB 实际存在的合约。
+- [x] 禁止本地构造 expiry × strike × right 笛卡尔积：
+  - `reqSecDefOptParams` 返回的 expiry 集合和 strike 集合不是合法合约对的映射，不能互相组合。
+  - 持久化前必须有 IB 返回的非零 `conId`、`localSymbol`、精确 expiry、strike 和 right。
+  - 对实际返回的 contracts 做 spot range、每边 strike 数、每 expiry cap 和 global cap 过滤。
+  - 同一 snapshot 按 `conId` 去重；不存在的组合不会进入 market-data 请求或数据库。
 - [x] 限定过渡阶段采集范围：
   - symbols：先 `AAPL`, `SPY`, `QQQ`, `PLTR`
   - DTE：7-60 days
@@ -545,10 +550,10 @@
 - [x] 若 GEX fresh：
   - 替换 mock GEX / Call Wall / Put Wall / Gamma Flip / PCR / Max Pain
   - 显示 source、snapshot time、confidence
-- [x] 若 GEX missing/stale/unusable：
-  - 保留 price-only 或 IV-only 页面
-  - 显示 GEX stale/unusable 状态，不把旧 GEX 当 fresh
-  - 不显示 mock wall/gex 作为真实数据
+- [x] GEX 可用性与新鲜度分离：
+  - required fields 完整时，fresh、stale 或 partial GEX 都展示实际 GEX/Wall/strikes。
+  - stale/partial 显示 source、snapshot age、confidence 和质量提示，不冒充 fresh。
+  - 只有 required fields 缺失时才进入 GEX unavailable，并清除 mock wall/gex/strategy legs。
 - [x] 支持 GEX-only fallback：
   - 如果 symbol 有真实 GEX + price，但暂无 `/api/metrics`，仍展示真实 GEX / Walls / PCR / Max Pain
   - IV Rank 区域显示 unavailable，不生成策略腿推荐
@@ -755,8 +760,61 @@
   - STX/TSLA IB result：`provider_status=partial`, `completeness_pct=0.00`, `missing_greeks_ratio=1.0000`, `missing_oi_ratio=1.0000`; GEX/Wall was correctly not generated because IB did not return bid/ask, Greeks or OI for those option snapshots.
   - OI delta materialization now ignores IB rows where `contract_symbol` is only the underlying ticker and falls back to expiry/strike/right keys; STX/TSLA wrote 54 `missing_oi` rows each instead of failing on duplicate conflict.
   - Verification：collector unittest passed 15 tests; server `npm test` passed 4 tests; frontend `npm test` passed 5 tests; frontend `npm run build` passed; `git diff --check` passed.
-- [ ] Resolve IB option market-data coverage for STX/TSLA/AAPL/SPY: confirm market data type, option quote permissions, generic ticks for OI/Greeks, and snapshot pacing so IB returns bid/ask, Greeks and OI instead of metadata-only contracts.
-- [ ] After TT auth re-login / unlock, continue bounded watchlist backfill with TT primary and IB fallback until option-chain/GEX coverage reaches the intended scanner ingestion pool.
+- [x] **Phase 3D-2B — 修复 IB 实链采集、持久化和本机直接运行（2026-07-15）**
+  - Finding ID：`DATA-IB-CONTRACT-001`
+  - Confirmed bug：旧 provider 将 `reqSecDefOptParams` 的全局 expirations 和 strikes 做组合，可能请求并持久化实际不存在的 option contract。
+  - Exact code path：`run_refresh_worker.py` → `collect_options.py` → `IbOptionChainProvider.fetch_snapshot()` → contract discovery → `persist_snapshot()` → GEX/OI delta/scanner materialization。
+  - Trigger：任意 symbol 的合法 expiry 集合与 strike 集合并非一一对应；本地组合后 IB resolution 结果不完整或错误。
+  - Worst consequence：错误 strike/expiry/right 进入 snapshot，产生与 underlying 完全不相干的 Wall、GEX 和策略腿。
+  - Implemented behavior：
+    - `reqSecDefOptParams` 只用于选择 bounded expirations。
+    - 每个 `expiry + CALL/PUT` 使用无 strike 的 `reqContractDetails` 请求实际 contract definitions。
+    - 只接受 IB 返回、`conId > 0`、expiry/right 精确匹配的 contract。
+    - 按真实 contract 的 strike 距 spot 排序和截断；不生成任何缺失组合。
+    - market data 默认 `IB_MARKET_DATA_TYPE=3`，当前过渡阶段接受 delayed quote/Greeks/OI。
+  - Persistence invariants：
+    - `option_contract_snapshots.con_id` 必须来自 IB actual contract details。
+    - 同一采集结果按 `conId` 去重。
+    - `raw_metadata.discovered_contract_count` 和 `selected_contract_count` 记录发现与持久化数量。
+    - partial field coverage 可以持久化并降低 completeness；不存在的 contract 不能持久化。
+  - Runtime simplification：
+    - 新增 `collector/run_collector_daemon.py`，每 60 秒消费 refresh jobs、每 300 秒 materialize scanner。
+    - 新增 `collector/schedule_option_refresh.py`：每 300 秒从 watchlist 选择最多 2 个 missing/old symbols；missing 优先、stale 按最旧优先；queued/running 或 30 分钟内尝试过的 symbol 跳过。
+    - 自动任务以 `tt_internal` 入队；TT auth/network unavailable 时由同一 worker fallback 到 `ib_internal`，不重复创建 provider session storm。
+    - 新增 `collector/ecosystem.config.cjs`；PM2 直接运行当前 repo 和 repo `venv311`。
+    - 删除 repo LaunchAgent plist/wrappers；停止旧 LaunchAgent；删除 `~/.quantrift_options_collector` 运行副本。
+    - 不需要 sync；修改当前 repo 后重启 PM2 即加载当前代码。
+  - UI behavior：stale/partial 但 required fields 完整的 GEX/Wall 保留显示，并标记 age/confidence；missing required fields 才隐藏分析。
+  - Files changed：
+    - `collector/providers/ib_option_chain_provider.py`
+    - `collector/run_collector_daemon.py`
+    - `collector/ecosystem.config.cjs`
+    - `collector/.env.example`
+    - `collector/tests/test_option_provider_selection.py`
+    - `frontend/src/lib/analyzeData.js`
+    - `frontend/src/pages/Analyze.jsx`
+    - `frontend/src/lib/analyzeData.test.js`
+    - 删除旧 `collector/com.quantrift.collect-prices.plist`、`collector/run_collect_prices.sh`
+  - Tests required and executed：
+    - `cd collector && venv311/bin/python -m unittest discover -s tests` → 37 passed（含 missing-first、fresh/recent skip、oldest-stale-first scheduler tests）。
+    - `cd server && npm test` → 4 passed。
+    - `cd frontend && npm test` → 6 passed。
+    - `cd frontend && npm run build` → passed；仅保留既有 chunk-size warning。
+  - Live IB evidence：
+    - Command：`OPTION_PROVIDER=ib_internal OPTION_SYMBOLS=NBIS IB_HOST=127.0.0.1 IB_PORT=4001 IB_OPTION_CLIENT_ID=48 IB_MARKET_DATA_TYPE=3 IB_TIMEOUT=15 IB_OPTION_STREAM_TIMEOUT=4 OPTION_MAX_CONTRACTS=36 OPTION_MAX_CONTRACTS_PER_EXPIRATION=12 OPTION_MAX_STRIKES_PER_SIDE=2 OPTION_DTE_BUCKETS=0-14,30-60,60-90 venv311/bin/python collect_options.py`
+    - Result：`snapshot_id=33`，IB discovered 456 actual contracts，selected/persisted 30。
+    - DB：30 rows、30 distinct `conId`、0 null/zero `conId`、0 null `localSymbol`、Greeks missing 0%、OI missing 3.33%、completeness 98.33%。
+    - `OPTION_SYMBOLS=NBIS venv311/bin/python compute_gex.py` → `gex_id=15`、`global_gex=-449311853.73`、`confidence=high`。
+    - OI delta materialization wrote 30 rows；scanner materialization wrote 67 rows。
+  - Runtime evidence：`quantrift-options-collector` PM2 process online；log recorded `No queued refresh jobs` and `Materialized 67 scanner rows`。
+  - Price runtime evidence：`quantrift-options-prices` one-shot completed `4020 rows written, 0 failed` and returned to `stopped`; PM2 cron schedule will restart it at the next configured run。
+  - PM2 persistence：`pm2 save` completed and wrote `/Users/congrenhan/.pm2/dump.pm2`。
+  - Auto-refresh runtime evidence：scheduler selected AAPL；TT returned `device_challenge_required` once，worker immediately used IB fallback；IB delayed collection completed AAPL with 78 actual contracts、completeness 94.87%、Greeks missing 0%、OI missing 10.26%。Production `/api/status/options` increased from 8/67 to 9/67 covered，then PM2 continued with AIQ。
+  - Strategy behavior change：无。修复的是 contract identity 和数据可用性；未改变 entry/exit、position size、strategy parameters 或 order behavior。
+  - Rollback：`pm2 delete quantrift-options-collector quantrift-options-prices` 停止新 runtime；代码使用后续 commit 的 revert 回退。数据库 snapshot 为 append-only，本任务没有破坏性 schema migration。
+  - Done：实现、单元测试、前端测试/build、真实 IB 采集、数据库 identity/completeness、GEX/OI delta/scanner 下游闭环均已验证。
+- [x] 按 bounded batches 自动扩展完整 scanner ingestion pool：PM2 scheduler/worker 已运行并持续补 missing/stale snapshots。
+- [ ] 增加 collector coverage/failure alert：对 covered_count、failed_count、snapshot age 和 completeness 阈值发送 operator alert。
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)

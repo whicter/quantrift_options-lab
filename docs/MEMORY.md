@@ -32,7 +32,7 @@
 ## 技术栈
 - **Frontend**: React 19 + Vite，部署 Vercel，根目录 `frontend/`
 - **Backend**: Node.js Express，部署 Railway，根目录 `server/`
-- **Collector**: Python，运行在 Mac Studio cron，目录 `collector/`
+- **Collector**: Python，PM2 直接运行 Mac Studio 当前仓库的 `collector/`，不复制 runtime
 - **DB**: PostgreSQL on Railway（核心表：`iv_history`, `price_history`, `option_chain_snapshots`, `option_contract_snapshots`, `gex_snapshots`, `gex_by_strike_snapshots`, `scanner_results_snapshots`, `provider_fetch_jobs`, `provider_request_usage`）
 
 ## 当前架构状态
@@ -43,8 +43,11 @@
 - `collector/materialize_oi_delta.py` 生成 OI delta / unusual activity cache。
 - `collector/run_refresh_worker.py` 消费 `provider_fetch_jobs`。
 - `/api/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget。
+- PM2 app `quantrift-options-collector` 每 300 秒 bounded enqueue 最多 2 个 missing/stale option symbols、每 60 秒处理 queue、每 300 秒 materialize scanner；`quantrift-options-prices` 工作日 13:35 PT 跑 OHLCV。
+- IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
+- `IB_MARKET_DATA_TYPE=3` 接受延迟行情。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
 - Analyze 已有真实技术评分与策略矩阵；当前推荐腿是 target fallback，不是完整 live-chain optimal leg selection。
-- `ib_internal` / `tt_internal` 仅供内部/过渡验证，公开产品仍需 licensed options provider。
+- `ib_internal` / `tt_internal` 是当前过渡数据链，API 与前端只读取 PostgreSQL snapshot。
 
 ## 关键文件
 - `server/src/migrate.js` — 建表脚本，Railway 上跑一次
@@ -64,8 +67,7 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Licensed options provider adapter（Massive/Polygon 第一候选，Intrinio 第二候选；需要授权/合同/API key）
-2. Broader option snapshot coverage：从 PLTR 扩展到 AAPL/SPY/QQQ/核心 watchlist
-3. Strategy leg selector：用 live chain bid/ask/Greeks/DTE/liquidity 自动选腿
-4. Technical analysis layer：MA50/200、RSI、MACD → direction score
-5. Production auth/subscription/paywall
+1. Broader option snapshot coverage：按 bounded batches 扩展到完整 scanner ingestion pool
+2. Strategy leg selector：用实际 chain bid/ask/Greeks/DTE/liquidity 自动选腿
+3. Collector health/coverage alert：监控 queue、失败率、snapshot age 和 required-field completeness
+4. Production auth/subscription/paywall

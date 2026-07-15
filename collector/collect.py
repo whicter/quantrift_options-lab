@@ -34,7 +34,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-TT_BASE  = 'https://api.tastyworks.com'
+TT_BASE  = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')
+TT_USER_AGENT = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')
 DB_URL   = os.getenv('DATABASE_URL')
 
 # Tastytrade batch limit
@@ -49,7 +50,11 @@ def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
     params = ','.join(symbols)
     resp = requests.get(
         f'{TT_BASE}/market-metrics',
-        headers={'Authorization': session_token},
+        headers={
+            'Accept': 'application/json',
+            'Authorization': session_token,
+            'User-Agent': TT_USER_AGENT,
+        },
         params={'symbols': params},
         timeout=30,
     )

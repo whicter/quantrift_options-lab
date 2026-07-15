@@ -173,8 +173,8 @@
 
 重要边界：
 - scanner 仍是 IV-first watchlist triage，没有使用 GEX 过滤。
-- analyze 已读取 `/api/gex/:symbol`，并在 fresh + high/medium confidence 时用真实 GEX/Walls/PCR/Max Pain 替换 mock shell。
-- `tt_internal` 是过渡/internal validation provider；正式产品仍需要购买具备授权和再分发权利的数据源。
+- analyze 已读取 `/api/gex/:symbol`。只要 required fields 完整，fresh/stale/partial 都显示真实 GEX/Walls/PCR/Max Pain；stale/partial 额外显示 age/confidence 提示。
+- `tt_internal` 与 `ib_internal` 是当前过渡数据链，API 不同步调用 provider。
 
 ### Scanner 当前算法
 
@@ -253,13 +253,13 @@
 - Max Pain
 
 GEX 使用条件：
-- `freshness === fresh`
-- `is_stale === false`
-- `confidence` 为 `high` 或 `medium`
-- 有 `global_gex`, `call_wall`, `put_wall`, `strikes`
+- 有 `global_gex`, `call_wall`, `put_wall`, `strikes` 等 required fields。
+- freshness 和 confidence 是质量标签，不再作为整块隐藏 GEX/Wall 的条件。
+- missing required fields 时 fail closed，不能从 mock shell 保留 wall 或策略腿。
 
 GEX fallback：
-- GEX missing/stale/unusable：保留 IV + price 页面，不把 mock wall/gex 标记成真实。
+- GEX missing/unusable：保留 IV + price 页面，不把 mock wall/gex 标记成真实。
+- GEX stale/partial 但字段完整：继续显示实际数据，并明确标注 snapshot age 与质量。
 - 有 GEX + price 但无 `/api/metrics`：展示真实 GEX / Walls / PCR / Max Pain；IV Rank 显示不可用；不生成策略腿推荐。
 
 当前仍未接入 analyze UI 的真实数据：

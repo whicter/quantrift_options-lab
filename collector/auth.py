@@ -2,7 +2,7 @@
 Tastytrade authentication with remember-token auto-renewal.
 
 Flow:
-  - Normal run: use remember-token to get a new session-token (fully automated)
+  - Normal run: use remember-token to get a session-token (fully automated)
   - If remember-token expired: send alert email and exit (requires manual re-login)
 
 Manual first login / re-login: run `python auth.py --login` and follow prompts.
@@ -19,12 +19,18 @@ from dotenv import load_dotenv, set_key
 
 load_dotenv()
 
-TT_BASE   = 'https://api.tastyworks.com'
+TT_BASE   = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')
+TT_USER_AGENT = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')
 ENV_FILE  = os.path.join(os.path.dirname(__file__), '.env')
+_SESSION_TOKEN_CACHE = None
 
 
 def _headers(session_token=None):
-    h = {'Content-Type': 'application/json'}
+    h = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': TT_USER_AGENT,
+    }
     if session_token:
         h['Authorization'] = session_token
     return h
@@ -60,7 +66,7 @@ def send_alert_email(subject, body):
 def renew_session(remember_token):
     """
     Exchange remember-token for a new session-token.
-    Returns (session_token, new_remember_token) or raises on failure.
+    Returns session_token or raises on failure.
     """
     login = os.getenv('TT_LOGIN')
     resp = requests.post(
@@ -72,9 +78,7 @@ def renew_session(remember_token):
 
     if resp.status_code == 201:
         data = resp.json()['data']
-        session_token   = data['session-token']
-        new_remember    = data.get('remember-token', remember_token)
-        return session_token, new_remember
+        return data['session-token']
 
     # 401 means remember-token expired → need manual re-login
     raise ValueError(f'remember-token renewal failed: {resp.status_code} {resp.text}')
@@ -83,20 +87,21 @@ def renew_session(remember_token):
 def get_session_token():
     """
     Returns a valid session-token.
-    Auto-renews via remember-token; sends alert and exits if token expired.
-    Updates .env with the new remember-token.
+    Uses remember-token to create one session-token per process run.
+    Does not rotate or overwrite TT_REMEMBER_TOKEN during normal collector runs.
     """
+    global _SESSION_TOKEN_CACHE
+    if _SESSION_TOKEN_CACHE:
+        return _SESSION_TOKEN_CACHE
+
     remember_token = os.getenv('TT_REMEMBER_TOKEN')
     if not remember_token:
         print('[AUTH] No TT_REMEMBER_TOKEN in .env — run `python auth.py --login` first.')
         sys.exit(1)
 
     try:
-        session_token, new_remember = renew_session(remember_token)
-        # Persist updated remember-token
-        if new_remember != remember_token:
-            set_key(ENV_FILE, 'TT_REMEMBER_TOKEN', new_remember)
-            print('[AUTH] remember-token updated in .env')
+        session_token = renew_session(remember_token)
+        _SESSION_TOKEN_CACHE = session_token
         print('[AUTH] Session token renewed.')
         return session_token
     except ValueError as e:

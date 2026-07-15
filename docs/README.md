@@ -24,7 +24,7 @@ Production verification on 2026-07-14:
 quantrift_options-lab/
   frontend/     ← React 19 + Vite (Vercel)
   server/       ← Node.js API (Railway)
-  collector/    ← Python IV data collector (Mac Studio cron)
+  collector/    ← Python data collectors (Mac Studio PM2, direct repository runtime)
 ```
 
 ## Run Locally
@@ -70,16 +70,15 @@ Open http://localhost:5173
 - 60-day OHLCV: `price_history` in Railway PostgreSQL; `collect_prices.py` writes provider-sourced bars
 - Price provider default: `ib_internal` for local/internal Mac Studio research pipeline
 - Dev/backfill provider: `stooq`, only when explicitly selected
-- Option chains: production must use a licensed options data provider
-- IB API: internal research / algorithm validation only, not the default public product data source
+- Option chains: current ingestion uses the `ib_internal` and `tt_internal` adapters and persists snapshots before the API reads them.
+- IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.
 - yfinance is not the default price or options data path because of rate-limit and licensing/reliability constraints
-- Licensed options provider direction: Massive/Polygon is the first adapter candidate; Intrinio is the second candidate. Final selection requires explicit OPRA/options display and redistribution rights.
 
 ## Product Data Direction
 - Core product signals: Call Wall, Put Wall, Global GEX, Local Gamma, Gamma Flip, Max Pain, PCR, IV Skew, OI concentration, Unusual OI delta
 - User requests should read precomputed snapshots from Railway PostgreSQL through the Railway API
 - Public user requests must not synchronously depend on a local Mac Studio IB Gateway
-- Future data ingestion should use provider adapters so IB can be replaced by licensed production data without changing frontend contracts
+- Provider adapters isolate ingestion so a future data source can be added without changing API or frontend contracts.
 - Production data UX should use snapshot cache + stale-while-revalidate: return fresh snapshots immediately, return stale-but-labeled snapshots while refreshing, and show queued/unavailable states instead of fake mock data when a symbol has no data
 - Scanner results should be precomputed/cached, not full-market recalculated on every user request
 - Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
@@ -89,15 +88,16 @@ Open http://localhost:5173
 - Analyze now computes direction score from price history using MA20/50/200, RSI and MACD, then combines IV Rank, GEX and trend context into a strategy matrix recommendation.
 - Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.
 - Refresh worker safeguards: stale `running` jobs are recovered, unsupported provider jobs fail closed, TT auth exits are converted into job errors, option-chain jobs can fall back from TT to IB, and malformed symbols are rejected before entering `provider_fetch_jobs`.
-- Current data caveat: IB backfill can write option-chain metadata/contracts while still returning no bid/ask, Greeks or OI. Those partial snapshots are stored for traceability, but GEX/Wall and concrete strategy legs must stay unavailable until quote/Greeks/OI coverage is present.
+- PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.
+- IB contract discovery persists only contracts actually returned by IB with a valid `conId` and `localSymbol`; the collector never constructs synthetic expiry/strike/right combinations.
+- Stale or partial GEX remains visible when the snapshot contains the required computed fields. The UI labels its age/quality; only missing required fields suppress GEX/Wall analysis.
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
-- [x] V2: Python IV collector on Mac Studio (daily cron)
+- [x] V2: Python collectors on Mac Studio (PM2 direct-repository runtime)
 - [x] V2: provider-first 60-day OHLCV pipeline skeleton (`collect_prices.py`, `price_history`, `/api/prices/:symbol`)
 - [x] V2: Vercel deployment
-- [x] V2: GEX data model + licensed options data provider abstraction
-- [ ] V2: Licensed options provider adapter after vendor/key/license selection
+- [x] V2: GEX data model + provider adapter abstraction
 - [x] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
 - [x] V2: Refresh worker loop, provider budget accounting and stale/empty snapshot monitoring
 - [x] V2: Phase 3E OI delta / unusual activity snapshot layer

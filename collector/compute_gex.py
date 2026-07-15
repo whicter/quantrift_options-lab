@@ -133,8 +133,8 @@ def compute_for_snapshot(snapshot: dict[str, Any], contracts: list[Contract]) ->
         for strike, row in by_strike.items()
         if abs(strike / spot - 1) <= LOCAL_GAMMA_WINDOW_PCT / 100
     )
-    call_wall = _max_strike_by(by_strike, 'call_gex')
-    put_wall = _max_strike_by(by_strike, 'put_abs_gex')
+    call_wall = _max_strike_by(by_strike, 'call_gex', min_strike=spot)
+    put_wall = _max_strike_by(by_strike, 'put_abs_gex', max_strike=spot)
     pcr_oi = _safe_ratio(sum(row['put_oi'] for row in by_strike.values()), sum(row['call_oi'] for row in by_strike.values()))
     pcr_volume = _safe_ratio(sum(row['put_volume'] for row in by_strike.values()), sum(row['call_volume'] for row in by_strike.values()))
     max_pain = compute_max_pain(contracts)
@@ -413,8 +413,19 @@ def run() -> None:
         log.warning(f'Skipped symbols: {json.dumps(skipped)}')
 
 
-def _max_strike_by(by_strike: dict[float, dict[str, Any]], key: str) -> float | None:
-    positive_rows = [(strike, row.get(key) or 0) for strike, row in by_strike.items()]
+def _max_strike_by(
+    by_strike: dict[float, dict[str, Any]],
+    key: str,
+    *,
+    min_strike: float | None = None,
+    max_strike: float | None = None,
+) -> float | None:
+    positive_rows = [
+        (strike, row.get(key) or 0)
+        for strike, row in by_strike.items()
+        if (min_strike is None or strike >= min_strike)
+        and (max_strike is None or strike <= max_strike)
+    ]
     if not positive_rows:
         return None
     strike, value = max(positive_rows, key=lambda item: item[1])

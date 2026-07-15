@@ -40,6 +40,23 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertIn("status = 'queued'", source)
         self.assertIn('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', source)
 
+    def test_worker_deduplicates_queued_jobs_before_claiming_work(self):
+        source = WORKER_SOURCE.read_text()
+        self.assertIn('deduplicate_queued_jobs(conn)', source)
+        self.assertIn('superseded by newer queued refresh job', source)
+        self.assertIn('PARTITION BY symbol, job_type, provider', source)
+
+    def test_worker_supports_explicit_tt_circuit_breaker(self):
+        source = WORKER_SOURCE.read_text()
+        self.assertIn('TT_CIRCUIT_OPEN', source)
+        self.assertIn("{'tastytrade'} if TT_CIRCUIT_OPEN else set()", source)
+
+    def test_worker_fails_exhausted_and_malformed_queued_jobs(self):
+        source = WORKER_SOURCE.read_text()
+        self.assertIn('fail_unrunnable_queued_jobs(conn)', source)
+        self.assertIn('maximum worker attempts exhausted', source)
+        self.assertIn('invalid queued refresh symbol', source)
+
     def test_metrics_auth_system_exit_is_catchable(self):
         source = WORKER_SOURCE.read_text()
         self.assertIn('except SystemExit as exc', source)
@@ -69,7 +86,7 @@ class RefreshProviderContractTest(unittest.TestCase):
             def rollback(self):
                 pass
 
-        def fake_fetch(_conn, _symbol, provider):
+        def fake_fetch(_conn, _symbol, provider, _provider_cache=None):
             if provider == 'tt_internal':
                 raise RuntimeError('tastytrade auth unavailable: session renewal requires manual login')
             return 123, SimpleNamespace(
@@ -93,6 +110,68 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertEqual(summary['fallback_from'], 'tt_internal')
         self.assertEqual(summary['attempted_providers'], ['tt_internal', 'ib_internal'])
         self.assertIn('tastytrade', auth_blocked)
+
+    def test_option_chain_job_falls_back_on_tt_network_timeout(self):
+        import run_refresh_worker
+
+        class FakeConn:
+            def rollback(self):
+                pass
+
+        calls = []
+
+        def fake_fetch(_conn, _symbol, provider, _provider_cache=None):
+            calls.append(provider)
+            if provider == 'tt_internal':
+                raise RuntimeError('tastytrade network unavailable: ConnectTimeout')
+            return 124, SimpleNamespace(
+                contracts=[],
+                provider_status='partial',
+                snapshot_ts=datetime(2026, 7, 15, tzinfo=timezone.utc),
+            )
+
+        blocked = set()
+        with patch.dict('os.environ', {'OPTION_FALLBACK_PROVIDERS': 'ib_internal'}, clear=False), \
+             patch.object(run_refresh_worker, 'reserve_budget'), \
+             patch.object(run_refresh_worker, 'fetch_and_persist_option_snapshot', side_effect=fake_fetch), \
+             patch.object(run_refresh_worker, 'finalize_option_snapshot', return_value={}):
+            summary = run_refresh_worker.run_option_chain_snapshot(
+                FakeConn(),
+                {'id': 100, 'symbol': 'TSLA', 'job_type': 'option_chain_snapshot', 'provider': 'tt_internal'},
+                blocked,
+            )
+
+        self.assertEqual(calls, ['tt_internal', 'ib_internal'])
+        self.assertEqual(summary['provider'], 'ib_internal')
+        self.assertIn('tastytrade', blocked)
+        self.assertTrue(run_refresh_worker.is_provider_unavailable(
+            RuntimeError('tastytrade network unavailable: ConnectTimeout')
+        ))
+
+    def test_worker_reuses_one_provider_instance_for_all_jobs(self):
+        import run_refresh_worker
+
+        class FakeProvider:
+            def fetch_option_chain(self, symbol):
+                return SimpleNamespace(symbol=symbol)
+
+        class FakeConn:
+            pass
+
+        provider = FakeProvider()
+        cache = {}
+        with patch.object(run_refresh_worker.collect_options, 'make_provider', return_value=provider) as make_provider, \
+             patch.object(run_refresh_worker.collect_options, 'persist_snapshot', side_effect=[201, 202]):
+            first_id, _ = run_refresh_worker.fetch_and_persist_option_snapshot(
+                FakeConn(), 'STX', 'tt_internal', cache,
+            )
+            second_id, _ = run_refresh_worker.fetch_and_persist_option_snapshot(
+                FakeConn(), 'TSLA', 'tt_internal', cache,
+            )
+
+        self.assertEqual((first_id, second_id), (201, 202))
+        self.assertIs(cache['tt_internal'], provider)
+        make_provider.assert_called_once()
 
 
 if __name__ == '__main__':

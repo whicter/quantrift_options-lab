@@ -32,7 +32,7 @@ Ingestion: Python collector
 - Railway API `/health` 返回 `{"status":"ok"}`。
 - Railway API `/api/metrics?symbols=AAPL` 能读取 `public.iv_history` 并返回 AAPL 指标。
 - Railway API `/api/scan?minIvr=0&maxIvr=100&limit=5` 能返回扫描结果。
-- 当前验收样例数据的 `source` 为 `test`；collector 持续采集真实市场数据仍需单独确认。
+- 2026-07-15 已使用本机 IB Gateway 延迟行情完成真实 option snapshot → contracts → GEX → OI delta → scanner materialization 闭环。
 
 ## 1.1 产品数据边界
 
@@ -42,21 +42,20 @@ Options Lab 的目标产品能力包括 Call Wall、Put Wall、Global GEX、Loca
 
 - 用户请求只读取 Railway API 返回的已采集/预计算快照。
 - 普通用户输入 `AAPL` 时，不应同步触发本地 Mac Studio 或 IB Gateway 拉取 option chain。
-- IB Gateway 可以作为 internal research adapter，用于个人研究、算法验证和字段探索。
-- 公开/付费产品的默认 option chain 数据源必须是具备相应授权和再分发权利的 provider。
+- 当前过渡链使用 IB Gateway 与 Tastytrade adapter；IB 默认接受 delayed market data。
 - GEX 计算、API response 和前端 UI 不应绑定具体 provider；应通过 provider adapter 和数据库快照隔离数据源。
 
 建议数据流：
 
 ```text
-licensed options provider / internal IB adapter
+IB / TT / future provider adapter
   → collector / ingestion job
   → option_chain_snapshots + gex_snapshots in PostgreSQL
   → Railway API
   → frontend
 ```
 
-Phase 3D 过渡实现采用 IB Gateway internal adapter，但只用于内部闭环验证：
+Phase 3D 当前过渡实现采用 IB Gateway internal adapter：
 
 ```text
 Mac Studio IB Gateway
@@ -71,25 +70,14 @@ IB 过渡阶段默认范围：
 
 | 项目 | 过渡阶段限制 |
 | --- | --- |
-| Symbols | `AAPL`, `SPY`, `QQQ`, `PLTR` |
-| Expirations | 7-60 DTE |
-| Strikes | spot ±15% 或每边最多 20 个 strikes |
+| Symbols | 默认 `watchlist.txt`；可用 `OPTION_SYMBOLS` bounded override |
+| Expirations | 默认 DTE buckets `0-14,30-60,60-90` |
+| Contracts | IB 按 expiry/right 返回的实际 contracts，再按 spot 距离和 caps 过滤 |
 | Rights | calls + puts |
 | Source label | `ib_internal` |
-| Public product use | 不允许作为正式授权数据源 |
+| Market data type | `3`，接受 delayed data |
 
-Provider adapter 必须隔离在 collector 层，API 与前端只依赖数据库 snapshot。未来切换 licensed provider 时，不应改变 `/api/gex/:symbol`、`/api/chain/:symbol` 或前端数据 contract。
-
-Licensed provider cutover status：
-
-| Item | Current decision |
-| --- | --- |
-| First candidate | Massive / Polygon options snapshot API |
-| Second candidate | Intrinio options APIs |
-| Required contract | OPRA/options display and redistribution rights for the intended Quantrift product |
-| Adapter boundary | `collector/providers/base.py::OptionChainProvider` |
-| Public source labels | Licensed provider name only; never `ib_internal` / `tt_internal` for public product paths |
-| Cutover proof | Side-by-side snapshots for `AAPL`, `SPY`, `QQQ`, `PLTR` with acceptable Greeks/OI/volume completeness |
+Provider adapter 隔离在 collector 层，API 与前端只依赖数据库 snapshot。增加或切换 provider 时，不改变 `/api/gex/:symbol`、`/api/chain/:symbol` 或前端 data contract。Adapter boundary 是 `collector/providers/base.py::OptionChainProvider`。
 
 不建议的生产数据流：
 
@@ -101,7 +89,29 @@ frontend user request
   → response
 ```
 
-原因：延迟、IB pacing limit、Gateway session/2FA、本地机器可用性和数据授权边界都不适合作为公开 SaaS 请求路径。
+原因：延迟、IB pacing limit、Gateway session 和本地机器可用性不适合作为同步用户请求路径。
+
+### 1.2 IB 合约身份与持久化不变量
+
+`reqSecDefOptParams` 返回的是可用 expiration 集合与 strike 集合，不表示任意 expiration/strike/right 组合都是实际合约。正确路径是：
+
+```text
+reqSecDefOptParams
+  → 选择 bounded expiration buckets
+  → reqContractDetails(expiry, right, no strike)
+  → IB actual contracts (conId/localSymbol/expiry/strike/right)
+  → spot/cap filtering
+  → reqMktData(actual contract)
+  → option_chain_snapshots + option_contract_snapshots
+```
+
+硬性不变量：
+
+- 不做 expiration × strike × right 笛卡尔积。
+- `conId <= 0`、expiry/right 不匹配或关键 identity 缺失的合约不进入 snapshot。
+- 同一 snapshot 按 `conId` 去重。
+- delayed quote/Greeks/OI 与 live 字段进入相同规范化 contract schema。
+- partial coverage 降低 completeness/confidence，但不能用推测值补字段。
 
 ## 1.2 快照缓存与新鲜度架构
 
@@ -751,15 +761,22 @@ collector 不应因单个 symbol 失败而完全丢失整个批次。建议：
 
 ### 9.5 调度
 
-当前可由 Mac Studio 执行。调度可选：
+当前 Mac Studio 使用 PM2 直接执行本仓库，不复制 runtime：
 
-- `launchd`
-- `cron`
-- `systemd`（Linux）
-- Railway Cron/Job
-- GitHub Actions schedule（仅在数据源、Secret 和运行时适合时）
+```text
+collector/ecosystem.config.cjs
+  ├── quantrift-options-collector
+  │   └── run_collector_daemon.py
+  │       ├── option refresh scheduler (300s, batch 2)
+  │       ├── refresh worker (60s)
+  │       └── scanner materialization (300s)
+  └── quantrift-options-prices
+      └── collect_prices.py (Mon-Fri 13:35 PT)
+```
 
-当前不要为了“云化”而迁移；先保证：
+启动与持久化：`pm2 start collector/ecosystem.config.cjs && pm2 save`。旧 LaunchAgent、wrapper 和 `~/.quantrift_options_collector` 已移除。
+
+运行保障：
 
 - 机器断电恢复后任务能继续。
 - 网络失败可恢复。
@@ -1301,7 +1318,9 @@ Known current monitoring state:
 - Refresh worker failure handling now has four guardrails: stale `running` jobs are recovered after timeout, unsupported provider names fail closed instead of requeueing forever, TT auth failures are catchable so worker state is written back to `provider_fetch_jobs`, and option-chain jobs fall back from `tt_internal` to `ib_internal` when TT auth is unavailable.
 - API refresh enqueue rejects malformed ticker symbols before insertion. `__SCAN__` remains an internal sentinel only for `scanner_materialize`.
 - Analyze ticker entry handles IME composition explicitly and rejects malformed ticker artifacts before API calls.
-- Current verified complete option/GEX DB coverage after recovery: PLTR, QQQ and KLAC. STX and TSLA have IB option-chain snapshots, but those snapshots are partial with no bid/ask, Greeks or OI, so GEX/Wall remains unavailable by design.
+- 2026-07-15 exact-contract verification：NBIS `snapshot_id=33`，从 456 个 IB actual contracts 中选择 30 个；数据库 30/30 distinct valid `conId`、0 null `localSymbol`、Greeks missing 0%、OI missing 3.33%、completeness 98.33%。随后 `gex_id=15`、30 OI delta rows、67 scanner rows 完成。
+- `quantrift-options-collector` 已由 PM2 在线运行；worker log 显示 queue 可消费并成功 materialize 67 scanner rows。
+- Auto-refresh scheduler 对 missing symbols 采用 missing-first/oldest-first bounded selection，30 分钟失败冷却；TT unavailable 时同一 worker fallback IB。首次 runtime run 完成 AAPL 78 actual contracts（94.87% completeness），production coverage 从 8/67 增至 9/67，随后继续 AIQ。
 
 ## 24. 最终架构概览
 
@@ -1340,8 +1359,8 @@ Known current monitoring state:
                                        v
                         ┌─────────────────────────────┐
                         │ Market Data Providers        │
-                        │ TT / IB internal / licensed  │
+                        │ TT / IB / future adapters    │
                         └─────────────────────────────┘
 ```
 
-该架构适合当前项目阶段。近期工作的重点不是拆分服务，而是接入授权 options provider、补齐 unusual/OI delta 数据层，并把 scanner/analyze 从 positioning context 推进到 contract-level strategy selection。
+该架构适合当前项目阶段。近期重点是扩大 bounded option snapshot 覆盖、增加 collector health/coverage alert，并把 scanner/analyze 从 positioning context 推进到 actual contract-level strategy selection。

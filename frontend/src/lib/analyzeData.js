@@ -6,8 +6,6 @@ export function toNumber(value) {
 
 export function isUsableGex(gexData) {
   if (!gexData || gexData.freshness === 'missing') return false;
-  if (gexData.is_stale || gexData.freshness !== 'fresh') return false;
-  if (!['high', 'medium'].includes(gexData.confidence)) return false;
   return toNumber(gexData.global_gex) != null
     && toNumber(gexData.call_wall) != null
     && toNumber(gexData.put_wall) != null
@@ -38,6 +36,7 @@ export function applyGex(data, gexData) {
       scenarios: null,
       conclusion: 'GEX/Wall 数据不可用或已过期；当前不显示 Call Wall / Put Wall 结论。',
       recommendation: null,
+      gexNotice: null,
       gexMeta: gexData && gexData.freshness !== 'missing' ? {
         source: gexData.source,
         snapshotTs: gexData.snapshot_ts,
@@ -76,6 +75,8 @@ export function applyGex(data, gexData) {
 
   return {
     ...data,
+    partialData: undefined,
+    gexNotice: buildGexNotice(gexData),
     price,
     gexTotal,
     gexByStrike: gexByStrike.length ? gexByStrike : data.gexByStrike,
@@ -90,6 +91,8 @@ export function applyGex(data, gexData) {
       source: gexData.source,
       snapshotTs: gexData.snapshot_ts,
       freshness: gexData.freshness,
+      isStale: Boolean(gexData.is_stale),
+      ageMinutes: toNumber(gexData.age_minutes),
       confidence: gexData.confidence,
       providerStatus: gexData.provider_status,
       wallMethod: gexData.wall_method,
@@ -102,5 +105,25 @@ export function applyGex(data, gexData) {
       downTarget: Number((putWall - downDistance).toFixed(2)),
     },
     conclusion: `${gexData.gamma_regime === 'positive' ? '正' : gexData.gamma_regime === 'negative' ? '负' : '近零'}Gamma ${gexText}，Call Wall $${callWall.toFixed(2)} / Put Wall $${putWall.toFixed(2)}；PCR(OI) ${(pcr ?? 0).toFixed(2)}，Max Pain $${(toNumber(gexData.max_pain) ?? putWall).toFixed(2)}。`,
+  };
+}
+
+function buildGexNotice(gexData) {
+  const stale = Boolean(gexData.is_stale || gexData.freshness === 'stale');
+  const partial = gexData.confidence === 'low';
+  if (!stale && !partial) return null;
+
+  const age = toNumber(gexData.age_minutes);
+  const ageText = age == null ? '' : `，快照约 ${age} 分钟前采集`;
+  const quality = gexData.quality || {};
+  const contractCount = toNumber(quality.contract_count);
+  const missingOiRatio = toNumber(quality.missing_oi_ratio);
+  const oiText = contractCount == null || missingOiRatio == null
+    ? ''
+    : `，${contractCount} 个合约中约 ${(missingOiRatio * 100).toFixed(1)}% 暂缺 OI`;
+
+  return {
+    title: stale ? '延迟期权快照' : '部分期权数据',
+    message: `当前仍展示已采集的真实 GEX、Call Wall 和 Put Wall${ageText}${oiText}。`,
   };
 }

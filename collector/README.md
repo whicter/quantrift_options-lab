@@ -134,10 +134,10 @@ The diagnostic output prints raw `tickPrice`, `tickSize`, `tickOptionComputation
 
 Default option-chain scope:
 
-- Symbols: `AAPL,SPY,QQQ,PLTR`
+- Symbols: `watchlist.txt` by default; `OPTION_SYMBOLS=NBIS,PLTR` narrows a targeted run.
 - DTE buckets: `OPTION_DTE_BUCKETS=0-14,30-60,60-90`
 - Expirations: `OPTION_MAX_EXPIRATIONS_PER_BUCKET=1`, so the collector samples short-term, standard premium, and farther-dated contracts instead of exhausting the cap on the first available expiration.
-- Strikes: spot +/- 15%, capped by `OPTION_MAX_STRIKES_PER_SIDE`
+- Contracts: IB `reqContractDetails` returns the actual contracts for each selected expiry/right. The collector filters those returned contracts around spot and never creates expiry x strike x right combinations locally.
 - Contract caps: `OPTION_MAX_CONTRACTS=240` global safety cap and `OPTION_MAX_CONTRACTS_PER_EXPIRATION=80` per-expiration cap.
 - Source label: `ib_internal`
 - Delayed snapshot grace: `IB_OPTION_SNAPSHOT_GRACE_SECONDS=2`
@@ -155,7 +155,7 @@ PRICE_PROVIDER=stooq SYMBOLS=AAPL venv311/bin/python collect_prices.py
 
 IV and price collectors read symbols from `watchlist.txt`. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills.
 
-`collect_options.py` intentionally defaults to `OPTION_SYMBOLS=AAPL,SPY,QQQ,PLTR` instead of the full watchlist to avoid IB pacing and runaway chain requests during the internal transition.
+`collect_options.py` defaults to the full watchlist. Use `OPTION_SYMBOLS` for a bounded backfill or diagnostic run.
 
 Format:
 
@@ -169,36 +169,23 @@ PLTR
 
 Blank lines and `#` comments are ignored. Symbols are uppercased and duplicates are skipped.
 
-## Cron Setup
+## Mac Studio Runtime
 
-Mac Studio crontab uses `TZ=America/Los_Angeles`. Run after US market close at 4:30pm ET / 1:30pm PT:
+PM2 executes the current repository directly. There is no copied runtime directory, wrapper sync, cron entry, or LaunchAgent.
 
-```cron
-30 13 * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python collect.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect.log 2>&1
-```
-
-Add a separate cron entry for price history after confirming IB Gateway availability and clientId:
-
-```cron
-35 13 * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python collect_prices.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect_prices.log 2>&1
-```
-
-After option-chain/GEX jobs run, refresh the scanner cache:
-
-```cron
-*/5 * * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python materialize_scan.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/materialize_scan.log 2>&1
-```
-
-Run the refresh worker every minute:
-
-```cron
-* * * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python run_refresh_worker.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/refresh_worker.log 2>&1
-```
-
-Create logs directory:
 ```bash
-mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
+cd /Users/congrenhan/Documents/quantrift_options-lab
+pm2 start collector/ecosystem.config.cjs
+pm2 save
+pm2 status quantrift-options-collector quantrift-options-prices
+pm2 logs quantrift-options-collector --lines 50 --nostream
 ```
+
+- `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects at most two missing/old watchlist symbols, enqueues option refreshes, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds.
+- Auto-refresh uses `tt_internal` first and the worker's `ib_internal` fallback. A recent failed attempt gets a 30-minute cooldown, so auth/network failures do not create a login/request storm.
+- `quantrift-options-prices`: runs `collect_prices.py` at `13:35 America/Los_Angeles` Monday-Friday.
+- Both processes use this repository's `collector/venv311` and `collector/.env`.
+- `IB_MARKET_DATA_TYPE=3` accepts delayed market data for the current pipeline.
 
 ## Files
 
@@ -209,6 +196,9 @@ mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
 - `materialize_oi_delta.py` — contract-level OI delta materializer
 - `materialize_scan.py` — scanner cache materializer, PostgreSQL snapshot input only
 - `run_refresh_worker.py` — queued refresh worker and provider budget gate
+- `run_collector_daemon.py` — persistent worker/materializer loop used by PM2
+- `schedule_option_refresh.py` — bounded watchlist coverage scheduler with stale selection and retry cooldown
+- `ecosystem.config.cjs` — direct-repository PM2 process definitions
 - `providers/` — provider adapters; `ib_internal` is default for internal IB adapters, `stooq` is explicit price dev/backfill
 - `common.py` — shared watchlist loader
 - `watchlist.txt` — Collector symbol list

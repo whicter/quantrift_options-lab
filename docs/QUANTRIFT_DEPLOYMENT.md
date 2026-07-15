@@ -391,13 +391,17 @@ public.price_history
 - 本地 API 验证：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 成功返回 3 rows，source=`ib_internal`。
 - 2026-07-14 完整 watchlist 验证：`collector/venv311/bin/python collector/collect_prices.py` 成功处理 67/67 symbols，写入 4020 rows，0 failed。
 - 2026-07-14 Railway DB 覆盖验证：`price_history` 有 67 distinct symbols、4020 rows、date range 2026-04-17 → 2026-07-14、source=`ib_internal`，无少于 60 rows 的 symbol。
-- 当前定时任务状态：已改用 macOS LaunchAgent 安装 `com.quantrift.collect-prices`。
-  - Installed plist：`/Users/congrenhan/Library/LaunchAgents/com.quantrift.collect-prices.plist`
-  - Runtime：`/Users/congrenhan/.quantrift_options_collector`
-  - Schedule：Monday-Friday 13:35 PT / 16:35 ET
-  - Logs：`/Users/congrenhan/.quantrift_options_collector/logs/collect_prices.launchd.log`
-  - 2026-07-14 kickstart 验证：`last exit code = 0`，日志显示 `4020 rows written, 0 failed`
-  - 说明：`crontab` 写入在当前 Codex/macOS 权限环境中挂住；LaunchAgent 已验证可运行。
+- 当前定时任务状态：PM2 直接运行 Mac Studio 当前 repo，不维护同步副本。
+  - Config：`/Users/congrenhan/Documents/quantrift_options-lab/collector/ecosystem.config.cjs`
+  - `quantrift-options-collector`：长期运行 `run_collector_daemon.py`；option coverage scheduler 300 秒（batch 2）、worker 60 秒、scanner materialization 300 秒。
+  - `quantrift-options-prices`：工作日 13:35 PT / 16:35 ET 运行 repo 内 `collect_prices.py`。
+  - Python/env：repo 内 `collector/venv311` 与 `collector/.env`。
+  - 旧 LaunchAgent 与 `~/.quantrift_options_collector` 已移除；不存在“先同步代码再运行”的步骤。
+  - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 start collector/ecosystem.config.cjs && pm2 save`
+  - Inspect：`pm2 status quantrift-options-collector quantrift-options-prices`
+  - Logs：`pm2 logs quantrift-options-collector --lines 50 --nostream`
+  - 2026-07-15 runtime verification：collector online and materializing 67 scanner rows；price one-shot completed `4020 rows written, 0 failed` and is stopped between scheduled runs；`pm2 save` succeeded。
+  - 2026-07-15 auto-refresh verification：scheduler selected missing AAPL；TT device challenge was treated as unavailable and the worker fell back to IB delayed market data without retrying login；AAPL completed 78 actual contracts、94.87% completeness，production option coverage increased 8/67 → 9/67，then continued with AIQ。
 - 2026-07-14 生产 API 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"` 返回 HTTP 200，`source=ib_internal`、`count=3`、`freshness=fresh`、`is_stale=false`。
 - 2026-07-14 生产 status 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/status/data"` 返回 `expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
 
@@ -1068,7 +1072,7 @@ LIMIT 10;
 | Railway `/health` 接口 | 已完成 |
 | 生产域名和 API curl 验收 | 已完成（2026-07-14） |
 | Railway Healthcheck Path | 需要在平台中确认 |
-| collector 定时运行 | 已安装（Mac Studio cron，1:30pm PT / 4:30pm ET，2026-07-14 首次写入 21 rows） |
+| collector 定时运行 | 已安装（Mac Studio PM2 直接运行 repo；worker/scanner 常驻，OHLCV 工作日 13:35 PT） |
 | collector 失败告警 | 建议补充 |
 | 数据新鲜度告警 | 建议补充 |
 | 数据库 migration | 建议补充 |
@@ -1154,18 +1158,17 @@ https://quantriftoptions-lab-production.up.railway.app/api/scan?minIvr=0&maxIvr=
 
 产品目标包含 Call Wall、Put Wall、Global GEX、Local Gamma、Gamma Flip、strike-level GEX、Max Pain、PCR、IV Skew、OI concentration 和 Unusual OI delta。
 
-这些功能依赖 option chain、open interest、volume、Greeks、IV 和 underlying price。生产部署必须遵守：
+这些功能依赖 option chain、open interest、volume、Greeks、IV 和 underlying price。当前部署遵守：
 
-- IB Gateway 仅作为 internal research adapter / algorithm validation adapter。
-- 除非授权和再分发权利已确认，不把个人 IB Gateway 作为公开/付费产品的默认 option chain 数据源。
-- 普通用户输入 `AAPL` 时，Railway API 应读取 PostgreSQL 中已采集/预计算的快照，不应同步等待 Mac Studio IB Gateway 拉取 option chain。
-- 公开/付费产品的 option chain 数据应来自授权 options data provider。
-- 前端和 API contract 应绑定业务指标，不绑定具体 provider。
+- 普通用户输入 symbol 时，Railway API 读取 PostgreSQL 中已采集/预计算的 snapshot，不同步等待 Mac Studio IB Gateway。
+- IB/TT provider adapter 只存在于 collector 边界。
+- 前端和 API contract 绑定业务指标，不绑定具体 provider。
+- IB delayed market data type `3` 可写入当前过渡 snapshot。
 
-推荐生产路径：
+异步数据路径：
 
 ```text
-licensed options provider
+IB / TT / future provider adapter
   → ingestion job / collector
   → PostgreSQL option_chain_snapshots / gex_snapshots
   → Railway API
@@ -1283,7 +1286,18 @@ venv311/bin/python materialize_oi_delta.py
 
 # Process queued refresh jobs
 venv311/bin/python run_refresh_worker.py
+
+# Start persistent Mac Studio runtime directly from this repository
+cd /Users/congrenhan/Documents/quantrift_options-lab
+pm2 start collector/ecosystem.config.cjs
+pm2 save
+
+# Inspect runtime
+pm2 status quantrift-options-collector quantrift-options-prices
+pm2 logs quantrift-options-collector --lines 50 --nostream
 ```
+
+IB option ingestion defaults to `IB_MARKET_DATA_TYPE=3`. Contract discovery must use actual `reqContractDetails` results with valid `conId`; never create local expiration/strike/right combinations.
 
 Monitoring endpoint:
 

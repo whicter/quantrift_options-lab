@@ -25,6 +25,7 @@ class TastytradeOptionChainProvider:
     def __init__(self, base_url: str | None = None, timeout: float | None = None) -> None:
         self.base_url = (base_url or os.getenv('TT_BASE_URL') or 'https://api.tastyworks.com').rstrip('/')
         self.timeout = float(timeout or os.getenv('TT_TIMEOUT', '20'))
+        self.user_agent = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')
         self.session_token = os.getenv('TT_SESSION_TOKEN') or ''
         self.login = os.getenv('TT_LOGIN') or ''
         self.password = os.getenv('TT_PASSWORD') or ''
@@ -350,7 +351,11 @@ class TastytradeOptionChainProvider:
 
     def _headers(self) -> dict[str, str]:
         token = self.session_token or self._login()
-        return {'Accept': 'application/json', 'Authorization': token}
+        return {
+            'Accept': 'application/json',
+            'Authorization': token,
+            'User-Agent': self.user_agent,
+        }
 
     def _login(self) -> str:
         if self.remember_token:
@@ -361,15 +366,21 @@ class TastytradeOptionChainProvider:
                 return self.session_token
             except SystemExit as exc:
                 raise RuntimeError('tastytrade auth unavailable: session renewal requires manual login') from exc
-            except Exception:
-                pass
+            except requests.RequestException as exc:
+                raise RuntimeError(f'tastytrade network unavailable: {exc}') from exc
+            except Exception as exc:
+                raise RuntimeError(f'tastytrade auth unavailable: {exc}') from exc
         if not self.login or not self.password:
             raise RuntimeError('TT_SESSION_TOKEN or TT_LOGIN/TT_PASSWORD is required for tt_internal')
         payload: dict[str, Any] = {'login': self.login, 'password': self.password, 'remember-me': True}
         response = self._http.post(
             f'{self.base_url}/sessions',
             json=payload,
-            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'User-Agent': self.user_agent,
+            },
             timeout=self.timeout,
         )
         response.raise_for_status()

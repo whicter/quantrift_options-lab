@@ -1,0 +1,39 @@
+module.exports = {
+  apps: [
+    {
+      name: 'quantrift-options-collector',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'run_collector_daemon.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: true,
+      restart_delay: 5000,
+      env: {
+        IB_MARKET_DATA_TYPE: '3',
+        IB_OPTION_STREAM_TIMEOUT: '4',
+        OPTION_MAX_CONTRACTS: '120',
+        OPTION_MAX_CONTRACTS_PER_EXPIRATION: '40',
+        OPTION_MAX_STRIKES_PER_SIDE: '6',
+        COLLECTOR_POLL_SECONDS: '60',
+        SCAN_MATERIALIZE_SECONDS: '300',
+        OPTION_AUTO_REFRESH: 'true',
+        OPTION_REFRESH_PROVIDER: 'tt_internal',
+        OPTION_REFRESH_BATCH_SIZE: '2',
+        OPTION_REFRESH_MAX_AGE_MINUTES: '60',
+        OPTION_REFRESH_RETRY_COOLDOWN_MINUTES: '30',
+        OPTION_REFRESH_SCHEDULE_SECONDS: '300',
+        REFRESH_WORKER_BATCH_SIZE: '2',
+      },
+    },
+    {
+      name: 'quantrift-options-prices',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_prices.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '35 13 * * 1-5',
+      env: {
+        IB_MARKET_DATA_TYPE: '3',
+      },
+    },
+  ],
+};

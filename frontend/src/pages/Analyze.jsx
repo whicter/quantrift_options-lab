@@ -369,10 +369,11 @@ function PriceStatus({ meta }) {
 
 function GexStatus({ meta }) {
   if (!meta) return null;
-  const fresh = meta.freshness === 'fresh' && ['high', 'medium'].includes(meta.confidence);
+  const degraded = meta.isStale || meta.freshness === 'stale' || meta.confidence === 'low';
+  const age = meta.ageMinutes == null ? '' : ` ${meta.ageMinutes}m`;
   return (
-    <span className={`az-price-status ${fresh ? 'fresh' : 'stale'}`}>
-      GEX {fresh ? meta.source : meta.reason || meta.freshness} {meta.confidence || ''}
+    <span className={`az-price-status ${degraded ? 'stale' : 'fresh'}`}>
+      GEX {meta.source} {degraded ? '延迟/部分' : 'fresh'}{age} {meta.confidence || ''}
     </span>
   );
 }
@@ -587,6 +588,7 @@ export default function Analyze() {
           </div>
 
           <PartialDataNotice partialData={result.partialData} />
+          <PartialDataNotice partialData={result.gexNotice} />
 
           {/* Tab nav */}
           <div className="az-tabs">

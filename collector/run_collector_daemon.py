@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import logging
+import os
+import time
+
+import materialize_scan
+import run_refresh_worker
+import schedule_option_refresh
+
+
+POLL_SECONDS = max(int(os.getenv('COLLECTOR_POLL_SECONDS', '60')), 5)
+SCAN_SECONDS = max(int(os.getenv('SCAN_MATERIALIZE_SECONDS', '300')), POLL_SECONDS)
+OPTION_REFRESH_SECONDS = max(int(os.getenv('OPTION_REFRESH_SCHEDULE_SECONDS', '300')), POLL_SECONDS)
+AUTO_OPTION_REFRESH = os.getenv('OPTION_AUTO_REFRESH', 'false').strip().lower() in ('1', 'true', 'yes')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+log = logging.getLogger(__name__)
+for logger_name in ('ibapi', 'ibapi.client', 'ibapi.wrapper', 'ibapi.decoder'):
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def run() -> None:
+    next_scan_at = 0.0
+    next_option_refresh_at = 0.0
+    while True:
+        started_at = time.monotonic()
+        if AUTO_OPTION_REFRESH and started_at >= next_option_refresh_at:
+            try:
+                schedule_option_refresh.run()
+            except Exception:
+                log.exception('option refresh scheduling cycle failed')
+            next_option_refresh_at = started_at + OPTION_REFRESH_SECONDS
+
+        try:
+            run_refresh_worker.run()
+        except Exception:
+            log.exception('refresh worker cycle failed')
+
+        if started_at >= next_scan_at:
+            try:
+                materialize_scan.run()
+            except Exception:
+                log.exception('scanner materialization cycle failed')
+            next_scan_at = started_at + SCAN_SECONDS
+
+        elapsed = time.monotonic() - started_at
+        time.sleep(max(POLL_SECONDS - elapsed, 1))
+
+
+if __name__ == '__main__':
+    run()

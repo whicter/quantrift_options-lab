@@ -66,5 +66,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 ```
 
 ## Next Task
-- Next data blocker: licensed options provider adapter and broader option snapshot coverage.
+- Next data task: collector coverage/failure alerts while the bounded PM2 scheduler fills option snapshot/GEX/OI-delta coverage.
+- Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
+- IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Volume/OI is only an activity proxy. Confirmed unusual OI requires previous snapshot comparison.

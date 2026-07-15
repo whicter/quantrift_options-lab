@@ -30,6 +30,7 @@ class IbOptionChainProvider:
         self.port = int(port or os.getenv('IB_PORT', '4001'))
         self.client_id = int(client_id or os.getenv('IB_OPTION_CLIENT_ID', '42'))
         self.timeout = float(timeout or os.getenv('IB_TIMEOUT', '30'))
+        self.market_data_type = int(os.getenv('IB_MARKET_DATA_TYPE', '3'))
         self.min_dte = int(os.getenv('OPTION_MIN_DTE', '0'))
         self.max_dte = int(os.getenv('OPTION_MAX_DTE', '90'))
         self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,30-60,60-90'))
@@ -40,6 +41,7 @@ class IbOptionChainProvider:
         self.max_contracts_per_expiration = int(os.getenv('OPTION_MAX_CONTRACTS_PER_EXPIRATION', '80'))
         self.contract_delay = float(os.getenv('IB_OPTION_CONTRACT_DELAY', '0.05'))
         self.snapshot_grace_seconds = float(os.getenv('IB_OPTION_SNAPSHOT_GRACE_SECONDS', '2'))
+        self.option_stream_timeout = float(os.getenv('IB_OPTION_STREAM_TIMEOUT', '5'))
 
     def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
         app = self._connect()
@@ -85,20 +87,17 @@ class IbOptionChainProvider:
             stock_contract = self._stock_contract(symbol)
             details = self._resolve_underlying(app, stock_contract, symbol)
             underlying_con_id = int(details.contract.conId)
-            trading_class = getattr(details.contract, 'tradingClass', '') or symbol
 
             underlying = self._fetch_underlying_with_app(app, stock_contract, symbol)
             if underlying.price is None:
                 raise RuntimeError(f'IB underlying price unavailable for {symbol}')
 
             params = self._fetch_option_params(app, symbol, underlying_con_id)
+            trading_classes = params.get('trading_classes') or []
+            trading_class = symbol if symbol in trading_classes else (trading_classes[0] if trading_classes else symbol)
             selected_expirations = self._select_expirations(params['expirations'], expirations)
-            selected_strikes = self._select_strikes(
-                params['strikes'],
-                underlying.price,
-                strike_window_pct if strike_window_pct is not None else self.strike_window_pct,
-                max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side,
-            )
+            window_pct = strike_window_pct if strike_window_pct is not None else self.strike_window_pct
+            strike_limit = max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side
 
             raw_metadata = {
                 'underlying_con_id': underlying_con_id,
@@ -106,37 +105,44 @@ class IbOptionChainProvider:
                 'available_expiration_count': len(params['expirations']),
                 'available_strike_count': len(params['strikes']),
                 'selected_expirations': [d.isoformat() for d in selected_expirations],
-                'selected_strike_count': len(selected_strikes),
-                'strike_window_pct': strike_window_pct if strike_window_pct is not None else self.strike_window_pct,
-                'max_strikes_per_side': max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side,
+                'strike_window_pct': window_pct,
+                'max_strikes_per_side': strike_limit,
                 'dte_buckets': [list(bucket) for bucket in self.dte_buckets],
                 'max_expirations_per_bucket': self.max_expirations_per_bucket,
             }
 
             contracts = []
             contracts_by_expiry: dict[date, int] = {}
+            discovered_contract_count = 0
             for expiry in selected_expirations:
-                for strike in selected_strikes:
-                    for right in ('C', 'P'):
-                        if len(contracts) >= self.max_contracts:
-                            break
-                        expiry_count = contracts_by_expiry.get(expiry, 0)
-                        if expiry_count >= self.max_contracts_per_expiration:
-                            break
-                        contract = self._option_contract(symbol, expiry, strike, right, trading_class)
-                        contracts.append(self._fetch_contract_snapshot(app, contract, symbol, expiry, strike, right))
-                        contracts_by_expiry[expiry] = expiry_count + 1
-                        if self.contract_delay > 0:
-                            time.sleep(self.contract_delay)
+                actual_contracts = []
+                for right in ('C', 'P'):
+                    actual_contracts.extend(
+                        self._fetch_actual_option_contracts(app, symbol, expiry, right, trading_class)
+                    )
+                discovered_contract_count += len(actual_contracts)
+                selected_contracts = self._select_actual_contracts(
+                    actual_contracts,
+                    underlying.price,
+                    window_pct,
+                    strike_limit,
+                )[:self.max_contracts_per_expiration]
+
+                for contract in selected_contracts:
                     if len(contracts) >= self.max_contracts:
                         break
+                    contracts.append(self._fetch_contract_snapshot(app, contract, symbol))
+                    contracts_by_expiry[expiry] = contracts_by_expiry.get(expiry, 0) + 1
+                    if self.contract_delay > 0:
+                        time.sleep(self.contract_delay)
                 if len(contracts) >= self.max_contracts:
                     break
 
             missing_greeks = sum(1 for c in contracts if c.gamma is None or c.delta is None)
             missing_oi = sum(1 for c in contracts if c.open_interest is None)
             raw_metadata.update({
-                'requested_contract_count': len(selected_expirations) * len(selected_strikes) * 2,
+                'discovered_contract_count': discovered_contract_count,
+                'selected_contract_count': len(contracts),
                 'returned_contract_count': len(contracts),
                 'missing_greeks_count': missing_greeks,
                 'missing_oi_count': missing_oi,
@@ -235,6 +241,8 @@ class IbOptionChainProvider:
                     data.apply_error(errorCode, errorString)
                 if reqId in self.snapshot_done:
                     self.snapshot_done[reqId].set()
+                if reqId in self.contract_details_done:
+                    self.contract_details_done[reqId].set()
 
             def wait_for_snapshot(self, req_id, timeout):
                 return self.snapshot_done.setdefault(req_id, threading.Event()).wait(timeout)
@@ -246,7 +254,7 @@ class IbOptionChainProvider:
         if not app.ready.wait(provider.timeout):
             app.disconnect()
             raise TimeoutError(f'IB connection timed out: {provider.host}:{provider.port}')
-        app.reqMarketDataType(3)
+        app.reqMarketDataType(provider.market_data_type)
         return app
 
     def _resolve_underlying(self, app, contract, symbol: str):
@@ -260,6 +268,34 @@ class IbOptionChainProvider:
             raise RuntimeError(f'IB contract details empty for {symbol}')
         return details[0]
 
+    def _fetch_actual_option_contracts(
+        self,
+        app,
+        symbol: str,
+        expiry: date,
+        right: str,
+        trading_class: str,
+    ) -> list[Any]:
+        query = self._option_contract_query(symbol, expiry, right, trading_class)
+        req_id = app.next_req_id()
+        app.contract_details_done[req_id] = threading.Event()
+        app.reqContractDetails(req_id, query)
+        if not app.contract_details_done[req_id].wait(self.timeout):
+            raise TimeoutError(f'IB option contracts timed out for {symbol} {expiry} {right}')
+        details = app.contract_details.get(req_id, [])
+        contracts = []
+        seen_con_ids = set()
+        for detail in details:
+            contract = detail.contract
+            con_id = int(getattr(contract, 'conId', 0) or 0)
+            contract_expiry = _parse_expiration(str(getattr(contract, 'lastTradeDateOrContractMonth', ''))[:8])
+            contract_right = str(getattr(contract, 'right', '')).upper()
+            if con_id <= 0 or contract_expiry != expiry or contract_right != right or con_id in seen_con_ids:
+                continue
+            seen_con_ids.add(con_id)
+            contracts.append(contract)
+        return contracts
+
     def _fetch_option_params(self, app, symbol: str, underlying_con_id: int):
         req_id = app.next_req_id()
         app.option_params_done[req_id] = threading.Event()
@@ -271,7 +307,12 @@ class IbOptionChainProvider:
         strikes = sorted(float(value) for value in params['strikes'] if value is not None)
         if not expirations or not strikes:
             raise RuntimeError(f'IB option params empty for {symbol}')
-        return {'expirations': expirations, 'strikes': strikes}
+        trading_classes = sorted(str(value) for value in params.get('trading_classes', set()) if value)
+        return {
+            'expirations': expirations,
+            'strikes': strikes,
+            'trading_classes': trading_classes,
+        }
 
     def _fetch_underlying_with_app(self, app, contract, symbol: str) -> UnderlyingSnapshot:
         req_id = app.next_req_id()
@@ -318,18 +359,25 @@ class IbOptionChainProvider:
             return None
         return float(bars[-1].close)
 
-    def _fetch_contract_snapshot(self, app, contract, symbol: str, expiry: date, strike: float, right: str) -> OptionContractSnapshot:
+    def _fetch_contract_snapshot(self, app, contract, symbol: str) -> OptionContractSnapshot:
+        con_id = int(getattr(contract, 'conId', 0) or 0)
+        expiry = _parse_expiration(str(getattr(contract, 'lastTradeDateOrContractMonth', ''))[:8])
+        strike = float(getattr(contract, 'strike', 0) or 0)
+        right = str(getattr(contract, 'right', '')).upper()
+        if con_id <= 0 or expiry is None or strike <= 0 or right not in ('C', 'P'):
+            raise ValueError(f'IB returned invalid option contract for {symbol}')
         req_id = app.next_req_id()
         app.market_data[req_id] = _MarketData()
-        app.snapshot_done[req_id] = threading.Event()
-        app.reqMktData(req_id, contract, '100,101,106', True, False, [])
-        if not app.wait_for_snapshot(req_id, self.timeout):
-            data = app.market_data[req_id]
-        else:
-            data = app.market_data[req_id]
-            if not data.has_option_payload() and self.snapshot_grace_seconds > 0:
-                time.sleep(self.snapshot_grace_seconds)
-                data = app.market_data[req_id]
+        app.reqMktData(req_id, contract, '100,101,106', False, False, [])
+        data = app.market_data[req_id]
+        deadline = time.monotonic() + self.option_stream_timeout
+        try:
+            while time.monotonic() < deadline:
+                if data.has_analysis_payload(right) or data.has_terminal_error():
+                    break
+                time.sleep(0.05)
+        finally:
+            app.cancelMktData(req_id)
 
         return OptionContractSnapshot(
             symbol=symbol.upper(),
@@ -352,8 +400,8 @@ class IbOptionChainProvider:
             ask_size=data.ask_size,
             contract_symbol=_option_contract_symbol(symbol, expiry, strike, right),
             local_symbol=getattr(contract, 'localSymbol', None) or None,
-            con_id=getattr(contract, 'conId', None) or None,
-            provider_contract_id=str(getattr(contract, 'conId', '')) if getattr(contract, 'conId', None) else None,
+            con_id=con_id,
+            provider_contract_id=str(con_id),
             raw=data.raw,
         )
 
@@ -367,7 +415,7 @@ class IbOptionChainProvider:
         contract.currency = 'USD'
         return contract
 
-    def _option_contract(self, symbol: str, expiry: date, strike: float, right: str, trading_class: str):
+    def _option_contract_query(self, symbol: str, expiry: date, right: str, trading_class: str):
         from ibapi.contract import Contract
 
         contract = Contract()
@@ -376,11 +424,36 @@ class IbOptionChainProvider:
         contract.exchange = 'SMART'
         contract.currency = 'USD'
         contract.lastTradeDateOrContractMonth = expiry.strftime('%Y%m%d')
-        contract.strike = float(strike)
         contract.right = right
         contract.multiplier = '100'
         contract.tradingClass = trading_class
         return contract
+
+    def _select_actual_contracts(
+        self,
+        contracts: list[Any],
+        spot: float,
+        window_pct: float,
+        max_per_side: int,
+    ) -> list[Any]:
+        selected_keys = set()
+        for right in ('C', 'P'):
+            available = sorted({
+                float(contract.strike)
+                for contract in contracts
+                if str(getattr(contract, 'right', '')).upper() == right
+            })
+            for strike in self._select_strikes(available, spot, window_pct, max_per_side):
+                selected_keys.add((right, strike))
+        selected = [
+            contract for contract in contracts
+            if (str(getattr(contract, 'right', '')).upper(), float(contract.strike)) in selected_keys
+        ]
+        return sorted(selected, key=lambda contract: (
+            abs(float(contract.strike) - spot),
+            float(contract.strike),
+            str(contract.right),
+        ))
 
     def _select_expirations(self, available: list[date], requested: list[date] | None) -> list[date]:
         if requested:
@@ -507,6 +580,21 @@ class _MarketData:
                 self.delta,
                 self.gamma,
             )
+        )
+
+    def has_terminal_error(self) -> bool:
+        return any(
+            error.get('code') in (200, 321, 354)
+            for error in self.raw.get('errors', [])
+        )
+
+    def has_analysis_payload(self, right: str) -> bool:
+        open_interest = self.call_open_interest if right == 'C' else self.put_open_interest
+        return (
+            (self.bid is not None or self.ask is not None)
+            and self.delta is not None
+            and self.gamma is not None
+            and open_interest is not None
         )
 
 

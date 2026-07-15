@@ -8,7 +8,7 @@
 quantrift_options-lab/
 ├── frontend/          → Vercel（React 19 + Vite）
 ├── server/            → Railway（Node.js Express API）
-├── collector/         → Mac Studio cron（Python IV 采集）
+├── collector/         → Mac Studio PM2（直接运行 repo 的采集/计算/worker）
 ├── CLAUDE.md / wiki.md / task.md / learning.md / README.md
 ```
 
@@ -617,6 +617,9 @@ Option-chain collector persistence:
 - `OPTION_MAX_CONTRACTS_PER_EXPIRATION` controls how many contracts can be persisted per expiration.
 - `OPTION_MAX_CONTRACTS` remains a global safety cap.
 - This lets scanner/analyze see short-term, standard premium, and farther-dated setups for the same symbol from one bounded snapshot.
+- IB contract identity rule：`reqSecDefOptParams` only chooses expiration buckets. For each expiry/right, `reqContractDetails` returns actual contracts; only returned contracts with valid `conId`/`localSymbol` are eligible for market data and persistence.
+- Never combine the independent expiry and strike sets into a Cartesian product. Such combinations can describe contracts that do not exist and can corrupt Wall/GEX/strategy output.
+- `IB_MARKET_DATA_TYPE=3` is the current default, so delayed quotes/Greeks/OI are accepted and normalized into the same snapshot schema.
 
 #### Scanner 前端策略标签
 
@@ -674,13 +677,13 @@ Max Pain
 ```
 
 GEX 使用条件：
-- `freshness=fresh`
-- `is_stale=false`
-- `confidence=high|medium`
-- 有 `global_gex`, `call_wall`, `put_wall`, `strikes`
+- 有 `global_gex`, `call_wall`, `put_wall`, `strikes` required fields。
+- stale/partial snapshot 继续显示实际数据，并标记 source、age、confidence。
+- freshness/confidence 影响质量提示，不再单独导致整块分析消失。
 
 GEX fallback：
-- GEX missing/stale/unusable：保留 IV + price 分析，不把旧 GEX 当 fresh。
+- GEX missing/unusable：保留 IV + price 分析，不保留 mock Wall 或策略腿。
+- GEX stale/partial 且字段完整：保留实际分析，明确标记其不是 fresh。
 - 有 GEX + price 但无 IV metrics：展示真实 GEX / Walls / PCR / Max Pain；IV Rank unavailable；不生成策略腿推荐。
 
 当前 analyze 尚未消费：
@@ -691,27 +694,28 @@ option-chain-derived POP
 Unusual Activity
 ```
 
-上线前不得把 mock shell 当作授权 options data 或交易建议。下一步 UI 接入应补 real strategy legs / POP / unusual activity。
+不得把 mock shell 当作真实 options data 或交易建议。下一步 UI 接入应补 actual strategy legs / POP / unusual activity。
 
 #### Options Positioning 数据层现状与过渡方案
 
 当前缺口已经从“没有 option chain”推进到“有 TT internal snapshot + GEX compute，但尚未接入前端 analyze/scanner”：
 
-| 数据 | 当前状态 | IB Gateway 过渡 | 正式产品要求 |
+| 数据 | 当前状态 | 当前过渡路径 | 下一步产品工作 |
 |---|---|---|---|
-| 60日 OHLCV / latest close | 已接入 | 已用 `ib_internal` | 可继续作为内部校验 |
-| IV Rank / IV30 / HV30 | 部分接入 Tastytrade | IB 不是主来源 | licensed metrics/provider |
-| Option chain bid/ask/last | `tt_internal` 已可采集 | IB 可作为 fallback / field validation | licensed options provider |
-| Open Interest / Volume | `tt_internal` 已可采集 | IB 可作为 fallback / field validation | licensed provider + snapshot |
-| Greeks / IV by contract | `tt_internal` 已可采集 | IB model greeks 可校验 | licensed provider / model validation |
-| GEX by strike | 已由 `compute_gex.py` 计算 | IB snapshot 可作为校验 | snapshot + reproducible formula |
-| Call Wall / Put Wall | 已由 GEX snapshot 计算 | IB snapshot 可作为校验 | provider-backed |
-| Gamma Flip | 已由 GEX snapshot 计算 | IB snapshot 可作为校验 | provider-backed |
-| Unusual activity / OI delta | 未接入 | IB 历史限制较多，不适合作主源 | specialized provider |
+| 60日 OHLCV / latest close | 已接入 | `ib_internal` | coverage/freshness alert |
+| IV Rank / IV30 / HV30 | 已接入 watchlist metrics | Tastytrade metrics | coverage alert |
+| Option chain bid/ask/last | 已接入 snapshot schema | TT primary + IB fallback/delayed | bounded universe backfill |
+| Open Interest / Volume | 已接入 contract snapshots | TT/IB actual fields | completeness monitoring |
+| Greeks / IV by contract | 已接入 contract snapshots | TT Greeks + IB model/delayed Greeks | completeness monitoring |
+| GEX by strike | `compute_gex.py` 已实现 | latest usable option snapshot | broader symbol coverage |
+| Call Wall / Put Wall | GEX snapshot 已实现 | actual strike aggregation | broader symbol coverage |
+| Gamma Flip | GEX snapshot 已实现 | reproducible price grid | broader symbol coverage |
+| Unusual activity / OI delta | 已实现连续 snapshot 差分 | `materialize_oi_delta.py` | repeated-snapshot coverage |
 
-IB Gateway 的定位：
+IB Gateway 当前路径：
 - `source=ib_internal`
-- 只用于内部研究、算法验证和小范围 watchlist 闭环
+- delayed market data type `3` 可进入过渡采集闭环
+- 只采集 IB actual contract details，不构造合约
 - 不放在公开用户请求路径
 - 不作为公开/付费产品的授权 option-chain 数据源
 
@@ -1034,7 +1038,8 @@ Phase 3C implementation status：
   - `scanner_materialize`
 - `provider_request_usage` tracks daily provider request usage and budget.
 - `/api/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
-- Remaining production work：wire the worker into Railway Cron/PM2/cron in the target runtime and replace internal providers with a licensed provider adapter.
+- Runtime completed：Mac Studio PM2 直接运行 `collector/ecosystem.config.cjs`。`quantrift-options-collector` 每 300 秒 missing-first/oldest-first bounded enqueue 两个 symbols、每 60 秒消费 queue、每 300 秒 materialize scanner；失败 symbol 有 30 分钟 cooldown；`quantrift-options-prices` 工作日 13:35 PT 运行。
+- No runtime copy：旧 LaunchAgent、wrappers 和 `~/.quantrift_options_collector` 已移除；当前 repo 是唯一运行代码源。
 
 ### 新增 API 端点规划（server/）
 

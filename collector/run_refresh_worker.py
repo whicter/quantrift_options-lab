@@ -37,6 +37,7 @@ WORKER_BATCH_SIZE = int(os.getenv('REFRESH_WORKER_BATCH_SIZE', '10'))
 WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
 RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
 PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000'))
+TT_CIRCUIT_OPEN = os.getenv('TT_CIRCUIT_OPEN', '').strip().lower() in ('1', 'true', 'yes')
 SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal'}
 DEFAULT_OPTION_FALLBACK_PROVIDERS = 'ib_internal'
 NON_RETRYABLE_ERROR_PREFIXES = (
@@ -44,6 +45,7 @@ NON_RETRYABLE_ERROR_PREFIXES = (
     'tastytrade auth unavailable:',
     'tastytrade metrics auth unavailable:',
     'provider auth unavailable for this worker run:',
+    'provider unavailable for this worker run:',
 )
 
 
@@ -73,6 +75,61 @@ def fetch_jobs(conn) -> list[dict[str, Any]]:
         cols = [desc[0] for desc in cur.description]
     conn.commit()
     return [dict(zip(cols, row)) for row in rows]
+
+
+def deduplicate_queued_jobs(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH ranked AS (
+              SELECT id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY symbol, job_type, provider
+                       ORDER BY created_at DESC, id DESC
+                     ) AS queue_rank
+              FROM provider_fetch_jobs
+              WHERE status = 'queued'
+            )
+            UPDATE provider_fetch_jobs AS jobs
+            SET status = 'succeeded',
+                result_summary = '{"deduplicated": true}'::jsonb,
+                last_error = 'superseded by newer queued refresh job',
+                finished_at = NOW()
+            FROM ranked
+            WHERE jobs.id = ranked.id
+              AND ranked.queue_rank > 1
+            """
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
+
+
+def fail_unrunnable_queued_jobs(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE provider_fetch_jobs
+            SET status = 'failed',
+                last_error = CASE
+                  WHEN attempts >= %s THEN 'maximum worker attempts exhausted'
+                  ELSE 'invalid queued refresh symbol'
+                END,
+                finished_at = NOW()
+            WHERE status = 'queued'
+              AND (
+                attempts >= %s
+                OR (
+                  NOT (symbol ~ '^[A-Z][A-Z0-9.-]{0,9}$')
+                  AND NOT (job_type = 'scanner_materialize' AND symbol = '__SCAN__')
+                )
+              )
+            """,
+            (WORKER_MAX_ATTEMPTS, WORKER_MAX_ATTEMPTS),
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
 
 
 def recover_stale_running_jobs(conn) -> int:
@@ -174,18 +231,27 @@ def option_fallback_providers(primary_provider: str) -> list[str]:
     return providers
 
 
-def option_provider_sequence(primary_provider: str, auth_blocked_providers: set[str] | None = None) -> list[str]:
-    auth_blocked_providers = auth_blocked_providers or set()
+def option_provider_sequence(primary_provider: str, blocked_providers: set[str] | None = None) -> list[str]:
+    blocked_providers = blocked_providers or set()
     providers = [primary_provider, *option_fallback_providers(primary_provider)]
     return [
         provider for provider in providers
-        if not (provider == 'tt_internal' and 'tastytrade' in auth_blocked_providers)
+        if not (provider == 'tt_internal' and 'tastytrade' in blocked_providers)
     ]
 
 
-def fetch_and_persist_option_snapshot(conn, symbol: str, provider_name: str) -> tuple[int, Any]:
-    collect_options.OPTION_PROVIDER = provider_name
-    provider = collect_options.make_provider()
+def fetch_and_persist_option_snapshot(
+    conn,
+    symbol: str,
+    provider_name: str,
+    provider_cache: dict[str, Any] | None = None,
+) -> tuple[int, Any]:
+    provider_cache = provider_cache if provider_cache is not None else {}
+    provider = provider_cache.get(provider_name)
+    if provider is None:
+        collect_options.OPTION_PROVIDER = provider_name
+        provider = collect_options.make_provider()
+        provider_cache[provider_name] = provider
     snapshot = provider.fetch_option_chain(symbol)
     snapshot_id = collect_options.persist_snapshot(conn, snapshot)
     return snapshot_id, snapshot
@@ -214,7 +280,12 @@ def finalize_option_snapshot(conn, snapshot_id: int) -> dict[str, Any]:
     return summary
 
 
-def run_option_chain_snapshot(conn, job: dict[str, Any], auth_blocked_providers: set[str] | None = None) -> dict[str, Any]:
+def run_option_chain_snapshot(
+    conn,
+    job: dict[str, Any],
+    blocked_providers: set[str] | None = None,
+    provider_cache: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     symbol = job['symbol']
     primary_provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
 
@@ -223,17 +294,22 @@ def run_option_chain_snapshot(conn, job: dict[str, Any], auth_blocked_providers:
 
     attempted = []
     last_exc: Exception | None = None
-    for provider_name in option_provider_sequence(primary_provider, auth_blocked_providers):
+    for provider_name in option_provider_sequence(primary_provider, blocked_providers):
         attempted.append(provider_name)
         try:
             reserve_budget(conn, provider_name, job['job_type'])
-            snapshot_id, snapshot = fetch_and_persist_option_snapshot(conn, symbol, provider_name)
+            snapshot_id, snapshot = fetch_and_persist_option_snapshot(
+                conn,
+                symbol,
+                provider_name,
+                provider_cache,
+            )
         except Exception as exc:
             conn.rollback()
             last_exc = exc
-            if provider_name == 'tt_internal' and is_auth_unavailable(exc):
-                if auth_blocked_providers is not None:
-                    auth_blocked_providers.add('tastytrade')
+            if provider_name == 'tt_internal' and is_provider_unavailable(exc):
+                if blocked_providers is not None:
+                    blocked_providers.add('tastytrade')
                 log.error('job %s provider %s unavailable; trying fallback: %s', job['id'], provider_name, exc)
                 continue
             raise
@@ -273,6 +349,17 @@ def is_auth_unavailable(exc: Exception) -> bool:
     return 'auth unavailable' in message or 'requires manual login' in message
 
 
+def is_provider_unavailable(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return is_auth_unavailable(exc) or any(marker in message for marker in (
+        'network unavailable',
+        'connecttimeout',
+        'connection timed out',
+        'read timed out',
+        'max retries exceeded',
+    ))
+
+
 def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     symbol = job['symbol']
     provider_name = job['provider'] if job['provider'] != 'metrics_provider' else 'tastytrade'
@@ -296,29 +383,34 @@ def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def handle_job(conn, job: dict[str, Any], auth_blocked_providers: set[str] | None = None) -> None:
+def handle_job(
+    conn,
+    job: dict[str, Any],
+    blocked_providers: set[str] | None = None,
+    provider_cache: dict[str, Any] | None = None,
+) -> None:
     job_id = job['id']
-    auth_blocked_providers = auth_blocked_providers if auth_blocked_providers is not None else set()
+    blocked_providers = blocked_providers if blocked_providers is not None else set()
     auth_provider = auth_provider_for_job(job)
     if (
         auth_provider
-        and auth_provider in auth_blocked_providers
-        and not (job['job_type'] == 'option_chain_snapshot' and option_provider_sequence(job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal'), auth_blocked_providers))
+        and auth_provider in blocked_providers
+        and not (job['job_type'] == 'option_chain_snapshot' and option_provider_sequence(job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal'), blocked_providers))
     ):
         finish_job(
             conn,
             job_id,
             'failed',
-            error=f'provider auth unavailable for this worker run: {auth_provider}',
+            error=f'provider unavailable for this worker run: {auth_provider}',
         )
-        log.error('job %s failed: provider auth unavailable for this worker run: %s', job_id, auth_provider)
+        log.error('job %s failed: provider unavailable for this worker run: %s', job_id, auth_provider)
         return
 
     try:
         if job['job_type'] == 'scanner_materialize':
             summary = run_scanner_materialize()
         elif job['job_type'] == 'option_chain_snapshot':
-            summary = run_option_chain_snapshot(conn, job, auth_blocked_providers)
+            summary = run_option_chain_snapshot(conn, job, blocked_providers, provider_cache)
         elif job['job_type'] == 'symbol_metrics_snapshot':
             summary = run_symbol_metrics_snapshot(conn, job)
         else:
@@ -327,8 +419,8 @@ def handle_job(conn, job: dict[str, Any], auth_blocked_providers: set[str] | Non
         log.info('job %s succeeded: %s', job_id, job['job_type'])
     except Exception as exc:
         conn.rollback()
-        if auth_provider and is_auth_unavailable(exc):
-            auth_blocked_providers.add(auth_provider)
+        if auth_provider and is_provider_unavailable(exc):
+            blocked_providers.add(auth_provider)
         status = 'queued' if should_retry(exc) and job.get('attempts', 1) < WORKER_MAX_ATTEMPTS else 'failed'
         finish_job(conn, job_id, status, error=str(exc))
         log.error('job %s %s: %s', job_id, status, exc)
@@ -343,14 +435,21 @@ def run() -> None:
         recovered = recover_stale_running_jobs(conn)
         if recovered:
             log.info('Recovered %s stale running jobs', recovered)
+        deduplicated = deduplicate_queued_jobs(conn)
+        if deduplicated:
+            log.info('Deduplicated %s queued refresh jobs', deduplicated)
+        failed_unrunnable = fail_unrunnable_queued_jobs(conn)
+        if failed_unrunnable:
+            log.info('Failed %s unrunnable queued refresh jobs', failed_unrunnable)
         jobs = fetch_jobs(conn)
         if not jobs:
             log.info('No queued refresh jobs')
             return
         log.info('Processing %s refresh jobs', len(jobs))
-        auth_blocked_providers: set[str] = set()
+        blocked_providers: set[str] = {'tastytrade'} if TT_CIRCUIT_OPEN else set()
+        provider_cache: dict[str, Any] = {}
         for job in jobs:
-            handle_job(conn, job, auth_blocked_providers)
+            handle_job(conn, job, blocked_providers, provider_cache)
     finally:
         conn.close()
 
