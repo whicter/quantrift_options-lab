@@ -599,6 +599,17 @@ Scanner recommendation coverage:
 - Naked `Short Put` / `Short Call` and butterfly variants exist in the strategy knowledge base but are not yet emitted by the scanner recommendation engine.
 - Butterfly recommendations should be added only when contract-level selection can identify body/wing strikes, expected pinning area, debit/credit, max profit/loss, and expiration.
 
+Scanner concrete setup:
+- A scanner result is not useful if it only says `Iron Condor` or `Bear Call Spread`. It must show the actual candidate structure when option contracts are available.
+- `/api/scan` includes latest quoted option contracts from the cached snapshot so the UI can build a concrete setup without synchronous provider calls.
+- Current concrete setup builder supports:
+  - `Bear Call Spread`：sell nearest target call, buy next higher call.
+  - `Bull Put Spread`：sell nearest target put, buy next lower put.
+  - `Iron Condor`：combine a put credit spread and call credit spread when both sides exist.
+  - `Long Straddle`：buy same-expiry, same-strike ATM call + put.
+- Displayed fields should include legs, DTE, credit/debit estimate, max loss and breakeven where computable.
+- If the cached snapshot is too narrow, scanner must say the snapshot is insufficient instead of pretending the strategy word is actionable.
+
 #### Scanner 前端策略标签
 
 当前 scanner 的策略标签仍是 IV-first 规则，不是完整链数据选腿推荐；GEX 只用于筛选环境、排序和显示 positioning context：

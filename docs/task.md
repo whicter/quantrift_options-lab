@@ -725,6 +725,11 @@
   - Strategy knowledge base already contains `Short Put`, `Short Call`, `Iron Butterfly`, `Long Call Butterfly`, `Long Put Butterfly`, `Short Butterfly`, and related structures.
   - Add explicit recommendation candidates for naked sell put / naked sell call only behind a risk-defined suitability gate; default beginner flow should prefer defined-risk put spread / call spread.
   - Add butterfly candidates for pinning / low realized move / price-near-body scenarios after contract-level chain selection is available.
+- [x] Scanner concrete setup display：
+  - `/api/scan` returns latest quoted option contracts for each symbol from the cached snapshot.
+  - Frontend attempts to build concrete legs for `Bear Call Spread`, `Bull Put Spread`, `Iron Condor`, and `Long Straddle`.
+  - Scanner strategy column now shows legs, DTE, credit/debit estimate, max-loss / breakeven where available.
+  - If the current snapshot cannot form the strategy, the row says the contract snapshot is insufficient instead of showing only a strategy name.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)

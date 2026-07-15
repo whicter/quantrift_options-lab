@@ -142,6 +142,32 @@ router.get('/', async (req, res) => {
          FROM option_contract_snapshots c
          JOIN latest_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
          GROUP BY c.symbol
+       ),
+       contract_samples AS (
+         SELECT
+           c.symbol,
+           jsonb_agg(
+             jsonb_build_object(
+               'expiry', c.expiry,
+               'dte', (c.expiry::date - CURRENT_DATE)::int,
+               'strike', c.strike,
+               'right', c.option_right,
+               'bid', c.bid,
+               'ask', c.ask,
+               'mark', c.mark,
+               'volume', c.volume,
+               'openInterest', c.open_interest,
+               'delta', c.delta,
+               'gamma', c.gamma,
+               'contractSymbol', c.contract_symbol
+             )
+             ORDER BY c.expiry ASC, c.strike ASC, c.option_right ASC
+           ) AS option_contracts
+         FROM option_contract_snapshots c
+         JOIN latest_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
+         WHERE c.bid IS NOT NULL
+           AND c.ask IS NOT NULL
+         GROUP BY c.symbol
        )
        SELECT
          latest_rows.symbol,
@@ -158,6 +184,7 @@ router.get('/', async (req, res) => {
          unusual_oi_count, max_oi_delta, max_volume_oi_ratio, unusual_status,
          cq.contract_count, cq.greeks_contract_count, cq.quoted_contract_count,
          cq.min_dte, cq.max_dte, cq.min_abs_delta, cq.max_abs_delta, cq.avg_spread_pct,
+         COALESCE(cs.option_contracts, '[]'::jsonb) AS option_contracts,
          snapshot_ts,
          CASE
            WHEN snapshot_ts IS NULL THEN 'missing'
@@ -172,6 +199,7 @@ router.get('/', async (req, res) => {
          refresh_status
        FROM latest_rows
        LEFT JOIN contract_quality cq ON cq.symbol = latest_rows.symbol
+       LEFT JOIN contract_samples cs ON cs.symbol = latest_rows.symbol
        WHERE iv_rank >= $2
          AND iv_rank <= $3
          AND COALESCE(iv_hv_diff, -999) >= $4

@@ -153,6 +153,145 @@ function strategyAction(strategy) {
   return '点击进入分析页查看结构。';
 }
 
+function formatMoney(value) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return `$${value.toFixed(2)}`;
+}
+
+function contractMid(contract) {
+  if (contract.bid == null || contract.ask == null) return null;
+  return (contract.bid + contract.ask) / 2;
+}
+
+function normalizeContracts(rawContracts) {
+  if (!Array.isArray(rawContracts)) return [];
+  return rawContracts
+    .map(contract => ({
+      expiry: contract.expiry,
+      dte: num(contract.dte),
+      strike: num(contract.strike),
+      right: contract.right,
+      bid: num(contract.bid),
+      ask: num(contract.ask),
+      mark: num(contract.mark),
+      volume: num(contract.volume),
+      openInterest: num(contract.openInterest),
+      delta: num(contract.delta),
+      gamma: num(contract.gamma),
+      contractSymbol: contract.contractSymbol,
+    }))
+    .filter(contract => contract.strike != null && contract.dte != null && contract.bid != null && contract.ask != null);
+}
+
+function groupedByExpiry(contracts) {
+  const groups = new Map();
+  for (const contract of contracts) {
+    const key = contract.expiry || `DTE-${contract.dte}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(contract);
+  }
+  return [...groups.values()].sort((a, b) => (a[0]?.dte ?? 999) - (b[0]?.dte ?? 999));
+}
+
+function buildVerticalSetup({ strategy, contracts, spot, callWall, putWall }) {
+  const side = strategy === 'Bear Call Spread' ? 'C' : 'P';
+  const groups = groupedByExpiry(contracts.filter(contract => contract.right === side));
+  for (const group of groups) {
+    const sorted = [...group].sort((a, b) => a.strike - b.strike);
+    if (side === 'C') {
+      const target = Math.max(spot ?? 0, callWall ?? spot ?? 0);
+      const shortIndex = sorted.findIndex(contract => contract.strike >= target);
+      if (shortIndex >= 0 && shortIndex < sorted.length - 1) {
+        const shortLeg = sorted[shortIndex];
+        const longLeg = sorted[shortIndex + 1];
+        const credit = Math.max(shortLeg.bid - longLeg.ask, 0);
+        const width = longLeg.strike - shortLeg.strike;
+        return {
+          status: 'ready',
+          summary: `Sell ${shortLeg.strike}C / Buy ${longLeg.strike}C · ${shortLeg.dte}DTE`,
+          pricing: `Credit ${formatMoney(credit)} · Max loss ${formatMoney(width - credit)} · BE ${formatMoney(shortLeg.strike + credit)}`,
+          legs: [
+            `Sell ${shortLeg.strike}C @ ${formatMoney(shortLeg.bid)}`,
+            `Buy ${longLeg.strike}C @ ${formatMoney(longLeg.ask)}`,
+          ],
+        };
+      }
+    } else {
+      const target = Math.min(spot ?? Infinity, putWall ?? spot ?? Infinity);
+      const below = sorted.filter(contract => contract.strike <= target);
+      if (below.length >= 2) {
+        const shortLeg = below[below.length - 1];
+        const longLeg = below[below.length - 2];
+        const credit = Math.max(shortLeg.bid - longLeg.ask, 0);
+        const width = shortLeg.strike - longLeg.strike;
+        return {
+          status: 'ready',
+          summary: `Sell ${shortLeg.strike}P / Buy ${longLeg.strike}P · ${shortLeg.dte}DTE`,
+          pricing: `Credit ${formatMoney(credit)} · Max loss ${formatMoney(width - credit)} · BE ${formatMoney(shortLeg.strike - credit)}`,
+          legs: [
+            `Sell ${shortLeg.strike}P @ ${formatMoney(shortLeg.bid)}`,
+            `Buy ${longLeg.strike}P @ ${formatMoney(longLeg.ask)}`,
+          ],
+        };
+      }
+    }
+  }
+  return { status: 'missing', summary: '当前快照不足以组成价差腿', pricing: '需要同到期、同方向、相邻可报价 strikes' };
+}
+
+function buildStraddleSetup(contracts, spot) {
+  for (const group of groupedByExpiry(contracts)) {
+    const calls = group.filter(contract => contract.right === 'C');
+    const puts = group.filter(contract => contract.right === 'P');
+    const pairs = calls
+      .map(call => ({ call, put: puts.find(put => put.strike === call.strike) }))
+      .filter(pair => pair.put);
+    if (pairs.length) {
+      const pair = pairs.sort((a, b) => Math.abs(a.call.strike - spot) - Math.abs(b.call.strike - spot))[0];
+      const debit = pair.call.ask + pair.put.ask;
+      return {
+        status: 'ready',
+        summary: `Buy ${pair.call.strike}C + ${pair.put.strike}P · ${pair.call.dte}DTE`,
+        pricing: `Debit ${formatMoney(debit)} · BE ${formatMoney(pair.call.strike - debit)} / ${formatMoney(pair.call.strike + debit)}`,
+        legs: [
+          `Buy ${pair.call.strike}C @ ${formatMoney(pair.call.ask)}`,
+          `Buy ${pair.put.strike}P @ ${formatMoney(pair.put.ask)}`,
+        ],
+      };
+    }
+  }
+  return { status: 'missing', summary: '当前快照不足以组成 straddle', pricing: '需要同到期、同行权价 Call + Put' };
+}
+
+function buildConcreteSetup(strategy, contracts, row) {
+  const normalized = normalizeContracts(contracts);
+  if (!normalized.length) return { status: 'missing', summary: '期权链待采集', pricing: '没有可报价合约，不能生成具体 legs' };
+  const spot = num(row.price_close);
+  const context = {
+    strategy,
+    contracts: normalized,
+    spot,
+    callWall: num(row.call_wall),
+    putWall: num(row.put_wall),
+  };
+  if (strategy === 'Bear Call Spread' || strategy === 'Bull Put Spread') return buildVerticalSetup(context);
+  if (strategy === 'Iron Condor') {
+    const putSpread = buildVerticalSetup({ ...context, strategy: 'Bull Put Spread' });
+    const callSpread = buildVerticalSetup({ ...context, strategy: 'Bear Call Spread' });
+    if (putSpread.status === 'ready' && callSpread.status === 'ready') {
+      return {
+        status: 'ready',
+        summary: `${putSpread.summary} + ${callSpread.summary}`,
+        pricing: 'Credit structure · 需合并两边价差计算总 credit / max loss',
+        legs: [...putSpread.legs, ...callSpread.legs],
+      };
+    }
+    return { status: 'missing', summary: '当前快照不足以组成 Iron Condor', pricing: '需要同到期 Put Spread + Call Spread' };
+  }
+  if (strategy === 'Long Straddle') return buildStraddleSetup(normalized, spot);
+  return { status: 'missing', summary: '该策略暂未接入自动选腿', pricing: '点击 Analyze 查看手动分析' };
+}
+
 function missingLabel(value) {
   return value === 'missing' ? '未采集' : value;
 }
@@ -239,6 +378,7 @@ function toScanRow(row) {
   const earningsDays = daysUntil(row.earnings_date);
   const trendScore = num(row.trend_score);
   const trendLabel = row.trend_label || (trendScore == null ? '趋势数据不足' : '等待确认');
+  const concreteSetup = buildConcreteSetup(recommendation.strategy, row.option_contracts, row);
   return {
     symbol: row.symbol,
     price: row.price_close == null ? null : Number(row.price_close).toFixed(2),
@@ -253,6 +393,7 @@ function toScanRow(row) {
       rsi14: num(row.trend_rsi14),
     },
     recommendation,
+    concreteSetup,
     earnings: {
       date: row.earnings_date ? String(row.earnings_date).slice(0, 10) : null,
       daysAway: earningsDays,
@@ -838,9 +979,10 @@ export default function Scan() {
                         <span>待采集</span>
                       )}
                     </span>
-                    <span className="scan-strategy" title={strategyAction(d.recommendation.strategy)}>
+                    <span className={`scan-strategy ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...(d.concreteSetup.legs || [])].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>
-                      <small>{strategyAction(d.recommendation.strategy)}</small>
+                      <small>{d.concreteSetup.summary}</small>
+                      <small>{d.concreteSetup.pricing}</small>
                     </span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                       {d.recommendation.params.pop}%
