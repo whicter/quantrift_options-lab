@@ -551,7 +551,7 @@ src/
 
 Strategy parameter presets：
 - Presets are product language; DTE / Delta / spread / OI / volume are execution parameters.
-- `不限` leaves contract-level filters blank.
+- `不限` leaves contract-level filters blank and is the default scanner profile, so symbol-level scan results remain visible even when contract-level snapshots are narrow.
 - `保守` maps to farther Delta and stricter liquidity：DTE 30-60, Abs Delta 0.10-0.20, max spread 10%, contract OI >= 500, contract volume >= 50.
 - `标准` maps to balanced premium-selling defaults：DTE 30-60, Abs Delta 0.16-0.30, max spread 15%, contract OI >= 100, contract volume >= 10.
 - `进取` maps to closer strikes and looser liquidity：DTE 7-45, Abs Delta 0.25-0.40, max spread 20%, contract OI >= 50, contract volume >= 5.

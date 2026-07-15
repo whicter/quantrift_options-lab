@@ -279,14 +279,14 @@ export default function Scan() {
   const [minOiDelta, setMinOiDelta] = useState('');
   const [pcrMin, setPcrMin] = useState('');
   const [pcrMax, setPcrMax] = useState('');
-  const [strategyProfile, setStrategyProfile] = useState('standard');
-  const [dteMin, setDteMin] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.dteMin);
-  const [dteMax, setDteMax] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.dteMax);
-  const [deltaMin, setDeltaMin] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.deltaMin);
-  const [deltaMax, setDeltaMax] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.deltaMax);
-  const [maxSpreadPct, setMaxSpreadPct] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.maxSpreadPct);
-  const [minContractOi, setMinContractOi] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.minContractOi);
-  const [minContractVolume, setMinContractVolume] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.minContractVolume);
+  const [strategyProfile, setStrategyProfile] = useState('none');
+  const [dteMin, setDteMin] = useState(STRATEGY_PARAMETER_PRESETS.none.values.dteMin);
+  const [dteMax, setDteMax] = useState(STRATEGY_PARAMETER_PRESETS.none.values.dteMax);
+  const [deltaMin, setDeltaMin] = useState(STRATEGY_PARAMETER_PRESETS.none.values.deltaMin);
+  const [deltaMax, setDeltaMax] = useState(STRATEGY_PARAMETER_PRESETS.none.values.deltaMax);
+  const [maxSpreadPct, setMaxSpreadPct] = useState(STRATEGY_PARAMETER_PRESETS.none.values.maxSpreadPct);
+  const [minContractOi, setMinContractOi] = useState(STRATEGY_PARAMETER_PRESETS.none.values.minContractOi);
+  const [minContractVolume, setMinContractVolume] = useState(STRATEGY_PARAMETER_PRESETS.none.values.minContractVolume);
   const [unusualOnly, setUnusualOnly] = useState(false);
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
@@ -331,7 +331,6 @@ export default function Scan() {
       setNearWallPct('');
       setUnusualOnly(false);
       setSort('ivr');
-      applyStrategyProfile('standard');
     }
     if (kind === 'wall') {
       setMinIvr(30);
@@ -715,7 +714,7 @@ export default function Scan() {
           ) : results.length === 0 ? (
             <div className="scan-empty">
               <div className="scan-empty-icon">∅</div>
-              <div>没有符合条件的标的，请调整过滤条件</div>
+              <div>没有符合条件的标的，请切回「不限」或放宽 IV / DTE / Delta / spread 条件</div>
             </div>
           ) : (
             <>

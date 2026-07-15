@@ -708,6 +708,7 @@
   - 短线：DTE 1-14, Abs Delta 0.20-0.40, Max Spread 20%, Contract OI >= 100, Contract Vol >= 20
   - 流动性优先：DTE 7-60, Abs Delta 0.05-0.50, Max Spread 8%, Contract OI >= 1000, Contract Vol >= 100
 - [x] Advanced edits mark the strategy parameter profile as custom.
+- [x] Default scanner profile is `不限` so missing or narrow contract-level snapshots do not hide symbol-level results. Users must explicitly select 保守 / 标准 / 进取 / 短线 / 流动性优先 to activate DTE/Delta/spread/OI/volume filters.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
