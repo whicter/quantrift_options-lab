@@ -111,6 +111,25 @@ function applyGex(data, gexData) {
   if (!data || !isUsableGex(gexData)) {
     return {
       ...data,
+      partialData: {
+        type: 'gex_unusable',
+        title: 'GEX / Wall 暂不可用',
+        message: gexData?.freshness === 'stale'
+          ? 'GEX/Wall 快照已过期，暂不生成 Call Wall / Put Wall 结论和期权策略腿。'
+          : 'GEX/Wall 快照不可用，暂不生成 Call Wall / Put Wall 结论和期权策略腿。',
+      },
+      gexTotal: null,
+      gexByStrike: [],
+      putWall: null,
+      callWall: null,
+      pcr: null,
+      pcrVol: null,
+      maxPain: null,
+      gammaFlip: null,
+      gammaRegime: null,
+      scenarios: null,
+      conclusion: 'GEX/Wall 数据不可用或已过期；当前不显示 Call Wall / Put Wall 结论。',
+      recommendation: null,
       gexMeta: gexData && gexData.freshness !== 'missing' ? {
         source: gexData.source,
         snapshotTs: gexData.snapshot_ts,
@@ -309,6 +328,7 @@ function macd(values) {
 }
 
 function buildStrategyRecommendation(data) {
+  if (data?.partialData) return null;
   if (!data || data.ivRank == null || data.iv30 == null) return data?.recommendation || null;
   const ivRank = Number(data.ivRank);
   const trendScore = data.trend?.score ?? 0;
@@ -477,7 +497,7 @@ function UnavailableOptionsPanel({ symbol }) {
     <div className="az-card az-unavailable-panel">
       <div className="az-card-title">期权分析暂不可用</div>
       <div className="az-unavailable-text">
-        {symbol} 目前只有真实价格历史；IV Rank、GEX、Call Wall、Put Wall、PCR、期权腿和 POP 还没有授权数据输入。
+        {symbol} 当前缺少可用的 IV Rank、GEX、Call Wall、Put Wall、PCR、期权腿或 POP 输入。
         为避免把 mock 当成真实分析，这些模块暂不展示。
       </div>
     </div>
@@ -587,15 +607,8 @@ export default function Analyze() {
       setResult(data);
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {
-      const fallback = getMockAnalysis(sym);
-      if (fallback) {
-        setResult(fallback);
-        syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
-        setError('真实数据 API 暂时不可用，当前显示本地示例结构。');
-      } else {
-        setResult(null);
-        setError(`真实数据 API 暂时不可用，无法确认 ${sym} 是否已采集。`);
-      }
+      setResult(null);
+      setError(`真实数据 API 暂时不可用，无法确认 ${sym} 的期权结构。`);
     } finally {
       setLoading(false);
     }

@@ -737,6 +737,10 @@
   - Frontend attempts to build concrete legs for `Bear Call Spread`, `Bull Put Spread`, `Iron Condor`, and `Long Straddle`.
   - Scanner strategy column now shows legs, DTE, credit/debit estimate, max-loss / breakeven where available.
   - If the current snapshot cannot form the strategy, the row says the contract snapshot is insufficient instead of showing only a strategy name.
+- [x] Analyze mock-data leakage fix：
+  - PLTR showed fake `Call Wall $595 / Put Wall $575` because Analyze initialized from `mockAnalysis` and kept mock walls when real GEX was stale/unusable.
+  - GEX stale/unusable now marks the result partial and clears `callWall`, `putWall`, GEX strikes, scenarios and recommendation so mock walls cannot appear as real data.
+  - API failure no longer falls back to local mock structures for a typed symbol.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
