@@ -757,6 +757,20 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   font-size: 13px;
   text-align: center;
 }
+.scan-wide-input,
+.scan-select {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+.scan-select {
+  cursor: pointer;
+}
 .scan-ivr-presets { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .scan-preset {
   padding: 4px 8px;
@@ -826,7 +840,8 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-table { display: flex; flex-direction: column; gap: 4px; }
 .scan-table-head {
   display: grid;
-  grid-template-columns: 64px 72px 150px 110px 120px 140px 50px 64px 64px;
+  grid-template-columns: 60px 68px 128px 102px 92px 118px 78px 118px 48px 58px 58px;
+  gap: 8px;
   padding: 6px 12px;
   font-size: 11px;
   font-weight: 700;
@@ -836,7 +851,8 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-table-row {
   display: grid;
-  grid-template-columns: 64px 72px 150px 110px 120px 140px 50px 64px 64px;
+  grid-template-columns: 60px 68px 128px 102px 92px 118px 78px 118px 48px 58px 58px;
+  gap: 8px;
   align-items: center;
   padding: 10px 12px;
   background: var(--bg-card);
@@ -849,6 +865,43 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-table-row:hover { background: var(--bg-hover); border-color: var(--blue); }
 .scan-symbol { font-weight: 700; font-size: 14px; font-family: monospace; }
 .scan-strategy { font-size: 12px; color: var(--text-dim); }
+.scan-gex-pill {
+  display: inline-flex;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.scan-gex-pill.positive {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+.scan-gex-pill.negative {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.scan-gex-pill.neutral {
+  color: var(--yellow);
+  border-color: color-mix(in srgb, var(--yellow) 40%, transparent);
+  background: color-mix(in srgb, var(--yellow) 10%, transparent);
+}
+.scan-gex-value {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.scan-wall-cell {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .scan-price-status { font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .scan-price-status.covered { color: var(--green); }
 .scan-price-status.stale { color: var(--yellow); }

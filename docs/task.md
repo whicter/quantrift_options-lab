@@ -538,12 +538,15 @@
   - Frontend build：`npm run build`
   - Production API prepared：PLTR `snapshot_id=7`、`/api/gex/PLTR` returned `freshness=fresh`、`confidence=high`
   - Browser plugin smoke attempted but blocked by runtime setup error：`Cannot redefine property: process`
-- [ ] `/scan` 新增 filters：
+- [x] `/scan` 新增 filters：
   - gamma regime
   - near call wall / near put wall
   - high local gamma
-  - unusual OI / volume
+  - unusual OI / volume：当前实现 total OI / total volume / volume-to-OI ratio；OI delta 异常需后续连续 snapshot 历史
   - IV Rank + GEX combined scanner
+  - API behavior：仍只读 latest `iv_history` / `price_history` / `gex_snapshots` / `gex_by_strike_snapshots`，不在 request path 同步调用 IB/TT/provider
+  - Frontend behavior：扫描器新增 Gamma 环境、Wall 距离、Local Gamma、OI、Volume、IV+GEX 排序控件；结果列显示 GEX 状态、总 GEX、最近 wall 距离
+  - Verification deferred per instruction
 
 **Phase 3D-6 — Verification**
 - [ ] Unit tests：

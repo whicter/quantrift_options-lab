@@ -528,15 +528,27 @@ src/
 - universe：只扫描 watchlist；不扫描 `iv_history` 中的 extra symbols。
 
 排序：
-- 按 `iv_rank DESC` 排序。
+- 默认按 `iv_rank DESC` 排序。
+- `sort=combined` 时先按 IV + GEX signal score 排序，再回退到 `iv_rank DESC`。
 
 返回字段：
 - IV：`iv30`, `hv30`, `iv_rank`, `iv_percentile`, `iv_hv_diff`, `earnings_date`, `source`
 - Price：`price_close`, `price_date`, `price_source`, `price_status`
+- GEX：`global_gex`, `local_gamma`, `gamma_flip`, `gamma_regime`, `call_wall`, `put_wall`, `max_pain`, `pcr_oi`, `pcr_volume`, `gex_status`
+- Positioning totals：`total_oi`, `total_volume`, `volume_oi_ratio`, `max_strike_oi`, `max_strike_volume`
+- Wall distance：`call_wall_distance_pct`, `put_wall_distance_pct`
+
+GEX filters：
+- `gammaRegime=all|positive|negative|neutral`
+- `wall=all|call|put|either` + `nearWallPct`
+- `minLocalGamma`
+- `minTotalOi`
+- `minTotalVolume`
+- `minVolumeOiRatio`：当前阶段的 unusual activity proxy；真正 OI delta 异常需要连续快照历史
 
 #### Scanner 前端策略标签
 
-当前 scanner 的策略标签是 IV-only 规则，不是完整链数据推荐：
+当前 scanner 的策略标签仍是 IV-first 规则，不是完整链数据选腿推荐；GEX 只用于筛选环境、排序和显示 positioning context：
 
 | 条件 | 当前标签 | 含义 |
 |---|---|---|
@@ -547,16 +559,16 @@ src/
 重要边界：
 - `POP` 当前是规则占位值，不来自真实 option chain。
 - `Direction` 当前显示 `待接入趋势`，不使用 mock MA/RSI/MACD 伪装真实趋势。
-- 当前 `/api/scan` 尚未读取 `gex_snapshots`。
-- 真正的 options scanner 需要 option-chain liquidity、bid/ask、OI、volume、Greeks、DTE、GEX、Wall、Gamma Flip 和事件风险。
+- `/api/scan` 现在读取 latest `gex_snapshots` 和 `gex_by_strike_snapshots`，但只读数据库快照，不在用户请求路径直连 IB/TT/provider。
+- GEX fresh/stale/missing 由后端返回 `gex_status`；前端不能把 stale/missing GEX 当 fresh。
+- 真正的 options scanner 还需要 bid/ask spread、DTE、contract-level liquidity、事件风险、自动选腿和 POP 模型。
+- OI delta 异常尚未实现；当前 `volume_oi_ratio` 只说明“当期成交相对持仓是否活跃”，不等同机构建仓确认。
 
-下一版 scanner 应新增：
-- `gamma_regime` filter：positive / negative / near_zero。
-- `near_call_wall` / `near_put_wall` filter。
-- `local_gamma` threshold。
+后续 scanner 应新增：
 - `pcr_oi` / `pcr_volume` abnormal filters。
-- unusual OI / volume filters。
-- GEX + IV Rank combined ranking。
+- OI delta filters：比较当前 OI 与前一交易日/前一 provider snapshot。
+- contract-level bid/ask spread 与 DTE filters。
+- strategy-specific leg selection。
 
 #### `/analyze` 当前逻辑（Analyze Algorithm）
 

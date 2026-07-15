@@ -298,4 +298,6 @@ V1 公式：
 - 不把 mock shell 伪装成真实 options data。
 - 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
 - GEX 只有在 gamma + OI completeness 达标后才计算。
-- scanner 在接入 GEX 前仍只是 IV-first triage。
+- scanner 已可读取 latest GEX snapshot 做 Gamma regime / Wall proximity / Local Gamma / OI / Volume / Volume-to-OI filters。
+- scanner 仍是 IV-first triage + positioning context，不是完整 contract-level strategy leg selector。
+- OI delta 异常需要连续 snapshot 历史；当前 Volume-to-OI 只能作为活跃度 proxy。

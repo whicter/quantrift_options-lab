@@ -17,13 +17,36 @@ export function getDataStatus() {
   return getJson('/api/status/data');
 }
 
-export function getScan({ minIvr = 0, maxIvr = 100, minIvHv = -999, limit = 50 } = {}) {
-  const query = new URLSearchParams({
+export function getScan({
+  minIvr = 0,
+  maxIvr = 100,
+  minIvHv = -999,
+  gammaRegime = 'all',
+  wall = 'all',
+  nearWallPct = '',
+  minLocalGamma = '',
+  minTotalOi = '',
+  minTotalVolume = '',
+  minVolumeOiRatio = '',
+  sort = 'ivr',
+  limit = 50,
+} = {}) {
+  const params = {
     minIvr: String(minIvr),
     maxIvr: String(maxIvr),
     minIvHv: String(minIvHv),
+    gammaRegime,
+    wall,
+    sort,
     limit: String(limit),
-  });
+  };
+  if (nearWallPct !== '') params.nearWallPct = String(nearWallPct);
+  if (minLocalGamma !== '') params.minLocalGamma = String(minLocalGamma);
+  if (minTotalOi !== '') params.minTotalOi = String(minTotalOi);
+  if (minTotalVolume !== '') params.minTotalVolume = String(minTotalVolume);
+  if (minVolumeOiRatio !== '') params.minVolumeOiRatio = String(minVolumeOiRatio);
+
+  const query = new URLSearchParams(params);
   return getJson(`/api/scan?${query.toString()}`);
 }
 

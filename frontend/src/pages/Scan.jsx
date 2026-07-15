@@ -25,14 +25,39 @@ function pct(value) {
   return Number(value) * 100;
 }
 
+function num(value) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function compactMoney(value) {
+  const n = num(value);
+  if (n == null) return '--';
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `${n < 0 ? '-' : ''}$${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${n < 0 ? '-' : ''}$${(abs / 1e6).toFixed(0)}M`;
+  if (abs >= 1e3) return `${n < 0 ? '-' : ''}$${(abs / 1e3).toFixed(0)}K`;
+  return `${n < 0 ? '-' : ''}$${abs.toFixed(0)}`;
+}
+
+function wallDistance(row) {
+  const call = num(row.call_wall_distance_pct);
+  const put = num(row.put_wall_distance_pct);
+  if (call == null && put == null) return null;
+  if (call != null && (put == null || call <= put)) return { side: 'Call', pct: call };
+  return { side: 'Put', pct: put };
+}
+
 function recommendFromIv(row) {
   const ivRank = Number(row.iv_rank ?? 0);
   const ivHvDiff = pct(row.iv_hv_diff) ?? 0;
+  const regime = row.gamma_regime;
 
   if (ivRank >= 50) {
     return {
       strategy: 'Iron Condor',
-      reason: `IV Rank ${Math.round(ivRank)}%，IV-HV ${ivHvDiff.toFixed(1)}pt；真实趋势/链数据未接入，默认使用定义风险中性卖方结构。`,
+      reason: `IV Rank ${Math.round(ivRank)}%，IV-HV ${ivHvDiff.toFixed(1)}pt；${regime ? `Gamma ${regime}` : 'GEX 未覆盖'}。`,
       params: { pop: 66 },
     };
   }
@@ -54,6 +79,7 @@ function recommendFromIv(row) {
 
 function toScanRow(row) {
   const recommendation = recommendFromIv(row);
+  const nearestWall = wallDistance(row);
   return {
     symbol: row.symbol,
     price: row.price_close == null ? null : Number(row.price_close).toFixed(2),
@@ -65,6 +91,21 @@ function toScanRow(row) {
     earnings: {
       date: row.earnings_date ? String(row.earnings_date).slice(0, 10) : null,
       warning: false,
+    },
+    gex: {
+      status: row.gex_status || 'missing',
+      regime: row.gamma_regime || 'missing',
+      total: num(row.global_gex),
+      localGamma: num(row.local_gamma),
+      nearestWall,
+      callWall: num(row.call_wall),
+      putWall: num(row.put_wall),
+      pcrOi: num(row.pcr_oi),
+      pcrVolume: num(row.pcr_volume),
+      totalOi: num(row.total_oi),
+      totalVolume: num(row.total_volume),
+      volumeOiRatio: num(row.volume_oi_ratio),
+      score: Math.round(num(row.signal_score) ?? 0),
     },
     dataMeta: {
       source: row.source,
@@ -90,6 +131,14 @@ export default function Scan() {
   const navigate = useNavigate();
   const [minIvr, setMinIvr] = useState(40);
   const [maxIvr, setMaxIvr] = useState(100);
+  const [gammaRegime, setGammaRegime] = useState('all');
+  const [wall, setWall] = useState('all');
+  const [nearWallPct, setNearWallPct] = useState('');
+  const [minLocalGamma, setMinLocalGamma] = useState('');
+  const [minTotalOi, setMinTotalOi] = useState('');
+  const [minTotalVolume, setMinTotalVolume] = useState('');
+  const [minVolumeOiRatio, setMinVolumeOiRatio] = useState('');
+  const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -111,7 +160,19 @@ export default function Scan() {
     setError('');
 
     try {
-      const rows = await getScan({ minIvr, maxIvr, limit: 100 });
+      const rows = await getScan({
+        minIvr,
+        maxIvr,
+        gammaRegime,
+        wall,
+        nearWallPct,
+        minLocalGamma,
+        minTotalOi,
+        minTotalVolume,
+        minVolumeOiRatio,
+        sort,
+        limit: 100,
+      });
       const liveRows = rows
         .map(toScanRow)
         .filter(d => selectedStrategies.length === 0 || selectedStrategies.includes(d.recommendation.strategy));
@@ -173,6 +234,86 @@ export default function Scan() {
           </div>
 
           <div className="scan-filter-section">
+            <div className="scan-filter-label">GEX / Wall 过滤</div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">Gamma</span>
+              <select className="scan-select" value={gammaRegime} onChange={e => setGammaRegime(e.target.value)}>
+                <option value="all">全部</option>
+                <option value="positive">正Gamma</option>
+                <option value="negative">负Gamma</option>
+                <option value="neutral">近零</option>
+              </select>
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">Wall</span>
+              <select className="scan-select" value={wall} onChange={e => setWall(e.target.value)}>
+                <option value="all">不限</option>
+                <option value="either">靠近任一</option>
+                <option value="call">靠近Call</option>
+                <option value="put">靠近Put</option>
+              </select>
+              <input
+                type="number" min={0} step={0.5}
+                className="scan-num-input"
+                placeholder="%"
+                value={nearWallPct}
+                onChange={e => setNearWallPct(e.target.value)}
+              />
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">Local Γ</span>
+              <input
+                type="number" min={0}
+                className="scan-wide-input"
+                placeholder="最低"
+                value={minLocalGamma}
+                onChange={e => setMinLocalGamma(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="scan-filter-section">
+            <div className="scan-filter-label">OI / Volume</div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">OI</span>
+              <input
+                type="number" min={0}
+                className="scan-wide-input"
+                placeholder="最低"
+                value={minTotalOi}
+                onChange={e => setMinTotalOi(e.target.value)}
+              />
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">Vol</span>
+              <input
+                type="number" min={0}
+                className="scan-wide-input"
+                placeholder="最低"
+                value={minTotalVolume}
+                onChange={e => setMinTotalVolume(e.target.value)}
+              />
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">Vol/OI</span>
+              <input
+                type="number" min={0} step={0.01}
+                className="scan-wide-input"
+                placeholder="最低"
+                value={minVolumeOiRatio}
+                onChange={e => setMinVolumeOiRatio(e.target.value)}
+              />
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">排序</span>
+              <select className="scan-select" value={sort} onChange={e => setSort(e.target.value)}>
+                <option value="ivr">IV Rank</option>
+                <option value="combined">IV + GEX</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="scan-filter-section">
             <div className="scan-filter-label">策略类型（可多选）</div>
             <div className="scan-strategy-chips">
               {STRATEGY_OPTIONS.map(s => (
@@ -226,6 +367,8 @@ export default function Scan() {
                   <span>IV Rank</span>
                   <span>IV30 / HV30</span>
                   <span>方向</span>
+                  <span>GEX</span>
+                  <span>Wall</span>
                   <span>推荐策略</span>
                   <span>POP</span>
                   <span>价格</span>
@@ -247,6 +390,17 @@ export default function Scan() {
                       <span style={{ color: 'var(--text-dim)' }}>{d.hv30}%</span>
                     </span>
                     <span style={{ color: DIR_COLOR(d.direction.score) }}>{d.direction.label}</span>
+                    <span>
+                      <span className={`scan-gex-pill ${d.gex.regime}`}>
+                        {d.gex.status === 'fresh' ? d.gex.regime : d.gex.status}
+                      </span>
+                      <span className="scan-gex-value">{compactMoney(d.gex.total)}</span>
+                    </span>
+                    <span className="scan-wall-cell">
+                      {d.gex.nearestWall
+                        ? `${d.gex.nearestWall.side} ${d.gex.nearestWall.pct.toFixed(1)}%`
+                        : '--'}
+                    </span>
                     <span className="scan-strategy">{d.recommendation.strategy}</span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                       {d.recommendation.params.pop}%
