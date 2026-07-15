@@ -68,6 +68,6 @@
 
 ## 待完成（优先级排序）
 1. Broader option snapshot coverage：按 bounded batches 扩展到完整 scanner ingestion pool
-2. Strategy leg selector：用实际 chain bid/ask/Greeks/DTE/liquidity 自动选腿
+2. Strategy leg selector V1 已完成：`不限`不施加隐藏 preset，枚举当前 1-90 DTE 采集窗口内所有已支持策略的达标组合，同一标的可返回多条；下一步增加更多结构与独立校准 POP
 3. Collector health/coverage alert：监控 queue、失败率、snapshot age 和 required-field completeness
 4. Production auth/subscription/paywall

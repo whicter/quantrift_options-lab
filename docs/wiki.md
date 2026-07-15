@@ -547,21 +547,21 @@ src/
 - 所有 DTE/Delta/spread/contract OI/contract volume 参数留空时，不启用这些过滤。
 - 只要用户填写任一合约级参数，`/api/scan` 要求 latest option snapshot 中存在至少一个合约满足所有已填写条件。
 - 这仍然是数据库 snapshot 查询，不允许在用户请求路径同步调用 IB、TT 或 licensed provider。
-- Scanner result rows should surface the same contract data summary: DTE range, absolute Delta range, average bid/ask spread, quoted contract count and Greeks coverage count. Users should not need to infer whether contract-level data exists.
+- DTE range、quoted contract count 和 Greeks coverage 是采集诊断，不是交易机会。Scanner 用户结果只显示被选择候选单的 expiry/DTE、实际 legs、流动性和风险收益。
 
 Scanner table columns:
 - IV Rank：当前 IV 在历史 implied volatility range 中的位置。高 IV Rank 表示期权相对自身历史更贵；它不是 IV 百分比本身。
-- POP：Probability of Profit。当前 scanner 中是规则估计，用于比较候选策略，不是完整定价引擎输出。
+- 机会分：0-100 的候选质量排序分，综合 DTE、short-leg Delta、bid/ask spread、OI、volume 和策略经济性。它不是收益预测，也不是 POP。
 - `ΔOI`：Open Interest delta，连续快照之间的 OI 变化。
 - Scanner table should not expose a generic `数据` column. Price freshness is an internal/debug signal; the user-facing table should show the actual `现价` and actionable states in the relevant domain column.
 - `Wall` empty / missing：表示当前没有该 symbol 的 GEX/Wall snapshot，不能推导最近 wall。
-- `合约`：显示 latest option snapshot 的 DTE range、absolute Delta range 和 average bid/ask spread；如果该 symbol 还没有 `option_contract_snapshots`，显示 `待采集`。
-- `推荐策略`：显示策略名和一行操作摘要；点击行进入 `/analyze` 看详细分析。
+- `机会质量`：显示选中候选的具体 expiry/DTE、最低 leg OI、平均 bid/ask spread，以及 RoR 或 debit。
+- `候选单`：显示实际 legs、净 credit/debit、max loss 与 breakeven；不是只显示策略名。
 - All visible table headers are sortable client-side for quick triage.
 
 Strategy parameter presets：
 - Presets are product language; DTE / Delta / spread / OI / volume are execution parameters.
-- `不限` leaves contract-level filters blank and is the default scanner profile, so symbol-level scan results remain visible even when contract-level snapshots are narrow.
+- `不限` 是默认 profile：不施加隐藏 preset，在当前采集窗口 1-90 DTE 内枚举所有已支持策略的全部达标候选；同一 symbol 可以因不同策略、expiry 或 strikes 出现多行。
 - `保守` maps to farther Delta and stricter liquidity：DTE 30-60, Abs Delta 0.10-0.20, max spread 10%, contract OI >= 500, contract volume >= 50.
 - `标准` maps to balanced premium-selling defaults：DTE 30-60, Abs Delta 0.16-0.30, max spread 15%, contract OI >= 100, contract volume >= 10.
 - `进取` maps to closer strikes and looser liquidity：DTE 7-45, Abs Delta 0.25-0.40, max spread 20%, contract OI >= 50, contract volume >= 5.
@@ -599,16 +599,20 @@ Scanner recommendation coverage:
 - Naked `Short Put` / `Short Call` and butterfly variants exist in the strategy knowledge base but are not yet emitted by the scanner recommendation engine.
 - Butterfly recommendations should be added only when contract-level selection can identify body/wing strikes, expected pinning area, debit/credit, max profit/loss, and expiration.
 
-Scanner concrete setup:
+Scanner actionable candidate selector:
 - A scanner result is not useful if it only says `Iron Condor` or `Bear Call Spread`. It must show the actual candidate structure when option contracts are available.
 - `/api/scan` includes latest quoted option contracts from the cached snapshot so the UI can build a concrete setup without synchronous provider calls.
-- Current concrete setup builder supports:
+- 当前 selector 支持：
   - `Bear Call Spread`：sell nearest target call, buy next higher call.
   - `Bull Put Spread`：sell nearest target put, buy next lower put.
   - `Iron Condor`：combine a put credit spread and call credit spread when both sides exist.
   - `Long Straddle`：buy same-expiry, same-strike ATM call + put.
-- Displayed fields should include legs, DTE, credit/debit estimate, max loss and breakeven where computable.
-- If the cached snapshot is too narrow, scanner must say the snapshot is insufficient instead of pretending the strategy word is actionable.
+- `不限` 使用当前采集窗口 1-90 DTE，不隐藏期限过滤；保守/标准/进取/短线/流动性优先 preset 才施加各自 DTE/Delta/流动性范围。
+- 所有 legs 必须来自同一 latest snapshot 的真实 quoted contracts；spread/condor legs 必须同 expiry。
+- Credit structures 使用可执行侧估值：short bid 减 long ask，结果必须大于 0。Long premium 使用 ask debit。
+- 硬门槛后按 DTE fit、short Delta、spread、OI、volume 和 RoR/economics 排序，机会分低于 50 不显示。
+- Displayed fields include expiry, DTE, legs, executable credit/debit, max loss, breakeven, RoR, minimum OI and average spread.
+- If no complete candidate survives, scanner returns an explicit empty state instead of a strategy word or inventory DTE range.
 
 Option-chain collector persistence:
 - The collector should not let the first available expiration consume the whole contract cap.
@@ -623,7 +627,7 @@ Option-chain collector persistence:
 
 #### Scanner 前端策略标签
 
-当前 scanner 的策略标签仍是 IV-first 规则，不是完整链数据选腿推荐；GEX 只用于筛选环境、排序和显示 positioning context：
+IV/trend/GEX 用于机会背景、上游过滤和解释；`不限`不会用这些字段替用户预先压缩成单一策略，而是从实际合约链枚举所有已支持策略的达标 legs：
 
 | 条件 | 当前标签 | 含义 |
 |---|---|---|
@@ -634,12 +638,12 @@ Option-chain collector persistence:
 | `IV Rank < 30` | `Long Straddle` | 低 IV 环境可观察买方波动结构，但不代表已有事件催化 |
 
 重要边界：
-- `POP` 当前是规则占位值，不来自真实 option chain。
+- Scanner 不再显示规则占位 POP；机会分只衡量候选质量，不代表获利概率。
 - `Direction` 来自 materialized scanner snapshot：`collector/materialize_scan.py` 读取 `price_history` 计算 MA20/50/200、RSI14、5D change 和 trend_score；60日数据不足时 MA200 为 null，不伪造长周期趋势。
 - `Earnings` 来自 `iv_history.earnings_date`；scanner 前端显示日期，并在 0-14 天窗口内标记事件风险 warning。
 - `/api/scan` 现在读取 latest `gex_snapshots` 和 `gex_by_strike_snapshots`，但只读数据库快照，不在用户请求路径直连 IB/TT/provider。
 - GEX fresh/stale/missing 由后端返回 `gex_status`；stale 但 required fields 完整时继续显示并标记质量，missing/unusable 才隐藏 GEX/Wall。前端不能把 stale 当 fresh。
-- 真正的 options scanner 还需要 bid/ask spread、DTE、contract-level liquidity、自动选腿和 POP 模型。
+- 当前已接入 bid/ask、DTE、contract liquidity 和自动选腿；后续仍可增加独立、经校准的 POP/定价模型，但不能用固定百分比占位。
 - OI delta unusual 已实现为连续 snapshot 差分；`volume_oi_ratio` 仍只说明“当期成交相对持仓是否活跃”，不能等同机构建仓确认。
 
 后续 scanner 应新增：

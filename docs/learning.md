@@ -299,7 +299,7 @@ V1 公式：
 - 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
 - GEX 只有在 gamma + OI completeness 达标后才计算。
 - scanner 已可读取 latest GEX snapshot 做 Gamma regime / Wall proximity / Local Gamma / OI / Volume / Volume-to-OI filters。
-- scanner 仍是 IV-first triage + positioning context，不是完整 contract-level strategy leg selector。
+- Scanner 的 IV/trend/GEX 用于 context、过滤和解释；`不限`必须跨所有已支持策略枚举达标 contract setups，不能先把一个 symbol 压成单一策略。
 - OI delta 异常需要连续 snapshot 历史；当前 Volume-to-OI 只能作为活跃度 proxy。
 - licensed provider 第一候选是 Massive/Polygon options snapshot，第二候选是 Intrinio；真正上线前必须确认 OPRA/options display 与 redistribution 权利。
 - Phase 3C 后，`/api/scan` 不再做 request-time full watchlist aggregation；scanner rows 由 `collector/materialize_scan.py` 预计算进 `scanner_results_snapshots`。
@@ -316,7 +316,7 @@ V1 公式：
 - IB and TT transitional snapshots can carry bid/ask and Greeks; product UX should distinguish whether the current cached snapshot actually exists for a symbol.
 - Contract-level scanner filters are optional advanced controls; if blank, backend does not filter. If supplied, `/api/scan` requires at least one latest option contract matching DTE/Delta/spread/liquidity constraints.
 - Strategy parameter presets should be the default UX for contract-level filters: users choose 保守 / 标准 / 进取 / 短线 / 流动性优先, and the UI maps that choice to DTE, Abs Delta, max bid/ask spread, contract OI and contract volume.
-- Default scanner profile should be `不限`; contract-level presets are opt-in so a narrow current option snapshot cannot blank the whole scanner.
+- Default scanner profile is `不限`：不施加隐藏 preset，在当前采集窗口 1-90 DTE 内枚举全部达标候选；策略 chips 和保守/标准/进取/短线/流动性优先用于收窄结果。
 - Scanner columns need in-context product meaning: IV Rank is historical IV rank, POP is a rules estimate, `ΔOI` is OI delta, and empty Wall means no GEX/Wall snapshot. Do not expose generic internal data-status columns; show actionable states such as `待采集` inside the relevant column. Headers should be sortable.
 - Wall is not a standalone provider field in the UI; it is derived from cached option contracts through GEX computation. If a symbol has no latest option contract snapshot, it cannot have Call Wall / Put Wall in scanner.
 - Regression coverage must include cross-boundary provider contracts: API enqueue defaults must be executable by the worker, and placeholder providers must fail tests instead of silently producing stuck jobs.
@@ -388,3 +388,13 @@ V1 公式：
 - 语法通过只说明 Python 能解析文件，不能证明 IB contract identity、行情字段、数据库落库、GEX 计算和 API 输出正确。
 - 当前最低验证闭环：collector unit tests、server tests、frontend tests/build、真实 IB snapshot、PostgreSQL row identity/completeness、GEX/OI delta/scanner materialization、生产 API 查询。
 - 本次记录：collector 37 tests、server 4 tests、frontend 6 tests 全部通过；NBIS 真实 snapshot 30 个 distinct valid `conId`，Greeks missing 0%，OI missing 3.33%，并成功生成 GEX 与 scanner rows。
+
+### 9. DTE 库存范围不是值得交易的订单
+
+- 旧错误：Scanner 把 latest snapshot 的 `min_dte-max_dte`（例如 `2-65`）显示在“合约”栏，并从第一个可用 expiry 开始选腿。
+- 根因：把数据覆盖诊断和策略候选混成一个产品概念；同时用固定 POP 64/66% 让一个策略标签看起来像完整推荐。
+- 后果：用户看不到具体到期日、legs、可执行价格和风险收益，短到期合约还可能因为排序被默认选中。
+- 修复：`不限`枚举当前采集窗口 1-90 DTE，具体 preset 才限制期限；legs 必须是实际存在、同 expiry、有 bid/ask 的 contracts；credit 必须按 short bid - long ask 为正；再按 DTE 风险、Delta、spread、OI、volume 和经济性评分。
+- UI 不变量：没有完整达标候选就不显示 row；只显示选中订单的 expiry/DTE、legs、credit/debit、max loss、breakeven、RoR 和机会分。DTE range 只用于内部 coverage/debug。
+- 测试：必须覆盖“snapshot 同时含 2 DTE 和 45 DTE 时默认选 45 DTE”、“负 credit 被拒绝”、“短线明确允许 2 DTE”、“Iron Condor 两侧同 expiry”。
+- 追加不变量：`不限`不是“推荐一个最匹配策略”；它应返回所有已支持策略中通过门槛的组合，同一 symbol 可以有多条候选。所谓全部不包括不可执行或质量不达标的笛卡尔排列。

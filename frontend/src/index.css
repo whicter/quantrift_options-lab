@@ -1067,6 +1067,16 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
+.scan-contract-cell strong {
+  color: var(--text);
+  font-size: 11px;
+}
+.scan-opportunity-score {
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
 .scan-price-status { font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .scan-price-status.covered { color: var(--green); }
 .scan-price-status.stale { color: var(--yellow); }

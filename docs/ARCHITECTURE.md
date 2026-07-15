@@ -151,6 +151,19 @@ The current 67-symbol watchlist is a transitional Phase 3 data pool for controll
 
 Contract-level advanced filters are supported from stored snapshots only. `/api/scan` may filter for existence of at least one latest `option_contract_snapshots` row matching DTE, absolute Delta, bid/ask spread percentage, per-contract OI and per-contract volume. It must not fetch option chains synchronously during the request.
 
+Scanner candidate selection path：
+
+```text
+scanner_results_snapshots + latest actual quoted option contracts
+  -> symbol context and filters (IV / trend / GEX)
+  -> enumerate every supported same-expiry real-contract setup
+  -> hard eligibility (DTE / Delta / spread / OI / volume / positive credit)
+  -> score (DTE fit / Delta / spread / OI / volume / economics)
+  -> actionable rows with exact legs, risk and breakeven
+```
+
+The default `不限` selector applies no hidden preset: it enumerates qualifying setups across the current 1-90 DTE ingestion window, including multiple rows for one symbol when strategy, expiry or strikes differ. Presets explicitly narrow DTE/Delta/liquidity. Inventory metadata such as `min_dte=2, max_dte=65` must never be presented as the recommended contract. The selector fails closed when it cannot construct a complete setup from actual same-expiry quotes; it does not synthesize contracts or show a strategy label without legs.
+
 API response 应统一携带数据状态：
 
 ```json

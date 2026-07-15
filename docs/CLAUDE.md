@@ -35,6 +35,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - `/api/scan` reads `scanner_results_snapshots`; it must not recompute the full watchlist on request.
 - Stale/missing data enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` is the execution boundary.
 - `/api/status/cache` reports job backlog, failures, scanner age, empty snapshots and provider budget.
+- Scanner rows must represent complete actionable candidates from actual same-expiry quotes. DTE ranges are diagnostics only; fixed placeholder POP values are forbidden.
+- `不限` enumerates all qualifying setups across supported strategies and may return multiple rows for one symbol.
 - Phase 3E is complete: `option_oi_delta_snapshots` powers `/api/unusual/:symbol`, `/api/scan` unusual filters and Analyze Tab3 unusual activity.
 - `ib_internal` and `tt_internal` are internal/transitional data sources, not public licensed product sources.
 

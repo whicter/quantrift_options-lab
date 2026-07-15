@@ -251,7 +251,7 @@
   - `IV Rank >= 50` + neutral/missing trend：`Iron Condor`
   - `30 <= IV Rank < 50`：默认 `Iron Condor`，小仓位/定义风险
   - `IV Rank < 30`：默认 `Long Straddle`，只表示低 IV 适合观察买方波动结构，不代表已有事件催化
-  - POP 为规则占位值，不来自真实 option chain
+  - Historical behavior：POP 曾为规则占位值，不来自真实 option chain；Phase 3H-1 已从 scanner 表格删除该字段，改为明确标注的候选质量“机会分”
 - [x] 已写入文档：`docs/wiki.md`、`docs/learning.md`
 
 ### Verification
@@ -702,7 +702,7 @@
   - per-contract minimum OI
   - per-contract minimum volume
 - [x] Backend behavior：blank values do not filter; provided values require at least one latest option contract snapshot matching the constraints.
-- [x] Scanner result display：show contract data summary per symbol, including DTE range, absolute Delta range, average bid/ask spread, quoted contract count and Greeks coverage count.
+- [x] Scanner result display：不再把 DTE range / quoted contract count 当作用户结果；这些仅保留为采集诊断。用户结果显示被选中候选单的 expiry、DTE、实际 legs、credit/debit、max loss、breakeven、return on risk、spread 与最低 OI。
 - [x] Data source：current `option_contract_snapshots` already stores expiry, bid, ask, volume, open_interest, IV and Greeks from IB/TT transitional adapters.
 - [x] Product boundary：these filters are optional advanced controls; default scanner presets should work without the user understanding Greeks.
 - [x] Strategy parameter presets：
@@ -713,7 +713,7 @@
   - 短线：DTE 1-14, Abs Delta 0.20-0.40, Max Spread 20%, Contract OI >= 100, Contract Vol >= 20
   - 流动性优先：DTE 7-60, Abs Delta 0.05-0.50, Max Spread 8%, Contract OI >= 1000, Contract Vol >= 100
 - [x] Advanced edits mark the strategy parameter profile as custom.
-- [x] Default scanner profile is `不限` so missing or narrow contract-level snapshots do not hide symbol-level results. Users must explicitly select 保守 / 标准 / 进取 / 短线 / 流动性优先 to activate DTE/Delta/spread/OI/volume filters.
+- [x] Default scanner profile is `不限`：不施加隐藏 preset，枚举当前 snapshot 1-90 DTE 范围内所有已支持策略及所有通过 Delta、spread、OI、volume 与经济性门槛的候选单；同一标的可返回多条不同策略/expiry/strikes。用户可多选策略或选择保守 / 标准 / 进取 / 短线 / 流动性优先收窄结果。
 - [x] Scanner table UX：
   - each visible column header is sortable
   - `OI Δ` renamed to `ΔOI`
@@ -742,6 +742,26 @@
   - Frontend attempts to build concrete legs for `Bear Call Spread`, `Bull Put Spread`, `Iron Condor`, and `Long Straddle`.
   - Scanner strategy column now shows legs, DTE, credit/debit estimate, max-loss / breakeven where available.
   - If the current snapshot cannot form the strategy, the row says the contract snapshot is insufficient instead of showing only a strategy name.
+- [x] **Phase 3H-1 — Actionable scanner candidate selector (`SCAN-ACTIONABILITY-001`, 2026-07-15)**
+  - Severity：P1；confidence：high。
+  - Confirmed from code：旧 UI 把 snapshot inventory 的 `DTE 2-65` 显示成“合约结果”，并按第一个可用 expiry 构造 legs；固定 `POP 64/66%` 不是由实际合约价格计算。
+  - Trigger：同一 symbol snapshot 同时含短期和中期 expiry，例如 2/30/65 DTE。
+  - Current behavior：用户只能看到库存跨度或策略名称，无法知道哪一笔订单值得研究；算法可能因排序选择 2 DTE。
+  - Expected behavior：只输出可由同 expiry 真实 bid/ask contracts 组成、通过流动性与经济性门槛的候选单。
+  - Worst consequence：把库存元数据误认为推荐期限，或展示无法成交、负 credit、风险收益不合理的结构。
+  - Initial implementation：`frontend/src/lib/scanOpportunity.js` 枚举 actual contracts；最初默认 21-60 DTE，随后由 Phase 3H-2 修正为“不限不施加隐藏 preset”；credit spread 要求 `short bid - long ask > 0`；Iron Condor 两侧必须同 expiry；按 DTE fit、short Delta、bid/ask spread、OI、volume、RoR/economics 计算 0-100 机会分，并要求至少 50 分。
+  - UI：`合约` 改为 `机会质量`，`推荐策略` 改为 `候选单`，删除规则占位 `POP`，改为 `机会分`；显示 expiry/DTE、具体 legs、净 credit/debit、max loss、breakeven、RoR、最低 OI 与平均 spread。
+  - Changed business behavior：改变 scanner 研究候选输出与排序/过滤，不修改任何自动交易、下单或持仓逻辑。
+  - Tests：`frontend/src/lib/scanOpportunity.test.js` 覆盖忽略 2 DTE、拒绝负 credit、短线允许 2 DTE、Iron Condor 同 expiry。
+  - Runtime evidence：用 2026-07-15 production `/api/scan` 63 rows 离线运行 selector，得到 3 个完整候选：GOOGL 30 DTE Iron Condor、CIBR 37 DTE Bull Put Spread、IBB 37 DTE Long Straddle；其余 rows 因无法组成完整且达标的真实 legs 被排除。
+  - Done：实现范围完成；frontend tests/build/targeted lint 通过；未改变 collector、server API 或数据库 schema。
+  - Rollback：恢复 `frontend/src/pages/Scan.jsx` 旧表格映射，删除 `frontend/src/lib/scanOpportunity.js` 与对应测试。
+- [x] **Phase 3H-2 — `不限` 枚举全部达标候选（2026-07-15）**
+  - Confirmed bug：Phase 3H-1 仍先按 IV/trend 为每个 symbol 指定一个策略，再只返回该策略的最佳 setup；这不符合“不限”。
+  - Behavior：`不限` 对 `Iron Condor`、`Bull Put Spread`、`Bear Call Spread`、`Long Straddle` 枚举全部达标组合；同一 symbol 可以出现多行。策略 chips 只显示当前真正支持自动选腿的结构，多选后作为显式过滤。
+  - Guardrail：这里的“全部”指全部通过可执行性和机会分门槛的候选，不包含负 credit、缺腿、跨 expiry、过宽 spread 或低于 50 分的排列。
+  - Tests：新增 regression test，确认同一 symbol 在不限模式同时返回 Bull Put Spread、Bear Call Spread 和 Iron Condor，而不是只返回一条。
+  - Runtime evidence：当前 Railway snapshot 63 symbols 产生 210 个达标候选、覆盖 15 symbols；结构分布为 Bull Put Spread 38、Bear Call Spread 45、Iron Condor 70、Long Straddle 57，DTE 覆盖 2/30/37/65。
 - [x] Analyze mock-data leakage fix：
   - PLTR showed fake `Call Wall $595 / Put Wall $575` because Analyze initialized from `mockAnalysis` and kept mock walls when real GEX was unavailable; the old contract construction path could also create invalid option combinations.
   - GEX missing/unusable now marks the result partial and clears `callWall`, `putWall`, GEX strikes, scenarios and recommendation so mock walls cannot appear as real data. Stale/partial snapshots with required fields remain visible with quality labels.

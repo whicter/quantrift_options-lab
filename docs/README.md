@@ -43,7 +43,7 @@ Open http://localhost:5173
 |---|---|
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
 | `/analyze` | V2 标的分析：输入股票代码，获取IV状态+方向信号+策略推荐 |
-| `/scan` | V2 扫描器：批量筛选符合条件的标的，按IV Rank排序 |
+| `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
 
 ## Features (V1 — /learn)
 - 86 strategies across 7 categories: Direction / Income / Volatility / Calendar / Complex / Arbitrage / Guide
@@ -60,7 +60,7 @@ Open http://localhost:5173
 - IV analysis: IV Rank, IV30 vs HV30, term structure
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
-- Scanner: filter by IVR range, strategy type; click row → detailed analysis
+- Scanner: filter by opportunity/preset, then rank complete same-expiry contract setups; click row → detailed analysis
 - Data coverage status API: `/api/status/data`
 - Price history API: `/api/prices/:symbol`
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
@@ -91,6 +91,7 @@ Open http://localhost:5173
 - PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.
 - IB contract discovery persists only contracts actually returned by IB with a valid `conId` and `localSymbol`; the collector never constructs synthetic expiry/strike/right combinations.
 - Stale or partial GEX remains visible when the snapshot contains the required computed fields. The UI labels its age/quality; only missing required fields suppress GEX/Wall analysis.
+- Scanner `不限` applies no hidden preset and enumerates every qualifying setup across supported strategies in the current 1-90 DTE ingestion window, including multiple rows per symbol. It rejects incomplete or non-positive-credit structures and displays exact legs plus executable-side pricing.
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)

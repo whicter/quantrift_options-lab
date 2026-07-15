@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDataStatus, getScan } from '../lib/api';
+import { ACTIONABLE_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
 
-const STRATEGY_OPTIONS = [
-  'Iron Condor',
-  'Short Strangle',
-  'Bull Put Spread',
-  'Bear Call Spread',
-  'Bull Call Spread',
-  'Long Straddle',
-];
+const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
 const STRATEGY_PARAMETER_PRESETS = {
   none: {
     label: '不限',
-    desc: '不按合约参数过滤',
+    desc: '枚举当前快照全部达标候选',
     values: {
       dteMin: '',
       dteMax: '',
@@ -110,9 +104,9 @@ const SORTABLE_COLUMNS = [
   { key: 'gex', label: 'GEX', title: 'Gamma Exposure。missing/未采集表示当前没有该标的 GEX 快照。' },
   { key: 'wall', label: 'Wall', title: '离最近 Call Wall / Put Wall 的距离。没有 GEX 快照时为空。' },
   { key: 'doi', label: 'ΔOI', title: 'Open Interest 变化。missing/未采集表示没有连续 OI 快照。' },
-  { key: 'contract', label: '合约', title: '当前 option snapshot 的 DTE、Delta 和 bid/ask spread 摘要。' },
-  { key: 'strategy', label: '推荐策略', title: '基于 IV Rank、趋势和已有期权结构的策略建议；点行进入分析页。' },
-  { key: 'pop', label: 'POP', title: 'Probability of Profit 的规则估计值，目前用于策略排序参考。' },
+  { key: 'contract', label: '机会质量', title: '最佳候选单的到期日、实际报价流动性和 Return on Risk。' },
+  { key: 'strategy', label: '候选单', title: '使用同到期真实 bid/ask 合约组成的具体策略 legs。' },
+  { key: 'score', label: '机会分', title: '根据 DTE、Delta、bid/ask spread、OI、Volume 和收益风险综合计算。' },
   { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
 ];
 
@@ -137,12 +131,6 @@ function compactMoney(value) {
   return `${n < 0 ? '-' : ''}$${abs.toFixed(0)}`;
 }
 
-function formatDeltaRange(minValue, maxValue) {
-  if (minValue == null && maxValue == null) return '--';
-  if (minValue != null && maxValue != null) return `${minValue.toFixed(2)}-${maxValue.toFixed(2)}`;
-  return (minValue ?? maxValue).toFixed(2);
-}
-
 function strategyAction(strategy) {
   if (strategy === 'Bear Call Spread') return '卖出较低行权价 Call，买入更高行权价 Call，收取 credit。';
   if (strategy === 'Bull Put Spread') return '卖出较高行权价 Put，买入更低行权价 Put，收取 credit。';
@@ -151,145 +139,6 @@ function strategyAction(strategy) {
   if (strategy === 'Short Strangle') return '卖出 OTM Call + OTM Put，押注区间内震荡。';
   if (strategy === 'Bull Call Spread') return '买入较低行权价 Call，卖出更高行权价 Call，做多且限制成本。';
   return '点击进入分析页查看结构。';
-}
-
-function formatMoney(value) {
-  if (value == null || !Number.isFinite(value)) return '--';
-  return `$${value.toFixed(2)}`;
-}
-
-function contractMid(contract) {
-  if (contract.bid == null || contract.ask == null) return null;
-  return (contract.bid + contract.ask) / 2;
-}
-
-function normalizeContracts(rawContracts) {
-  if (!Array.isArray(rawContracts)) return [];
-  return rawContracts
-    .map(contract => ({
-      expiry: contract.expiry,
-      dte: num(contract.dte),
-      strike: num(contract.strike),
-      right: contract.right,
-      bid: num(contract.bid),
-      ask: num(contract.ask),
-      mark: num(contract.mark),
-      volume: num(contract.volume),
-      openInterest: num(contract.openInterest),
-      delta: num(contract.delta),
-      gamma: num(contract.gamma),
-      contractSymbol: contract.contractSymbol,
-    }))
-    .filter(contract => contract.strike != null && contract.dte != null && contract.bid != null && contract.ask != null);
-}
-
-function groupedByExpiry(contracts) {
-  const groups = new Map();
-  for (const contract of contracts) {
-    const key = contract.expiry || `DTE-${contract.dte}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(contract);
-  }
-  return [...groups.values()].sort((a, b) => (a[0]?.dte ?? 999) - (b[0]?.dte ?? 999));
-}
-
-function buildVerticalSetup({ strategy, contracts, spot, callWall, putWall }) {
-  const side = strategy === 'Bear Call Spread' ? 'C' : 'P';
-  const groups = groupedByExpiry(contracts.filter(contract => contract.right === side));
-  for (const group of groups) {
-    const sorted = [...group].sort((a, b) => a.strike - b.strike);
-    if (side === 'C') {
-      const target = Math.max(spot ?? 0, callWall ?? spot ?? 0);
-      const shortIndex = sorted.findIndex(contract => contract.strike >= target);
-      if (shortIndex >= 0 && shortIndex < sorted.length - 1) {
-        const shortLeg = sorted[shortIndex];
-        const longLeg = sorted[shortIndex + 1];
-        const credit = Math.max(shortLeg.bid - longLeg.ask, 0);
-        const width = longLeg.strike - shortLeg.strike;
-        return {
-          status: 'ready',
-          summary: `Sell ${shortLeg.strike}C / Buy ${longLeg.strike}C · ${shortLeg.dte}DTE`,
-          pricing: `Credit ${formatMoney(credit)} · Max loss ${formatMoney(width - credit)} · BE ${formatMoney(shortLeg.strike + credit)}`,
-          legs: [
-            `Sell ${shortLeg.strike}C @ ${formatMoney(shortLeg.bid)}`,
-            `Buy ${longLeg.strike}C @ ${formatMoney(longLeg.ask)}`,
-          ],
-        };
-      }
-    } else {
-      const target = Math.min(spot ?? Infinity, putWall ?? spot ?? Infinity);
-      const below = sorted.filter(contract => contract.strike <= target);
-      if (below.length >= 2) {
-        const shortLeg = below[below.length - 1];
-        const longLeg = below[below.length - 2];
-        const credit = Math.max(shortLeg.bid - longLeg.ask, 0);
-        const width = shortLeg.strike - longLeg.strike;
-        return {
-          status: 'ready',
-          summary: `Sell ${shortLeg.strike}P / Buy ${longLeg.strike}P · ${shortLeg.dte}DTE`,
-          pricing: `Credit ${formatMoney(credit)} · Max loss ${formatMoney(width - credit)} · BE ${formatMoney(shortLeg.strike - credit)}`,
-          legs: [
-            `Sell ${shortLeg.strike}P @ ${formatMoney(shortLeg.bid)}`,
-            `Buy ${longLeg.strike}P @ ${formatMoney(longLeg.ask)}`,
-          ],
-        };
-      }
-    }
-  }
-  return { status: 'missing', summary: '当前快照不足以组成价差腿', pricing: '需要同到期、同方向、相邻可报价 strikes' };
-}
-
-function buildStraddleSetup(contracts, spot) {
-  for (const group of groupedByExpiry(contracts)) {
-    const calls = group.filter(contract => contract.right === 'C');
-    const puts = group.filter(contract => contract.right === 'P');
-    const pairs = calls
-      .map(call => ({ call, put: puts.find(put => put.strike === call.strike) }))
-      .filter(pair => pair.put);
-    if (pairs.length) {
-      const pair = pairs.sort((a, b) => Math.abs(a.call.strike - spot) - Math.abs(b.call.strike - spot))[0];
-      const debit = pair.call.ask + pair.put.ask;
-      return {
-        status: 'ready',
-        summary: `Buy ${pair.call.strike}C + ${pair.put.strike}P · ${pair.call.dte}DTE`,
-        pricing: `Debit ${formatMoney(debit)} · BE ${formatMoney(pair.call.strike - debit)} / ${formatMoney(pair.call.strike + debit)}`,
-        legs: [
-          `Buy ${pair.call.strike}C @ ${formatMoney(pair.call.ask)}`,
-          `Buy ${pair.put.strike}P @ ${formatMoney(pair.put.ask)}`,
-        ],
-      };
-    }
-  }
-  return { status: 'missing', summary: '当前快照不足以组成 straddle', pricing: '需要同到期、同行权价 Call + Put' };
-}
-
-function buildConcreteSetup(strategy, contracts, row) {
-  const normalized = normalizeContracts(contracts);
-  if (!normalized.length) return { status: 'missing', summary: '期权链待采集', pricing: '没有可报价合约，不能生成具体 legs' };
-  const spot = num(row.price_close);
-  const context = {
-    strategy,
-    contracts: normalized,
-    spot,
-    callWall: num(row.call_wall),
-    putWall: num(row.put_wall),
-  };
-  if (strategy === 'Bear Call Spread' || strategy === 'Bull Put Spread') return buildVerticalSetup(context);
-  if (strategy === 'Iron Condor') {
-    const putSpread = buildVerticalSetup({ ...context, strategy: 'Bull Put Spread' });
-    const callSpread = buildVerticalSetup({ ...context, strategy: 'Bear Call Spread' });
-    if (putSpread.status === 'ready' && callSpread.status === 'ready') {
-      return {
-        status: 'ready',
-        summary: `${putSpread.summary} + ${callSpread.summary}`,
-        pricing: 'Credit structure · 需合并两边价差计算总 credit / max loss',
-        legs: [...putSpread.legs, ...callSpread.legs],
-      };
-    }
-    return { status: 'missing', summary: '当前快照不足以组成 Iron Condor', pricing: '需要同到期 Put Spread + Call Spread' };
-  }
-  if (strategy === 'Long Straddle') return buildStraddleSetup(normalized, spot);
-  return { status: 'missing', summary: '该策略暂未接入自动选腿', pricing: '点击 Analyze 查看手动分析' };
 }
 
 function missingLabel(value) {
@@ -307,7 +156,7 @@ function sortValue(row, key) {
   if (key === 'doi') return Math.abs(row.unusual.maxDelta ?? -Infinity);
   if (key === 'contract') return row.contractQuality.contractCount;
   if (key === 'strategy') return row.recommendation.strategy;
-  if (key === 'pop') return row.recommendation.params.pop;
+  if (key === 'score') return row.concreteSetup.score ?? -Infinity;
   if (key === 'earnings') return row.earnings.daysAway ?? Infinity;
   return 0;
 }
@@ -329,57 +178,14 @@ function daysUntil(dateText) {
   return Math.ceil((date.getTime() - todayUtc) / 86400000);
 }
 
-function recommendFromIv(row) {
-  const ivRank = Number(row.iv_rank ?? 0);
-  const ivHvDiff = pct(row.iv_hv_diff) ?? 0;
-  const regime = row.gamma_regime;
-  const trendScore = num(row.trend_score) ?? 0;
-
-  if (ivRank >= 50) {
-    if (trendScore >= 3) {
-      return {
-        strategy: 'Bull Put Spread',
-        reason: `IV Rank ${Math.round(ivRank)}%，趋势偏多；优先考虑定义风险的卖 Put 结构。`,
-        params: { pop: 64 },
-      };
-    }
-    if (trendScore <= -3) {
-      return {
-        strategy: 'Bear Call Spread',
-        reason: `IV Rank ${Math.round(ivRank)}%，趋势偏空；优先考虑定义风险的卖 Call 结构。`,
-        params: { pop: 64 },
-      };
-    }
-    return {
-      strategy: 'Iron Condor',
-      reason: `IV Rank ${Math.round(ivRank)}%，IV-HV ${ivHvDiff.toFixed(1)}pt；${regime ? `Gamma ${regime}` : 'GEX 未覆盖'}。`,
-      params: { pop: 66 },
-    };
-  }
-
-  if (ivRank >= 30) {
-    return {
-      strategy: 'Iron Condor',
-      reason: `IV Rank ${Math.round(ivRank)}%，波动率中等；方向未确认前偏向小仓位定义风险结构。`,
-      params: { pop: 62 },
-    };
-  }
-
-  return {
-    strategy: 'Long Straddle',
-    reason: `IV Rank ${Math.round(ivRank)}%，低 IV 环境；若有催化或预期波动扩张，可考虑买方波动结构。`,
-    params: { pop: 42 },
-  };
-}
-
-function toScanRow(row) {
-  const recommendation = recommendFromIv(row);
+function toScanRow(row, concreteSetup) {
+  const recommendation = { strategy: concreteSetup.strategy };
   const nearestWall = wallDistance(row);
   const earningsDays = daysUntil(row.earnings_date);
   const trendScore = num(row.trend_score);
   const trendLabel = row.trend_label || (trendScore == null ? '趋势数据不足' : '等待确认');
-  const concreteSetup = buildConcreteSetup(recommendation.strategy, row.option_contracts, row);
   return {
+    id: `${row.symbol}:${concreteSetup.strategy}:${concreteSetup.expiry}:${concreteSetup.legs.map(leg => `${leg.action}-${leg.right}-${leg.strike}`).join(':')}`,
     symbol: row.symbol,
     price: row.price_close == null ? null : Number(row.price_close).toFixed(2),
     ivRank: Math.round(Number(row.iv_rank ?? 0)),
@@ -477,7 +283,7 @@ export default function Scan() {
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [results, setResults] = useState(null);
-  const [tableSort, setTableSort] = useState({ key: 'ivRank', direction: 'desc' });
+  const [tableSort, setTableSort] = useState({ key: 'score', direction: 'desc' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dataStatus, setDataStatus] = useState(null);
@@ -566,9 +372,20 @@ export default function Scan() {
         sort,
         limit: 100,
       });
-      const liveRows = rows
-        .map(toScanRow)
-        .filter(d => selectedStrategies.length === 0 || selectedStrategies.includes(d.recommendation.strategy));
+      const selectionOverrides = {
+        dteMin,
+        dteMax,
+        deltaMin,
+        deltaMax,
+        maxSpreadPct,
+        minContractOi,
+        minContractVolume,
+      };
+      const strategies = selectedStrategies.length ? selectedStrategies : ACTIONABLE_STRATEGIES;
+      const liveRows = rows.flatMap(row => (
+        buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies)
+          .map(setup => toScanRow(row, setup))
+      ));
       setResults(liveRows);
     } catch {
       setResults([]);
@@ -606,7 +423,7 @@ export default function Scan() {
     <div className="scan-page">
       <div className="scan-header">
         <div className="scan-title">扫描器</div>
-        <div className="scan-subtitle">先选择机会类型；高级期权数据可用于进一步收窄结果</div>
+        <div className="scan-subtitle">扫描真实报价，输出具体到期日、策略腿和收益风险</div>
       </div>
 
       <div className="scan-body">
@@ -912,12 +729,12 @@ export default function Scan() {
           ) : results.length === 0 ? (
             <div className="scan-empty">
               <div className="scan-empty-icon">∅</div>
-              <div>没有符合条件的标的，请切回「不限」或放宽 IV / DTE / Delta / spread 条件</div>
+              <div>当前没有能用真实报价组成的完整候选单，请调整机会类型或参数</div>
             </div>
           ) : (
             <>
               <div className="scan-results-header">
-                找到 <strong>{results.length}</strong> 个标的
+                找到 <strong>{results.length}</strong> 个可执行候选单
               </div>
               <div className="scan-table">
                 <div className="scan-table-head">
@@ -936,7 +753,7 @@ export default function Scan() {
                 </div>
                 {displayedResults.map(d => (
                   <div
-                    key={d.symbol}
+                    key={d.id}
                     className="scan-table-row"
                     onClick={() => handleRowClick(d.symbol)}
                     title="点击查看详细分析"
@@ -968,24 +785,18 @@ export default function Scan() {
                         ? `${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}`
                         : missingLabel(d.unusual.status)}
                     </span>
-                    <span className="scan-contract-cell" title={`${d.contractQuality.contractCount} contracts · ${d.contractQuality.quotedCount} quoted · ${d.contractQuality.greeksCount} Greeks`}>
-                      {d.contractQuality.contractCount > 0 ? (
-                        <>
-                          <span>DTE {d.contractQuality.minDte === d.contractQuality.maxDte ? d.contractQuality.minDte : `${d.contractQuality.minDte ?? '--'}-${d.contractQuality.maxDte ?? '--'}`}</span>
-                          <span>Δ {formatDeltaRange(d.contractQuality.minAbsDelta, d.contractQuality.maxAbsDelta)}</span>
-                          <span>Spr {d.contractQuality.avgSpreadPct == null ? '--' : `${d.contractQuality.avgSpreadPct.toFixed(1)}%`}</span>
-                        </>
-                      ) : (
-                        <span>待采集</span>
-                      )}
+                    <span className="scan-contract-cell" title={d.concreteSetup.legLabels.join('\n')}>
+                      <strong>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE</strong>
+                      <span>OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</span>
+                      <span>{d.concreteSetup.returnOnRisk == null ? `Debit $${Math.round(d.concreteSetup.debit * 100).toLocaleString('en-US')}` : `RoR ${(d.concreteSetup.returnOnRisk * 100).toFixed(1)}%`}</span>
                     </span>
-                    <span className={`scan-strategy ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...(d.concreteSetup.legs || [])].join('\n')}>
+                    <span className={`scan-strategy ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>
-                      <small>{d.concreteSetup.summary}</small>
+                      <small>{d.concreteSetup.structure}</small>
                       <small>{d.concreteSetup.pricing}</small>
                     </span>
-                    <span style={{ color: 'var(--green)', fontWeight: 700 }}>
-                      {d.recommendation.params.pop}%
+                    <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险综合评分">
+                      {d.concreteSetup.score}
                     </span>
                     <span style={{ color: d.earnings.warning ? 'var(--yellow)' : 'var(--text-muted)', fontSize: 11 }}>
                       {d.earnings.date
