@@ -389,6 +389,29 @@ V1 公式：
 - 当前最低验证闭环：collector unit tests、server tests、frontend tests/build、真实 IB snapshot、PostgreSQL row identity/completeness、GEX/OI delta/scanner materialization、生产 API 查询。
 - 本次记录：collector 37 tests、server 4 tests、frontend 6 tests 全部通过；NBIS 真实 snapshot 30 个 distinct valid `conId`，Greeks missing 0%，OI missing 3.33%，并成功生成 GEX 与 scanner rows。
 
+### 10. PM2 ecosystem.config.cjs 的 env 注入会阻断 load_dotenv
+
+- **现象**：`.env` 里有 `POLYGON_API_KEY=xxx`，`load_dotenv` 也被调用，但 provider 仍报 `POLYGON_API_KEY is required`。
+- **根因**：`ecosystem.config.cjs` 里写了 `POLYGON_API_KEY: process.env.POLYGON_API_KEY || ''`。PM2 daemon 启动时 shell 没有该变量，所以 PM2 把 `''`（空字符串）注入为进程环境变量。`load_dotenv` 默认不覆盖已有 env var，空字符串被当作"已设"，`.env` 里的真实值被跳过。
+- **解法**：直接在 `ecosystem.config.cjs` 里写死 key 字符串，或去掉该行让 `load_dotenv` 从 `.env` 自然加载。
+- **注意**：`pm2 restart --update-env` 只把当前 shell 环境变量合并进去，不重读 `.cjs` 配置文件。要重读配置文件必须用 `pm2 reload ecosystem.config.cjs --update-env`。
+
+### 11. run_refresh_worker.py 有独立的 SUPPORTED_OPTION_PROVIDERS 白名单
+
+- **现象**：`ecosystem.config.cjs` 和 `collect_options.py` 都加了 `polygon_licensed`，scheduler 日志显示 `provider=polygon_licensed`，但 jobs 立即报 `unsupported option provider for worker: polygon_licensed`。
+- **根因**：`run_refresh_worker.py` 顶部有 `SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal'}`，在 `run_option_chain_snapshot()` 入口处 guard check，不匹配直接抛 non-retryable RuntimeError。
+- **解法**：在 `run_refresh_worker.py` 的 `SUPPORTED_OPTION_PROVIDERS` 和 `DEFAULT_OPTION_FALLBACK_PROVIDERS` 同步加入 `polygon_licensed`。
+- **规则**：任何新 provider 必须同时在三处注册：`collect_options.py make_provider()`、`run_refresh_worker.py SUPPORTED_OPTION_PROVIDERS`、`server/src/routes/*.js` enqueue 默认 provider（如有）。
+
+### 12. Polygon.io option chain API 关键字段细节
+
+- **IV 格式**：`implied_volatility` 是 decimal，例如 0.337 = 33.7%，不是百分比整数。compute_gex.py 读取时不需要除以 100。
+- **bid/ask**：来自 `last_quote.bid` / `last_quote.ask`，EOD 快照（收盘后采集）通常存在；盘中 delayed 模式下也可能有。mark = `last_quote.midpoint` 或 (bid+ask)/2。
+- **underlying price**：每条 option result 的 `underlying_asset.price` 即当前 underlying spot，也可用 `GET /v2/aggs/ticker/{symbol}/prev` 拿 prev-day close，两者都可用。
+- **分页**：response 含 `next_url`，直接用 session GET next_url（不带额外 params，URL 已编码完整），直到 next_url 为 None。
+- **服务端过滤**：`strike_price.gte/lte` 和 `expiration_date.gte/lte` 在服务端过滤，减少数据量；`limit` 最大 250。
+- **数据源标识**：source 字段写 `'polygon_licensed'`，区别于 `ib_internal` / `tt_internal`，用于商用分发授权追踪。
+
 ### 9. DTE 库存范围不是值得交易的订单
 
 - 旧错误：Scanner 把 latest snapshot 的 `min_dte-max_dte`（例如 `2-65`）显示在“合约”栏，并从第一个可用 expiry 开始选腿。

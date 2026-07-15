@@ -310,6 +310,7 @@
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
 - [x] 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
+- [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway（IB 仍为 fallback，需确保 clientId 不与 futures bot 冲突）
 - [ ] 服务层自动切换：252天 option snapshot 积累后改为自算 IV Rank，停止调用 Tastytrade（见 P0.3）
 
 **基础设施可靠性 / 云端迁移**
@@ -574,6 +575,10 @@
 
 **Phase 3D-6 — Verification（部分移至 backlog）**
 - [ ] Unit tests（backlog）：GEX sign calculation、wall selection、gamma flip interpolation/nearest-zero fallback、PCR division-by-zero、confidence downgrade
+- [ ] Integration tests（backlog）：
+  - seeded option snapshot → `/api/gex/:symbol` 返回正确字段
+  - missing snapshot → `freshness=missing`
+  - stale snapshot → stale response without synchronous provider call
 - [x] Integration / UI smoke：Polygon licensed provider 完整验证（见 Phase 3I）
 - [x] Disclosure：API 返回 `source=polygon_licensed`，区分 IB internal 研究路径
 
