@@ -20,6 +20,7 @@ from psycopg2.extras import Json, execute_values
 
 from common import load_watchlist
 from providers.ib_option_chain_provider import IbOptionChainProvider
+from providers.polygon_option_chain_provider import PolygonOptionChainProvider
 from providers.tastytrade_option_chain_provider import TastytradeOptionChainProvider
 
 load_dotenv(Path(__file__).with_name('.env'))
@@ -57,6 +58,8 @@ def make_provider():
         return IbOptionChainProvider()
     if OPTION_PROVIDER == 'tt_internal':
         return TastytradeOptionChainProvider()
+    if OPTION_PROVIDER == 'polygon_licensed':
+        return PolygonOptionChainProvider()
     raise ValueError(f'Unknown OPTION_PROVIDER={OPTION_PROVIDER}')
 
 

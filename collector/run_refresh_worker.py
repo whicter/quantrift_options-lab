@@ -38,8 +38,8 @@ WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
 RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
 PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000'))
 TT_CIRCUIT_OPEN = os.getenv('TT_CIRCUIT_OPEN', '').strip().lower() in ('1', 'true', 'yes')
-SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal'}
-DEFAULT_OPTION_FALLBACK_PROVIDERS = 'ib_internal'
+SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal', 'polygon_licensed'}
+DEFAULT_OPTION_FALLBACK_PROVIDERS = 'polygon_licensed'
 NON_RETRYABLE_ERROR_PREFIXES = (
     'unsupported option provider for worker:',
     'tastytrade auth unavailable:',

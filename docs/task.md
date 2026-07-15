@@ -836,6 +836,226 @@
 - [x] 按 bounded batches 自动扩展完整 scanner ingestion pool：PM2 scheduler/worker 已运行并持续补 missing/stale snapshots。
 - [ ] 增加 collector coverage/failure alert：对 covered_count、failed_count、snapshot age 和 completeness 阈值发送 operator alert。
 
+---
+
+## ✅ Phase 3I — Polygon Licensed Provider（2026-07-15 完成）
+
+> 目的：将 option chain 数据源从 `ib_internal`（仅内部研究，不可商用分发）切换为 Polygon.io 授权商用数据，解锁 SaaS 分发权利。
+
+### 订阅
+- [x] 订阅 Polygon.io Options Starter，$29/月（实际价格；含实时+历史期权链、OI、volume、gamma、delta、IV、bid/ask；商用再分发条款明确）
+
+### Polygon API 字段确认
+- [x] `GET /v3/snapshot/options/{symbol}`：分页，服务端过滤 `expiration_date.gte/lte` + `strike_price.gte/lte`
+  - `implied_volatility`：decimal（0.337 = 33.7%），不是百分比
+  - `greeks{}`：`delta`, `gamma`, `theta`, `vega`
+  - `last_quote{}`：`bid`, `ask`（EOD 后可能为 None）
+  - `day{}`：`volume`, `last_price`
+  - `open_interest`
+  - `next_url`：分页续页 URL（后续请求必须 `params=None`，URL 已 encode）
+- [x] `GET /v2/aggs/ticker/{symbol}/prev`：前一交易日收盘价作为 spot
+
+### 新增 collector/providers/polygon_option_chain_provider.py
+- [x] `source = 'polygon_licensed'`
+- [x] `fetch_underlying(symbol)`：`/v2/aggs/ticker/{symbol}/prev` → `UnderlyingSnapshot`
+- [x] `fetch_option_chain(symbol)`：分页 `/v3/snapshot/options/{symbol}`，server-side DTE/strike 过滤
+- [x] `_parse_contract()`：映射 Polygon 字段到 `OptionContractSnapshot`；`right = 'C' if contract_type == 'call' else 'P'`；`contract_symbol = '{symbol}-{expiry:%Y%m%d}-{right}-{strike:g}'`
+- [x] `_apply_strike_limit()`：按 `(expiry, right)` 分组，保留最靠近 spot 的 `max_strikes_per_side` 个合约
+- [x] `next_url` 分页：首页带 query params，续页 URL 直接使用（params=None）
+
+### collect_options.py
+- [x] 新增 `PolygonOptionChainProvider` import 和 `make_provider()` case：`OPTION_PROVIDER == 'polygon_licensed'`
+
+### run_refresh_worker.py
+- [x] `SUPPORTED_OPTION_PROVIDERS` 加入 `'polygon_licensed'`（之前遗漏导致 `unsupported option provider for worker: polygon_licensed` 错误）
+- [x] `DEFAULT_OPTION_FALLBACK_PROVIDERS` 从 `'ib_internal'` 改为 `'polygon_licensed'`
+
+### ecosystem.config.cjs
+- [x] `OPTION_REFRESH_PROVIDER: 'polygon_licensed'`
+- [x] `POLYGON_API_KEY: 'Kl9GoygZPFFXnbiU1si_2l90yH9MNiL2'`（直接硬编码；`process.env.KEY || ''` 会注入空串，阻断 `load_dotenv` 读取 .env 文件）
+
+### PM2 部署与验证
+- [x] `pm2 reload ecosystem.config.cjs --update-env`（必须用 reload；`pm2 restart --update-env` 只合并 shell env，不重读 .cjs 文件）
+- [x] PM2 全路径：`/opt/homebrew/bin/pm2`（via SSH 时 zsh 找不到 pm2）
+- [x] option_chain_snapshot jobs succeeded（job 154/156/157）；source 从 `ib_internal` 逐渐切换为 `polygon_licensed`
+- [x] MD5 checksum 验证：local 与 Mac Studio 上 4 个改动文件完全一致
+
+### Polygon 数据延迟说明（纠正）
+- Polygon $29/mo Options Starter 是 **15分钟延迟**，不是 EOD
+- 盘中也能拿到 snapshot（延迟15分钟），数据源没有问题
+- 限制在我们这边：collector 当前 cron 每天只跑一次（收盘后13:35 PT）
+- 若需盘中信号（如30分钟级 breakout），需改调度为每30分钟跑一次 collect，不需要换数据源
+- Polygon Stocks 订阅（分钟级聚合）和 Options 订阅是两个独立产品；当前 $29 Options 计划附带日线股价聚合，但不含分钟级股价
+
+### 调试记录（Learning）
+- PM2 `process.env.KEY || ''` 注入空串会阻断 `load_dotenv`；必须硬编码 API key 或用单独 .env 覆盖
+- `run_refresh_worker.py` 的 `SUPPORTED_OPTION_PROVIDERS` 是独立白名单，不从 `collect_options.py make_provider()` 继承；新增 provider 必须同时更新三处：`collect_options.py`、`run_refresh_worker.py`、`ecosystem.config.cjs`
+- `pm2 reload ecosystem.config.cjs --update-env` 是重读配置文件的正确方式
+
+---
+
+## 📋 Phase 3J — 功能对标、竞品分析与下一步路线图
+
+### 竞品分析（2026-07-15）
+
+**AlphaStock Pro Elite**
+- 核心能力：多时框动量评分（30M/1D/1W）、综合 momentum score、"Uptrend"/"30min Breakout"信号矩阵
+- 数据源：无期权数据，纯股票技术面
+- 我们的差异化优势：GEX/PCR/Unusual OI/具体期权腿推荐 是 AlphaStock Pro 完全没有的；多时框动量评分我们可以用 `price_history` 复刻
+- 待补充：composite momentum score（30M/1D/1W 加权）、Focus Score
+
+**Newshock.net（PRESSURE/S/R system）**
+- 核心能力：每日更新支撑/阻力区间（S/R zones），从 OHLCV pivot 计算；Focus Score = MA 位置 + 量能参与度
+- 数据：纯 OHLCV 历史（我们的 `price_history` 完全够用）
+- 可自建：pivot-based S/R → `GET /api/sr/:symbol`；Focus Score → 复合技术评分；无需付费或爬虫
+- 直接竞品差距：Newshock 无期权层，我们加上 GEX/Wall 后做出完整的"价格结构 + 期权仓位"分析
+
+**华尔街咖啡馆参考产品**（实现对标）
+- 所有主要功能我们已实现 UI shell，核心 gaps：IV Skew 图、Term Structure 图（需 Polygon `/api/chain/stats`）
+- 我们额外实现的：Gamma Flip 具体价位、Local Gamma 集中度、每日 OI Delta 异动、SaaS 可部署架构
+
+---
+
+### 实施优先级（下一步）
+
+**P1 — 数据已有，可立刻做**
+1. Screener 策略扩展：`scanOpportunity.js` 加 Short Strangle / Long Call / Long Put（不依赖新基础设施）
+2. S/R 端点：server 新增 `GET /api/sr/:symbol` + Tab2/Tab4 K线图叠加支撑压力水平线
+3. Scan 页顶部 Market Regime Header（SPY/QQQ/VIX GEX regime + IV Rank）
+
+**P2 — 需要小改后端**
+4. 非 watchlist 标的按需 enqueue + 前端等待 UI（`/api/analyze/:symbol` 对未知 symbol 触发 enqueue）
+5. Focus Score / 综合动量评分（`price_history` 派生：MA位置 + RSI + 量能参与度）
+6. Vol Risk Premium（IV-HV diff）作为独立指标在 Analyze 页显示，并在 Scanner 推荐理由里展示推理链条
+
+**P3 — 需要新数据源**
+7. Reddit Trends（Reddit API 免费，trending tickers → Scan 页"社区热度"列）
+8. 30min Breakout 信号：需日内数据；选项：yfinance `interval='30m'`（免费，有速率限制）或 Polygon Stocks 订阅（需额外费用）
+
+---
+
+### 前端接入剩余优先级
+
+| 优先级 | 页面/组件 | 当前状态 | 目标 |
+|---|---|---|---|
+| P1 | Tab4 OI 密度图 | GEX 代替 OI | 需 Polygon 真实 OI by strike（`option_contract_snapshots`） |
+| P2 | Tab3 IV Skew 图 | 无 | 需 `/api/chain/stats/:symbol`，Polygon IV by strike |
+| P2 | Tab1 Gamma Flip 指标 | 无前端 | 数据已在 `gex_snapshots.gamma_flip`，只需前端展示 |
+| P2 | Tab1 Local Gamma | 无前端 | 数据已在 `gex_snapshots.local_gamma`，只需前端展示 |
+| P3 | Weekly Sec2 真实 Gamma 迁徙 | mock | `gex_snapshots` 每日快照已有，需前端接入 |
+| P3 | Weekly Sec3 真实 Max Pain | mock | `gex_snapshots.max_pain` 已有，需前端接入 |
+
+---
+
+### Scanner 策略扩展（Phase 3H 遗留）
+
+- [x] 当前已支持：Iron Condor, Bull Put Spread, Bear Call Spread, Long Straddle（+ Bull Call Spread / Short Strangle fallback label）
+- [ ] 待加入枚举（`scanOpportunity.js`）：
+  - **Short Strangle**：无 Delta 约束时选 far OTM call + far OTM put（同 expiry）；high IV 环境
+  - **Iron Butterfly**：body 在 ATM，wings 对称；low move 预期 + 高 IV
+  - **Diagonal Spread**：不同 expiry；long far-date leg + short near-date leg；需跨 expiry 报价
+  - **Long Call / Long Put**：低 IV 买方；low IV Rank + 强方向性 + 催化剂
+  - **Calendar Spread**：跨 expiry 卖近买远；IV term structure skewed
+  - **Jade Lizard**：Short Put + Short Call Spread；无上方风险；需三腿同 expiry
+  - 裸卖方（Short Put/Short Call）：需风险资质门控；默认流程不推荐，高级模式开放
+- [ ] **Vol Risk Premium UI 补全**：
+  - 后端 `iv_hv_diff`（IV30 - HV30）已采集，`signal_score` 已用，但前端未显示
+  - Analyze Tab1 增加独立的 "Vol Risk Premium" 指标卡（IV-HV diff = 卖方溢价来源）
+  - Scanner 推荐理由栏展示推理链条（"IV Rank 72 + IV > HV → 卖方溢价存在 → 推荐 Iron Condor"）
+
+---
+
+### 非 watchlist 标的按需查询架构
+
+- 现有 `provider_fetch_jobs` 队列已支持按需 enqueue
+- 当前 `/api/gex/:symbol` 对未采集标的返回 `freshness=missing`
+- 待实现：API 对未知标的自动 enqueue `polygon_licensed` job，返回 `{status: 'queued', estimated_wait: '~5min'}`
+- 前端：显示"数据采集中，请5分钟后刷新"；不需要 Redis，PostgreSQL snapshot 即缓存层
+- 无需为此修改数据库 schema
+
+---
+
+### 新增 API 端点规划
+
+```
+GET /api/chain/stats/:symbol   ← 待建：IV Skew + Term Structure（Polygon IV by strike+expiry）
+GET /api/sr/:symbol            ← 待建：pivot-based S/R zones（从 price_history 计算）
+```
+
+**`/api/chain/stats/:symbol` 逻辑**
+- 从 `option_contract_snapshots` 最新 snapshot 读取：`expiration, strike, option_right, iv`
+- IV Skew：同一 expiration，各 strike 的 IV 曲线（put skew 斜率 = 市场恐慌程度）
+- Term Structure：各 expiration 的 ATM IV（前端画连线图）
+
+**`/api/sr/:symbol` 逻辑**
+- 从 `price_history` 取最近 60 天 OHLCV
+- Pivot High = high[i] > high[i-1] and high[i] > high[i+1]
+- Pivot Low = low[i] < low[i-1] and low[i] < low[i+1]
+- 聚合相近 pivots（±1%）成 S/R zone
+- 可叠加 Call Wall / Put Wall 作为 options-derived level
+
+---
+
+### 30 分钟级别股价数据
+
+- TradingView：无可编程 API，排除
+- Interactive Brokers：支持 `barSize='30 mins'`，但有 pacing limits（10秒/请求约束）
+- **yfinance（推荐）**：`yf.Ticker(symbol).history(interval='30m', period='60d')`；免费；已在技术栈概念中；无 pacing 限制
+  - 用途：Tab2 日内趋势图（更细粒度）、30M momentum score
+  - 新增 `price_history_30m` 表，或在现有 `price_history` 加 `interval` 字段
+
+---
+
+### Scan 页 Market Regime Header（规划）
+
+- 页面顶部显示当前大盘环境：SPY/QQQ/VIX 的 GEX regime + IV Rank + 趋势评分
+- 让用户在看 scanner 结果前先了解大盘情绪
+- 数据来源：`gex_snapshots`（SPY/QQQ）+ `iv_history`（VIX IV Rank 或 VIX 现价）
+
+---
+
+### 数据架构现状（2026-07-15）
+
+```
+当前生产数据流：
+
+  Polygon.io API（已接入）
+    └── 每日快照采集（期权链）
+          ├── OI / volume / gamma / delta / IV by strike+expiration
+          ├── 写入 option_chain_snapshots + option_contract_snapshots
+          └── 触发计算：GEX / PCR / Call Wall / Put Wall / Max Pain / Gamma Flip / Local Gamma
+
+  Tastytrade API（保留，仅取 iv_rank）
+    └── iv_rank / iv_percentile（冷启动过渡期用）
+    └── 财报日 expected-report-date
+
+  yfinance（免费）
+    └── 60天 OHLCV → price_history（实际仍用 ib_internal）
+    └── HV30/60/90 自算（待切换）
+
+  Mac Studio PM2
+    ├── quantrift-options-collector（daemon，每60秒处理 refresh jobs）
+    └── quantrift-options-prices（cron，周一至五 13:35 PT）
+
+  Railway
+    ├── PostgreSQL（iv_history / option_chain_snapshots / gex_snapshots / price_history）
+    └── Node.js API（/api/gex / /api/unusual / /api/prices / /api/scan / /api/status/cache）
+```
+
+---
+
+### 成本汇总（2026-07-15）
+
+| 服务 | 月费 | 用途 | 何时停 |
+|---|---|---|---|
+| Polygon.io Options Starter | $29 | 期权链核心数据（商用授权） | 长期保留 |
+| Railway（PostgreSQL + Node.js） | ~$5 | 数据库 + API | 长期保留 |
+| Tastytrade API | 免费 | IV Rank 过渡期 | 积累 252 天后停 |
+| yfinance | 免费 | 价格历史 / HV / fallback | 长期保留 |
+| **合计** | **~$34/月** | | |
+
+---
+
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
 - [ ] 订阅分层: 免费（教育工具）/ 付费（scanner + alerts + live data）

@@ -4,7 +4,7 @@ const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 
-const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 15, 10);
+const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 480, 10);
 const GEX_CACHE_SECONDS = parseInt(process.env.GEX_CACHE_SECONDS ?? 120, 10);
 const CHAIN_CACHE_SECONDS = parseInt(process.env.CHAIN_CACHE_SECONDS ?? 120, 10);
 
