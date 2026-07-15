@@ -16,7 +16,7 @@ const WATCHLIST_CANDIDATES = process.env.WATCHLIST_PATH
       path.resolve(__dirname, '../../../collector/watchlist.txt'),
       path.resolve(__dirname, '../../watchlist.txt'),
     ];
-const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 480, 10);
+const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 180, 10);
 
 function toDateString(value) {
   return value?.toISOString?.().slice(0, 10) || (value ? String(value).slice(0, 10) : null);
