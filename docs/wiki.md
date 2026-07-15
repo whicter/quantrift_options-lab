@@ -541,13 +541,23 @@ src/
 - DTE / Days To Expiration：期权到期剩余天数。30-60 DTE 常用于很多 premium-selling 策略，短 DTE 更事件/周权，长 DTE 更慢。
 - Abs Delta：Delta 的绝对值。比如 0.16-0.30 常用于寻找较远 OTM 的 short premium legs。Call Delta 通常为正，Put Delta 通常为负，所以 scanner 用绝对值。
 - Bid/Ask Spread：通常用 `(ask - bid) / mid` 估算，mid = `(bid + ask) / 2`。spread 越宽，滑点和成交难度通常越高。
-- Greeks / bid / ask：当前 IB/TT 过渡 adapters 和 `option_contract_snapshots` schema 已有这些字段；生产产品仍需要 licensed provider 的覆盖率、延迟、授权和再分发条款确认。
+- Greeks / bid / ask：当前 IB/TT 过渡 adapters 和 `option_contract_snapshots` schema 已有这些字段；拿不到或覆盖不足的部分后续用实际订阅数据源补。
 
 高级合约过滤的后端语义：
 - 所有 DTE/Delta/spread/contract OI/contract volume 参数留空时，不启用这些过滤。
 - 只要用户填写任一合约级参数，`/api/scan` 要求 latest option snapshot 中存在至少一个合约满足所有已填写条件。
 - 这仍然是数据库 snapshot 查询，不允许在用户请求路径同步调用 IB、TT 或 licensed provider。
 - Scanner result rows should surface the same contract data summary: DTE range, absolute Delta range, average bid/ask spread, quoted contract count and Greeks coverage count. Users should not need to infer whether contract-level data exists.
+
+Scanner table columns:
+- IV Rank：当前 IV 在历史 implied volatility range 中的位置。高 IV Rank 表示期权相对自身历史更贵；它不是 IV 百分比本身。
+- POP：Probability of Profit。当前 scanner 中是规则估计，用于比较候选策略，不是完整定价引擎输出。
+- `ΔOI`：Open Interest delta，连续快照之间的 OI 变化。
+- `数据`：价格/基础数据覆盖状态，不是另一个价格列。
+- `Wall` empty / missing：表示当前没有该 symbol 的 GEX/Wall snapshot，不能推导最近 wall。
+- `合约`：显示 latest option snapshot 的 DTE range、absolute Delta range 和 average bid/ask spread。
+- `推荐策略`：显示策略名和一行操作摘要；点击行进入 `/analyze` 看详细分析。
+- All visible table headers are sortable client-side for quick triage.
 
 Strategy parameter presets：
 - Presets are product language; DTE / Delta / spread / OI / volume are execution parameters.

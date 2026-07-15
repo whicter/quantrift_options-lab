@@ -101,6 +101,22 @@ const IVR_LABEL = (ivr) =>
 const DIR_COLOR = (score) =>
   score > 0.3 ? 'var(--green)' : score < -0.3 ? 'var(--red)' : 'var(--text-dim)';
 
+const SORTABLE_COLUMNS = [
+  { key: 'symbol', label: '标的', title: '股票或 ETF 代码' },
+  { key: 'price', label: '现价', title: '标的最新收盘价 / 最新缓存价格' },
+  { key: 'ivRank', label: 'IV Rank', title: '当前 IV 在过去一年隐含波动率区间中的位置。越高代表期权相对越贵。' },
+  { key: 'iv30', label: 'IV30 / HV30', title: 'IV30 是 30 天隐含波动率，HV30 是 30 天历史波动率。' },
+  { key: 'direction', label: '方向', title: '由 price history 派生的趋势标签。' },
+  { key: 'gex', label: 'GEX', title: 'Gamma Exposure。missing/未采集表示当前没有该标的 GEX 快照。' },
+  { key: 'wall', label: 'Wall', title: '离最近 Call Wall / Put Wall 的距离。没有 GEX 快照时为空。' },
+  { key: 'doi', label: 'ΔOI', title: 'Open Interest 变化。missing/未采集表示没有连续 OI 快照。' },
+  { key: 'contract', label: '合约', title: '当前 option snapshot 的 DTE、Delta 和 bid/ask spread 摘要。' },
+  { key: 'strategy', label: '推荐策略', title: '基于 IV Rank、趋势和已有期权结构的策略建议；点行进入分析页。' },
+  { key: 'pop', label: 'POP', title: 'Probability of Profit 的规则估计值，目前用于策略排序参考。' },
+  { key: 'data', label: '数据', title: '价格数据覆盖状态。' },
+  { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
+];
+
 function pct(value) {
   if (value == null) return null;
   return Number(value) * 100;
@@ -126,6 +142,37 @@ function formatDeltaRange(minValue, maxValue) {
   if (minValue == null && maxValue == null) return '--';
   if (minValue != null && maxValue != null) return `${minValue.toFixed(2)}-${maxValue.toFixed(2)}`;
   return (minValue ?? maxValue).toFixed(2);
+}
+
+function strategyAction(strategy) {
+  if (strategy === 'Bear Call Spread') return '卖出较低行权价 Call，买入更高行权价 Call，收取 credit。';
+  if (strategy === 'Bull Put Spread') return '卖出较高行权价 Put，买入更低行权价 Put，收取 credit。';
+  if (strategy === 'Iron Condor') return '同时做 Bear Call Spread + Bull Put Spread，押注区间震荡。';
+  if (strategy === 'Long Straddle') return '买入同一到期 ATM Call + Put，押注大幅波动。';
+  if (strategy === 'Short Strangle') return '卖出 OTM Call + OTM Put，押注区间内震荡。';
+  if (strategy === 'Bull Call Spread') return '买入较低行权价 Call，卖出更高行权价 Call，做多且限制成本。';
+  return '点击进入分析页查看结构。';
+}
+
+function missingLabel(value) {
+  return value === 'missing' ? '未采集' : value;
+}
+
+function sortValue(row, key) {
+  if (key === 'symbol') return row.symbol;
+  if (key === 'price') return Number(row.price ?? -Infinity);
+  if (key === 'ivRank') return row.ivRank;
+  if (key === 'iv30') return num(row.iv30) ?? -Infinity;
+  if (key === 'direction') return row.direction.score;
+  if (key === 'gex') return row.gex.score;
+  if (key === 'wall') return row.gex.nearestWall?.pct ?? Infinity;
+  if (key === 'doi') return Math.abs(row.unusual.maxDelta ?? -Infinity);
+  if (key === 'contract') return row.contractQuality.contractCount;
+  if (key === 'strategy') return row.recommendation.strategy;
+  if (key === 'pop') return row.recommendation.params.pop;
+  if (key === 'data') return row.dataMeta.priceStatus;
+  if (key === 'earnings') return row.earnings.daysAway ?? Infinity;
+  return 0;
 }
 
 function wallDistance(row) {
@@ -291,6 +338,7 @@ export default function Scan() {
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [results, setResults] = useState(null);
+  const [tableSort, setTableSort] = useState({ key: 'ivRank', direction: 'desc' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dataStatus, setDataStatus] = useState(null);
@@ -403,6 +451,24 @@ export default function Scan() {
   }
 
   const watchlist = dataStatus?.expected_symbols || [];
+  const displayedResults = results ? [...results].sort((a, b) => {
+    const av = sortValue(a, tableSort.key);
+    const bv = sortValue(b, tableSort.key);
+    if (typeof av === 'string' || typeof bv === 'string') {
+      return tableSort.direction === 'asc'
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av));
+    }
+    const diff = (av ?? 0) - (bv ?? 0);
+    return tableSort.direction === 'asc' ? diff : -diff;
+  }) : null;
+
+  function toggleTableSort(key) {
+    setTableSort(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
+    }));
+  }
 
   return (
     <div className="scan-page">
@@ -723,21 +789,20 @@ export default function Scan() {
               </div>
               <div className="scan-table">
                 <div className="scan-table-head">
-                  <span>标的</span>
-                  <span>价格</span>
-                  <span>IV Rank</span>
-                  <span>IV30 / HV30</span>
-                  <span>方向</span>
-                  <span>GEX</span>
-                  <span>Wall</span>
-                  <span>OI Δ</span>
-                  <span>合约</span>
-                  <span>推荐策略</span>
-                  <span>POP</span>
-                  <span>价格</span>
-                  <span>财报</span>
+                  {SORTABLE_COLUMNS.map(col => (
+                    <button
+                      key={col.key}
+                      className="scan-sort-head"
+                      onClick={() => toggleTableSort(col.key)}
+                      title={col.title}
+                      type="button"
+                    >
+                      <span>{col.label}</span>
+                      {tableSort.key === col.key && <small>{tableSort.direction === 'desc' ? '↓' : '↑'}</small>}
+                    </button>
+                  ))}
                 </div>
-                {results.map(d => (
+                {displayedResults.map(d => (
                   <div
                     key={d.symbol}
                     className="scan-table-row"
@@ -757,7 +822,7 @@ export default function Scan() {
                     </span>
                     <span>
                       <span className={`scan-gex-pill ${d.gex.regime}`}>
-                        {d.gex.status === 'fresh' ? d.gex.regime : d.gex.status}
+                        {d.gex.status === 'fresh' ? d.gex.regime : missingLabel(d.gex.status)}
                       </span>
                       <span className="scan-gex-value">{compactMoney(d.gex.total)}</span>
                     </span>
@@ -769,7 +834,7 @@ export default function Scan() {
                     <span className="scan-wall-cell">
                       {d.unusual.status === 'confirmed'
                         ? `${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}`
-                        : d.unusual.status}
+                        : missingLabel(d.unusual.status)}
                     </span>
                     <span className="scan-contract-cell" title={`${d.contractQuality.contractCount} contracts · ${d.contractQuality.quotedCount} quoted · ${d.contractQuality.greeksCount} Greeks`}>
                       {d.contractQuality.contractCount > 0 ? (
@@ -782,7 +847,10 @@ export default function Scan() {
                         <span>--</span>
                       )}
                     </span>
-                    <span className="scan-strategy">{d.recommendation.strategy}</span>
+                    <span className="scan-strategy" title={strategyAction(d.recommendation.strategy)}>
+                      <strong>{d.recommendation.strategy}</strong>
+                      <small>{strategyAction(d.recommendation.strategy)}</small>
+                    </span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                       {d.recommendation.params.pop}%
                     </span>
