@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -28,11 +29,14 @@ class TastytradeOptionChainProvider:
         self.login = os.getenv('TT_LOGIN') or ''
         self.password = os.getenv('TT_PASSWORD') or ''
         self.remember_token = os.getenv('TT_REMEMBER_TOKEN') or ''
-        self.min_dte = int(os.getenv('OPTION_MIN_DTE', '7'))
-        self.max_dte = int(os.getenv('OPTION_MAX_DTE', '60'))
+        self.min_dte = int(os.getenv('OPTION_MIN_DTE', '0'))
+        self.max_dte = int(os.getenv('OPTION_MAX_DTE', '90'))
+        self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,30-60,60-90'))
+        self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '1'))
         self.strike_window_pct = float(os.getenv('OPTION_STRIKE_WINDOW_PCT', '15'))
         self.max_strikes_per_side = int(os.getenv('OPTION_MAX_STRIKES_PER_SIDE', '20'))
         self.max_contracts = int(os.getenv('OPTION_MAX_CONTRACTS', '240'))
+        self.max_contracts_per_expiration = int(os.getenv('OPTION_MAX_CONTRACTS_PER_EXPIRATION', '80'))
         self.dxlink_timeout = float(os.getenv('TT_DXLINK_TIMEOUT', '8'))
         self.collect_dxlink = os.getenv('TT_COLLECT_DXLINK', 'true').strip().lower() not in ('0', 'false', 'no')
         self._http = requests.Session()
@@ -85,20 +89,7 @@ class TastytradeOptionChainProvider:
         selected_strike_set = set(selected_strikes)
         rows = [row for row in rows if row['strike'] in selected_strike_set]
 
-        contracts: list[OptionContractSnapshot] = []
-        for row in rows:
-            for right, symbol_key, streamer_key in (
-                ('C', 'call_symbol', 'call_streamer_symbol'),
-                ('P', 'put_symbol', 'put_streamer_symbol'),
-            ):
-                if len(contracts) >= self.max_contracts:
-                    break
-                contract_symbol = row.get(symbol_key)
-                if not contract_symbol:
-                    continue
-                contracts.append(self._metadata_contract(symbol, row, right, contract_symbol, row.get(streamer_key)))
-            if len(contracts) >= self.max_contracts:
-                break
+        contracts = self._build_metadata_contracts(symbol, rows)
 
         dxlink_summary: dict[str, Any] = {'enabled': self.collect_dxlink, 'event_count': 0}
         if contracts and self.collect_dxlink:
@@ -140,9 +131,12 @@ class TastytradeOptionChainProvider:
                 'available_strike_count': len({row['strike'] for row in self._flatten_chain(items)}),
                 'selected_expirations': [expiry.isoformat() for expiry in selected_expirations],
                 'selected_strike_count': len(selected_strikes),
+                'dte_buckets': [list(bucket) for bucket in self.dte_buckets],
+                'max_expirations_per_bucket': self.max_expirations_per_bucket,
                 'requested_contract_count': len(rows) * 2,
                 'returned_contract_count': len(contracts),
                 'max_contracts': self.max_contracts,
+                'max_contracts_per_expiration': self.max_contracts_per_expiration,
                 'quote_path': 'dxlink',
                 'provider_capability': 'chain_metadata_plus_dxlink',
                 'dxlink': dxlink_summary,
@@ -261,6 +255,28 @@ class TastytradeOptionChainProvider:
             },
         )
 
+    def _build_metadata_contracts(self, symbol: str, rows: list[dict[str, Any]]) -> list[OptionContractSnapshot]:
+        contracts: list[OptionContractSnapshot] = []
+        contracts_by_expiry: dict[date, int] = {}
+        for row in rows:
+            for right, symbol_key, streamer_key in (
+                ('C', 'call_symbol', 'call_streamer_symbol'),
+                ('P', 'put_symbol', 'put_streamer_symbol'),
+            ):
+                if len(contracts) >= self.max_contracts:
+                    break
+                expiry_count = contracts_by_expiry.get(row['expiry'], 0)
+                if expiry_count >= self.max_contracts_per_expiration:
+                    break
+                contract_symbol = row.get(symbol_key)
+                if not contract_symbol:
+                    continue
+                contracts.append(self._metadata_contract(symbol, row, right, contract_symbol, row.get(streamer_key)))
+                contracts_by_expiry[row['expiry']] = expiry_count + 1
+            if len(contracts) >= self.max_contracts:
+                break
+        return contracts
+
     def _flatten_chain(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows = []
         for item in items:
@@ -290,6 +306,20 @@ class TastytradeOptionChainProvider:
             requested_set = set(requested)
             return [expiry for expiry in available if expiry in requested_set]
         today = date.today()
+        if self.dte_buckets:
+            selected = []
+            seen = set()
+            for dte_min, dte_max in self.dte_buckets:
+                bucket_matches = [
+                    expiry for expiry in available
+                    if dte_min <= (expiry - today).days <= dte_max
+                ][:self.max_expirations_per_bucket]
+                for expiry in bucket_matches:
+                    if expiry not in seen:
+                        seen.add(expiry)
+                        selected.append(expiry)
+            if selected:
+                return selected
         min_expiry = today + timedelta(days=self.min_dte)
         max_expiry = today + timedelta(days=self.max_dte)
         return [expiry for expiry in available if min_expiry <= expiry <= max_expiry]
@@ -363,13 +393,31 @@ def _parse_date(value: str | None) -> date | None:
         return None
 
 
+def _parse_dte_buckets(raw: str | None) -> list[tuple[int, int]]:
+    buckets = []
+    for part in (raw or '').split(','):
+        text = part.strip()
+        if not text or '-' not in text:
+            continue
+        left, right = text.split('-', 1)
+        try:
+            dte_min = int(left.strip())
+            dte_max = int(right.strip())
+        except ValueError:
+            continue
+        if dte_min <= dte_max:
+            buckets.append((dte_min, dte_max))
+    return buckets
+
+
 def _to_float(value: Any) -> float | None:
     if value in (None, ''):
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _to_int(value: Any) -> int | None:

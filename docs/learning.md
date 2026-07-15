@@ -322,5 +322,6 @@ V1 公式：
 - Regression coverage must include cross-boundary provider contracts: API enqueue defaults must be executable by the worker, and placeholder providers must fail tests instead of silently producing stuck jobs.
 - Scanner strategy labels currently include sell put spread / sell call spread through `Bull Put Spread` / `Bear Call Spread`. Naked `Short Put` / `Short Call` and butterfly variants are in the strategy library but still need recommendation-engine integration.
 - Scanner recommendations must be concrete setups, not just strategy names. A useful row should show selected legs, DTE, credit/debit, risk and breakeven when the cached option snapshot supports it; otherwise it must say why setup construction is unavailable.
+- Option-chain collection must sample multiple DTE buckets. A global contract cap without a per-expiration cap can silently persist only the nearest selected expiration, which makes scanner recommendations look concrete but strategically incomplete.
 - Analyze 技术评分已使用真实 price history 的 MA20/50/200、RSI14、MACD 和 5日变化；MA200 数据不足时保持 null，不伪造。
 - 策略矩阵已用 IV Rank + trend score + GEX context 生成策略/DTE/delta/width；当前 legs 是 target fallback，不是完整 live-chain optimal leg selection。

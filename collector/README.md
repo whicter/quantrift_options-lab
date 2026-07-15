@@ -44,10 +44,10 @@ Price history uses `PRICE_PROVIDER=ib_internal` by default. This requires local 
 venv311/bin/python collect_prices.py
 ```
 
-Option-chain snapshots use `OPTION_PROVIDER=ib_internal` for Phase 3D internal validation. This is not licensed product data and should stay bounded while using IB Gateway:
+Option-chain snapshots use `OPTION_PROVIDER=ib_internal` for Phase 3D internal validation. Keep collection bounded while using IB Gateway:
 
 ```bash
-OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=40 venv311/bin/python collect_options.py
+OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=240 OPTION_MAX_CONTRACTS_PER_EXPIRATION=80 venv311/bin/python collect_options.py
 ```
 
 For the tastytrade transitional path, use `tt_internal`. It collects option-chain metadata from REST and merges delayed/live DXLink events when available:
@@ -61,7 +61,7 @@ For the tastytrade transitional path, use `tt_internal`. It collects option-chai
 - option `Profile` in raw contract metadata
 
 ```bash
-OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=40 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py
+OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=240 OPTION_MAX_CONTRACTS_PER_EXPIRATION=80 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py
 ```
 
 Probe tastytrade chain metadata without writing to PostgreSQL:
@@ -135,8 +135,10 @@ The diagnostic output prints raw `tickPrice`, `tickSize`, `tickOptionComputation
 Default option-chain scope:
 
 - Symbols: `AAPL,SPY,QQQ,PLTR`
-- DTE: 7-60 days
+- DTE buckets: `OPTION_DTE_BUCKETS=0-14,30-60,60-90`
+- Expirations: `OPTION_MAX_EXPIRATIONS_PER_BUCKET=1`, so the collector samples short-term, standard premium, and farther-dated contracts instead of exhausting the cap on the first available expiration.
 - Strikes: spot +/- 15%, capped by `OPTION_MAX_STRIKES_PER_SIDE`
+- Contract caps: `OPTION_MAX_CONTRACTS=240` global safety cap and `OPTION_MAX_CONTRACTS_PER_EXPIRATION=80` per-expiration cap.
 - Source label: `ib_internal`
 - Delayed snapshot grace: `IB_OPTION_SNAPSHOT_GRACE_SECONDS=2`
 - API behavior: server reads PostgreSQL snapshots only; user requests never call IB Gateway synchronously.

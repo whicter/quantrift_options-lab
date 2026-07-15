@@ -610,6 +610,14 @@ Scanner concrete setup:
 - Displayed fields should include legs, DTE, credit/debit estimate, max loss and breakeven where computable.
 - If the cached snapshot is too narrow, scanner must say the snapshot is insufficient instead of pretending the strategy word is actionable.
 
+Option-chain collector persistence:
+- The collector should not let the first available expiration consume the whole contract cap.
+- Default DTE sampling is bucketed：`0-14`, `30-60`, `60-90`.
+- `OPTION_MAX_EXPIRATIONS_PER_BUCKET` controls how many expirations are selected from each bucket.
+- `OPTION_MAX_CONTRACTS_PER_EXPIRATION` controls how many contracts can be persisted per expiration.
+- `OPTION_MAX_CONTRACTS` remains a global safety cap.
+- This lets scanner/analyze see short-term, standard premium, and farther-dated setups for the same symbol from one bounded snapshot.
+
 #### Scanner 前端策略标签
 
 当前 scanner 的策略标签仍是 IV-first 规则，不是完整链数据选腿推荐；GEX 只用于筛选环境、排序和显示 positioning context：

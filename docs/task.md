@@ -719,6 +719,13 @@
 - [x] Refresh provider regression tests：
   - Server `npm test` asserts the default option-chain refresh provider is executable by the worker and does not silently fall back to a placeholder provider.
   - Collector unittest asserts worker-supported option providers include `tt_internal` and exclude `licensed_options_provider`.
+- [x] Fix option-chain collector persistence scope：
+  - default DTE selection now uses buckets `0-14,30-60,60-90` instead of a single 7-60 window.
+  - `OPTION_MAX_CONTRACTS_PER_EXPIRATION` prevents the first selected expiration from consuming the full `OPTION_MAX_CONTRACTS` cap.
+  - TT provider has unittest coverage proving multiple expiration buckets persist contracts instead of only the first expiration.
+  - IB provider uses the same DTE bucket and per-expiration cap semantics.
+  - Runtime verified on PLTR：`OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=60 OPTION_MAX_CONTRACTS_PER_EXPIRATION=20 OPTION_MAX_STRIKES_PER_SIDE=3 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py` wrote `snapshot_id=9`, 28 contracts across 2/30/65 DTE, with 28 quoted contracts, 28 Greeks rows and 28 OI rows.
+  - Runtime verified downstream：`compute_gex.py` wrote `gex_id=4`, `materialize_oi_delta.py` wrote 28 OI delta rows, and full `materialize_scan.py` restored 67 scanner rows with PLTR `gex_status=fresh`, `call_wall=140`, `put_wall=140`, DTE range 2-65.
 - [ ] Expand option-chain snapshot backfill from PLTR-only to the scanner ingestion pool in bounded batches, then rerun GEX, OI delta, and scanner materialization.
 - [ ] Scanner strategy recommendation expansion：
   - Current recommendation engine emits `Bull Put Spread`, `Bear Call Spread`, `Iron Condor`, `Long Straddle`, and fallback `Bull Call Spread` / `Short Strangle` labels.

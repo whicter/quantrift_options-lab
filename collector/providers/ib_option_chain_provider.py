@@ -30,11 +30,14 @@ class IbOptionChainProvider:
         self.port = int(port or os.getenv('IB_PORT', '4001'))
         self.client_id = int(client_id or os.getenv('IB_OPTION_CLIENT_ID', '42'))
         self.timeout = float(timeout or os.getenv('IB_TIMEOUT', '30'))
-        self.min_dte = int(os.getenv('OPTION_MIN_DTE', '7'))
-        self.max_dte = int(os.getenv('OPTION_MAX_DTE', '60'))
+        self.min_dte = int(os.getenv('OPTION_MIN_DTE', '0'))
+        self.max_dte = int(os.getenv('OPTION_MAX_DTE', '90'))
+        self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,30-60,60-90'))
+        self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '1'))
         self.strike_window_pct = float(os.getenv('OPTION_STRIKE_WINDOW_PCT', '15'))
         self.max_strikes_per_side = int(os.getenv('OPTION_MAX_STRIKES_PER_SIDE', '20'))
         self.max_contracts = int(os.getenv('OPTION_MAX_CONTRACTS', '240'))
+        self.max_contracts_per_expiration = int(os.getenv('OPTION_MAX_CONTRACTS_PER_EXPIRATION', '80'))
         self.contract_delay = float(os.getenv('IB_OPTION_CONTRACT_DELAY', '0.05'))
         self.snapshot_grace_seconds = float(os.getenv('IB_OPTION_SNAPSHOT_GRACE_SECONDS', '2'))
 
@@ -106,16 +109,23 @@ class IbOptionChainProvider:
                 'selected_strike_count': len(selected_strikes),
                 'strike_window_pct': strike_window_pct if strike_window_pct is not None else self.strike_window_pct,
                 'max_strikes_per_side': max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side,
+                'dte_buckets': [list(bucket) for bucket in self.dte_buckets],
+                'max_expirations_per_bucket': self.max_expirations_per_bucket,
             }
 
             contracts = []
+            contracts_by_expiry: dict[date, int] = {}
             for expiry in selected_expirations:
                 for strike in selected_strikes:
                     for right in ('C', 'P'):
                         if len(contracts) >= self.max_contracts:
                             break
+                        expiry_count = contracts_by_expiry.get(expiry, 0)
+                        if expiry_count >= self.max_contracts_per_expiration:
+                            break
                         contract = self._option_contract(symbol, expiry, strike, right, trading_class)
                         contracts.append(self._fetch_contract_snapshot(app, contract, symbol, expiry, strike, right))
+                        contracts_by_expiry[expiry] = expiry_count + 1
                         if self.contract_delay > 0:
                             time.sleep(self.contract_delay)
                     if len(contracts) >= self.max_contracts:
@@ -131,6 +141,7 @@ class IbOptionChainProvider:
                 'missing_greeks_count': missing_greeks,
                 'missing_oi_count': missing_oi,
                 'max_contracts': self.max_contracts,
+                'max_contracts_per_expiration': self.max_contracts_per_expiration,
             })
 
             return OptionChainSnapshot(
@@ -376,6 +387,20 @@ class IbOptionChainProvider:
             requested_set = set(requested)
             return [expiry for expiry in available if expiry in requested_set]
         today = date.today()
+        if self.dte_buckets:
+            selected = []
+            seen = set()
+            for dte_min, dte_max in self.dte_buckets:
+                bucket_matches = [
+                    expiry for expiry in available
+                    if dte_min <= (expiry - today).days <= dte_max
+                ][:self.max_expirations_per_bucket]
+                for expiry in bucket_matches:
+                    if expiry not in seen:
+                        seen.add(expiry)
+                        selected.append(expiry)
+            if selected:
+                return selected
         min_expiry = today + timedelta(days=self.min_dte)
         max_expiry = today + timedelta(days=self.max_dte)
         return [expiry for expiry in available if min_expiry <= expiry <= max_expiry]
@@ -490,6 +515,23 @@ def _parse_expiration(value: str) -> date | None:
         return datetime.strptime(value, '%Y%m%d').date()
     except (TypeError, ValueError):
         return None
+
+
+def _parse_dte_buckets(raw: str | None) -> list[tuple[int, int]]:
+    buckets = []
+    for part in (raw or '').split(','):
+        text = part.strip()
+        if not text or '-' not in text:
+            continue
+        left, right = text.split('-', 1)
+        try:
+            dte_min = int(left.strip())
+            dte_max = int(right.strip())
+        except ValueError:
+            continue
+        if dte_min <= dte_max:
+            buckets.append((dte_min, dte_max))
+    return buckets
 
 
 def _ib_contract_symbol(symbol: str) -> str:
