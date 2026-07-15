@@ -313,10 +313,10 @@ V1 公式：
 - Scanner UI should not expose unexplained raw terms as the default workflow. Keep English market terms for precision, but put OI/Volume/Local Gamma/Unusual Count/OI Delta/Put-Call Ratio behind advanced filters with Chinese explanations and default opportunity presets.
 - The 67-symbol watchlist is only the current data-ingestion pool. Future scanner universe should be market-wide or at least much broader, filtered by market cap, price, dollar volume, optionable/liquidity constraints, sector and event windows.
 - DTE means Days To Expiration. Bid/ask spread should be computed from quote fields, usually `(ask - bid) / mid`; do not ask users to infer this manually.
-- IB and TT transitional snapshots can carry bid/ask and Greeks, but product UX should distinguish data availability from licensed public display rights.
+- IB and TT transitional snapshots can carry bid/ask and Greeks; product UX should distinguish whether the current cached snapshot actually exists for a symbol.
 - Contract-level scanner filters are optional advanced controls; if blank, backend does not filter. If supplied, `/api/scan` requires at least one latest option contract matching DTE/Delta/spread/liquidity constraints.
 - Strategy parameter presets should be the default UX for contract-level filters: users choose 保守 / 标准 / 进取 / 短线 / 流动性优先, and the UI maps that choice to DTE, Abs Delta, max bid/ask spread, contract OI and contract volume.
 - Default scanner profile should be `不限`; contract-level presets are opt-in so a narrow current option snapshot cannot blank the whole scanner.
-- Scanner columns need in-context product meaning: IV Rank is historical IV rank, POP is a rules estimate, `ΔOI` is OI delta, `数据` is data coverage, and empty Wall means no GEX/Wall snapshot. Headers should be sortable.
+- Scanner columns need in-context product meaning: IV Rank is historical IV rank, POP is a rules estimate, `ΔOI` is OI delta, and empty Wall means no GEX/Wall snapshot. Do not expose generic internal data-status columns; show actionable states such as `待采集` inside the relevant column. Headers should be sortable.
 - Analyze 技术评分已使用真实 price history 的 MA20/50/200、RSI14、MACD 和 5日变化；MA200 数据不足时保持 null，不伪造。
 - 策略矩阵已用 IV Rank + trend score + GEX context 生成策略/DTE/delta/width；当前 legs 是 target fallback，不是完整 live-chain optimal leg selection。

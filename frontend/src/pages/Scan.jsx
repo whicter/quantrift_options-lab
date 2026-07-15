@@ -113,7 +113,6 @@ const SORTABLE_COLUMNS = [
   { key: 'contract', label: '合约', title: '当前 option snapshot 的 DTE、Delta 和 bid/ask spread 摘要。' },
   { key: 'strategy', label: '推荐策略', title: '基于 IV Rank、趋势和已有期权结构的策略建议；点行进入分析页。' },
   { key: 'pop', label: 'POP', title: 'Probability of Profit 的规则估计值，目前用于策略排序参考。' },
-  { key: 'data', label: '数据', title: '价格数据覆盖状态。' },
   { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
 ];
 
@@ -170,7 +169,6 @@ function sortValue(row, key) {
   if (key === 'contract') return row.contractQuality.contractCount;
   if (key === 'strategy') return row.recommendation.strategy;
   if (key === 'pop') return row.recommendation.params.pop;
-  if (key === 'data') return row.dataMeta.priceStatus;
   if (key === 'earnings') return row.earnings.daysAway ?? Infinity;
   return 0;
 }
@@ -441,13 +439,6 @@ export default function Scan() {
 
   function handleRowClick(symbol) {
     navigate(`/analyze?symbol=${symbol}&tab=0`);
-  }
-
-  function priceStatus(symbol) {
-    const row = results?.find(item => item.symbol === symbol);
-    if (row?.dataMeta?.priceStatus) return row.dataMeta.priceStatus;
-    const statusRow = dataStatus?.symbols?.find(item => item.symbol === symbol);
-    return statusRow?.price?.status || 'missing';
   }
 
   const watchlist = dataStatus?.expected_symbols || [];
@@ -844,7 +835,7 @@ export default function Scan() {
                           <span>Spr {d.contractQuality.avgSpreadPct == null ? '--' : `${d.contractQuality.avgSpreadPct.toFixed(1)}%`}</span>
                         </>
                       ) : (
-                        <span>--</span>
+                        <span>待采集</span>
                       )}
                     </span>
                     <span className="scan-strategy" title={strategyAction(d.recommendation.strategy)}>
@@ -853,9 +844,6 @@ export default function Scan() {
                     </span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                       {d.recommendation.params.pop}%
-                    </span>
-                    <span className={`scan-price-status ${priceStatus(d.symbol)}`}>
-                      {priceStatus(d.symbol) === 'covered' ? 'price' : priceStatus(d.symbol)}
                     </span>
                     <span style={{ color: d.earnings.warning ? 'var(--yellow)' : 'var(--text-muted)', fontSize: 11 }}>
                       {d.earnings.date

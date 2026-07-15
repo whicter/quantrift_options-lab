@@ -553,9 +553,9 @@ Scanner table columns:
 - IV Rank：当前 IV 在历史 implied volatility range 中的位置。高 IV Rank 表示期权相对自身历史更贵；它不是 IV 百分比本身。
 - POP：Probability of Profit。当前 scanner 中是规则估计，用于比较候选策略，不是完整定价引擎输出。
 - `ΔOI`：Open Interest delta，连续快照之间的 OI 变化。
-- `数据`：价格/基础数据覆盖状态，不是另一个价格列。
+- Scanner table should not expose a generic `数据` column. Price freshness is an internal/debug signal; the user-facing table should show the actual `现价` and actionable states in the relevant domain column.
 - `Wall` empty / missing：表示当前没有该 symbol 的 GEX/Wall snapshot，不能推导最近 wall。
-- `合约`：显示 latest option snapshot 的 DTE range、absolute Delta range 和 average bid/ask spread。
+- `合约`：显示 latest option snapshot 的 DTE range、absolute Delta range 和 average bid/ask spread；如果该 symbol 还没有 `option_contract_snapshots`，显示 `待采集`。
 - `推荐策略`：显示策略名和一行操作摘要；点击行进入 `/analyze` 看详细分析。
 - All visible table headers are sortable client-side for quick triage.
 

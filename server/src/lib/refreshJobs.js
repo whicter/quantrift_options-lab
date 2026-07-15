@@ -7,7 +7,7 @@ function isMissingTableError(err) {
 async function enqueueRefreshJob({
   symbol,
   jobType,
-  provider = process.env.OPTIONS_REFRESH_PROVIDER || 'licensed_options_provider',
+  provider = process.env.OPTIONS_REFRESH_PROVIDER || 'tt_internal',
   requestParams = {},
   minIntervalSeconds = parseInt(process.env.REFRESH_MIN_INTERVAL_SECONDS ?? 60, 10),
 }) {

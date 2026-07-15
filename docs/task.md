@@ -712,9 +712,10 @@
 - [x] Scanner table UX：
   - each visible column header is sortable
   - `OI Δ` renamed to `ΔOI`
-  - duplicate `价格` status column renamed to `数据`
+  - duplicate `价格` status column removed; raw price freshness is internal state and not useful as a scanner column
   - strategy column shows a concrete action summary, e.g. Bear Call Spread = sell lower-strike call and buy higher-strike call
-  - missing GEX/Wall/OI/contract values display as user-facing status instead of raw `missing`
+  - missing GEX/Wall/OI/contract values display as user-facing status instead of raw `missing`; contract data displays `待采集` when no latest option contract snapshot exists
+  - automatic option-chain refresh jobs default to `tt_internal` during the transition, so queued symbol refreshes can be consumed by the current worker
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
