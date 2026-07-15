@@ -495,28 +495,30 @@ src/
 
 ## V2 分析框架：GEX + 期权链 + 大单
 
-### 当前 Analyze / Scanner 算法口径（Phase 3B-3）
+### 当前 Analyze / Scanner 算法口径（Phase 3D-3）
 
-当前产品不是完整自动交易/完整期权链 scanner。它是 ticker-first 的半真实数据闭环：
+当前系统已经有三层真实数据，但前端消费程度不同：
 
 ```text
-真实数据：
-  Tastytrade market metrics → IV Rank / IV Percentile / IV30 / HV30 / earnings
-  IB internal price adapter → 60日 OHLCV / latest close / RVol
+真实数据层：
+  iv_history → /api/metrics
+  price_history → /api/prices/:symbol
+  option_chain_snapshots + gex_snapshots → /api/options, /api/chain, /api/gex
 
-仍为展示壳或待接入：
-  GEX by strike
-  Call Wall / Put Wall
-  PCR OI / PCR Volume
+当前 UI 消费：
+  /scan → IV-first scanner，尚未使用 GEX filters
+  /analyze → IV + price history + fresh /api/gex positioning
+
+仍待接入 UI 或后续 provider：
   Unusual Activity
-  Max Pain
-  option-chain liquidity / bid-ask spread / Greeks
+  real strategy legs
+  option-chain-derived POP
   technical trend signals such as MA50/MA200/RSI/MACD
 ```
 
-#### `/api/scan` 当前逻辑
+#### `/api/scan` 当前逻辑（Scanner Algorithm）
 
-`/api/scan` 读取 `iv_history` 中每个 watchlist symbol 的最新一条 IV 记录，并左连接 `price_history` 最新价格。
+`/api/scan` 是当前线上 scanner 的事实来源。它读取 `iv_history` 中每个 watchlist symbol 的最新一条 IV 记录，并左连接 `price_history` 最新价格。
 
 筛选条件：
 - `minIvr`：最低 IV Rank。
@@ -545,38 +547,79 @@ src/
 重要边界：
 - `POP` 当前是规则占位值，不来自真实 option chain。
 - `Direction` 当前显示 `待接入趋势`，不使用 mock MA/RSI/MACD 伪装真实趋势。
-- 真正的 scanner 需要 option-chain liquidity、bid/ask、OI、volume、Greeks、DTE、GEX、Wall、Gamma Flip 和事件风险。
+- 当前 `/api/scan` 尚未读取 `gex_snapshots`。
+- 真正的 options scanner 需要 option-chain liquidity、bid/ask、OI、volume、Greeks、DTE、GEX、Wall、Gamma Flip 和事件风险。
 
-#### `/analyze` 当前逻辑
+下一版 scanner 应新增：
+- `gamma_regime` filter：positive / negative / near_zero。
+- `near_call_wall` / `near_put_wall` filter。
+- `local_gamma` threshold。
+- `pcr_oi` / `pcr_volume` abnormal filters。
+- unusual OI / volume filters。
+- GEX + IV Rank combined ranking。
+
+#### `/analyze` 当前逻辑（Analyze Algorithm）
 
 `/analyze` 当前使用：
 - 真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings。
 - 真实 `/api/prices/:symbol` 覆盖 latest price、60日 price history、RVol。
-- 仍使用 mock shell 展示 GEX、Walls、PCR、Unusual Activity、策略 legs 和部分结论。
 
-因此当前 analyze 输出应理解为：
+价格趋势派生：
+- latest close 来自 60日 OHLCV 最后一根。
+- RVol = latest volume / prior 20 trading bars average volume。
+- 20日均线：close >= 20日均线 → `价格强于20日均线`；否则 `价格弱于20日均线`。
+- 5日变化：> 1% → `向上增强`；< -1% → `向下减弱`；其他 → `横盘整理`。
+
+缺失数据处理：
+- 有价格但无 metrics：price-only fallback；只展示价格趋势，不生成期权策略结论。
+- 无价格也无 metrics：根据 `/api/status` 判断是否在 watchlist。
+- API 全部失败但本地有 mock symbol：显示本地示例结构，并提示真实 API 不可用。
+
+当前 analyze 已消费：
 
 ```text
-真实：IV 状态 + price history + RVol
-占位：GEX / option positioning / exact strategy legs / option-chain-derived POP
+/api/gex/:symbol
+strike-level GEX
+Call Wall / Put Wall
+Gamma Flip
+PCR OI / PCR Volume
+Max Pain
 ```
 
-上线前不得把 mock shell 当作授权 options data 或交易建议。
+GEX 使用条件：
+- `freshness=fresh`
+- `is_stale=false`
+- `confidence=high|medium`
+- 有 `global_gex`, `call_wall`, `put_wall`, `strikes`
 
-#### Options Positioning 数据层缺口与 IB 过渡方案
+GEX fallback：
+- GEX missing/stale/unusable：保留 IV + price 分析，不把旧 GEX 当 fresh。
+- 有 GEX + price 但无 IV metrics：展示真实 GEX / Walls / PCR / Max Pain；IV Rank unavailable；不生成策略腿推荐。
 
-当前缺口不是 underlying price，而是 option-chain positioning layer：
+当前 analyze 尚未消费：
+
+```text
+real strategy legs
+option-chain-derived POP
+Unusual Activity
+```
+
+上线前不得把 mock shell 当作授权 options data 或交易建议。下一步 UI 接入应补 real strategy legs / POP / unusual activity。
+
+#### Options Positioning 数据层现状与过渡方案
+
+当前缺口已经从“没有 option chain”推进到“有 TT internal snapshot + GEX compute，但尚未接入前端 analyze/scanner”：
 
 | 数据 | 当前状态 | IB Gateway 过渡 | 正式产品要求 |
 |---|---|---|---|
 | 60日 OHLCV / latest close | 已接入 | 已用 `ib_internal` | 可继续作为内部校验 |
 | IV Rank / IV30 / HV30 | 部分接入 Tastytrade | IB 不是主来源 | licensed metrics/provider |
-| Option chain bid/ask/last | 未接入 | 可对有限 symbols 拉 snapshot | licensed options provider |
-| Open Interest / Volume | 未接入 | 可拉取但需处理缺失和节流 | licensed provider + snapshot |
-| Greeks / IV by contract | 未接入 | 可用 IB model greeks 过渡 | licensed provider / model validation |
-| GEX by strike | 未计算 | 可用 IB snapshot 计算验证 | snapshot + reproducible formula |
-| Call Wall / Put Wall | mock shell | 可从 GEX/OI 计算验证 | provider-backed |
-| Gamma Flip | 未接入 | 可从 IB chain grid 计算验证 | provider-backed |
+| Option chain bid/ask/last | `tt_internal` 已可采集 | IB 可作为 fallback / field validation | licensed options provider |
+| Open Interest / Volume | `tt_internal` 已可采集 | IB 可作为 fallback / field validation | licensed provider + snapshot |
+| Greeks / IV by contract | `tt_internal` 已可采集 | IB model greeks 可校验 | licensed provider / model validation |
+| GEX by strike | 已由 `compute_gex.py` 计算 | IB snapshot 可作为校验 | snapshot + reproducible formula |
+| Call Wall / Put Wall | 已由 GEX snapshot 计算 | IB snapshot 可作为校验 | provider-backed |
+| Gamma Flip | 已由 GEX snapshot 计算 | IB snapshot 可作为校验 | provider-backed |
 | Unusual activity / OI delta | 未接入 | IB 历史限制较多，不适合作主源 | specialized provider |
 
 IB Gateway 的定位：
@@ -608,6 +651,81 @@ Phase 3D-2 已验证 IB internal adapter 可以写入 bounded option-chain snaps
 - 写入 `option_chain_snapshots.snapshot_id=2`
 - `/api/options/PLTR/snapshot` 返回 `source=ib_internal`、`provider_status=partial`、`contract_count=10`
 - 当前限制：IB 返回 chain definition / expirations / strikes，但本次 option quote、Greeks、OI 为空；因此 `completeness_pct=0.00`，不可用于 GEX / Wall / Gamma Flip 计算。
+
+Phase 3D-2A 已补齐 IB delayed-data parser 与 raw tick diagnostic：
+- live quote ticks：bid / ask / last / close = 1 / 2 / 4 / 9
+- delayed quote ticks：bid / ask / last / close = 66 / 67 / 68 / 75
+- OI / volume generic ticks：call OI / put OI / call volume / put volume = 27 / 28 / 29 / 30
+- live option computation：bid / ask / last / model = 10 / 11 / 12 / 13
+- delayed option computation：bid / ask / last / model = 80 / 81 / 82 / 83
+- Diagnostic command：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 IB_OPTION_CLIENT_ID=44 venv311/bin/python debug_ib_option_ticks.py`
+- 2026-07-14 verification status：syntax verified；runtime diagnostic blocked because IB Gateway `127.0.0.1:4001` timed out.
+
+Interpretation rule：
+- If TWS/Gateway does not show the same contract's bid/ask/IV/Greeks/OI, the API socket should not be expected to return it.
+- If TWS shows those fields but `debug_ib_option_ticks.py` raw payload is empty, treat it as adapter/parser bug.
+- If raw payload contains IB permission errors, resolve market-data subscriptions before entering 3D-3 GEX calculation.
+
+Phase 3D transition provider decision：
+- Use `tt_internal` as the current transitional option-chain metadata provider.
+- tastytrade REST chain endpoint supplies expiration, strike, contract symbol, and streamer symbol.
+- tastytrade quote/Greeks/OI requires a DXLink streaming follow-up before GEX can be calculated.
+- `tt_internal` rows are internal validation data, not licensed product redistribution data.
+- Formal product launch still requires a paid/licensed options-data source with redistribution rights.
+
+Current `tt_internal` behavior：
+- Collector selector：`OPTION_PROVIDER=tt_internal`
+- Diagnostic：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python debug_tastytrade_option_chain.py`
+- DXLink diagnostic：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 TT_DXLINK_TIMEOUT=12 venv311/bin/python debug_tastytrade_dxlink.py`
+- Snapshot source：`tt_internal`
+- Snapshot status：`ok` when DXLink returns quote + Greeks + OI; `metadata_only` when only REST chain metadata is available
+- REST stored fields：contract symbol, streamer symbol, expiration type, settlement type, DTE
+- DXLink stored fields：
+  - underlying Quote / Trade：underlying bid, ask, price
+  - option Quote：bid, ask, bid size, ask size
+  - option Trade：last, day volume
+  - option Summary：open interest, day open/high/low, previous close in raw
+  - option Greeks：iv/volatility, delta, gamma, theta, rho, vega
+  - option TheoPrice：theoretical price, underlying price, delta/gamma fallback
+  - option Profile：raw trading/profile status
+- GEX status：unblocked for symbols whose snapshot has gamma + OI completeness above threshold
+
+2026-07-14 runtime evidence：
+- TT chain diagnostic fetched PLTR metadata：19 expirations, 138 strikes, 10 selected contracts.
+- `OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python collect_options.py`
+- Wrote `option_chain_snapshots.id=4`.
+- Production API returned `source=tt_internal`, `provider_status=metadata_only`, `contract_count=10`, `freshness=fresh`.
+- After DXLink merge, wrote `option_chain_snapshots.id=6`.
+- Production API returned `source=tt_internal`, `provider_status=ok`, `completeness_pct=100.00`, `missing_greeks_ratio=0.0000`, `missing_oi_ratio=0.0000`.
+- Current TT quote token level returned by API is `demo`; DXLink URL is delayed feed. Treat this as internal validation until formal provider licensing is purchased.
+
+Phase 3D-3 GEX calculation is implemented as a cached compute job:
+- Job：`GEX_SYMBOLS=PLTR venv311/bin/python compute_gex.py`
+- Reads latest `option_chain_snapshots` + `option_contract_snapshots`
+- Writes `gex_snapshots` + `gex_by_strike_snapshots`
+- Does not call IB, tastytrade, or any provider directly
+- Upserts by `snapshot_id`
+- Fail-closed gates：no spot, no usable gamma/OI, or missing Greeks/OI ratio above `GEX_MAX_MISSING_RATIO=0.25`
+
+V1 formulas:
+- Call GEX：`gamma * open_interest * 100 * spot^2`
+- Put GEX：`-gamma * open_interest * 100 * spot^2`
+- Strike net GEX：sum call GEX + put GEX at strike
+- Global GEX：sum all strike net GEX
+- Local Gamma：sum strike net GEX within spot ±1%
+- Call Wall：strike with max call-side GEX
+- Put Wall：strike with max absolute put-side GEX
+- PCR OI：total put OI / total call OI
+- PCR Volume：total put volume / total call volume
+- Max Pain V1：aggregate across selected contracts
+- Gamma Flip：Black-Scholes gamma recalculated across spot ±10% grid; if no zero crossing, use nearest abs(net GEX) fallback
+
+2026-07-14 PLTR GEX runtime evidence:
+- `compute_gex.py` wrote `gex_snapshots.id=1` for `option_chain_snapshots.id=6`
+- `/api/gex/PLTR` returned `global_gex=112882349.1123`, `local_gamma=25163724.2306`, `gamma_regime=positive`
+- Walls：`call_wall=135`, `put_wall=135`, `wall_method=gex`
+- Other metrics：`max_pain=135`, `pcr_oi=0.3634`, `pcr_volume=0.4672`, `confidence=high`
+- API `freshness=stale` during verification because source option snapshot age exceeded the 15-minute API threshold; calculation itself succeeded.
 
 ### 产品核心指标
 

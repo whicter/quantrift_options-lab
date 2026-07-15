@@ -36,6 +36,7 @@ class IbOptionChainProvider:
         self.max_strikes_per_side = int(os.getenv('OPTION_MAX_STRIKES_PER_SIDE', '20'))
         self.max_contracts = int(os.getenv('OPTION_MAX_CONTRACTS', '240'))
         self.contract_delay = float(os.getenv('IB_OPTION_CONTRACT_DELAY', '0.05'))
+        self.snapshot_grace_seconds = float(os.getenv('IB_OPTION_SNAPSHOT_GRACE_SECONDS', '2'))
 
     def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
         app = self._connect()
@@ -204,7 +205,7 @@ class IbOptionChainProvider:
 
             def tickOptionComputation(self, reqId, tickType, tickAttrib, impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice):  # noqa: N802
                 data = self.market_data.setdefault(reqId, _MarketData())
-                data.apply_greeks(tickType, impliedVol, delta, gamma, theta, vega)
+                data.apply_greeks(tickType, impliedVol, delta, gamma, theta, vega, optPrice, undPrice)
 
             def tickSnapshotEnd(self, reqId):  # noqa: N802
                 self.snapshot_done.setdefault(reqId, threading.Event()).set()
@@ -218,6 +219,9 @@ class IbOptionChainProvider:
             def error(self, reqId, errorCode, errorString, advancedOrderRejectJson=''):  # noqa: N802
                 if errorCode not in (2104, 2106, 2158, 10167, 354):
                     self.error_msg = f'IB error {errorCode}: {errorString}'
+                if reqId >= 0:
+                    data = self.market_data.setdefault(reqId, _MarketData())
+                    data.apply_error(errorCode, errorString)
                 if reqId in self.snapshot_done:
                     self.snapshot_done[reqId].set()
 
@@ -312,6 +316,9 @@ class IbOptionChainProvider:
             data = app.market_data[req_id]
         else:
             data = app.market_data[req_id]
+            if not data.has_option_payload() and self.snapshot_grace_seconds > 0:
+                time.sleep(self.snapshot_grace_seconds)
+                data = app.market_data[req_id]
 
         return OptionContractSnapshot(
             symbol=symbol.upper(),
@@ -402,19 +409,19 @@ class _MarketData:
         self.theta = None
         self.vega = None
         self.rho = None
-        self.raw = {'prices': {}, 'sizes': {}, 'greeks': {}}
+        self.raw = {'prices': {}, 'sizes': {}, 'greeks': {}, 'errors': []}
 
     def apply_price(self, tick_type: int, price: float):
         if price is None or price < 0:
             return
         self.raw['prices'][str(tick_type)] = price
-        if tick_type == 1:
+        if tick_type in (1, 66):
             self.bid = float(price)
-        elif tick_type == 2:
+        elif tick_type in (2, 67):
             self.ask = float(price)
-        elif tick_type == 4:
+        elif tick_type in (4, 68):
             self.last = float(price)
-        elif tick_type == 9:
+        elif tick_type in (9, 75):
             self.close = float(price)
         elif tick_type == 37:
             self.mark = float(price)
@@ -423,11 +430,11 @@ class _MarketData:
         if size is None or size < 0:
             return
         self.raw['sizes'][str(tick_type)] = int(size)
-        if tick_type == 0:
+        if tick_type in (0, 69):
             self.bid_size = int(size)
-        elif tick_type == 3:
+        elif tick_type in (3, 70):
             self.ask_size = int(size)
-        elif tick_type == 8:
+        elif tick_type in (8, 74):
             self.volume = int(size)
         elif tick_type == 27:
             self.call_open_interest = int(size)
@@ -438,21 +445,44 @@ class _MarketData:
         elif tick_type == 30:
             self.put_volume = int(size)
 
-    def apply_greeks(self, tick_type: int, implied_vol: float, delta: float, gamma: float, theta: float, vega: float):
+    def apply_greeks(self, tick_type: int, implied_vol: float, delta: float, gamma: float, theta: float, vega: float, opt_price: float | None, und_price: float | None):
         self.raw['greeks'][str(tick_type)] = {
             'iv': implied_vol,
             'delta': delta,
             'gamma': gamma,
             'theta': theta,
             'vega': vega,
+            'opt_price': opt_price,
+            'und_price': und_price,
         }
-        if tick_type != 13:
-            return
+        if tick_type not in (13, 83):
+            if self.iv is not None or tick_type not in (10, 11, 12, 80, 81, 82):
+                return
         self.iv = _clean_float(implied_vol)
         self.delta = _clean_float(delta)
         self.gamma = _clean_float(gamma)
         self.theta = _clean_float(theta)
         self.vega = _clean_float(vega)
+
+    def apply_error(self, code: int, message: str):
+        self.raw['errors'].append({'code': code, 'message': message})
+
+    def has_option_payload(self) -> bool:
+        return any(
+            value is not None
+            for value in (
+                self.bid,
+                self.ask,
+                self.last,
+                self.mark,
+                self.volume,
+                self.call_open_interest,
+                self.put_open_interest,
+                self.iv,
+                self.delta,
+                self.gamma,
+            )
+        )
 
 
 def _parse_expiration(value: str) -> date | None:

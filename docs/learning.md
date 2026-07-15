@@ -163,50 +163,139 @@
 - TWS API: socket-based, Python library `ib_insync` is the best wrapper
 - Paper trading available on separate port (7497 vs 7496 for live)
 
-## Current Scanner / Analyze Logic (Phase 3B-3)
+## Current Scanner / Analyze Logic (Phase 3D-3)
 
-当前 scanner 和 analyze 不是完整期权链推荐系统，而是 IV-first 的半真实版本。
+当前系统已经有三层真实数据，但前端消费程度不同：
 
-### Scanner
+1. IV / volatility metrics：`iv_history` → `/api/metrics`
+2. 价格历史：`price_history` → `/api/prices/:symbol`
+3. Options positioning：`option_chain_snapshots` + `gex_snapshots` → `/api/options`, `/api/chain`, `/api/gex`
+
+重要边界：
+- scanner 仍是 IV-first watchlist triage，没有使用 GEX 过滤。
+- analyze 已读取 `/api/gex/:symbol`，并在 fresh + high/medium confidence 时用真实 GEX/Walls/PCR/Max Pain 替换 mock shell。
+- `tt_internal` 是过渡/internal validation provider；正式产品仍需要购买具备授权和再分发权利的数据源。
+
+### Scanner 当前算法
+
+后端入口：`GET /api/scan`
 
 真实输入：
-- Tastytrade `iv_history`: IV Rank, IV Percentile, IV30, HV30, IV-HV diff, earnings date.
-- IB internal `price_history`: latest close, latest price date, price source, price coverage status.
+- `iv_history` latest row per watchlist symbol：
+  - `iv30`
+  - `hv30`
+  - `iv_rank`
+  - `iv_percentile`
+  - `iv_hv_diff`
+  - `earnings_date`
+  - `source`
+- `price_history` latest row：
+  - `price_close`
+  - `price_date`
+  - `price_source`
+  - `price_status`
 
-当前过滤：
-- `minIvr <= IV Rank <= maxIvr`
+过滤逻辑：
+- `minIvr <= iv_rank <= maxIvr`
 - `iv_hv_diff >= minIvHv`
-- universe 限定为 watchlist
-- 排序按 `iv_rank DESC`
+- universe 限定为 `collector/watchlist.txt`
+- `limit` 上限最大 200
 
-当前策略标签：
-- `IV Rank >= 50` → `Iron Condor`
-- `30 <= IV Rank < 50` → `Iron Condor`
-- `IV Rank < 30` → `Long Straddle`
+排序：
+- `iv_rank DESC`
 
-这些标签是 IV-only educational labels，不是完整推荐。原因：
-- 没有真实 option chain bid/ask、OI、volume、Greeks。
-- 没有真实 liquidity filter。
-- 没有真实 DTE/strike selection。
-- 没有真实 POP。
-- 没有 GEX / Call Wall / Put Wall / Gamma Flip。
-- 没有 MA/RSI/MACD trend engine。
+前端策略标签：
 
-### Analyze
+| 条件 | 当前标签 | 说明 |
+|---|---|---|
+| `IV Rank >= 50` | `Iron Condor` | 高 IV，教育性地偏向定义风险卖方结构 |
+| `30 <= IV Rank < 50` | `Iron Condor` | 中等 IV，小仓位/观察语义 |
+| `IV Rank < 30` | `Long Straddle` | 低 IV，观察买方波动结构 |
 
-真实部分：
-- IV Rank / IV30 / HV30 / earnings 来自 `/api/metrics`
-- Latest close / 60日 OHLCV / RVol 来自 `/api/prices/:symbol`
+这些标签不是完整交易推荐。当前 scanner 尚未使用：
+- option bid/ask spread liquidity
+- DTE / strike selection
+- delta target
+- GEX regime
+- Call Wall / Put Wall proximity
+- gamma flip distance
+- unusual OI / volume
+- real POP
+- technical trend engine
 
-占位部分：
-- GEX by strike
+### Analyze 当前算法
+
+前端入口：`/analyze?symbol=...`
+
+真实输入：
+- `/api/metrics`：覆盖 IV Rank、IV Percentile、IV30、HV30、HV60、IV-HV diff、earnings date。
+- `/api/prices/:symbol?limit=60`：覆盖 latest price、60日 OHLCV、RVol。
+
+价格趋势派生：
+- latest close 来自 60日 OHLCV 最后一根。
+- RVol = latest volume / prior 20 trading bars average volume。
+- 若 close >= 20日均线：`价格强于20日均线`；否则 `价格弱于20日均线`。
+- 5日涨跌幅 > 1%：`向上增强`。
+- 5日涨跌幅 < -1%：`向下减弱`。
+- 其他：`横盘整理`。
+
+缺失数据逻辑：
+- 有价格但无 metrics：进入 price-only fallback，只展示真实价格趋势，不生成期权策略结论。
+- 无价格也无 metrics：根据 `/api/status` 判断 symbol 是否在 watchlist。
+- API 全部失败但本地有 mock symbol：只作为本地示例结构，并显示 API 不可用提示。
+
+当前已接入 analyze UI 的真实数据：
+- `/api/gex/:symbol`
+- strike-level GEX
 - Call Wall / Put Wall
+- Gamma Flip metadata
 - PCR OI / PCR Volume
-- Unusual Activity
-- Strategy legs
-- Option-chain-derived POP
+- Max Pain
+
+GEX 使用条件：
+- `freshness === fresh`
+- `is_stale === false`
+- `confidence` 为 `high` 或 `medium`
+- 有 `global_gex`, `call_wall`, `put_wall`, `strikes`
+
+GEX fallback：
+- GEX missing/stale/unusable：保留 IV + price 页面，不把 mock wall/gex 标记成真实。
+- 有 GEX + price 但无 `/api/metrics`：展示真实 GEX / Walls / PCR / Max Pain；IV Rank 显示不可用；不生成策略腿推荐。
+
+当前仍未接入 analyze UI 的真实数据：
+- real option-chain-derived POP
+- real strategy legs
+- unusual activity
+
+### Options Positioning 数据层现状
+
+TT 过渡数据源已经能写入：
+- underlying Quote / Trade
+- option Quote
+- option Trade
+- option Summary / open interest
+- option Greeks
+- option TheoPrice
+- option Profile raw payload
+
+GEX compute job：
+- `GEX_SYMBOLS=PLTR venv311/bin/python compute_gex.py`
+- 只读 PostgreSQL snapshot，不调用 provider。
+- 写入 `gex_snapshots` 和 `gex_by_strike_snapshots`。
+
+V1 公式：
+- Call GEX = `gamma * open_interest * 100 * spot^2`
+- Put GEX = `-gamma * open_interest * 100 * spot^2`
+- Global GEX = strike-level net GEX 汇总
+- Local Gamma = spot ±1% 内 strike net GEX 汇总
+- Call Wall = max call-side GEX strike
+- Put Wall = max absolute put-side GEX strike
+- Gamma Flip = spot ±10% grid 上重新估算 gamma；没有 0-crossing 时取 abs(net GEX) 最小点
+- PCR OI = total put OI / total call OI
+- PCR Volume = total put volume / total call volume
 
 当前原则：
 - 不把 mock shell 伪装成真实 options data。
-- 不把 IB internal data 当作公开/付费产品的默认 option-chain data。
-- 在没有 chain/liquidity/GEX 前，scanner 只能作为 IV-first watchlist triage。
+- 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
+- GEX 只有在 gamma + OI completeness 达标后才计算。
+- scanner 在接入 GEX 前仍只是 IV-first triage。

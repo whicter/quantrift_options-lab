@@ -31,4 +31,8 @@ export function getPrices(symbol, limit = 60) {
   return getJson(`/api/prices/${encodeURIComponent(symbol.toUpperCase())}?limit=${limit}`);
 }
 
+export function getGex(symbol) {
+  return getJson(`/api/gex/${encodeURIComponent(symbol.toUpperCase())}`);
+}
+
 export { API_BASE };

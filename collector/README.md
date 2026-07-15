@@ -47,13 +47,68 @@ Option-chain snapshots use `OPTION_PROVIDER=ib_internal` for Phase 3D internal v
 OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=40 venv311/bin/python collect_options.py
 ```
 
+For the tastytrade transitional path, use `tt_internal`. It collects option-chain metadata from REST and merges delayed/live DXLink events when available:
+
+- underlying `Quote` / `Trade`
+- option `Quote`
+- option `Trade`
+- option `Summary` / open interest
+- option `Greeks`
+- option `TheoPrice`
+- option `Profile` in raw contract metadata
+
+```bash
+OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=40 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py
+```
+
+Probe tastytrade chain metadata without writing to PostgreSQL:
+
+```bash
+OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python debug_tastytrade_option_chain.py
+```
+
+Probe tastytrade DXLink fields without writing to PostgreSQL:
+
+```bash
+OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 TT_DXLINK_TIMEOUT=12 venv311/bin/python debug_tastytrade_dxlink.py
+```
+
+Compute GEX / Wall / Gamma Flip from the latest persisted option-chain snapshot:
+
+```bash
+GEX_SYMBOLS=PLTR venv311/bin/python compute_gex.py
+```
+
+The GEX job reads PostgreSQL only. It does not call IB, tastytrade, or any other provider. It writes:
+
+- `gex_snapshots`
+- `gex_by_strike_snapshots`
+
+Safety defaults:
+
+- `GEX_MAX_MISSING_RATIO=0.25`
+- `GEX_LOCAL_GAMMA_WINDOW_PCT=1`
+- `GEX_GAMMA_FLIP_GRID_PCT=10`
+- `GEX_GAMMA_FLIP_GRID_STEPS=81`
+
+If option quotes, Greeks, or OI are empty, inspect the raw IB tick payload before changing the schema or API:
+
+```bash
+OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 IB_OPTION_CLIENT_ID=44 venv311/bin/python debug_ib_option_ticks.py
+```
+
+The diagnostic output prints raw `tickPrice`, `tickSize`, `tickOptionComputation`, and IB error codes per contract. Use it to distinguish parser issues from IB Gateway connection, market-data subscription, or delayed-data issues.
+
 Default option-chain scope:
 
 - Symbols: `AAPL,SPY,QQQ,PLTR`
 - DTE: 7-60 days
 - Strikes: spot +/- 15%, capped by `OPTION_MAX_STRIKES_PER_SIDE`
 - Source label: `ib_internal`
+- Delayed snapshot grace: `IB_OPTION_SNAPSHOT_GRACE_SECONDS=2`
 - API behavior: server reads PostgreSQL snapshots only; user requests never call IB Gateway synchronously.
+- tastytrade source label: `tt_internal`
+- tastytrade current status: chain metadata + DXLink quote/trade/OI/Greeks/TheoPrice when `TT_COLLECT_DXLINK=true`.
 
 For explicit development/backfill only, Stooq can be selected without changing production defaults:
 

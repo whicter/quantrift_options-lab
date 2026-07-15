@@ -1,11 +1,11 @@
 """
 Option-chain snapshot collector.
 
-Phase 3D-2 internal path:
-  IB Gateway -> provider contract -> PostgreSQL snapshots
+Phase 3D internal path:
+  internal provider -> provider contract -> PostgreSQL snapshots
 
 This collector is intentionally bounded and internal. It does not serve public
-requests directly, and rows are labeled source=ib_internal.
+requests directly, and rows are labeled with the provider source.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from psycopg2.extras import Json, execute_values
 
 from providers.ib_option_chain_provider import IbOptionChainProvider
+from providers.tastytrade_option_chain_provider import TastytradeOptionChainProvider
 
 load_dotenv(Path(__file__).with_name('.env'))
 
@@ -49,6 +50,8 @@ def load_symbols() -> list[str]:
 def make_provider():
     if OPTION_PROVIDER == 'ib_internal':
         return IbOptionChainProvider()
+    if OPTION_PROVIDER == 'tt_internal':
+        return TastytradeOptionChainProvider()
     raise ValueError(f'Unknown OPTION_PROVIDER={OPTION_PROVIDER}')
 
 
@@ -93,7 +96,7 @@ def persist_snapshot(conn, snapshot) -> int:
     provider_status = snapshot.provider_status
     if contract_count == 0:
         provider_status = 'empty'
-    elif completeness_pct < 50:
+    elif provider_status != 'metadata_only' and completeness_pct < 50:
         provider_status = 'partial'
 
     with conn.cursor() as cur:

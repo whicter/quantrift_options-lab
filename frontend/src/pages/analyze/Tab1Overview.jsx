@@ -98,56 +98,64 @@ export default function Tab1Overview({ data }) {
         </div>
       </div>
 
-      {/* Recommendation card */}
-      <div className="az-card" style={{ marginTop: 12 }}>
-        <div className="az-card-title">策略推荐</div>
-        <div className="az-rec-header">
-          <div>
-            <div className="az-rec-strategy">{recommendation.strategy}</div>
-            <div className="az-rec-reason">{recommendation.reason}</div>
-          </div>
-          <div className="az-rec-pop">
-            <div className="az-rec-pop-val">{recommendation.params.pop}%</div>
-            <div className="az-rec-pop-label">POP</div>
-          </div>
-        </div>
-        <div className="az-rec-params">
-          <div className="az-rec-param">
-            <span className="az-rec-param-label">DTE</span>
-            <span className="az-rec-param-val">{recommendation.params.dte}天</span>
-          </div>
-          <div className="az-rec-param">
-            <span className="az-rec-param-label">Short Δ</span>
-            <span className="az-rec-param-val">{recommendation.params.shortDelta}</span>
-          </div>
-          <div className="az-rec-param">
-            <span className="az-rec-param-label">Max Credit</span>
-            <span className="az-rec-param-val" style={{ color: 'var(--green)' }}>${recommendation.params.maxCredit}</span>
-          </div>
-          <div className="az-rec-param">
-            <span className="az-rec-param-label">Max Loss</span>
-            <span className="az-rec-param-val" style={{ color: 'var(--red)' }}>
-              {recommendation.params.maxLoss === null ? '无限' : `$${recommendation.params.maxLoss}`}
-            </span>
-          </div>
-        </div>
-        {recommendation.params.maxLoss === null && (
-          <div className="az-rec-warning">裸卖策略风险无限，建议加保护腿转为 defined-risk</div>
-        )}
-        {earnings.warning && (
-          <div className="az-rec-warning">财报在 {earnings.daysAway} 天内，注意 IV Crush 风险</div>
-        )}
-        <div className="az-rec-legs">
-          {recommendation.legs.map((leg, i) => (
-            <div key={i} className="az-rec-leg">
-              <span className={leg.dir === 1 ? 'az-leg-long' : 'az-leg-short'}>{leg.dir === 1 ? 'LONG' : 'SHORT'}</span>
-              <span>{leg.label}</span>
-              <span style={{ color: 'var(--text-dim)' }}>Δ {leg.deltaTarget}</span>
-              <span style={{ color: 'var(--text-dim)' }}>{leg.dte}d</span>
+      {recommendation ? (
+        <div className="az-card" style={{ marginTop: 12 }}>
+          <div className="az-card-title">策略推荐</div>
+          <div className="az-rec-header">
+            <div>
+              <div className="az-rec-strategy">{recommendation.strategy}</div>
+              <div className="az-rec-reason">{recommendation.reason}</div>
             </div>
-          ))}
+            <div className="az-rec-pop">
+              <div className="az-rec-pop-val">{recommendation.params.pop}%</div>
+              <div className="az-rec-pop-label">POP</div>
+            </div>
+          </div>
+          <div className="az-rec-params">
+            <div className="az-rec-param">
+              <span className="az-rec-param-label">DTE</span>
+              <span className="az-rec-param-val">{recommendation.params.dte}天</span>
+            </div>
+            <div className="az-rec-param">
+              <span className="az-rec-param-label">Short Δ</span>
+              <span className="az-rec-param-val">{recommendation.params.shortDelta}</span>
+            </div>
+            <div className="az-rec-param">
+              <span className="az-rec-param-label">Max Credit</span>
+              <span className="az-rec-param-val" style={{ color: 'var(--green)' }}>${recommendation.params.maxCredit}</span>
+            </div>
+            <div className="az-rec-param">
+              <span className="az-rec-param-label">Max Loss</span>
+              <span className="az-rec-param-val" style={{ color: 'var(--red)' }}>
+                {recommendation.params.maxLoss === null ? '无限' : `$${recommendation.params.maxLoss}`}
+              </span>
+            </div>
+          </div>
+          {recommendation.params.maxLoss === null && (
+            <div className="az-rec-warning">裸卖策略风险无限，建议加保护腿转为 defined-risk</div>
+          )}
+          {earnings.warning && (
+            <div className="az-rec-warning">财报在 {earnings.daysAway} 天内，注意 IV Crush 风险</div>
+          )}
+          <div className="az-rec-legs">
+            {recommendation.legs.map((leg, i) => (
+              <div key={i} className="az-rec-leg">
+                <span className={leg.dir === 1 ? 'az-leg-long' : 'az-leg-short'}>{leg.dir === 1 ? 'LONG' : 'SHORT'}</span>
+                <span>{leg.label}</span>
+                <span style={{ color: 'var(--text-dim)' }}>Δ {leg.deltaTarget}</span>
+                <span style={{ color: 'var(--text-dim)' }}>{leg.dte}d</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="az-card" style={{ marginTop: 12 }}>
+          <div className="az-card-title">策略推荐</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+            当前仅展示真实价格与 GEX 结构；缺少完整 IV metrics / liquidity / POP 输入，不生成策略腿推荐。
+          </div>
+        </div>
+      )}
       <InsightCarousel insights={insights} />
     </div>
   );

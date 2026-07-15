@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getDataStatus, getMetrics, getPrices } from '../lib/api';
+import { getDataStatus, getGex, getMetrics, getPrices } from '../lib/api';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
@@ -90,6 +90,94 @@ function applyPriceHistory(data, priceData) {
   };
 }
 
+function toNumber(value) {
+  if (value == null || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function isUsableGex(gexData) {
+  if (!gexData || gexData.freshness === 'missing') return false;
+  if (gexData.is_stale || gexData.freshness !== 'fresh') return false;
+  if (!['high', 'medium'].includes(gexData.confidence)) return false;
+  return toNumber(gexData.global_gex) != null
+    && toNumber(gexData.call_wall) != null
+    && toNumber(gexData.put_wall) != null
+    && Array.isArray(gexData.strikes)
+    && gexData.strikes.length > 0;
+}
+
+function applyGex(data, gexData) {
+  if (!data || !isUsableGex(gexData)) {
+    return {
+      ...data,
+      gexMeta: gexData && gexData.freshness !== 'missing' ? {
+        source: gexData.source,
+        snapshotTs: gexData.snapshot_ts,
+        freshness: gexData.freshness,
+        confidence: gexData.confidence,
+        reason: gexData.is_stale ? 'stale' : 'unusable',
+      } : null,
+    };
+  }
+
+  const gexByStrike = gexData.strikes
+    .map(row => ({
+      strike: toNumber(row.strike),
+      gex: toNumber(row.net_gex),
+      callGex: toNumber(row.call_gex),
+      putGex: toNumber(row.put_gex),
+      callOi: toNumber(row.call_oi),
+      putOi: toNumber(row.put_oi),
+      callVolume: toNumber(row.call_volume),
+      putVolume: toNumber(row.put_volume),
+    }))
+    .filter(row => row.strike != null && row.gex != null);
+
+  const price = toNumber(gexData.underlying_price) ?? data.price;
+  const callWall = toNumber(gexData.call_wall) ?? data.callWall;
+  const putWall = toNumber(gexData.put_wall) ?? data.putWall;
+  const gammaFlip = toNumber(gexData.gamma_flip);
+  const gexTotal = toNumber(gexData.global_gex) ?? data.gexTotal;
+  const pcr = toNumber(gexData.pcr_oi);
+  const pcrVol = toNumber(gexData.pcr_volume);
+  const upDistance = Math.max(callWall - price, Math.abs(price) * 0.03);
+  const downDistance = Math.max(price - putWall, Math.abs(price) * 0.03);
+  const gexText = Math.abs(gexTotal) >= 1e9
+    ? `$${(Math.abs(gexTotal) / 1e9).toFixed(2)}B`
+    : `$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+
+  return {
+    ...data,
+    price,
+    gexTotal,
+    gexByStrike: gexByStrike.length ? gexByStrike : data.gexByStrike,
+    putWall,
+    callWall,
+    pcr: pcr ?? data.pcr,
+    pcrVol: pcrVol ?? data.pcrVol,
+    maxPain: toNumber(gexData.max_pain),
+    gammaFlip,
+    gammaRegime: gexData.gamma_regime,
+    gexMeta: {
+      source: gexData.source,
+      snapshotTs: gexData.snapshot_ts,
+      freshness: gexData.freshness,
+      confidence: gexData.confidence,
+      providerStatus: gexData.provider_status,
+      wallMethod: gexData.wall_method,
+    },
+    scenarios: {
+      ...data.scenarios,
+      upTrigger: Number(callWall.toFixed(2)),
+      upTarget: Number((callWall + upDistance).toFixed(2)),
+      downTrigger: Number(putWall.toFixed(2)),
+      downTarget: Number((putWall - downDistance).toFixed(2)),
+    },
+    conclusion: `${gexData.gamma_regime === 'positive' ? '正' : gexData.gamma_regime === 'negative' ? '负' : '近零'}Gamma ${gexText}，Call Wall $${callWall.toFixed(2)} / Put Wall $${putWall.toFixed(2)}；PCR(OI) ${(pcr ?? 0).toFixed(2)}，Max Pain $${(toNumber(gexData.max_pain) ?? putWall).toFixed(2)}。`,
+  };
+}
+
 function deriveTrendFromPriceHistory(priceHistory, fallbackTrend = {}) {
   if (!priceHistory || priceHistory.length < 5) return fallbackTrend;
 
@@ -136,12 +224,53 @@ function buildPriceOnlyAnalysis(symbol, priceData) {
   };
 }
 
+function buildGexOnlyAnalysis(symbol, priceData, gexData) {
+  const mock = getMockAnalysis(symbol) || getMockAnalysis('SPY');
+  const priceHistory = normalizePriceHistory(priceData);
+  const base = applyPriceHistory({
+    ...mock,
+    symbol,
+    ivRank: null,
+    ivPercentile: null,
+    iv30: null,
+    hv30: null,
+    hv60: null,
+    ivHvDiff: null,
+    dataMeta: null,
+    recommendation: null,
+  }, priceData);
+
+  return {
+    ...applyGex(base, gexData),
+    trend: deriveTrendFromPriceHistory(priceHistory, base.trend),
+    direction: {
+      score: 0,
+      label: 'GEX + Price',
+      signals: [
+        { name: 'Price History', value: priceHistory.length > 0 ? '真实' : '待接入', bullish: priceHistory.length > 0 },
+        { name: 'GEX / Walls', value: '真实', bullish: true },
+        { name: 'IV Metrics', value: '待接入', bullish: false },
+      ],
+    },
+  };
+}
+
 function PriceStatus({ meta }) {
   if (!meta) return null;
   const stale = meta.isStale || meta.freshness === 'stale';
   return (
     <span className={`az-price-status ${stale ? 'stale' : 'fresh'}`}>
       price {stale ? 'stale' : meta.source} {meta.latestDate}
+    </span>
+  );
+}
+
+function GexStatus({ meta }) {
+  if (!meta) return null;
+  const fresh = meta.freshness === 'fresh' && ['high', 'medium'].includes(meta.confidence);
+  return (
+    <span className={`az-price-status ${fresh ? 'fresh' : 'stale'}`}>
+      GEX {fresh ? meta.source : meta.reason || meta.freshness} {meta.confidence || ''}
     </span>
   );
 }
@@ -227,15 +356,22 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [metricsBySymbol, status, priceData] = await Promise.all([
+      const [metricsBySymbol, status, priceData, gexData] = await Promise.all([
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
         getPrices(sym, 60).catch(() => null),
+        getGex(sym).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
+        if (isUsableGex(gexData)) {
+          setResult(buildGexOnlyAnalysis(sym, priceData, gexData));
+          setSearchParams({ symbol: sym, tab: activeTab });
+          setError('');
+          return;
+        }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
           setResult(buildPriceOnlyAnalysis(sym, priceData));
@@ -249,7 +385,7 @@ export default function Analyze() {
       }
 
       const mock = getMockAnalysis(sym) || getMockAnalysis('SPY');
-      const data = applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData);
+      const data = applyGex(applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData), gexData);
       setResult(data);
       setSearchParams({ symbol: sym, tab: activeTab });
     } catch {
@@ -314,6 +450,7 @@ export default function Analyze() {
               </div>
             )}
             <PriceStatus meta={result.priceMeta} />
+            <GexStatus meta={result.gexMeta} />
             <div style={{ flex: 1 }} />
             <div style={{ minWidth: 200 }}>
               {result.dataMeta ? <IVGauge value={result.ivRank} /> : (

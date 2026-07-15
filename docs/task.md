@@ -412,41 +412,102 @@
   - Result：snapshot written，latest `snapshot_id=2`
   - API verified：`/api/options/PLTR/snapshot` 返回 `source=ib_internal`、`provider_status=partial`、`contract_count=10`
   - API verified：`/api/status/options` 返回 `covered_count=1`、`covered_symbols=["PLTR"]`
-- [ ] Data quality follow-up：
+- [x] Data quality follow-up 3D-2A：
   - 当前 IB 返回 chain definition / expiry / strikes，但 option quote、Greeks、OI 均为空：`completeness_pct=0.00`、`missing_greeks_ratio=1.0000`、`missing_oi_ratio=1.0000`
-  - 需要确认 IB market data subscription / delayed options data / generic tick permissions 后再进入 3D-3 GEX 计算
+  - 已补 delayed market data tick parser：
+    - delayed bid / ask / last / close：tick 66 / 67 / 68 / 75
+    - delayed bid size / ask size / volume：tick 69 / 70 / 74
+    - delayed option computation：tick 80 / 81 / 82 / 83
+  - 已保留 live option computation fallback：tick 10 / 11 / 12 / 13
+  - 已将 per-request IB error code 写入 contract `raw_contract.errors`
+  - 已新增 `collector/debug_ib_option_ticks.py`，用于打印 raw tick payload 与 IB error code
+  - Verification：
+    - Syntax verified：`venv311/bin/python -m py_compile collect_options.py debug_ib_option_ticks.py providers/ib_option_chain_provider.py`
+    - Runtime diagnostic attempted：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 IB_OPTION_CLIENT_ID=44 IB_TIMEOUT=30 IB_OPTION_SNAPSHOT_GRACE_SECONDS=3 venv311/bin/python debug_ib_option_ticks.py`
+    - Result：IB Gateway connection timed out at `127.0.0.1:4001`；需要 Gateway/TWS API 端口在线后重跑 raw tick diagnostic
+  - Remaining risk：
+    - 若 raw tick 仍无 quote / Greeks / OI，需要确认 IB market data subscription / delayed options data / generic tick permissions
+    - 若 TWS 自身看不到同一 contract 的 bid/ask/IV/Greeks/OI，API socket 也不会提供这些字段
 
 **Phase 3D-3 — GEX / Wall / Gamma Flip Calculation**
-- [ ] GEX by contract：
+- [x] Transition provider decision：
+  - 使用 `tt_internal` 作为当前过渡 option-chain metadata provider。
+  - 后续正式上线前仍需购买具备授权/再分发权利的数据源。
+  - public API 仍然只读 PostgreSQL snapshot，不同步调用 tastytrade 或 IB。
+- [x] 新增 tastytrade chain metadata adapter：
+  - `collector/providers/tastytrade_option_chain_provider.py`
+  - `OPTION_PROVIDER=tt_internal`
+  - REST endpoint：`/option-chains/{symbol}/nested`
+  - 保存 expiration、strike、call/put contract symbol、call/put streamer symbol 到 `option_contract_snapshots.raw_contract`
+  - `source=tt_internal`
+  - `provider_status=metadata_only`
+- [x] 新增 tastytrade diagnostic：
+  - `collector/debug_tastytrade_option_chain.py`
+  - Command：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python debug_tastytrade_option_chain.py`
+- [x] tastytrade DXLink quote/Greeks/OI merge：
+  - 获取 API quote token
+  - 订阅 underlying symbol 与 option streamer symbols
+  - 记录 raw `Quote` / `Trade` / `Summary` / `Greeks` / `TheoPrice` / `Profile` payload
+  - 将 bid / ask / last / volume / open_interest / iv / delta / gamma / theta / vega / rho merge 到 contract snapshot
+  - 将 underlying bid / ask / trade price merge 到 chain snapshot
+  - 若 TT 不返回 OI 或 Greeks，明确降级：quote-only / no-gex，不进入 GEX 计算
+- [x] Runtime smoke with tastytrade：
+  - Diagnostic command：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python debug_tastytrade_option_chain.py`
+  - Diagnostic result：PLTR chain metadata fetched；`available_expiration_count=19`、`available_strike_count=138`、`returned_contract_count=10`
+  - DXLink diagnostic command：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 TT_DXLINK_TIMEOUT=12 venv311/bin/python debug_tastytrade_dxlink.py`
+  - DXLink diagnostic result：returned `Quote`、`Trade`、`Summary.openInterest`、`Greeks`、`TheoPrice`、`Profile` events for PLTR option streamer symbols
+  - Collector command：`OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python collect_options.py`
+  - Collector result：`snapshot_id=4`、`contracts=10`、`source=tt_internal`、`provider_status=metadata_only`
+  - API verified：`/api/options/PLTR/snapshot?includeContracts=false` 返回 `freshness=fresh`、`provider_status=metadata_only`
+  - Collector command after DXLink merge：`OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py`
+  - Collector result after DXLink merge：`snapshot_id=6`、`contracts=10`、`source=tt_internal`、`provider_status=ok`
+  - API verified after DXLink merge：`completeness_pct=100.00`、`missing_greeks_ratio=0.0000`、`missing_oi_ratio=0.0000`、`underlying_bid=133.5400`、`underlying_ask=133.6500`
+  - Credential handling：使用 `.env` remember-token 自动续期；secret 未写入仓库
+- [x] Gate before GEX：
+  - GEX / Wall / Gamma Flip 只有在 gamma + OI completeness 达标后才计算
+  - `metadata_only` snapshot 不参与 GEX
+- [x] GEX compute job：
+  - 新增 `collector/compute_gex.py`
+  - 只读 PostgreSQL latest option-chain snapshot，不调用 IB / tastytrade / provider
+  - 写入 `gex_snapshots`
+  - 写入 `gex_by_strike_snapshots`
+  - Upsert by `snapshot_id`，同一 option snapshot 重算不会重复堆数据
+  - Fail-closed：缺 spot、缺 gamma/OI、missing ratio 超过 `GEX_MAX_MISSING_RATIO=0.25` 时不写假 GEX
+- [x] GEX by contract：
   - call gex = `gamma * open_interest * 100 * spot^2`
   - put gex = `-gamma * open_interest * 100 * spot^2`
   - 缺 gamma 或 OI 的 contract 不参与 GEX，并计入 missing ratio
-- [ ] GEX by strike：
+- [x] GEX by strike：
   - `net_gex = sum(call_gex + put_gex)` by strike
   - `call_oi`, `put_oi`, `call_volume`, `put_volume` by strike
-- [ ] Global GEX：
+- [x] Global GEX：
   - 跨 expiry、strike 聚合 `net_gex`
   - 输出 `positive`, `negative`, `near_zero`
-- [ ] Local Gamma：
-  - spot ±1%、spot ± expected move、最近 3-5 个 strikes 三种候选口径先记录
+- [x] Local Gamma：
   - V1 默认使用 spot ±1%
-- [ ] Call Wall / Put Wall：
+  - Future candidates：spot ± expected move、最近 3-5 个 strikes
+- [x] Call Wall / Put Wall：
   - Call Wall：最大 call-side positive exposure 或最大 call OI strike
   - Put Wall：最大 put-side negative exposure 或最大 put OI strike
   - 同时保存 `wall_method=gex` 或 `wall_method=oi`，避免混淆 OI Wall 与 Gamma Wall
-- [ ] Gamma Flip：
+- [x] Gamma Flip：
   - 构建 spot ±10% price grid
   - 对每个 grid price 重新计算每张期权 gamma 和 net GEX
   - flip = net GEX 穿越 0 的价格；无穿越则取 abs(net_gex) 最小点
   - 输出 `gamma_curve`, `gamma_flip`, `spot_vs_flip_distance_pct`, `gamma_regime`, `confidence`
-- [ ] PCR：
+- [x] PCR：
   - `pcr_oi = total_put_oi / total_call_oi`
   - `pcr_volume = total_put_volume / total_call_volume`
-- [ ] Max Pain：
-  - 对每个 expiry 独立计算
-  - V1 输出 nearest expiry max pain + aggregate max pain
-- [ ] Confidence：
+- [x] Max Pain：
+  - V1 基于当前 selected contracts aggregate 计算单一 `max_pain`
+  - Future：对每个 expiry 独立计算 nearest expiry max pain + aggregate max pain
+- [x] Confidence：
   - 根据 missing Greeks ratio、missing OI ratio、bid/ask availability、snapshot age 计算 high / medium / low
+- [x] Runtime smoke with GEX：
+  - Command：`GEX_SYMBOLS=PLTR venv311/bin/python compute_gex.py`
+  - Result：`gex_id=1`、`snapshot_id=6`、`global_gex=112882349.11`、`confidence=high`
+  - API verified：`/api/gex/PLTR` returned `global_gex=112882349.1123`、`local_gamma=25163724.2306`、`gamma_regime=positive`、`call_wall=135`、`put_wall=135`、`max_pain=135`、`pcr_oi=0.3634`、`pcr_volume=0.4672`
+  - Note：API `freshness=stale` because the source option snapshot was older than the 15-minute API freshness threshold at verification time
 
 **Phase 3D-4 — API Layer**
 - [x] `GET /api/options/:symbol/snapshot`
@@ -460,14 +521,23 @@
 - [x] API 不同步调用 IB Gateway；missing/stale 只返回状态，不在用户请求里等待 provider。
 
 **Phase 3D-5 — Frontend Integration**
-- [ ] `/analyze/:symbol` 或 query symbol 读取 `/api/gex/:symbol`
-- [ ] 若 GEX fresh：
+- [x] `/analyze?symbol=...` 读取 `/api/gex/:symbol`
+- [x] 若 GEX fresh：
   - 替换 mock GEX / Call Wall / Put Wall / Gamma Flip / PCR / Max Pain
   - 显示 source、snapshot time、confidence
-- [ ] 若 GEX missing：
+- [x] 若 GEX missing/stale/unusable：
   - 保留 price-only 或 IV-only 页面
-  - 显示“Options positioning data preparing / unavailable”
+  - 显示 GEX stale/unusable 状态，不把旧 GEX 当 fresh
   - 不显示 mock wall/gex 作为真实数据
+- [x] 支持 GEX-only fallback：
+  - 如果 symbol 有真实 GEX + price，但暂无 `/api/metrics`，仍展示真实 GEX / Walls / PCR / Max Pain
+  - IV Rank 区域显示 unavailable，不生成策略腿推荐
+- [x] UI safety fix：
+  - Tab4 `Call Wall == Put Wall` 时不再出现 0-span canvas range
+- [x] Verification：
+  - Frontend build：`npm run build`
+  - Production API prepared：PLTR `snapshot_id=7`、`/api/gex/PLTR` returned `freshness=fresh`、`confidence=high`
+  - Browser plugin smoke attempted but blocked by runtime setup error：`Cannot redefine property: process`
 - [ ] `/scan` 新增 filters：
   - gamma regime
   - near call wall / near put wall

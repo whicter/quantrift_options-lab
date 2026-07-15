@@ -23,9 +23,11 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
       const cH = H - PAD.top - PAD.bottom;
       const cW = W - PAD.left - PAD.right;
 
-      const span = (callWall - putWall);
-      const minP = putWall - span * 0.32;
-      const maxP = callWall + span * 0.32;
+      const wallLow = Math.min(putWall, callWall, price);
+      const wallHigh = Math.max(putWall, callWall, price);
+      const span = Math.max(wallHigh - wallLow, Math.abs(price) * 0.06, 1);
+      const minP = wallLow - span * 0.32;
+      const maxP = wallHigh + span * 0.32;
       const sy = v => PAD.top + cH - (v - minP) / (maxP - minP) * cH;
 
       // Wall zone background
