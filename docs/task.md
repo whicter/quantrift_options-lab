@@ -325,8 +325,8 @@
 - [x] 安装 react-router-dom，配置多页路由
 - [ ] `/` 落地页（产品介绍）
 - [x] `/learn` → V1 教育工具（Learn.jsx）
-- [x] `/analyze` → V2 标的分析页（mock data）
-- [x] `/scan` → V2 扫描器页（mock data）
+- [x] `/analyze` → V2 标的分析页（真实数据：GEX / 价格趋势 / OI异动）
+- [x] `/scan` → V2 扫描器页（真实数据：scanner_results_snapshots）
 
 **V2 核心流程（ticker-first）**
 - [x] 用户输入标的 → 系统分析（不再要求用户先选策略）
