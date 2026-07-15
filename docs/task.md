@@ -284,31 +284,31 @@
 ## 🚀 V2 — Real Data
 
 ### 数据层决策（已确定）
-- [x] 数据源方案：Tastytrade API（IV Rank，免费）+ provider-first OHLCV（当前默认 IB internal）+ 授权期权链数据源（生产）+ IB API（内部研究/算法验证）
-- [x] 数据采集节点：Mac Studio（复用已有 IB Gateway，clientId=2 与 futures bot 共存）
-- [x] 总数据成本：$0/月（Railway 托管 ~$5/月）
-- [x] 冷启动方案：Tastytrade API 第一天即可提供 IV Rank，同时自积累历史数据
-- [x] Tastytrade 账户注册完成（whicter.han@gmail.com）
-- [x] Tastytrade API 测试通过：/market-metrics 字段确认，认证流程完整验证
-- [x] remember-token 正常续期路径验证通过；遇到 `403 device_challenge_required` 时停止重试并提醒手动完成设备验证，不把认证错误当成可无限重试请求
-- [x] 生产数据原则：IB Gateway 只作为 internal research adapter，不作为公开/付费产品的默认 option chain 数据源，除非授权和再分发权利已确认
+- ✅ 数据源方案：Tastytrade API（IV Rank，免费）+ provider-first OHLCV（当前默认 IB internal）+ 授权期权链数据源（生产）+ IB API（内部研究/算法验证）
+- ✅ 数据采集节点：Mac Studio（复用已有 IB Gateway，clientId=2 与 futures bot 共存）
+- ✅ 总数据成本：$0/月（Railway 托管 ~$5/月）
+- ✅ 冷启动方案：Tastytrade API 第一天即可提供 IV Rank，同时自积累历史数据
+- ✅ Tastytrade 账户注册完成（whicter.han@gmail.com）
+- ✅ Tastytrade API 测试通过：/market-metrics 字段确认，认证流程完整验证
+- ✅ remember-token 正常续期路径验证通过；遇到 `403 device_challenge_required` 时停止重试并提醒手动完成设备验证，不把认证错误当成可无限重试请求
+- ✅ 生产数据原则：IB Gateway 只作为 internal research adapter，不作为公开/付费产品的默认 option chain 数据源，除非授权和再分发权利已确认
 
 **Infrastructure**
-- [x] Railway: 创建 PostgreSQL Service，获取 DATABASE_URL
-- [x] Railway: 创建 Node.js Service，部署 server/，注入 DATABASE_URL
-- [x] 跑 migrate.js 建表（iv_history, scanner_configs）
-- [x] 建表 schema 已定义：server/src/migrate.js
-- [x] Mac Studio collector：配 .env，python auth.py --login，加 cron
-- [x] Vercel: 部署 frontend/，注入 VITE_API_BASE_URL → Railway URL
-- [x] 前端：mock data → 真实 API 调用
-- [x] 生产验收：quantrift.io 308 → www，www 200，Railway /health、/api/metrics、/api/scan 均返回成功（2026-07-14）
+- ✅ Railway: 创建 PostgreSQL Service，获取 DATABASE_URL
+- ✅ Railway: 创建 Node.js Service，部署 server/，注入 DATABASE_URL
+- ✅ 跑 migrate.js 建表（iv_history, scanner_configs）
+- ✅ 建表 schema 已定义：server/src/migrate.js
+- ✅ Mac Studio collector：配 .env，python auth.py --login，加 cron
+- ✅ Vercel: 部署 frontend/，注入 VITE_API_BASE_URL → Railway URL
+- ✅ 前端：mock data → 真实 API 调用
+- ✅ 生产验收：quantrift.io 308 → www，www 200，Railway /health、/api/metrics、/api/scan 均返回成功（2026-07-14）
 
 **Mac Studio 数据采集脚本**
-- [x] Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）
+- ✅ Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）
   - Tastytrade 认证：collector/auth.py；正常使用 remember-token 续期，device challenge/过期时写入明确错误并发提醒
   - 采集字段：iv_rank, iv30, hv30/60/90, iv_hv_diff, earnings_date, term_structure
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
-- [x] 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
+- ✅ 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
 - [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway（IB 仍为 fallback，需确保 clientId 不与 futures bot 冲突）
 - [ ] 服务层自动切换：252天 option snapshot 积累后改为自算 IV Rank，停止调用 Tastytrade（见 P0.3）
@@ -322,25 +322,25 @@
 - [ ] （可选）心跳监控：Mac Studio → Railway 心跳上报，云端检测断线告警
 
 **前端路由（Vite + React Router）**
-- [x] 安装 react-router-dom，配置多页路由
+- ✅ 安装 react-router-dom，配置多页路由
 - [ ] `/` 落地页（产品介绍）
-- [x] `/learn` → V1 教育工具（Learn.jsx）
-- [x] `/analyze` → V2 标的分析页（真实数据：GEX / 价格趋势 / OI异动）
-- [x] `/scan` → V2 扫描器页（真实数据：scanner_results_snapshots）
+- ✅ `/learn` → V1 教育工具（Learn.jsx）
+- ✅ `/analyze` → V2 标的分析页（真实数据：GEX / 价格趋势 / OI异动）
+- ✅ `/scan` → V2 扫描器页（真实数据：scanner_results_snapshots）
 
 **V2 核心流程（ticker-first）**
-- [x] 用户输入标的 → 系统分析（不再要求用户先选策略）
-- [x] 技术分析层：MA20/50/200、RSI、MACD → 方向评分
+- ✅ 用户输入标的 → 系统分析（不再要求用户先选策略）
+- ✅ 技术分析层：MA20/50/200、RSI、MACD → 方向评分
   - 真实输入：`price_history`
   - 60日历史不足 MA200 时返回 `ma200=null`，不伪造长周期数据
-- [x] IV 分析层：IV Rank + IV vs HV → 卖方/买方判断
+- ✅ IV 分析层：IV Rank + IV vs HV → 卖方/买方判断
   - 真实输入：`/api/metrics`
   - recommendation matrix 使用 IV Rank / IV30 / HV / trend score / GEX context
-- [x] 事件风险：财报日检测
+- ✅ 事件风险：财报日检测
   - 真实输入：`iv_history.earnings_date`
   - `/api/scan` 返回 `earnings_date`
   - Scanner 前端显示财报日期；距离当前日期 0-14 天时标记 warning
-- [x] 策略矩阵 → 推荐具体策略 + 建议 Delta/DTE/宽度参数
+- ✅ 策略矩阵 → 推荐具体策略 + 建议 Delta/DTE/宽度参数
   - High IV + neutral/positive GEX：Iron Condor
   - High IV + bullish trend：Bull Put Spread
   - High IV + bearish trend：Bear Call Spread
@@ -894,8 +894,8 @@
 
 | 子任务 | 当前来源 | Polygon 替代 | 时机 |
 |---|---|---|---|
-| 日线 OHLCV（price_history） | IB internal | `/v2/aggs/ticker/{symbol}/range/1/day/{from}/{to}` | ✅ 立即可做 |
-| 30M OHLCV（price_history_30m） | 无 | `/v2/aggs/ticker/{symbol}/range/30/minute/{from}/{to}` | ✅ 顺带采集 |
+| 日线 OHLCV（price_history） | IB internal | `/v2/aggs/ticker/{symbol}/range/1/day/{from}/{to}` | 立即可做 |
+| 30M OHLCV（price_history_30m） | 无 | `/v2/aggs/ticker/{symbol}/range/30/minute/{from}/{to}` | 顺带采集 |
 | HV30/60/90 | Tastytrade | 从 price_history 自算（log return stddev × √252） | 积累 90 天日线后 |
 | IV Rank / iv_percentile | Tastytrade | 从 option_contract_snapshots ATM IV 自算 | 积累 252 天快照后 |
 | 财报日 earnings_date | Tastytrade | 无 Polygon 替代，保留 Tastytrade 仅取此字段 | 长期保留 |
