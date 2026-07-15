@@ -33,13 +33,30 @@
 - **Frontend**: React 19 + Vite，部署 Vercel，根目录 `frontend/`
 - **Backend**: Node.js Express，部署 Railway，根目录 `server/`
 - **Collector**: Python，运行在 Mac Studio cron，目录 `collector/`
-- **DB**: PostgreSQL on Railway（`iv_history`, `scanner_configs` 表）
+- **DB**: PostgreSQL on Railway（核心表：`iv_history`, `price_history`, `option_chain_snapshots`, `option_contract_snapshots`, `gex_snapshots`, `gex_by_strike_snapshots`, `scanner_results_snapshots`, `provider_fetch_jobs`, `provider_request_usage`）
+
+## 当前架构状态
+- `docs/ARCHITECTURE.md` 是架构主文档。
+- Phase 3C 已完成：snapshot cache、freshness contract、scanner materialization、refresh queue、worker、provider budget、cache monitoring。
+- `/api/scan` 只读 `scanner_results_snapshots`，不在用户请求时全 watchlist 重算。
+- `collector/materialize_scan.py` 生成 scanner cache。
+- `collector/materialize_oi_delta.py` 生成 OI delta / unusual activity cache。
+- `collector/run_refresh_worker.py` 消费 `provider_fetch_jobs`。
+- `/api/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget。
+- Analyze 已有真实技术评分与策略矩阵；当前推荐腿是 target fallback，不是完整 live-chain optimal leg selection。
+- `ib_internal` / `tt_internal` 仅供内部/过渡验证，公开产品仍需 licensed options provider。
 
 ## 关键文件
 - `server/src/migrate.js` — 建表脚本，Railway 上跑一次
+- `server/src/routes/scan.js` — scanner cache API，只读 `scanner_results_snapshots`
+- `server/src/routes/status.js` — `/api/status/data`, `/api/status/options`, `/api/status/cache`
 - `collector/auth.py` — Tastytrade 认证，`--login` 手动登录，自动续 remember-token
 - `collector/collect.py` — 每日 4:30pm ET 采集 IV → PostgreSQL
-- `frontend/src/data/mockAnalysis.js` — V2 mock data（9 symbols），待替换为真实 API
+- `collector/collect_options.py` — bounded option-chain snapshots
+- `collector/compute_gex.py` — GEX / Wall / Gamma Flip compute
+- `collector/materialize_scan.py` — scanner cache materializer
+- `collector/materialize_oi_delta.py` — OI delta / unusual activity materializer
+- `collector/run_refresh_worker.py` — refresh queue worker
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
@@ -47,8 +64,8 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Railway: PostgreSQL + Node.js 部署，跑 migrate.js
-2. Mac Studio collector: 配 .env，auth.py --login，加 cron
-3. Vercel: 部署 frontend/，注入 VITE_API_URL
-4. 前端: mock data → 真实 API
-5. V2 功能: GEX、期权链、Unusual OI、技术分析层
+1. Licensed options provider adapter（Massive/Polygon 第一候选，Intrinio 第二候选；需要授权/合同/API key）
+2. Broader option snapshot coverage：从 PLTR 扩展到 AAPL/SPY/QQQ/核心 watchlist
+3. Strategy leg selector：用 live chain bid/ask/Greeks/DTE/liquidity 自动选腿
+4. Technical analysis layer：MA50/200、RSI、MACD → direction score
+5. Production auth/subscription/paywall

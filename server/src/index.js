@@ -8,6 +8,7 @@ const statusRouter = require('./routes/status');
 const { router: optionsRouter } = require('./routes/options');
 const chainRouter = require('./routes/chain');
 const gexRouter = require('./routes/gex');
+const unusualRouter = require('./routes/unusual');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,6 +44,7 @@ app.use('/api/status', statusRouter);
 app.use('/api/options', optionsRouter);
 app.use('/api/chain', chainRouter);
 app.use('/api/gex', gexRouter);
+app.use('/api/unusual', unusualRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

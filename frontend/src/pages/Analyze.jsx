@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getDataStatus, getGex, getMetrics, getPrices } from '../lib/api';
+import { getDataStatus, getGex, getMetrics, getPrices, getUnusual } from '../lib/api';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
@@ -178,22 +178,209 @@ function applyGex(data, gexData) {
   };
 }
 
+function applyUnusual(data, unusualData) {
+  if (!data || !unusualData || unusualData.freshness === 'missing') {
+    return {
+      ...data,
+      unusualMeta: unusualData ? {
+        freshness: unusualData.freshness,
+        status: unusualData.status,
+        snapshotTs: unusualData.snapshot_ts,
+      } : null,
+    };
+  }
+
+  const items = (unusualData.items || []).map(item => ({
+    type: item.right === 'C' ? 'CALL' : 'PUT',
+    strike: toNumber(item.strike),
+    date: item.expiry ? String(item.expiry).slice(0, 10) : '--',
+    vol: Number(item.volume || 0),
+    oi: toNumber(item.open_interest),
+    previousOi: toNumber(item.previous_open_interest),
+    oiDelta: toNumber(item.oi_delta),
+    oiDeltaPct: toNumber(item.oi_delta_pct),
+    volumeOiRatio: toNumber(item.volume_oi_ratio),
+    status: item.status,
+    isUnusual: Boolean(item.is_unusual),
+    contract: item.contract_symbol || item.provider_contract_id,
+  })).filter(item => item.strike != null);
+
+  return {
+    ...data,
+    unusualActivity: items,
+    unusualMeta: {
+      freshness: unusualData.freshness,
+      status: unusualData.status,
+      snapshotTs: unusualData.snapshot_ts,
+      unusualCount: unusualData.unusual_count || 0,
+    },
+  };
+}
+
 function deriveTrendFromPriceHistory(priceHistory, fallbackTrend = {}) {
   if (!priceHistory || priceHistory.length < 5) return fallbackTrend;
 
   const closes = priceHistory.map(bar => bar.close);
   const latest = closes[closes.length - 1];
   const prev = closes[Math.max(0, closes.length - 6)];
-  const recent = closes.slice(Math.max(0, closes.length - 20));
-  const avg20 = recent.reduce((sum, close) => sum + close, 0) / recent.length;
+  const ma20 = sma(closes, 20);
+  const ma50 = sma(closes, 50);
+  const ma200 = sma(closes, 200);
+  const rsi14 = rsi(closes, 14);
+  const macdData = macd(closes);
   const change5d = prev ? ((latest / prev) - 1) * 100 : 0;
-  const aboveAvg = latest >= avg20;
+  const above20 = ma20 != null ? latest >= ma20 : true;
+  const above50 = ma50 != null ? latest >= ma50 : above20;
+  const macdBullish = macdData ? macdData.histogram >= 0 : change5d >= 0;
+  const rsiBullish = rsi14 == null ? true : rsi14 >= 50 && rsi14 <= 75;
+  const score = [
+    above20 ? 1 : -1,
+    above50 ? 1 : -1,
+    macdBullish ? 1 : -1,
+    rsiBullish ? 1 : rsi14 > 75 ? 0 : -1,
+    change5d > 1 ? 1 : change5d < -1 ? -1 : 0,
+  ].reduce((sum, value) => sum + value, 0);
 
   return {
     ...fallbackTrend,
-    regime: aboveAvg ? '价格强于20日均线' : '价格弱于20日均线',
+    regime: score >= 3 ? '多头趋势' : score <= -3 ? '空头趋势' : above20 ? '震荡偏强' : '震荡偏弱',
     momentum: change5d > 1 ? '向上增强' : change5d < -1 ? '向下减弱' : '横盘整理',
-    signal: aboveAvg && change5d > 0 ? '价格趋势偏强' : !aboveAvg && change5d < 0 ? '价格趋势偏弱' : '等待确认',
+    signal: score >= 3 ? '趋势延续' : score <= -3 ? '下行风险' : '等待确认',
+    score,
+    indicators: {
+      ma20,
+      ma50,
+      ma200,
+      rsi14,
+      macd: macdData,
+      change5d,
+    },
+  };
+}
+
+function sma(values, period) {
+  if (values.length < period) return null;
+  const slice = values.slice(-period);
+  return slice.reduce((sum, value) => sum + value, 0) / slice.length;
+}
+
+function emaSeries(values, period) {
+  if (values.length < period) return [];
+  const k = 2 / (period + 1);
+  const output = [];
+  let prev = values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  output.push(prev);
+  for (let i = period; i < values.length; i += 1) {
+    prev = values[i] * k + prev * (1 - k);
+    output.push(prev);
+  }
+  return output;
+}
+
+function rsi(values, period = 14) {
+  if (values.length <= period) return null;
+  let gains = 0;
+  let losses = 0;
+  for (let i = values.length - period; i < values.length; i += 1) {
+    const diff = values[i] - values[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses += Math.abs(diff);
+  }
+  if (losses === 0) return 100;
+  const rs = gains / losses;
+  return 100 - (100 / (1 + rs));
+}
+
+function macd(values) {
+  const ema12 = emaSeries(values, 12);
+  const ema26 = emaSeries(values, 26);
+  if (!ema12.length || !ema26.length) return null;
+  const offset = ema12.length - ema26.length;
+  const line = ema26.map((value, idx) => ema12[idx + offset] - value);
+  const signal = emaSeries(line, 9);
+  if (!signal.length) return null;
+  const macdLine = line[line.length - 1];
+  const signalLine = signal[signal.length - 1];
+  return {
+    line: macdLine,
+    signal: signalLine,
+    histogram: macdLine - signalLine,
+  };
+}
+
+function buildStrategyRecommendation(data) {
+  if (!data || data.ivRank == null || data.iv30 == null) return data?.recommendation || null;
+  const ivRank = Number(data.ivRank);
+  const trendScore = data.trend?.score ?? 0;
+  const gexPositive = (data.gexTotal ?? 0) >= 0;
+  const highIv = ivRank >= 50;
+  const lowIv = ivRank < 30;
+  const dte = highIv ? 45 : 30;
+  const width = Math.max(1, Math.round((data.price || 100) * 0.03));
+
+  if (highIv && Math.abs(trendScore) <= 2 && gexPositive) {
+    return {
+      strategy: 'Iron Condor',
+      reason: `IV Rank ${ivRank}% 偏高，趋势未单边确认，正Gamma/区间结构更适合定义风险卖方结构。`,
+      params: { pop: 66, dte, shortDelta: '0.16-0.20', maxCredit: Number((width * 0.32).toFixed(2)), maxLoss: Number((width * 0.68).toFixed(2)), width },
+      legs: [
+        { dir: -1, label: `PUT ${Math.round(data.putWall || data.price * 0.95)}`, deltaTarget: '-0.16', dte },
+        { dir: 1, label: `PUT ${Math.round((data.putWall || data.price * 0.95) - width)}`, deltaTarget: '-0.08', dte },
+        { dir: -1, label: `CALL ${Math.round(data.callWall || data.price * 1.05)}`, deltaTarget: '0.16', dte },
+        { dir: 1, label: `CALL ${Math.round((data.callWall || data.price * 1.05) + width)}`, deltaTarget: '0.08', dte },
+      ],
+    };
+  }
+
+  if (highIv && trendScore > 2) {
+    return {
+      strategy: 'Bull Put Spread',
+      reason: `IV Rank ${ivRank}% 偏高且技术方向偏强，优先考虑定义风险 put credit spread。`,
+      params: { pop: 64, dte, shortDelta: '0.20-0.30', maxCredit: Number((width * 0.35).toFixed(2)), maxLoss: Number((width * 0.65).toFixed(2)), width },
+      legs: [
+        { dir: -1, label: `PUT ${Math.round(data.putWall || data.price * 0.95)}`, deltaTarget: '-0.25', dte },
+        { dir: 1, label: `PUT ${Math.round((data.putWall || data.price * 0.95) - width)}`, deltaTarget: '-0.12', dte },
+      ],
+    };
+  }
+
+  if (highIv && trendScore < -2) {
+    return {
+      strategy: 'Bear Call Spread',
+      reason: `IV Rank ${ivRank}% 偏高且技术方向偏弱，优先考虑定义风险 call credit spread。`,
+      params: { pop: 64, dte, shortDelta: '0.20-0.30', maxCredit: Number((width * 0.35).toFixed(2)), maxLoss: Number((width * 0.65).toFixed(2)), width },
+      legs: [
+        { dir: -1, label: `CALL ${Math.round(data.callWall || data.price * 1.05)}`, deltaTarget: '0.25', dte },
+        { dir: 1, label: `CALL ${Math.round((data.callWall || data.price * 1.05) + width)}`, deltaTarget: '0.12', dte },
+      ],
+    };
+  }
+
+  if (lowIv) {
+    return {
+      strategy: 'Long Straddle',
+      reason: `IV Rank ${ivRank}% 偏低，若有催化或预期波动扩张，买方波动结构成本更低。`,
+      params: { pop: 42, dte: 30, shortDelta: 'ATM', maxCredit: 0, maxLoss: Number(((data.price || 100) * 0.06).toFixed(2)), width },
+      legs: [
+        { dir: 1, label: `CALL ${Math.round(data.price || 100)}`, deltaTarget: '0.50', dte: 30 },
+        { dir: 1, label: `PUT ${Math.round(data.price || 100)}`, deltaTarget: '-0.50', dte: 30 },
+      ],
+    };
+  }
+
+  return {
+    strategy: trendScore >= 0 ? 'Bull Call Spread' : 'Bear Call Spread',
+    reason: `IV Rank ${ivRank}% 中性，方向评分 ${trendScore}，更适合小仓位定义风险方向结构。`,
+    params: { pop: 55, dte: 35, shortDelta: '0.30', maxCredit: Number((width * 0.3).toFixed(2)), maxLoss: Number((width * 0.7).toFixed(2)), width },
+    legs: trendScore >= 0
+      ? [
+          { dir: 1, label: `CALL ${Math.round(data.price || 100)}`, deltaTarget: '0.55', dte: 35 },
+          { dir: -1, label: `CALL ${Math.round((data.price || 100) + width)}`, deltaTarget: '0.30', dte: 35 },
+        ]
+      : [
+          { dir: 1, label: `PUT ${Math.round(data.price || 100)}`, deltaTarget: '-0.55', dte: 35 },
+          { dir: -1, label: `PUT ${Math.round((data.price || 100) - width)}`, deltaTarget: '-0.30', dte: 35 },
+        ],
   };
 }
 
@@ -335,9 +522,15 @@ export default function Analyze() {
   const [dataStatus, setDataStatus] = useState(null);
   const activeTab = parseInt(searchParams.get('tab') || '0');
 
+  function syncSearchParams(next, options = {}) {
+    const normalized = new URLSearchParams(next);
+    if (normalized.toString() === searchParams.toString()) return;
+    setSearchParams(next, options);
+  }
+
   const setTab = t => {
     const sym = searchParams.get('symbol');
-    setSearchParams(sym ? { symbol: sym, tab: t } : { tab: t });
+    syncSearchParams(sym ? { symbol: sym, tab: t } : { tab: t });
   };
 
   useEffect(() => {
@@ -356,26 +549,27 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [metricsBySymbol, status, priceData, gexData] = await Promise.all([
+      const [metricsBySymbol, status, priceData, gexData, unusualData] = await Promise.all([
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
         getPrices(sym, 60).catch(() => null),
         getGex(sym).catch(() => null),
+        getUnusual(sym, 20).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult(buildGexOnlyAnalysis(sym, priceData, gexData));
-          setSearchParams({ symbol: sym, tab: activeTab });
+          setResult(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData));
+          syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
         }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
-          setResult(buildPriceOnlyAnalysis(sym, priceData));
-          setSearchParams({ symbol: sym, tab: 1 });
+          setResult(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData));
+          syncSearchParams({ symbol: sym, tab: 1 }, { replace: true });
           setError('');
         } else {
           setError(buildMissingMessage(sym, status));
@@ -385,14 +579,18 @@ export default function Analyze() {
       }
 
       const mock = getMockAnalysis(sym) || getMockAnalysis('SPY');
-      const data = applyGex(applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData), gexData);
+      const dataWithSignals = applyUnusual(applyGex(applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData), gexData), unusualData);
+      const data = {
+        ...dataWithSignals,
+        recommendation: buildStrategyRecommendation(dataWithSignals),
+      };
       setResult(data);
-      setSearchParams({ symbol: sym, tab: activeTab });
+      syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {
       const fallback = getMockAnalysis(sym);
       if (fallback) {
         setResult(fallback);
-        setSearchParams({ symbol: sym, tab: activeTab });
+        syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
         setError('真实数据 API 暂时不可用，当前显示本地示例结构。');
       } else {
         setResult(null);

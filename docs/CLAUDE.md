@@ -24,7 +24,19 @@ frontend/src/
   pages/analyze/           ← 4-tab analyze page
   pages/weekly/            ← 5-section weekly recap
   store/useStrategyStore.js ← Zustand global state
+server/src/             ← Express API routes, migration, cache/refresh helpers
+collector/              ← Collectors, GEX compute, scanner materializer, refresh worker
 ```
+
+## Current Architecture
+- Read `docs/ARCHITECTURE.md` before changing data flow.
+- Phase 3C is complete.
+- Browser requests go to Railway API, then PostgreSQL snapshots/cache.
+- `/api/scan` reads `scanner_results_snapshots`; it must not recompute the full watchlist on request.
+- Stale/missing data enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` is the execution boundary.
+- `/api/status/cache` reports job backlog, failures, scanner age, empty snapshots and provider budget.
+- Phase 3E is complete: `option_oi_delta_snapshots` powers `/api/unusual/:symbol`, `/api/scan` unusual filters and Analyze Tab3 unusual activity.
+- `ib_internal` and `tt_internal` are internal/transitional data sources, not public licensed product sources.
 
 ## Code Conventions
 - Use the Edit tool directly — never Python/Bash to modify files
@@ -53,8 +65,6 @@ frontend/src/
 }
 ```
 
-## Future Plans (do not implement yet)
-- IB Gateway integration for real-time data
-- Options scanner with push notifications
-- User authentication + subscription tiers
-- Portfolio tracking
+## Next Task
+- Next data blocker: licensed options provider adapter and broader option snapshot coverage.
+- Volume/OI is only an activity proxy. Confirmed unusual OI requires previous snapshot comparison.

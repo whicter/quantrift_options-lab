@@ -14,12 +14,20 @@ Target: self-use + subscribers. Bilingual (English strategy names, Chinese descr
 
 ## Key Directories
 ```
-src/
-  data/strategies.js     ← All 70+ strategy definitions
-  lib/blackscholes.js    ← BS pricing engine + Greeks
-  components/            ← UI components
-  store/useStrategyStore.js ← Zustand global state
+docs/                      ← Source of truth docs
+frontend/src/              ← React app
+server/src/                ← Express API
+collector/                 ← Python collectors, GEX compute, refresh worker
 ```
+
+## Current Architecture
+- See `docs/ARCHITECTURE.md` first.
+- Phase 3C is complete: API reads PostgreSQL snapshots/cache; user requests do not synchronously call IB, TT, or any provider.
+- `/api/scan` reads `scanner_results_snapshots`, produced by `collector/materialize_scan.py`.
+- Refresh requests enqueue `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes queued jobs.
+- `/api/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
+- Phase 3E is complete: `materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` serves confirmed/baseline OI delta state.
+- Public options data still requires a licensed provider adapter; `ib_internal` and `tt_internal` are internal/transitional only.
 
 ## Code Conventions
 - Use the Edit tool directly — never Python/Bash to modify files
@@ -48,8 +56,6 @@ src/
 }
 ```
 
-## Future Plans (do not implement yet)
-- IB Gateway integration for real-time data
-- Options scanner with push notifications
-- User authentication + subscription tiers
-- Portfolio tracking
+## Next Task
+- Next data blocker: licensed options provider adapter and broader option snapshot coverage.
+- Do not represent volume-only signals as confirmed institutional positioning.

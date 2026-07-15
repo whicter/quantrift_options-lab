@@ -552,17 +552,20 @@ GEX filters：
 
 | 条件 | 当前标签 | 含义 |
 |---|---|---|
-| `IV Rank >= 50` | `Iron Condor` | 高 IV，但趋势/GEX/链数据未接入时，默认使用定义风险中性卖方结构 |
+| `IV Rank >= 50` + bullish trend | `Bull Put Spread` | 高 IV 且价格趋势偏多，优先定义风险卖 Put |
+| `IV Rank >= 50` + bearish trend | `Bear Call Spread` | 高 IV 且价格趋势偏空，优先定义风险卖 Call |
+| `IV Rank >= 50` + neutral/missing trend | `Iron Condor` | 高 IV 但方向不明确，使用定义风险中性卖方结构 |
 | `30 <= IV Rank < 50` | `Iron Condor` | 中等 IV，偏小仓位/定义风险观察 |
 | `IV Rank < 30` | `Long Straddle` | 低 IV 环境可观察买方波动结构，但不代表已有事件催化 |
 
 重要边界：
 - `POP` 当前是规则占位值，不来自真实 option chain。
-- `Direction` 当前显示 `待接入趋势`，不使用 mock MA/RSI/MACD 伪装真实趋势。
+- `Direction` 来自 materialized scanner snapshot：`collector/materialize_scan.py` 读取 `price_history` 计算 MA20/50/200、RSI14、5D change 和 trend_score；60日数据不足时 MA200 为 null，不伪造长周期趋势。
+- `Earnings` 来自 `iv_history.earnings_date`；scanner 前端显示日期，并在 0-14 天窗口内标记事件风险 warning。
 - `/api/scan` 现在读取 latest `gex_snapshots` 和 `gex_by_strike_snapshots`，但只读数据库快照，不在用户请求路径直连 IB/TT/provider。
 - GEX fresh/stale/missing 由后端返回 `gex_status`；前端不能把 stale/missing GEX 当 fresh。
-- 真正的 options scanner 还需要 bid/ask spread、DTE、contract-level liquidity、事件风险、自动选腿和 POP 模型。
-- OI delta 异常尚未实现；当前 `volume_oi_ratio` 只说明“当期成交相对持仓是否活跃”，不等同机构建仓确认。
+- 真正的 options scanner 还需要 bid/ask spread、DTE、contract-level liquidity、自动选腿和 POP 模型。
+- OI delta unusual 已实现为连续 snapshot 差分；`volume_oi_ratio` 仍只说明“当期成交相对持仓是否活跃”，不能等同机构建仓确认。
 
 后续 scanner 应新增：
 - `pcr_oi` / `pcr_volume` abnormal filters。
@@ -887,7 +890,7 @@ GET /api/gex/AAPL
   → read latest gex_snapshots / option_chain_snapshots
   → fresh: return 200 with data
   → stale: return 200 with stale data + enqueue refresh
-  → missing: return 202 queued or 404 unavailable state
+  → missing: return missing/queued state
   → worker refreshes provider asynchronously
 ```
 
@@ -897,8 +900,8 @@ GET /api/gex/AAPL
 | --- | --- | --- |
 | `option_chain_snapshots` | 存储授权 provider 的期权链快照 | `symbol`, `snapshot_ts`, `expiration`, `strike`, `option_type`, `bid`, `ask`, `mid`, `iv`, `delta`, `gamma`, `theta`, `vega`, `open_interest`, `volume`, `source` |
 | `gex_snapshots` | 存储 GEX / Walls / Gamma Flip 派生结果 | `symbol`, `snapshot_ts`, `spot`, `global_gex`, `local_gamma`, `call_wall`, `put_wall`, `gamma_flip`, `gamma_regime`, `source` |
-| `symbol_metrics_snapshots` | 存储 IV/HV/earnings 等 symbol-level 指标 | `symbol`, `date`, `iv30`, `hv30`, `iv_rank`, `iv_percentile`, `earnings_date`, `source` |
-| `scanner_results_snapshots` | 存储预计算扫描结果 | `scan_key`, `snapshot_ts`, `filters`, `results`, `source` |
+| `symbol_metrics_snapshots` | 存储 IV/HV/earnings 等 symbol-level 指标 | `symbol`, `snapshot_ts`, `source`, `metrics`, `freshness`, `refresh_status` |
+| `scanner_results_snapshots` | 存储预计算扫描结果 | `scan_key`, `symbol`, `snapshot_ts`, `iv_rank`, `gamma_regime`, `wall_distance`, `signal_score`, `freshness` |
 | `provider_fetch_jobs` | 存储后台刷新队列 | `symbol`, `job_type`, `status`, `attempts`, `last_error`, `created_at`, `started_at`, `finished_at` |
 
 统一 response metadata：
@@ -944,8 +947,22 @@ GET /api/gex/AAPL
 刷新限制：
 
 - 单个 symbol 的手动 refresh 至少间隔 60 秒。
-- scanner 不应在用户请求时全市场重算，应读取 `scanner_results_snapshots`。
+- scanner 不在用户请求时全市场重算；`collector/materialize_scan.py` 预计算 `scanner_results_snapshots`，`/api/scan` 只读 latest materialized batch。
 - provider 请求预算需要独立记录，避免超出供应商 rate limit 或成本预算。
+
+Phase 3C implementation status：
+- `server/src/migrate.js` creates `symbol_metrics_snapshots` and `scanner_results_snapshots`.
+- `collector/materialize_scan.py` writes one scanner cache row per watchlist symbol from existing PostgreSQL snapshots only.
+- `/api/scan` now reads `scanner_results_snapshots`; if cache is missing/stale it enqueues `provider_fetch_jobs(symbol='__SCAN__', job_type='scanner_materialize')`.
+- `/api/gex/:symbol` and `/api/chain/:symbol` enqueue `option_chain_snapshot` refresh jobs for missing/stale snapshots but do not call providers synchronously.
+- API memory cache exists for metrics, GEX/chain and scanner responses.
+- `collector/run_refresh_worker.py` consumes queued jobs:
+  - `symbol_metrics_snapshot`
+  - `option_chain_snapshot`
+  - `scanner_materialize`
+- `provider_request_usage` tracks daily provider request usage and budget.
+- `/api/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
+- Remaining production work：wire the worker into Railway Cron/PM2/cron in the target runtime and replace internal providers with a licensed provider adapter.
 
 ### 新增 API 端点规划（server/）
 
@@ -956,3 +973,55 @@ GET /api/chain/:symbol/stats   # PCR / Max Pain / IV Skew / Call Wall / Put Wall
 GET /api/unusual/:symbol       # 异常OI变化 top 合约
 POST /api/refresh/:symbol      # 手动请求后台刷新，需 rate limit
 ```
+
+### Phase 3E OI Delta / Unusual Activity
+
+Phase 3E 把 unusual activity 从“volume/OI proxy”推进到“连续 snapshot 的 OI delta”。
+
+Phase 3E-1 数据层：
+- 输入：连续 `option_contract_snapshots`
+- 输出：contract-level OI delta snapshot
+- 字段：`symbol`, `contract_symbol`, `expiry`, `strike`, `right`, `open_interest`, `previous_open_interest`, `oi_delta`, `volume`, `volume_oi_ratio`, `snapshot_ts`, `source`
+- baseline rule：第一次看到某个合约时只能建立 baseline，不能标记为 unusual。
+- stale rule：previous snapshot 太旧时不确认 OI delta，只返回 stale/baseline 状态。
+
+Phase 3E-2 scanner：
+- unusual OI = `oi_delta` absolute threshold + relative threshold + volume confirmation。
+- volume-only / volume-to-OI 只能作为活跃度 proxy，不能写成机构建仓确认。
+- scanner 继续只读预计算结果，不在用户请求路径全链计算。
+
+### Analyze Direction / Strategy Matrix
+
+Current Analyze uses real `price_history` to compute:
+- MA20 / MA50 / MA200
+- RSI14
+- MACD line / signal / histogram
+- 5-day price change
+- direction score
+
+Strategy matrix inputs:
+- IV Rank / IV30 / HV from `/api/metrics`
+- price/trend indicators from `/api/prices/:symbol`
+- GEX / Call Wall / Put Wall from `/api/gex/:symbol` when usable
+- OI delta / unusual status from `/api/unusual/:symbol`
+
+Recommendation rules:
+- High IV + neutral trend + positive/usable GEX → Iron Condor
+- High IV + bullish trend → Bull Put Spread
+- High IV + bearish trend → Bear Call Spread
+- Low IV → Long Straddle
+- Mid IV → small defined-risk directional spread
+
+Boundary:
+- Current legs are target strikes from price / Call Wall / Put Wall, not contract-level optimal live-chain selection.
+- Full automatic leg selection requires broader option-chain snapshots with bid/ask spread, DTE, Greeks and liquidity for the watchlist.
+
+Implemented files：
+- `collector/materialize_oi_delta.py`
+- `server/src/routes/unusual.js`
+- `frontend/src/pages/analyze/Tab3Options.jsx`
+- `frontend/src/pages/Scan.jsx`
+
+Runtime evidence：
+- `materialize_oi_delta.py` wrote 10 PLTR rows from consecutive TT internal snapshots.
+- Current PLTR status is `quiet`: rows are confirmed, but `oi_delta=0`, so no unusual OI is reported.

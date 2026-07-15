@@ -1216,6 +1216,25 @@ collector / worker
   → provider_fetch_jobs status
 ```
 
+Phase 3C implemented runtime:
+
+```text
+collector/materialize_scan.py
+  → scanner_results_snapshots
+  → /api/scan reads latest materialized batch
+
+collector/materialize_oi_delta.py
+  → option_oi_delta_snapshots
+  → /api/unusual/:symbol
+  → /api/scan unusual filters
+
+Railway API enqueue
+  → provider_fetch_jobs
+  → collector/run_refresh_worker.py
+  → provider_request_usage
+  → /api/status/cache
+```
+
 Endpoint 行为：
 
 | Endpoint | Fresh snapshot | Stale snapshot | Missing snapshot |
@@ -1247,6 +1266,32 @@ Operational rules:
 - Per-symbol refresh should be rate-limited to at least 60 seconds.
 - Scanner results should be precomputed and cached; avoid full-market scans in request path.
 - Track provider budget, stale snapshot age, failed jobs, queue backlog and empty snapshots.
+
+Operational commands:
+
+```bash
+# Run schema migrations
+cd server
+node src/migrate.js
+
+# Refresh scanner cache
+cd collector
+venv311/bin/python materialize_scan.py
+
+# Refresh OI delta / unusual activity
+venv311/bin/python materialize_oi_delta.py
+
+# Process queued refresh jobs
+venv311/bin/python run_refresh_worker.py
+```
+
+Monitoring endpoint:
+
+```bash
+curl -f "$API_BASE/api/status/cache"
+```
+
+`/api/status/cache` reports provider job failures, queue backlog, scanner cache age, empty/metadata-only option snapshots and provider budget usage.
 
 Suggested TTLs:
 

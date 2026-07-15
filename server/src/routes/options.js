@@ -1,8 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
+const { cacheKey, getCache, setCache } = require('../lib/cache');
+const { enqueueRefreshJob } = require('../lib/refreshJobs');
 
 const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 15, 10);
+const GEX_CACHE_SECONDS = parseInt(process.env.GEX_CACHE_SECONDS ?? 120, 10);
+const CHAIN_CACHE_SECONDS = parseInt(process.env.CHAIN_CACHE_SECONDS ?? 120, 10);
 
 function isMissingTableError(err) {
   return err?.code === '42P01';
@@ -79,9 +83,25 @@ async function sendChainSnapshot(req, res, options = {}) {
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
+  const cacheSuffix = includeContracts ? 'chain' : 'snapshot';
+  const key = cacheKey(`options:${cacheSuffix}`, {
+    symbol,
+    includeContracts,
+    limit: req.query.limit || null,
+  });
+  const cached = getCache(key);
+  if (cached) return res.json(cached);
+
   try {
     const snapshot = await latestChainSnapshot(symbol);
-    if (!snapshot) return res.json(missingSnapshot(symbol));
+    if (!snapshot) {
+      const refreshStatus = await enqueueRefreshJob({
+        symbol,
+        jobType: 'option_chain_snapshot',
+        requestParams: { reason: 'missing_chain_snapshot' },
+      });
+      return res.json({ ...missingSnapshot(symbol), refresh_status: refreshStatus });
+    }
 
     let contracts = undefined;
     if (includeContracts) {
@@ -99,14 +119,23 @@ async function sendChainSnapshot(req, res, options = {}) {
       contracts = rows;
     }
 
-    res.json({
+    const state = freshnessFor(snapshot.snapshot_ts);
+    const refreshStatus = state.is_stale
+      ? await enqueueRefreshJob({
+          symbol,
+          jobType: 'option_chain_snapshot',
+          requestParams: { reason: 'stale_chain_snapshot', snapshot_ts: snapshot.snapshot_ts },
+        })
+      : 'none';
+
+    res.json(setCache(key, {
       symbol,
       snapshot_id: snapshot.id,
       source: snapshot.source,
       snapshot_ts: snapshot.snapshot_ts,
       provider_status: snapshot.provider_status,
-      refresh_status: 'none',
-      ...freshnessFor(snapshot.snapshot_ts),
+      refresh_status: refreshStatus,
+      ...state,
       underlying_price: snapshot.underlying_price,
       underlying_bid: snapshot.underlying_bid,
       underlying_ask: snapshot.underlying_ask,
@@ -116,7 +145,7 @@ async function sendChainSnapshot(req, res, options = {}) {
       missing_oi_ratio: snapshot.missing_oi_ratio,
       raw_metadata: snapshot.raw_metadata,
       ...(includeContracts ? { contracts } : {}),
-    });
+    }, CHAIN_CACHE_SECONDS));
   } catch (err) {
     if (isMissingTableError(err)) return res.json(missingSnapshot(symbol));
     console.error('GET /api/options/snapshot/:symbol error:', err.message);
@@ -130,9 +159,20 @@ async function sendGexSnapshot(req, res) {
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
+  const key = cacheKey('gex', { symbol });
+  const cached = getCache(key);
+  if (cached) return res.json(cached);
+
   try {
     const snapshot = await latestGexSnapshot(symbol);
-    if (!snapshot) return res.json(missingSnapshot(symbol));
+    if (!snapshot) {
+      const refreshStatus = await enqueueRefreshJob({
+        symbol,
+        jobType: 'option_chain_snapshot',
+        requestParams: { reason: 'missing_gex_snapshot' },
+      });
+      return res.json({ ...missingSnapshot(symbol), refresh_status: refreshStatus });
+    }
 
     const strikesResult = await pool.query(
       `SELECT strike, call_gex, put_gex, net_gex, call_oi, put_oi, call_volume, put_volume
@@ -142,14 +182,23 @@ async function sendGexSnapshot(req, res) {
       [snapshot.snapshot_id]
     );
 
-    res.json({
+    const state = freshnessFor(snapshot.snapshot_ts);
+    const refreshStatus = state.is_stale
+      ? await enqueueRefreshJob({
+          symbol,
+          jobType: 'option_chain_snapshot',
+          requestParams: { reason: 'stale_gex_snapshot', snapshot_ts: snapshot.snapshot_ts },
+        })
+      : 'none';
+
+    res.json(setCache(key, {
       symbol,
       snapshot_id: snapshot.snapshot_id,
       source: snapshot.source,
       snapshot_ts: snapshot.snapshot_ts,
       provider_status: snapshot.provider_status,
-      refresh_status: 'none',
-      ...freshnessFor(snapshot.snapshot_ts),
+      refresh_status: refreshStatus,
+      ...state,
       underlying_price: snapshot.underlying_price,
       global_gex: snapshot.global_gex,
       local_gamma: snapshot.local_gamma,
@@ -171,7 +220,7 @@ async function sendGexSnapshot(req, res) {
         missing_greeks_ratio: snapshot.missing_greeks_ratio,
         missing_oi_ratio: snapshot.missing_oi_ratio,
       },
-    });
+    }, GEX_CACHE_SECONDS));
   } catch (err) {
     if (isMissingTableError(err)) return res.json(missingSnapshot(symbol));
     console.error('GET /api/options/gex/:symbol error:', err.message);

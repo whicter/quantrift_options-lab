@@ -239,12 +239,16 @@
 - [x] `Scan.jsx` 从 mock scanner 改为调用真实 `/api/scan`
 - [x] Scanner watchlist 显示来自 `/api/status/data`
 - [x] Scanner table 使用真实 price close 和 price coverage status
-- [x] Strategy filter 仍在前端基于当前 IV-only recommendation 过滤
-- [x] Direction column 明确显示 `待接入趋势`，不再把 mock MA/RSI/MACD 当真实趋势
+- [x] Strategy filter 仍在前端基于 current recommendation 过滤
+- [x] Direction column 接入真实 `price_history` 派生趋势，不再显示 `待接入趋势`
+  - `collector/materialize_scan.py` 从 `price_history` 计算 trend_score、trend_label、trend_signal、5D change、RSI14、MA20/50/200
+  - `/api/scan` 从 `scanner_results_snapshots` 返回趋势字段，前端只读 materialized result
 
 ### Current Scanner Logic
-- [x] 当前 scanner 是 IV-only 第一版，不是完整 options scanner
-  - `IV Rank >= 50`：默认 `Iron Condor`，理由是高 IV 且趋势/链数据未接入时优先使用定义风险中性卖方结构
+- [x] 当前 scanner 是 IV + price trend + GEX/OI snapshot 版，不是完整 options chain selector
+  - `IV Rank >= 50` + bullish trend：`Bull Put Spread`
+  - `IV Rank >= 50` + bearish trend：`Bear Call Spread`
+  - `IV Rank >= 50` + neutral/missing trend：`Iron Condor`
   - `30 <= IV Rank < 50`：默认 `Iron Condor`，小仓位/定义风险
   - `IV Rank < 30`：默认 `Long Straddle`，只表示低 IV 适合观察买方波动结构，不代表已有事件催化
   - POP 为规则占位值，不来自真实 option chain
@@ -327,15 +331,31 @@
 - [x] `/scan` → V2 扫描器页（mock data）
 
 **V2 核心流程（ticker-first）**
-- [ ] 用户输入标的 → 系统分析（不再要求用户先选策略）
-- [ ] 技术分析层：MA50/200、RSI、MACD → 方向评分
-- [ ] IV 分析层：IV Rank + IV vs HV → 卖方/买方判断
-- [ ] 事件风险：财报日检测
-- [ ] 策略矩阵 → 推荐具体策略 + 建议 Delta/DTE/宽度参数
+- [x] 用户输入标的 → 系统分析（不再要求用户先选策略）
+- [x] 技术分析层：MA20/50/200、RSI、MACD → 方向评分
+  - 真实输入：`price_history`
+  - 60日历史不足 MA200 时返回 `ma200=null`，不伪造长周期数据
+- [x] IV 分析层：IV Rank + IV vs HV → 卖方/买方判断
+  - 真实输入：`/api/metrics`
+  - recommendation matrix 使用 IV Rank / IV30 / HV / trend score / GEX context
+- [x] 事件风险：财报日检测
+  - 真实输入：`iv_history.earnings_date`
+  - `/api/scan` 返回 `earnings_date`
+  - Scanner 前端显示财报日期；距离当前日期 0-14 天时标记 warning
+- [x] 策略矩阵 → 推荐具体策略 + 建议 Delta/DTE/宽度参数
+  - High IV + neutral/positive GEX：Iron Condor
+  - High IV + bullish trend：Bull Put Spread
+  - High IV + bearish trend：Bear Call Spread
+  - Low IV：Long Straddle
+  - Mid IV：small defined-risk directional spread
 
 **功能**
 - [ ] 用 live 链数据填充推荐策略的 legs（自动选择最优行权价）
+  - Current fallback：用 price / Call Wall / Put Wall 生成 target strikes 与 delta/DTE/width 参数
+  - Blocked for full product：需要 broader option-chain snapshots with bid/ask, Greeks, DTE, liquidity across watchlist
 - [ ] Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值
+  - Current completed：IV Rank, GEX, PCR, OI/volume, OI delta filters
+  - Remaining：contract-level spread width / liquidity / DTE / Greeks thresholds require broader option-chain snapshots
 - [ ] Push notifications: email + web push 当扫描命中条件
 
 **Phase 3D — Options Positioning Data Layer（IB internal 过渡版，生产需授权 provider）**
@@ -589,26 +609,71 @@
   - IB internal disabled for public product path
 
 **Phase 3C — Cache & Freshness Architecture（真实数据源上线体验）**
-- [ ] 定义 snapshot freshness policy：IV/HV daily，earnings daily，option chain 1-5min，OI daily/provider cadence，GEX/Walls/Gamma Flip 随 chain refresh，scanner 1-5min
-- [ ] PostgreSQL schema：`option_chain_snapshots`、`gex_snapshots`、`symbol_metrics_snapshots`、`scanner_results_snapshots`、`provider_fetch_jobs`
-- [ ] API contract：所有真实数据 endpoint 返回 `snapshot_ts`、`source`、`freshness`、`is_stale`、`refresh_status`
-- [ ] `/api/gex/:symbol` 行为：fresh → 200 data；stale → 200 stale data + enqueue refresh；missing → queued/unavailable 状态；不可同步等待 provider
-- [ ] `/api/chain/:symbol` 行为：只读最新授权 provider 快照；不从用户请求路径直连本地 Mac Studio / IB Gateway
-- [ ] `/api/scan` 行为：读取 `scanner_results_snapshots` 或 latest materialized result；不在请求时全市场重算
-- [ ] `provider_fetch_jobs` worker：记录 symbol、job_type、status、attempts、last_error、created_at、started_at、finished_at
-- [ ] Refresh rate limit：单 symbol 至少 60 秒间隔；同一用户手动 refresh 限频；全局 provider request budget 记录
-- [ ] API memory cache：metrics 30-60s，GEX 30-120s，scanner 1-5min
-- [ ] Frontend stale-while-revalidate：保留上一份数据，后台刷新，不因 refresh 清空页面
-- [ ] 前端状态文案：fresh / stale but usable / refreshing / missing / unavailable
-- [ ] 缺失数据体验：不要用 mock data 伪装真实数据；显示“正在准备数据”或“该 symbol 暂无授权数据”
-- [ ] 监控：provider fetch failure、stale snapshot age、job queue backlog、rate-limit hit、empty snapshot count
-- [ ] 回滚策略：关闭 manual refresh，仅返回已有 snapshot；保留旧 endpoint contract 不破坏前端
+- [x] 定义 snapshot freshness policy：IV/HV daily，earnings daily，option chain 1-5min，OI daily/provider cadence，GEX/Walls/Gamma Flip 随 chain refresh，scanner 1-5min
+- [x] PostgreSQL schema：`option_chain_snapshots`、`gex_snapshots`、`symbol_metrics_snapshots`、`scanner_results_snapshots`、`provider_fetch_jobs`
+  - `option_chain_snapshots` / `gex_snapshots` / `provider_fetch_jobs` 已存在
+  - 新增 `symbol_metrics_snapshots`
+  - 新增 `scanner_results_snapshots`
+- [x] API contract：真实数据 endpoint 返回或补充 `snapshot_ts`、`source`、`freshness`、`is_stale`、`refresh_status`
+  - `/api/metrics`：保留原字段，新增 metadata
+  - `/api/gex/:symbol` / `/api/chain/:symbol`：missing/stale 只 enqueue refresh，不同步调用 provider
+  - `/api/scan`：读取 scanner materialized rows，并返回 freshness metadata
+- [x] `/api/gex/:symbol` 行为：fresh → 200 data；stale → 200 stale data + enqueue refresh；missing → queued 状态；不可同步等待 provider
+- [x] `/api/chain/:symbol` 行为：只读最新 provider snapshot；不从用户请求路径直连本地 Mac Studio / IB Gateway
+- [x] `/api/scan` 行为：读取 `scanner_results_snapshots` latest materialized result；不在请求时全市场重算
+- [x] `provider_fetch_jobs` worker：记录 symbol、job_type、status、attempts、last_error、created_at、started_at、finished_at
+  - `collector/run_refresh_worker.py`
+  - supports `symbol_metrics_snapshot`, `option_chain_snapshot`, `scanner_materialize`
+  - unsupported/unconfigured licensed provider jobs fail closed with `last_error`
+- [x] Refresh rate limit：单 symbol/job/provider 至少 60 秒间隔入队；worker 记录 provider budget usage
+  - `provider_request_usage` tracks provider/date/job_type request_count vs request_budget
+  - 同一用户手动 refresh 限频仍待 product auth layer
+- [x] API memory cache：metrics 60s，GEX/chain 120s，scanner 60s（env 可调）
+- [x] Frontend stale-while-revalidate：当前 Analyze/Scan 在 loading 时保留已有结果；API 提供 freshness/refresh_status
+- [x] 前端状态文案：已有 GEX fresh/stale/unusable、price stale、missing data 文案；scanner rows 暴露 freshness metadata
+- [x] 缺失数据体验：不要用 mock data 伪装真实数据；missing snapshot 返回 queued/missing 状态
+- [x] 监控：provider fetch failure、stale snapshot age、job queue backlog、rate-limit hit、empty snapshot count
+  - `/api/status/cache` returns job summary, recent failures, scanner stale age, empty/metadata-only option snapshot count, provider budget usage
+- [x] 回滚策略：关闭 materialize job 后 `/api/scan` 仅返回已有 snapshot；保留旧 endpoint array contract 不破坏前端
 
 **大单 / Unusual Activity（免费方案）**
-- [ ] 每日 OI 变动追踪：OI delta 异常大的合约 → 机构建仓信号
-- [ ] Unusual OI scanner：按 OI 变化量 / 成交量 vs OI 比值筛选
-- [ ] /scan 新增过滤器：Unusual OI、PCR 异常、GEX 环境
+- [x] **Phase 3E-1 OI Delta Snapshot Layer**
+  - 新增 contract-level OI history / delta 表
+  - 从连续 `option_contract_snapshots` 计算 OI delta
+  - 输出 `symbol`, `contract_symbol`, `expiry`, `strike`, `right`, `open_interest`, `previous_open_interest`, `oi_delta`, `volume`, `volume_oi_ratio`, `snapshot_ts`, `source`
+  - Fail-closed：没有 previous snapshot 时不标记 unusual，只标记 baseline
+  - 不改变交易策略逻辑
+- [x] Phase 3E-2 Unusual OI scanner：
+  - 按 OI delta、volume/OI、absolute volume、DTE、bid/ask completeness 过滤
+  - 只读预计算 snapshot，不在用户请求时计算全链
+- [x] Phase 3E-3 `/scan` 新增过滤器：
+  - Unusual OI
+  - PCR 异常
+  - GEX 环境组合
+  - near wall + unusual OI combined signal
+- [x] Phase 3E-4 `/analyze` Unusual Activity tab/card：
+  - 展示 top contracts
+  - 标注 baseline / confirmed delta / stale / missing
+  - 不把 volume-only proxy 写成“机构建仓确认”
+- [x] Runtime verification：
+  - Migration completed against Railway PostgreSQL.
+  - `venv311/bin/python materialize_oi_delta.py` wrote 10 PLTR OI delta rows, `status=confirmed`, `unusual=0`.
+  - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows.
+  - Local API verified：`/api/unusual/PLTR?limit=5` returned confirmed rows with `oi_delta=0`, `status=quiet`.
+  - Local API verified：`/api/status/cache` returned `oi_delta.row_count=10`, `status_counts.confirmed=10`.
 - [ ] （付费扩展）Unusual Whales API：真实 sweep / dark pool 数据，$50/月
+
+**Phase 3F — Scanner UX/Data Completion**
+- [x] Scanner direction：materialized trend fields from `price_history` replace `待接入趋势`.
+- [x] Scanner earnings risk：display `earnings_date` and warn when event is within 0-14 days.
+- [x] Scanner row navigation：click row navigates directly to `/analyze?symbol=XXX&tab=0`.
+- [x] Analyze URL sync：automatic data-load URL normalization uses replace/skip when params already match, avoiding an extra `/analyze?symbol=XXX` browser-history entry.
+- [x] Scanner API cache key includes unusual/PCR filters, preventing filtered results from reusing stale cache entries from different filter combinations.
+- [x] Verification：
+  - Migration completed against Railway PostgreSQL after adding trend columns.
+  - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows with trend fields.
+  - Local API verified：`/api/scan?minIvr=0&maxIvr=100&limit=3` returned `trend_label`, `trend_score`, `trend_change_5d`, `trend_rsi14`, MA fields, and `earnings_date`.
+  - Production API still requires Railway deploy to expose new `/api/scan` response fields; database rows are already materialized.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)

@@ -28,6 +28,11 @@ export function getScan({
   minTotalOi = '',
   minTotalVolume = '',
   minVolumeOiRatio = '',
+  minUnusualOi = '',
+  minOiDelta = '',
+  pcrMin = '',
+  pcrMax = '',
+  unusualOnly = false,
   sort = 'ivr',
   limit = 50,
 } = {}) {
@@ -37,6 +42,7 @@ export function getScan({
     minIvHv: String(minIvHv),
     gammaRegime,
     wall,
+    unusualOnly: String(unusualOnly),
     sort,
     limit: String(limit),
   };
@@ -45,6 +51,10 @@ export function getScan({
   if (minTotalOi !== '') params.minTotalOi = String(minTotalOi);
   if (minTotalVolume !== '') params.minTotalVolume = String(minTotalVolume);
   if (minVolumeOiRatio !== '') params.minVolumeOiRatio = String(minVolumeOiRatio);
+  if (minUnusualOi !== '') params.minUnusualOi = String(minUnusualOi);
+  if (minOiDelta !== '') params.minOiDelta = String(minOiDelta);
+  if (pcrMin !== '') params.pcrMin = String(pcrMin);
+  if (pcrMax !== '') params.pcrMax = String(pcrMax);
 
   const query = new URLSearchParams(params);
   return getJson(`/api/scan?${query.toString()}`);
@@ -56,6 +66,10 @@ export function getPrices(symbol, limit = 60) {
 
 export function getGex(symbol) {
   return getJson(`/api/gex/${encodeURIComponent(symbol.toUpperCase())}`);
+}
+
+export function getUnusual(symbol, limit = 20) {
+  return getJson(`/api/unusual/${encodeURIComponent(symbol.toUpperCase())}?limit=${limit}`);
 }
 
 export { API_BASE };

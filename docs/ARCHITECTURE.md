@@ -125,6 +125,18 @@ frontend user request
 | API memory cache | 降低重复请求和 DB 压力 | metrics 30-60s, GEX 30-120s, scanner 1-5min |
 | Frontend stale-while-revalidate | 保持页面稳定，不因刷新清空内容 | 保留上一份结果，后台刷新，显示 freshness 状态 |
 
+Phase 3C implemented path：
+
+```text
+collector jobs
+  → iv_history / price_history / option_chain_snapshots / gex_snapshots
+  → collector/materialize_scan.py
+  → scanner_results_snapshots
+  → /api/scan reads latest materialized batch only
+```
+
+`/api/scan` must not rebuild the full watchlist from raw IV/GEX tables during a user request. If the materialized scanner batch is missing or stale, the API creates/reuses a `provider_fetch_jobs` row with `job_type=scanner_materialize`.
+
 API response 应统一携带数据状态：
 
 ```json
@@ -163,6 +175,11 @@ API response 应统一携带数据状态：
 - 同一用户的手动刷新需要限频。
 - 全局 provider request budget 需要独立记录，避免超出供应商限制。
 - `provider_fetch_jobs` 应记录 symbol、job type、status、attempts、last_error、created_at、started_at、finished_at。
+- Phase 3C has the enqueue side, worker side, and provider budget accounting:
+  - API creates/reuses `provider_fetch_jobs`.
+  - `collector/run_refresh_worker.py` consumes queued jobs.
+  - `provider_request_usage` tracks daily provider/job request counts against a configured budget.
+  - `/api/status/cache` reports backlog, failures, stale scanner age, empty snapshots and budget usage.
 
 ---
 
@@ -1246,7 +1263,38 @@ Mac Studio collector
 
 ---
 
-## 23. 最终架构概览
+## 23. 当前架构快照（Phase 3C complete）
+
+当前已完成的运行路径：
+
+| Path | Current implementation |
+|---|---|
+| IV metrics | `collect.py` → `iv_history` → `/api/metrics` |
+| Price history | `collect_prices.py` → `price_history` → `/api/prices/:symbol` |
+| Option chain | `collect_options.py` → `option_chain_snapshots` / `option_contract_snapshots` |
+| GEX / Walls | `compute_gex.py` → `gex_snapshots` / `gex_by_strike_snapshots` |
+| Scanner cache | `materialize_scan.py` → `scanner_results_snapshots` → `/api/scan` |
+| OI delta / unusual | `materialize_oi_delta.py` → `option_oi_delta_snapshots` → `/api/unusual/:symbol` |
+| Refresh queue | API enqueue → `provider_fetch_jobs` → `run_refresh_worker.py` |
+| Budget / monitoring | `provider_request_usage` + `/api/status/cache` |
+
+3C runtime verification performed on 2026-07-14:
+
+- Migration completed against Railway PostgreSQL.
+- `materialize_scan.py` wrote 67 scanner rows for `scan_key=watchlist_v1`.
+- `run_refresh_worker.py` completed with no queued jobs.
+- Local API with Railway DB returned `/api/scan?minIvr=0&maxIvr=100&limit=3` from materialized scanner rows.
+- `/api/status/cache` returned scanner row_count=67 and stale=false.
+- `/api/metrics?symbols=PLTR` returned freshness metadata.
+- Phase 3E verification：`materialize_oi_delta.py` wrote 10 PLTR OI delta rows; `/api/unusual/PLTR` returned confirmed rows with `oi_delta=0` and `status=quiet`.
+- Scanner materialization derives trend fields from `price_history` (`trend_score`, `trend_label`, `trend_signal`, 5D change, RSI14, MA20/50/200) and carries `earnings_date` from `iv_history`; the frontend does not compute scanner-wide trend on demand.
+
+Known current monitoring state:
+
+- `/api/status/cache` may report `degraded` while historical failed IB jobs or metadata-only option snapshots remain in the 24h window.
+- This is expected monitoring visibility, not a Phase 3C implementation failure.
+
+## 24. 最终架构概览
 
 ```text
                         ┌─────────────────────────────┐
@@ -1263,25 +1311,28 @@ Mac Studio collector
                                        v
                         ┌─────────────────────────────┐
                         │        Railway Express       │
-                        │ health / metrics / scan      │
+                        │ health / metrics / prices    │
+                        │ chain / gex / scan / status  │
                         └──────────────┬──────────────┘
                                        │ SQL
                                        v
                         ┌─────────────────────────────┐
                         │     Railway PostgreSQL       │
-                        │     public.iv_history        │
+                        │ iv / price / option / gex    │
+                        │ scanner / jobs / usage       │
                         └──────────────┬──────────────┘
                                        ^
-                                       │ UPSERT + SSL
+                                       │ UPSERT + materialize + jobs
                         ┌──────────────┴──────────────┐
-                        │       Python Collector       │
-                        │ Mac Studio / scheduled run   │
+                        │ Python Collector / Worker    │
+                        │ collect / compute / refresh  │
                         └──────────────┬──────────────┘
                                        │
                                        v
                         ┌─────────────────────────────┐
-                        │    External Market Source    │
+                        │ Market Data Providers        │
+                        │ TT / IB internal / licensed  │
                         └─────────────────────────────┘
 ```
 
-该架构适合当前项目阶段。近期工作的重点不是拆分服务，而是让数据管道、schema、备份、参数校验和监控达到可验证、可恢复、可维护的状态。
+该架构适合当前项目阶段。近期工作的重点不是拆分服务，而是接入授权 options provider、补齐 unusual/OI delta 数据层，并把 scanner/analyze 从 positioning context 推进到 contract-level strategy selection。

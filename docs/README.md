@@ -82,6 +82,11 @@ Open http://localhost:5173
 - Future data ingestion should use provider adapters so IB can be replaced by licensed production data without changing frontend contracts
 - Production data UX should use snapshot cache + stale-while-revalidate: return fresh snapshots immediately, return stale-but-labeled snapshots while refreshing, and show queued/unavailable states instead of fake mock data when a symbol has no data
 - Scanner results should be precomputed/cached, not full-market recalculated on every user request
+- Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
+- Scanner materialized rows include IV, latest price, GEX/walls, OI/volume, OI delta, price-history trend, and earnings date
+- Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
+- Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
+- Analyze now computes direction score from price history using MA20/50/200, RSI and MACD, then combines IV Rank, GEX and trend context into a strategy matrix recommendation.
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
@@ -90,7 +95,9 @@ Open http://localhost:5173
 - [x] V2: Vercel deployment
 - [x] V2: GEX data model + licensed options data provider abstraction
 - [ ] V2: Licensed options provider adapter after vendor/key/license selection
-- [ ] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
+- [x] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
+- [x] V2: Refresh worker loop, provider budget accounting and stale/empty snapshot monitoring
+- [x] V2: Phase 3E OI delta / unusual activity snapshot layer
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

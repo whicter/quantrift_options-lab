@@ -49,12 +49,36 @@ function wallDistance(row) {
   return { side: 'Put', pct: put };
 }
 
+function daysUntil(dateText) {
+  if (!dateText) return null;
+  const date = new Date(`${String(dateText).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return Math.ceil((date.getTime() - todayUtc) / 86400000);
+}
+
 function recommendFromIv(row) {
   const ivRank = Number(row.iv_rank ?? 0);
   const ivHvDiff = pct(row.iv_hv_diff) ?? 0;
   const regime = row.gamma_regime;
+  const trendScore = num(row.trend_score) ?? 0;
 
   if (ivRank >= 50) {
+    if (trendScore >= 3) {
+      return {
+        strategy: 'Bull Put Spread',
+        reason: `IV Rank ${Math.round(ivRank)}%，趋势偏多；优先考虑定义风险的卖 Put 结构。`,
+        params: { pop: 64 },
+      };
+    }
+    if (trendScore <= -3) {
+      return {
+        strategy: 'Bear Call Spread',
+        reason: `IV Rank ${Math.round(ivRank)}%，趋势偏空；优先考虑定义风险的卖 Call 结构。`,
+        params: { pop: 64 },
+      };
+    }
     return {
       strategy: 'Iron Condor',
       reason: `IV Rank ${Math.round(ivRank)}%，IV-HV ${ivHvDiff.toFixed(1)}pt；${regime ? `Gamma ${regime}` : 'GEX 未覆盖'}。`,
@@ -80,17 +104,27 @@ function recommendFromIv(row) {
 function toScanRow(row) {
   const recommendation = recommendFromIv(row);
   const nearestWall = wallDistance(row);
+  const earningsDays = daysUntil(row.earnings_date);
+  const trendScore = num(row.trend_score);
+  const trendLabel = row.trend_label || (trendScore == null ? '趋势数据不足' : '等待确认');
   return {
     symbol: row.symbol,
     price: row.price_close == null ? null : Number(row.price_close).toFixed(2),
     ivRank: Math.round(Number(row.iv_rank ?? 0)),
     iv30: pct(row.iv30)?.toFixed(1) ?? '--',
     hv30: pct(row.hv30)?.toFixed(1) ?? '--',
-    direction: { score: 0, label: '待接入趋势' },
+    direction: {
+      score: trendScore ?? 0,
+      label: trendLabel,
+      signal: row.trend_signal || 'missing',
+      change5d: num(row.trend_change_5d),
+      rsi14: num(row.trend_rsi14),
+    },
     recommendation,
     earnings: {
       date: row.earnings_date ? String(row.earnings_date).slice(0, 10) : null,
-      warning: false,
+      daysAway: earningsDays,
+      warning: earningsDays != null && earningsDays >= 0 && earningsDays <= 14,
     },
     gex: {
       status: row.gex_status || 'missing',
@@ -106,6 +140,12 @@ function toScanRow(row) {
       totalVolume: num(row.total_volume),
       volumeOiRatio: num(row.volume_oi_ratio),
       score: Math.round(num(row.signal_score) ?? 0),
+    },
+    unusual: {
+      count: num(row.unusual_oi_count) ?? 0,
+      maxDelta: num(row.max_oi_delta),
+      maxVolumeOiRatio: num(row.max_volume_oi_ratio),
+      status: row.unusual_status || 'missing',
     },
     dataMeta: {
       source: row.source,
@@ -138,6 +178,11 @@ export default function Scan() {
   const [minTotalOi, setMinTotalOi] = useState('');
   const [minTotalVolume, setMinTotalVolume] = useState('');
   const [minVolumeOiRatio, setMinVolumeOiRatio] = useState('');
+  const [minUnusualOi, setMinUnusualOi] = useState('');
+  const [minOiDelta, setMinOiDelta] = useState('');
+  const [pcrMin, setPcrMin] = useState('');
+  const [pcrMax, setPcrMax] = useState('');
+  const [unusualOnly, setUnusualOnly] = useState(false);
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
   const [results, setResults] = useState(null);
@@ -170,6 +215,11 @@ export default function Scan() {
         minTotalOi,
         minTotalVolume,
         minVolumeOiRatio,
+        minUnusualOi,
+        minOiDelta,
+        pcrMin,
+        pcrMax,
+        unusualOnly,
         sort,
         limit: 100,
       });
@@ -186,7 +236,7 @@ export default function Scan() {
   }
 
   function handleRowClick(symbol) {
-    navigate(`/analyze?symbol=${symbol}`);
+    navigate(`/analyze?symbol=${symbol}&tab=0`);
   }
 
   function priceStatus(symbol) {
@@ -314,6 +364,55 @@ export default function Scan() {
           </div>
 
           <div className="scan-filter-section">
+            <div className="scan-filter-label">Unusual / PCR</div>
+            <label className="scan-check-row">
+              <input
+                type="checkbox"
+                checked={unusualOnly}
+                onChange={e => setUnusualOnly(e.target.checked)}
+              />
+              <span>仅 OI 异动</span>
+            </label>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">Count</span>
+              <input
+                type="number" min={0}
+                className="scan-wide-input"
+                placeholder="最低"
+                value={minUnusualOi}
+                onChange={e => setMinUnusualOi(e.target.value)}
+              />
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">ΔOI</span>
+              <input
+                type="number" min={0}
+                className="scan-wide-input"
+                placeholder="最低"
+                value={minOiDelta}
+                onChange={e => setMinOiDelta(e.target.value)}
+              />
+            </div>
+            <div className="scan-filter-row">
+              <span className="scan-filter-sub">PCR</span>
+              <input
+                type="number" min={0} step={0.1}
+                className="scan-num-input"
+                placeholder="min"
+                value={pcrMin}
+                onChange={e => setPcrMin(e.target.value)}
+              />
+              <input
+                type="number" min={0} step={0.1}
+                className="scan-num-input"
+                placeholder="max"
+                value={pcrMax}
+                onChange={e => setPcrMax(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="scan-filter-section">
             <div className="scan-filter-label">策略类型（可多选）</div>
             <div className="scan-strategy-chips">
               {STRATEGY_OPTIONS.map(s => (
@@ -369,6 +468,7 @@ export default function Scan() {
                   <span>方向</span>
                   <span>GEX</span>
                   <span>Wall</span>
+                  <span>OI Δ</span>
                   <span>推荐策略</span>
                   <span>POP</span>
                   <span>价格</span>
@@ -389,7 +489,9 @@ export default function Scan() {
                       <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>/</span>
                       <span style={{ color: 'var(--text-dim)' }}>{d.hv30}%</span>
                     </span>
-                    <span style={{ color: DIR_COLOR(d.direction.score) }}>{d.direction.label}</span>
+                    <span style={{ color: DIR_COLOR(d.direction.score) }} title={d.direction.change5d == null ? '' : `5日 ${d.direction.change5d.toFixed(1)}%`}>
+                      {d.direction.label}
+                    </span>
                     <span>
                       <span className={`scan-gex-pill ${d.gex.regime}`}>
                         {d.gex.status === 'fresh' ? d.gex.regime : d.gex.status}
@@ -401,6 +503,11 @@ export default function Scan() {
                         ? `${d.gex.nearestWall.side} ${d.gex.nearestWall.pct.toFixed(1)}%`
                         : '--'}
                     </span>
+                    <span className="scan-wall-cell">
+                      {d.unusual.status === 'confirmed'
+                        ? `${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}`
+                        : d.unusual.status}
+                    </span>
                     <span className="scan-strategy">{d.recommendation.strategy}</span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                       {d.recommendation.params.pop}%
@@ -409,7 +516,9 @@ export default function Scan() {
                       {priceStatus(d.symbol) === 'covered' ? 'price' : priceStatus(d.symbol)}
                     </span>
                     <span style={{ color: d.earnings.warning ? 'var(--yellow)' : 'var(--text-muted)', fontSize: 11 }}>
-                      {d.earnings.date ? d.earnings.date.slice(5) : '—'}
+                      {d.earnings.date
+                        ? `${d.earnings.date.slice(5)}${d.earnings.warning ? ` (${d.earnings.daysAway}天)` : ''}`
+                        : '—'}
                     </span>
                   </div>
                 ))}

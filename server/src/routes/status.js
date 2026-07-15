@@ -253,4 +253,180 @@ router.get('/options', async (req, res) => {
   }
 });
 
+router.get('/cache', async (req, res) => {
+  try {
+    const [
+      jobsTable,
+      scannerTable,
+      optionsTable,
+      usageTable,
+      oiDeltaTable,
+    ] = await Promise.all([
+      pool.query(`SELECT to_regclass('public.provider_fetch_jobs') AS table_name`),
+      pool.query(`SELECT to_regclass('public.scanner_results_snapshots') AS table_name`),
+      pool.query(`SELECT to_regclass('public.option_chain_snapshots') AS table_name`),
+      pool.query(`SELECT to_regclass('public.provider_request_usage') AS table_name`),
+      pool.query(`SELECT to_regclass('public.option_oi_delta_snapshots') AS table_name`),
+    ]);
+
+    const hasJobs = Boolean(jobsTable.rows[0]?.table_name);
+    const hasScanner = Boolean(scannerTable.rows[0]?.table_name);
+    const hasOptions = Boolean(optionsTable.rows[0]?.table_name);
+    const hasUsage = Boolean(usageTable.rows[0]?.table_name);
+    const hasOiDelta = Boolean(oiDeltaTable.rows[0]?.table_name);
+
+    let jobSummary = [];
+    let recentFailures = [];
+    if (hasJobs) {
+      const [summaryResult, failuresResult] = await Promise.all([
+        pool.query(
+          `SELECT status, job_type, COUNT(*)::int AS count
+           FROM provider_fetch_jobs
+           WHERE created_at >= NOW() - INTERVAL '24 hours'
+           GROUP BY status, job_type
+           ORDER BY job_type, status`
+        ),
+        pool.query(
+          `SELECT id, symbol, job_type, provider, attempts, last_error, created_at, finished_at
+           FROM provider_fetch_jobs
+           WHERE status = 'failed'
+           ORDER BY finished_at DESC NULLS LAST, created_at DESC
+           LIMIT 10`
+        ),
+      ]);
+      jobSummary = summaryResult.rows;
+      recentFailures = failuresResult.rows;
+    }
+
+    let scanner = {
+      table_exists: hasScanner,
+      latest_snapshot_ts: null,
+      age_minutes: null,
+      row_count: 0,
+      stale: true,
+    };
+    if (hasScanner) {
+      const { rows } = await pool.query(
+        `WITH latest AS (
+           SELECT MAX(snapshot_ts) AS snapshot_ts
+           FROM scanner_results_snapshots
+           WHERE scan_key = $1
+         )
+         SELECT latest.snapshot_ts,
+                EXTRACT(EPOCH FROM (NOW() - latest.snapshot_ts)) / 60.0 AS age_minutes,
+                COUNT(s.id)::int AS row_count
+         FROM latest
+         LEFT JOIN scanner_results_snapshots s ON s.snapshot_ts = latest.snapshot_ts AND s.scan_key = $1
+         GROUP BY latest.snapshot_ts`,
+        [process.env.SCAN_KEY || 'watchlist_v1']
+      );
+      const row = rows[0] || {};
+      const age = row.age_minutes == null ? null : Number(row.age_minutes);
+      scanner = {
+        table_exists: true,
+        latest_snapshot_ts: row.snapshot_ts || null,
+        age_minutes: age,
+        row_count: row.row_count || 0,
+        stale: age == null ? true : age > parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10),
+      };
+    }
+
+    let emptySnapshots = 0;
+    if (hasOptions) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM option_chain_snapshots
+         WHERE created_at >= NOW() - INTERVAL '24 hours'
+           AND (contract_count = 0 OR provider_status IN ('empty', 'metadata_only'))`
+      );
+      emptySnapshots = rows[0]?.count || 0;
+    }
+
+    let providerUsage = [];
+    if (hasUsage) {
+      const { rows } = await pool.query(
+        `SELECT provider, usage_date, job_type, request_count, request_budget,
+                CASE
+                  WHEN request_budget > 0 THEN ROUND((request_count::numeric / request_budget) * 100, 2)
+                  ELSE NULL
+                END AS budget_used_pct
+         FROM provider_request_usage
+         WHERE usage_date >= CURRENT_DATE - INTERVAL '7 days'
+         ORDER BY usage_date DESC, provider, job_type`
+      );
+      providerUsage = rows;
+    }
+
+    let oiDelta = {
+      table_exists: hasOiDelta,
+      latest_snapshot_ts: null,
+      row_count: 0,
+      unusual_count: 0,
+      status_counts: {},
+    };
+    if (hasOiDelta) {
+      const { rows } = await pool.query(
+        `WITH latest AS (
+           SELECT MAX(snapshot_ts) AS snapshot_ts
+           FROM option_oi_delta_snapshots
+         ),
+         latest_rows AS (
+           SELECT *
+           FROM option_oi_delta_snapshots
+           WHERE snapshot_ts = (SELECT snapshot_ts FROM latest)
+         )
+         SELECT
+           (SELECT snapshot_ts FROM latest) AS latest_snapshot_ts,
+           (SELECT COUNT(*)::int FROM latest_rows) AS row_count,
+           (SELECT COUNT(*)::int FROM latest_rows WHERE is_unusual) AS unusual_count,
+           COALESCE(jsonb_object_agg(status, status_count), '{}'::jsonb) AS status_counts
+         FROM (
+           SELECT status, COUNT(*)::int AS status_count
+           FROM latest_rows
+           GROUP BY status
+         ) grouped`
+      );
+      oiDelta = {
+        table_exists: true,
+        latest_snapshot_ts: rows[0]?.latest_snapshot_ts || null,
+        row_count: rows[0]?.row_count || 0,
+        unusual_count: rows[0]?.unusual_count || 0,
+        status_counts: rows[0]?.status_counts || {},
+      };
+    }
+
+    const failedCount = jobSummary
+      .filter(row => row.status === 'failed')
+      .reduce((sum, row) => sum + row.count, 0);
+    const queuedCount = jobSummary
+      .filter(row => row.status === 'queued')
+      .reduce((sum, row) => sum + row.count, 0);
+
+    res.json({
+      status: failedCount === 0 && queuedCount < 50 && !scanner.stale && emptySnapshots === 0 ? 'ok' : 'degraded',
+      generated_at: new Date().toISOString(),
+      jobs: {
+        table_exists: hasJobs,
+        summary_24h: jobSummary,
+        queued_count_24h: queuedCount,
+        failed_count_24h: failedCount,
+        recent_failures: recentFailures,
+      },
+      scanner,
+      option_snapshots: {
+        table_exists: hasOptions,
+        empty_or_metadata_only_24h: emptySnapshots,
+      },
+      oi_delta: oiDelta,
+      provider_usage: {
+        table_exists: hasUsage,
+        rows: providerUsage,
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/status/cache error:', err.message);
+    res.status(500).json({ error: 'database error' });
+  }
+});
+
 module.exports = router;

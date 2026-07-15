@@ -108,7 +108,7 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
 }
 
 export default function Tab3Options({ data }) {
-  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, conclusion } = data;
+  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, conclusion } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
@@ -120,7 +120,9 @@ export default function Tab3Options({ data }) {
       (pcrVol ? `；PCR(Vol) ${pcrVol.toFixed(2)}${pcrVol > pcr ? '，当日交易偏空' : '，当日交易偏多'}` : ''),
     `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，隐含波动率偏高，卖方有统计优势' : iv30 > 20 ? '，IV适中，关注方向选策略' : '，IV偏低，买方成本低'}`,
     unusualActivity?.length
-      ? `大单异动：${unusualActivity[0].type} $${unusualActivity[0].strike} Vol ${unusualActivity[0].vol.toLocaleString()}，机构动向值得关注`
+      ? unusualActivity[0].status === 'confirmed'
+        ? `OI异动：${unusualActivity[0].type} $${unusualActivity[0].strike} ΔOI ${unusualActivity[0].oiDelta?.toLocaleString() ?? '--'}，需要结合价格与成交确认`
+        : `OI状态：${unusualActivity[0].status}，当前只能作为基线/活跃度观察`
       : '本期暂无显著大单异动',
   ];
 
@@ -160,6 +162,12 @@ export default function Tab3Options({ data }) {
       {/* Unusual activity */}
       <div className="az-card">
         <div className="az-card-title">期权大单异动</div>
+        {unusualMeta && (
+          <div className="az-unusual-meta">
+            {unusualMeta.status || unusualMeta.freshness}
+            {unusualMeta.snapshotTs ? ` · ${String(unusualMeta.snapshotTs).slice(0, 16).replace('T', ' ')}` : ''}
+          </div>
+        )}
         {unusualActivity && unusualActivity.length > 0 ? (
           <div className="az-unusual-list">
             {unusualActivity.map((item, i) => (
@@ -169,6 +177,9 @@ export default function Tab3Options({ data }) {
                 <span className="az-unusual-at">@</span>
                 <span className="az-unusual-date">{item.date}</span>
                 <span className="az-unusual-vol">Vol: {item.vol.toLocaleString()}</span>
+                <span className="az-unusual-vol">
+                  ΔOI: {item.oiDelta == null ? item.status : item.oiDelta.toLocaleString()}
+                </span>
               </div>
             ))}
           </div>

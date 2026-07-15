@@ -53,6 +53,22 @@ async function migrate() {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS symbol_metrics_snapshots (
+      id              BIGSERIAL PRIMARY KEY,
+      symbol          TEXT        NOT NULL,
+      snapshot_ts     TIMESTAMPTZ NOT NULL,
+      source          TEXT        NOT NULL,
+      metrics         JSONB       NOT NULL DEFAULT '{}',
+      freshness       TEXT        NOT NULL DEFAULT 'fresh',
+      is_stale        BOOLEAN     NOT NULL DEFAULT FALSE,
+      refresh_status  TEXT        NOT NULL DEFAULT 'none',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (symbol, snapshot_ts, source)
+    );
+
+    CREATE INDEX IF NOT EXISTS symbol_metrics_snapshots_symbol_ts
+      ON symbol_metrics_snapshots (symbol, snapshot_ts DESC);
+
     CREATE TABLE IF NOT EXISTS option_chain_snapshots (
       id                    BIGSERIAL PRIMARY KEY,
       symbol                TEXT        NOT NULL,
@@ -156,6 +172,41 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS gex_by_strike_snapshots_snapshot_strike
       ON gex_by_strike_snapshots (snapshot_id, strike);
 
+    CREATE TABLE IF NOT EXISTS option_oi_delta_snapshots (
+      id                         BIGSERIAL PRIMARY KEY,
+      snapshot_id                BIGINT      NOT NULL REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,
+      previous_snapshot_id       BIGINT      REFERENCES option_chain_snapshots(id) ON DELETE SET NULL,
+      symbol                     TEXT        NOT NULL,
+      snapshot_ts                TIMESTAMPTZ NOT NULL,
+      previous_snapshot_ts       TIMESTAMPTZ,
+      source                     TEXT        NOT NULL,
+      contract_key               TEXT        NOT NULL,
+      contract_symbol            TEXT,
+      provider_contract_id       TEXT,
+      expiry                     DATE        NOT NULL,
+      strike                     NUMERIC(14,4) NOT NULL,
+      option_right               TEXT        NOT NULL CHECK (option_right IN ('C', 'P')),
+      bid                        NUMERIC(14,4),
+      ask                        NUMERIC(14,4),
+      volume                     BIGINT,
+      open_interest              BIGINT,
+      previous_open_interest     BIGINT,
+      oi_delta                   BIGINT,
+      oi_delta_pct               NUMERIC(12,6),
+      volume_oi_ratio            NUMERIC(12,6),
+      status                     TEXT        NOT NULL DEFAULT 'baseline',
+      is_unusual                 BOOLEAN     NOT NULL DEFAULT FALSE,
+      unusual_score              NUMERIC(12,4),
+      raw_metrics                JSONB       NOT NULL DEFAULT '{}',
+      created_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (snapshot_id, contract_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS option_oi_delta_snapshots_symbol_ts
+      ON option_oi_delta_snapshots (symbol, snapshot_ts DESC);
+    CREATE INDEX IF NOT EXISTS option_oi_delta_snapshots_symbol_unusual
+      ON option_oi_delta_snapshots (symbol, is_unusual, snapshot_ts DESC);
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,
@@ -175,6 +226,100 @@ async function migrate() {
       ON provider_fetch_jobs (symbol, job_type, created_at DESC);
     CREATE INDEX IF NOT EXISTS provider_fetch_jobs_status_created
       ON provider_fetch_jobs (status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS provider_request_usage (
+      id              BIGSERIAL PRIMARY KEY,
+      provider        TEXT        NOT NULL,
+      usage_date      DATE        NOT NULL DEFAULT CURRENT_DATE,
+      job_type        TEXT        NOT NULL,
+      request_count   INTEGER     NOT NULL DEFAULT 0,
+      request_budget  INTEGER     NOT NULL DEFAULT 0,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (provider, usage_date, job_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS provider_request_usage_provider_date
+      ON provider_request_usage (provider, usage_date DESC);
+
+    CREATE TABLE IF NOT EXISTS scanner_results_snapshots (
+      id                         BIGSERIAL PRIMARY KEY,
+      scan_key                   TEXT        NOT NULL DEFAULT 'watchlist_v1',
+      symbol                     TEXT        NOT NULL,
+      snapshot_ts                TIMESTAMPTZ NOT NULL,
+      source                     TEXT        NOT NULL,
+      metric_date                DATE,
+      iv30                       NUMERIC(8,4),
+      hv30                       NUMERIC(8,4),
+      iv_rank                    NUMERIC(6,2),
+      iv_percentile              NUMERIC(6,2),
+      iv_hv_diff                 NUMERIC(8,4),
+      earnings_date              DATE,
+      price_close                NUMERIC(12,4),
+      price_date                 DATE,
+      price_source               TEXT,
+      price_status               TEXT        NOT NULL DEFAULT 'missing',
+      gex_snapshot_ts            TIMESTAMPTZ,
+      gex_source                 TEXT,
+      gex_status                 TEXT        NOT NULL DEFAULT 'missing',
+      global_gex                 NUMERIC(20,4),
+      local_gamma                NUMERIC(20,4),
+      gamma_flip                 NUMERIC(14,4),
+      gamma_regime               TEXT,
+      call_wall                  NUMERIC(14,4),
+      put_wall                   NUMERIC(14,4),
+      max_pain                   NUMERIC(14,4),
+      pcr_oi                     NUMERIC(10,4),
+      pcr_volume                 NUMERIC(10,4),
+      gex_confidence             TEXT,
+      total_oi                   BIGINT,
+      total_volume               BIGINT,
+      volume_oi_ratio            NUMERIC(12,6),
+      max_strike_oi              BIGINT,
+      max_strike_volume          BIGINT,
+      call_wall_distance_pct     NUMERIC(10,4),
+      put_wall_distance_pct      NUMERIC(10,4),
+      signal_score               NUMERIC(10,2),
+      trend_score                NUMERIC(10,2),
+      trend_label                TEXT,
+      trend_signal               TEXT,
+      trend_change_5d            NUMERIC(10,4),
+      trend_rsi14                NUMERIC(10,4),
+      trend_ma20                 NUMERIC(14,4),
+      trend_ma50                 NUMERIC(14,4),
+      trend_ma200                NUMERIC(14,4),
+      unusual_oi_count           INTEGER     NOT NULL DEFAULT 0,
+      max_oi_delta               BIGINT,
+      max_volume_oi_ratio        NUMERIC(12,6),
+      unusual_status             TEXT        NOT NULL DEFAULT 'missing',
+      payload                    JSONB       NOT NULL DEFAULT '{}',
+      freshness                  TEXT        NOT NULL DEFAULT 'fresh',
+      is_stale                   BOOLEAN     NOT NULL DEFAULT FALSE,
+      refresh_status             TEXT        NOT NULL DEFAULT 'none',
+      created_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (scan_key, symbol, snapshot_ts)
+    );
+
+    CREATE INDEX IF NOT EXISTS scanner_results_snapshots_key_ts
+      ON scanner_results_snapshots (scan_key, snapshot_ts DESC);
+    CREATE INDEX IF NOT EXISTS scanner_results_snapshots_key_symbol_ts
+      ON scanner_results_snapshots (scan_key, symbol, snapshot_ts DESC);
+    CREATE INDEX IF NOT EXISTS scanner_results_snapshots_filters
+      ON scanner_results_snapshots (scan_key, iv_rank DESC, gamma_regime, gex_status);
+
+    ALTER TABLE scanner_results_snapshots
+      ADD COLUMN IF NOT EXISTS trend_score NUMERIC(10,2),
+      ADD COLUMN IF NOT EXISTS trend_label TEXT,
+      ADD COLUMN IF NOT EXISTS trend_signal TEXT,
+      ADD COLUMN IF NOT EXISTS trend_change_5d NUMERIC(10,4),
+      ADD COLUMN IF NOT EXISTS trend_rsi14 NUMERIC(10,4),
+      ADD COLUMN IF NOT EXISTS trend_ma20 NUMERIC(14,4),
+      ADD COLUMN IF NOT EXISTS trend_ma50 NUMERIC(14,4),
+      ADD COLUMN IF NOT EXISTS trend_ma200 NUMERIC(14,4),
+      ADD COLUMN IF NOT EXISTS unusual_oi_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS max_oi_delta BIGINT,
+      ADD COLUMN IF NOT EXISTS max_volume_oi_ratio NUMERIC(12,6),
+      ADD COLUMN IF NOT EXISTS unusual_status TEXT NOT NULL DEFAULT 'missing';
   `);
 
   console.log('Migrations complete.');

@@ -5,6 +5,9 @@ Daily data collection into Railway PostgreSQL.
 - `collect.py`: IV / HV / earnings metrics from Tastytrade → `iv_history`
 - `collect_prices.py`: daily OHLCV from a provider adapter → `price_history`
 - `collect_options.py`: bounded option-chain snapshots from provider adapter → `option_chain_snapshots` / `option_contract_snapshots`
+- `materialize_oi_delta.py`: contract-level OI delta from consecutive option snapshots → `option_oi_delta_snapshots`
+- `materialize_scan.py`: latest IV/price/GEX snapshots → `scanner_results_snapshots`
+- `run_refresh_worker.py`: consumes queued `provider_fetch_jobs` with budget checks
 
 ## Setup (Mac Studio)
 
@@ -84,6 +87,36 @@ The GEX job reads PostgreSQL only. It does not call IB, tastytrade, or any other
 - `gex_snapshots`
 - `gex_by_strike_snapshots`
 
+Materialize OI delta / unusual activity from consecutive persisted option snapshots:
+
+```bash
+venv311/bin/python materialize_oi_delta.py
+```
+
+The OI delta job reads PostgreSQL only. It writes `option_oi_delta_snapshots`. A contract's first observed snapshot is treated as `baseline`; it is not marked unusual until a previous snapshot exists for comparison.
+
+Materialize scanner cache rows from existing snapshots:
+
+```bash
+venv311/bin/python materialize_scan.py
+```
+
+The scanner materializer reads PostgreSQL only. It does not call IB, tastytrade, or any external provider. It writes one row per watchlist symbol to `scanner_results_snapshots`, which is what `/api/scan` reads in Phase 3C.
+
+Process queued refresh jobs:
+
+```bash
+venv311/bin/python run_refresh_worker.py
+```
+
+The worker supports:
+
+- `symbol_metrics_snapshot`: refreshes one symbol's IV/HV/earnings metrics.
+- `option_chain_snapshot`: refreshes one option-chain snapshot with the configured supported internal provider, then attempts GEX, OI delta and scanner materialization.
+- `scanner_materialize`: refreshes `scanner_results_snapshots` only.
+
+The worker records provider budget usage in `provider_request_usage`. If a licensed provider adapter is not configured, `licensed_options_provider` jobs fail closed and keep the error in `provider_fetch_jobs.last_error`.
+
 Safety defaults:
 
 - `GEX_MAX_MISSING_RATIO=0.25`
@@ -148,6 +181,18 @@ Add a separate cron entry for price history after confirming IB Gateway availabi
 35 13 * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python collect_prices.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect_prices.log 2>&1
 ```
 
+After option-chain/GEX jobs run, refresh the scanner cache:
+
+```cron
+*/5 * * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python materialize_scan.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/materialize_scan.log 2>&1
+```
+
+Run the refresh worker every minute:
+
+```cron
+* * * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python run_refresh_worker.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/refresh_worker.log 2>&1
+```
+
 Create logs directory:
 ```bash
 mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
@@ -159,6 +204,9 @@ mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
 - `collect.py` — IV collector (Tastytrade → PostgreSQL)
 - `collect_prices.py` — OHLCV collector (provider adapter → PostgreSQL)
 - `collect_options.py` — bounded option-chain snapshot collector
+- `materialize_oi_delta.py` — contract-level OI delta materializer
+- `materialize_scan.py` — scanner cache materializer, PostgreSQL snapshot input only
+- `run_refresh_worker.py` — queued refresh worker and provider budget gate
 - `providers/` — provider adapters; `ib_internal` is default for internal IB adapters, `stooq` is explicit price dev/backfill
 - `common.py` — shared watchlist loader
 - `watchlist.txt` — Collector symbol list
