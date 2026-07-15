@@ -11,6 +11,87 @@ const STRATEGY_OPTIONS = [
   'Long Straddle',
 ];
 
+const STRATEGY_PARAMETER_PRESETS = {
+  none: {
+    label: '不限',
+    desc: '不按合约参数过滤',
+    values: {
+      dteMin: '',
+      dteMax: '',
+      deltaMin: '',
+      deltaMax: '',
+      maxSpreadPct: '',
+      minContractOi: '',
+      minContractVolume: '',
+    },
+  },
+  conservative: {
+    label: '保守',
+    desc: '更远 Delta，更严流动性',
+    values: {
+      dteMin: '30',
+      dteMax: '60',
+      deltaMin: '0.10',
+      deltaMax: '0.20',
+      maxSpreadPct: '10',
+      minContractOi: '500',
+      minContractVolume: '50',
+    },
+  },
+  standard: {
+    label: '标准',
+    desc: '平衡胜率、收益和成交',
+    values: {
+      dteMin: '30',
+      dteMax: '60',
+      deltaMin: '0.16',
+      deltaMax: '0.30',
+      maxSpreadPct: '15',
+      minContractOi: '100',
+      minContractVolume: '10',
+    },
+  },
+  aggressive: {
+    label: '进取',
+    desc: '更靠近现价，收益更高',
+    values: {
+      dteMin: '7',
+      dteMax: '45',
+      deltaMin: '0.25',
+      deltaMax: '0.40',
+      maxSpreadPct: '20',
+      minContractOi: '50',
+      minContractVolume: '5',
+    },
+  },
+  shortTerm: {
+    label: '短线',
+    desc: '偏周权和短 DTE',
+    values: {
+      dteMin: '1',
+      dteMax: '14',
+      deltaMin: '0.20',
+      deltaMax: '0.40',
+      maxSpreadPct: '20',
+      minContractOi: '100',
+      minContractVolume: '20',
+    },
+  },
+  liquidity: {
+    label: '流动性优先',
+    desc: '只看更容易成交的链',
+    values: {
+      dteMin: '7',
+      dteMax: '60',
+      deltaMin: '0.05',
+      deltaMax: '0.50',
+      maxSpreadPct: '8',
+      minContractOi: '1000',
+      minContractVolume: '100',
+    },
+  },
+};
+
 const IVR_COLOR = (ivr) =>
   ivr >= 50 ? 'var(--red)' : ivr >= 30 ? 'var(--yellow)' : 'var(--green)';
 
@@ -39,6 +120,12 @@ function compactMoney(value) {
   if (abs >= 1e6) return `${n < 0 ? '-' : ''}$${(abs / 1e6).toFixed(0)}M`;
   if (abs >= 1e3) return `${n < 0 ? '-' : ''}$${(abs / 1e3).toFixed(0)}K`;
   return `${n < 0 ? '-' : ''}$${abs.toFixed(0)}`;
+}
+
+function formatDeltaRange(minValue, maxValue) {
+  if (minValue == null && maxValue == null) return '--';
+  if (minValue != null && maxValue != null) return `${minValue.toFixed(2)}-${maxValue.toFixed(2)}`;
+  return (minValue ?? maxValue).toFixed(2);
 }
 
 function wallDistance(row) {
@@ -147,6 +234,16 @@ function toScanRow(row) {
       maxVolumeOiRatio: num(row.max_volume_oi_ratio),
       status: row.unusual_status || 'missing',
     },
+    contractQuality: {
+      contractCount: num(row.contract_count) ?? 0,
+      greeksCount: num(row.greeks_contract_count) ?? 0,
+      quotedCount: num(row.quoted_contract_count) ?? 0,
+      minDte: num(row.min_dte),
+      maxDte: num(row.max_dte),
+      minAbsDelta: num(row.min_abs_delta),
+      maxAbsDelta: num(row.max_abs_delta),
+      avgSpreadPct: num(row.avg_spread_pct),
+    },
     dataMeta: {
       source: row.source,
       date: row.date ? String(row.date).slice(0, 10) : null,
@@ -182,6 +279,14 @@ export default function Scan() {
   const [minOiDelta, setMinOiDelta] = useState('');
   const [pcrMin, setPcrMin] = useState('');
   const [pcrMax, setPcrMax] = useState('');
+  const [strategyProfile, setStrategyProfile] = useState('standard');
+  const [dteMin, setDteMin] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.dteMin);
+  const [dteMax, setDteMax] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.dteMax);
+  const [deltaMin, setDeltaMin] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.deltaMin);
+  const [deltaMax, setDeltaMax] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.deltaMax);
+  const [maxSpreadPct, setMaxSpreadPct] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.maxSpreadPct);
+  const [minContractOi, setMinContractOi] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.minContractOi);
+  const [minContractVolume, setMinContractVolume] = useState(STRATEGY_PARAMETER_PRESETS.standard.values.minContractVolume);
   const [unusualOnly, setUnusualOnly] = useState(false);
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
@@ -198,6 +303,51 @@ export default function Scan() {
     setSelectedStrategies(prev =>
       prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
     );
+  }
+
+  function applyStrategyProfile(profile) {
+    const preset = STRATEGY_PARAMETER_PRESETS[profile];
+    if (!preset) return;
+    setStrategyProfile(profile);
+    setDteMin(preset.values.dteMin);
+    setDteMax(preset.values.dteMax);
+    setDeltaMin(preset.values.deltaMin);
+    setDeltaMax(preset.values.deltaMax);
+    setMaxSpreadPct(preset.values.maxSpreadPct);
+    setMinContractOi(preset.values.minContractOi);
+    setMinContractVolume(preset.values.minContractVolume);
+  }
+
+  function markCustomProfile() {
+    setStrategyProfile('custom');
+  }
+
+  function applyOpportunityPreset(kind) {
+    if (kind === 'income') {
+      setMinIvr(50);
+      setMaxIvr(100);
+      setGammaRegime('all');
+      setWall('all');
+      setNearWallPct('');
+      setUnusualOnly(false);
+      setSort('ivr');
+      applyStrategyProfile('standard');
+    }
+    if (kind === 'wall') {
+      setMinIvr(30);
+      setMaxIvr(100);
+      setWall('either');
+      setNearWallPct('3');
+      setUnusualOnly(false);
+      setSort('combined');
+    }
+    if (kind === 'activity') {
+      setMinIvr(0);
+      setMaxIvr(100);
+      setUnusualOnly(true);
+      setMinUnusualOi('1');
+      setSort('combined');
+    }
   }
 
   async function handleScan() {
@@ -219,6 +369,13 @@ export default function Scan() {
         minOiDelta,
         pcrMin,
         pcrMax,
+        dteMin,
+        dteMax,
+        deltaMin,
+        deltaMax,
+        maxSpreadPct,
+        minContractOi,
+        minContractVolume,
         unusualOnly,
         sort,
         limit: 100,
@@ -252,12 +409,22 @@ export default function Scan() {
     <div className="scan-page">
       <div className="scan-header">
         <div className="scan-title">扫描器</div>
-        <div className="scan-subtitle">系统自动筛选 Watchlist 中符合条件的标的，按 IV Rank 排序</div>
+        <div className="scan-subtitle">先选择机会类型；高级期权数据可用于进一步收窄结果</div>
       </div>
 
       <div className="scan-body">
         {/* 过滤面板 */}
         <div className="scan-filters">
+          <div className="scan-filter-section">
+            <div className="scan-filter-label">机会类型</div>
+            <div className="scan-filter-help">不知道参数怎么填时，从这里开始。</div>
+            <div className="scan-opportunity-grid">
+              <button className="scan-preset" onClick={() => applyOpportunityPreset('income')}>高 IV 收租</button>
+              <button className="scan-preset" onClick={() => applyOpportunityPreset('wall')}>靠近压力/支撑</button>
+              <button className="scan-preset" onClick={() => applyOpportunityPreset('activity')}>期权持仓异动</button>
+            </div>
+          </div>
+
           <div className="scan-filter-section">
             <div className="scan-filter-label">IV Rank 范围</div>
             <div className="scan-filter-row">
@@ -284,133 +451,229 @@ export default function Scan() {
           </div>
 
           <div className="scan-filter-section">
-            <div className="scan-filter-label">GEX / Wall 过滤</div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">Gamma</span>
-              <select className="scan-select" value={gammaRegime} onChange={e => setGammaRegime(e.target.value)}>
-                <option value="all">全部</option>
-                <option value="positive">正Gamma</option>
-                <option value="negative">负Gamma</option>
-                <option value="neutral">近零</option>
-              </select>
+            <div className="scan-filter-label">策略参数</div>
+            <div className="scan-filter-help">系统会把风格自动转换成 DTE、Delta、bid/ask spread 和流动性条件。</div>
+            <div className="scan-profile-grid">
+              {Object.entries(STRATEGY_PARAMETER_PRESETS).map(([key, preset]) => (
+                <button
+                  key={key}
+                  className={`scan-profile-card ${strategyProfile === key ? 'active' : ''}`}
+                  onClick={() => applyStrategyProfile(key)}
+                  type="button"
+                >
+                  <span>{preset.label}</span>
+                  <small>{preset.desc}</small>
+                </button>
+              ))}
             </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">Wall</span>
-              <select className="scan-select" value={wall} onChange={e => setWall(e.target.value)}>
-                <option value="all">不限</option>
-                <option value="either">靠近任一</option>
-                <option value="call">靠近Call</option>
-                <option value="put">靠近Put</option>
-              </select>
-              <input
-                type="number" min={0} step={0.5}
-                className="scan-num-input"
-                placeholder="%"
-                value={nearWallPct}
-                onChange={e => setNearWallPct(e.target.value)}
-              />
-            </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">Local Γ</span>
-              <input
-                type="number" min={0}
-                className="scan-wide-input"
-                placeholder="最低"
-                value={minLocalGamma}
-                onChange={e => setMinLocalGamma(e.target.value)}
-              />
-            </div>
+            {strategyProfile === 'custom' && (
+              <div className="scan-filter-help">当前使用自定义高级参数。</div>
+            )}
           </div>
 
-          <div className="scan-filter-section">
-            <div className="scan-filter-label">OI / Volume</div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">OI</span>
-              <input
-                type="number" min={0}
-                className="scan-wide-input"
-                placeholder="最低"
-                value={minTotalOi}
-                onChange={e => setMinTotalOi(e.target.value)}
-              />
+          <details className="scan-advanced">
+            <summary>高级期权数据过滤</summary>
+            <div className="scan-filter-section">
+              <div className="scan-filter-label">Strategy Contract Filters</div>
+              <div className="scan-filter-help">DTE 是 Days To Expiration，到期剩余天数。Delta 常用来选 short leg，例如 0.16-0.30。Bid/Ask Spread 越窄，合约越容易成交。</div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Days To Expiration，到期剩余天数。">DTE</span>
+                <input
+                  type="number" min={0}
+                  className="scan-num-input"
+                  placeholder="min"
+                  value={dteMin}
+                  onChange={e => { markCustomProfile(); setDteMin(e.target.value); }}
+                />
+                <input
+                  type="number" min={0}
+                  className="scan-num-input"
+                  placeholder="max"
+                  value={dteMax}
+                  onChange={e => { markCustomProfile(); setDteMax(e.target.value); }}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Absolute Delta，按绝对值过滤，例如 short premium 常看 0.10 到 0.30。">Abs Delta</span>
+                <input
+                  type="number" min={0} max={1} step={0.01}
+                  className="scan-num-input"
+                  placeholder="min"
+                  value={deltaMin}
+                  onChange={e => { markCustomProfile(); setDeltaMin(e.target.value); }}
+                />
+                <input
+                  type="number" min={0} max={1} step={0.01}
+                  className="scan-num-input"
+                  placeholder="max"
+                  value={deltaMax}
+                  onChange={e => { markCustomProfile(); setDeltaMax(e.target.value); }}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Bid/Ask Spread 百分比，按 (ask-bid)/mid 计算。">Max Spread</span>
+                <input
+                  type="number" min={0} step={0.5}
+                  className="scan-wide-input"
+                  placeholder="%"
+                  value={maxSpreadPct}
+                  onChange={e => { markCustomProfile(); setMaxSpreadPct(e.target.value); }}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="单个合约最低 Open Interest。">Contract OI</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minContractOi}
+                  onChange={e => { markCustomProfile(); setMinContractOi(e.target.value); }}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="单个合约最低成交量。">Contract Vol</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minContractVolume}
+                  onChange={e => { markCustomProfile(); setMinContractVolume(e.target.value); }}
+                />
+              </div>
             </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">Vol</span>
-              <input
-                type="number" min={0}
-                className="scan-wide-input"
-                placeholder="最低"
-                value={minTotalVolume}
-                onChange={e => setMinTotalVolume(e.target.value)}
-              />
-            </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">Vol/OI</span>
-              <input
-                type="number" min={0} step={0.01}
-                className="scan-wide-input"
-                placeholder="最低"
-                value={minVolumeOiRatio}
-                onChange={e => setMinVolumeOiRatio(e.target.value)}
-              />
-            </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">排序</span>
-              <select className="scan-select" value={sort} onChange={e => setSort(e.target.value)}>
-                <option value="ivr">IV Rank</option>
-                <option value="combined">IV + GEX</option>
-              </select>
-            </div>
-          </div>
 
-          <div className="scan-filter-section">
-            <div className="scan-filter-label">Unusual / PCR</div>
-            <label className="scan-check-row">
-              <input
-                type="checkbox"
-                checked={unusualOnly}
-                onChange={e => setUnusualOnly(e.target.checked)}
-              />
-              <span>仅 OI 异动</span>
-            </label>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">Count</span>
-              <input
-                type="number" min={0}
-                className="scan-wide-input"
-                placeholder="最低"
-                value={minUnusualOi}
-                onChange={e => setMinUnusualOi(e.target.value)}
-              />
+            <div className="scan-filter-section">
+              <div className="scan-filter-label">Gamma / Wall</div>
+              <div className="scan-filter-help">Gamma 是期权仓位对标的价格变化的敏感度。这里用它判断价格附近是否容易被压住或放大波动。</div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Gamma Regime，全局 Gamma 环境。正 Gamma 往往压制波动，负 Gamma 往往放大波动。">Gamma Regime</span>
+                <select className="scan-select" value={gammaRegime} onChange={e => setGammaRegime(e.target.value)}>
+                  <option value="all">全部</option>
+                  <option value="positive">Positive</option>
+                  <option value="negative">Negative</option>
+                  <option value="neutral">Neutral</option>
+                </select>
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Wall Proximity，筛选价格靠近 Call Wall 或 Put Wall 的标的。">Wall</span>
+                <select className="scan-select" value={wall} onChange={e => setWall(e.target.value)}>
+                  <option value="all">不限</option>
+                  <option value="either">靠近任一</option>
+                  <option value="call">靠近 Call</option>
+                  <option value="put">靠近 Put</option>
+                </select>
+                <input
+                  type="number" min={0} step={0.5}
+                  className="scan-num-input"
+                  placeholder="%"
+                  value={nearWallPct}
+                  onChange={e => setNearWallPct(e.target.value)}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Local Gamma，当前价格附近的 Gamma 强度；不是用户手工输入的数据，由系统从期权链计算。">Local Gamma</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minLocalGamma}
+                  onChange={e => setMinLocalGamma(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">ΔOI</span>
-              <input
-                type="number" min={0}
-                className="scan-wide-input"
-                placeholder="最低"
-                value={minOiDelta}
-                onChange={e => setMinOiDelta(e.target.value)}
-              />
+
+            <div className="scan-filter-section">
+              <div className="scan-filter-label">Open Interest / Volume</div>
+              <div className="scan-filter-help">这些值来自期权链快照。用户不需要自己知道，通常用于排除流动性差的标的。</div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Open Interest，未平仓合约数量。">Total OI</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minTotalOi}
+                  onChange={e => setMinTotalOi(e.target.value)}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Option Volume，期权成交量。">Option Volume</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minTotalVolume}
+                  onChange={e => setMinTotalVolume(e.target.value)}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Volume / Open Interest，用于观察今天交易是否相对异常活跃。">Volume / OI</span>
+                <input
+                  type="number" min={0} step={0.01}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minVolumeOiRatio}
+                  onChange={e => setMinVolumeOiRatio(e.target.value)}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">排序</span>
+                <select className="scan-select" value={sort} onChange={e => setSort(e.target.value)}>
+                  <option value="ivr">IV Rank</option>
+                  <option value="combined">IV + GEX</option>
+                </select>
+              </div>
             </div>
-            <div className="scan-filter-row">
-              <span className="scan-filter-sub">PCR</span>
-              <input
-                type="number" min={0} step={0.1}
-                className="scan-num-input"
-                placeholder="min"
-                value={pcrMin}
-                onChange={e => setPcrMin(e.target.value)}
-              />
-              <input
-                type="number" min={0} step={0.1}
-                className="scan-num-input"
-                placeholder="max"
-                value={pcrMax}
-                onChange={e => setPcrMax(e.target.value)}
-              />
+
+            <div className="scan-filter-section">
+              <div className="scan-filter-label">Unusual OI / Put-Call Ratio</div>
+              <div className="scan-filter-help">OI Delta 比较连续快照的持仓变化；Put/Call Ratio 用来粗看期权情绪。</div>
+              <label className="scan-check-row">
+                <input
+                  type="checkbox"
+                  checked={unusualOnly}
+                  onChange={e => setUnusualOnly(e.target.checked)}
+                />
+                <span>仅显示 Unusual OI</span>
+              </label>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Unusual Count，命中 OI Delta 阈值的合约数量。">Unusual Count</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minUnusualOi}
+                  onChange={e => setMinUnusualOi(e.target.value)}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="OI Delta，当前快照相对上一快照的 Open Interest 变化量。">OI Delta</span>
+                <input
+                  type="number" min={0}
+                  className="scan-wide-input"
+                  placeholder="最低"
+                  value={minOiDelta}
+                  onChange={e => setMinOiDelta(e.target.value)}
+                />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub" title="Put/Call Ratio。大于 1 表示 Put 相对更多，小于 1 表示 Call 相对更多。">Put/Call Ratio</span>
+                <input
+                  type="number" min={0} step={0.1}
+                  className="scan-num-input"
+                  placeholder="min"
+                  value={pcrMin}
+                  onChange={e => setPcrMin(e.target.value)}
+                />
+                <input
+                  type="number" min={0} step={0.1}
+                  className="scan-num-input"
+                  placeholder="max"
+                  value={pcrMax}
+                  onChange={e => setPcrMax(e.target.value)}
+                />
+              </div>
             </div>
-          </div>
+          </details>
 
           <div className="scan-filter-section">
             <div className="scan-filter-label">策略类型（可多选）</div>
@@ -428,12 +691,12 @@ export default function Scan() {
           </div>
 
           <div className="scan-filter-section">
-            <div className="scan-filter-label">Watchlist（{watchlist.length || '...'} 个标的）</div>
-            <div className="scan-watchlist">
-              {watchlist.slice(0, 24).map(sym => (
-                <span key={sym} className="scan-wl-tag">{sym}</span>
-              ))}
+            <div className="scan-filter-label">扫描池</div>
+            <div className="scan-universe-card">
+              <strong>{watchlist.length || '...'}</strong>
+              <span>个已接入数据的标的</span>
             </div>
+            <div className="scan-filter-help">当前是过渡数据池；正式版会扩展为全市场 universe，并支持市值、价格、成交量、期权流动性等过滤。</div>
           </div>
 
           <button className="scan-btn" onClick={handleScan} disabled={loading}>
@@ -469,6 +732,7 @@ export default function Scan() {
                   <span>GEX</span>
                   <span>Wall</span>
                   <span>OI Δ</span>
+                  <span>合约</span>
                   <span>推荐策略</span>
                   <span>POP</span>
                   <span>价格</span>
@@ -507,6 +771,17 @@ export default function Scan() {
                       {d.unusual.status === 'confirmed'
                         ? `${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}`
                         : d.unusual.status}
+                    </span>
+                    <span className="scan-contract-cell" title={`${d.contractQuality.contractCount} contracts · ${d.contractQuality.quotedCount} quoted · ${d.contractQuality.greeksCount} Greeks`}>
+                      {d.contractQuality.contractCount > 0 ? (
+                        <>
+                          <span>DTE {d.contractQuality.minDte === d.contractQuality.maxDte ? d.contractQuality.minDte : `${d.contractQuality.minDte ?? '--'}-${d.contractQuality.maxDte ?? '--'}`}</span>
+                          <span>Δ {formatDeltaRange(d.contractQuality.minAbsDelta, d.contractQuality.maxAbsDelta)}</span>
+                          <span>Spr {d.contractQuality.avgSpreadPct == null ? '--' : `${d.contractQuality.avgSpreadPct.toFixed(1)}%`}</span>
+                        </>
+                      ) : (
+                        <span>--</span>
+                      )}
                     </span>
                     <span className="scan-strategy">{d.recommendation.strategy}</span>
                     <span style={{ color: 'var(--green)', fontWeight: 700 }}>

@@ -32,6 +32,13 @@ export function getScan({
   minOiDelta = '',
   pcrMin = '',
   pcrMax = '',
+  dteMin = '',
+  dteMax = '',
+  deltaMin = '',
+  deltaMax = '',
+  maxSpreadPct = '',
+  minContractOi = '',
+  minContractVolume = '',
   unusualOnly = false,
   sort = 'ivr',
   limit = 50,
@@ -55,6 +62,13 @@ export function getScan({
   if (minOiDelta !== '') params.minOiDelta = String(minOiDelta);
   if (pcrMin !== '') params.pcrMin = String(pcrMin);
   if (pcrMax !== '') params.pcrMax = String(pcrMax);
+  if (dteMin !== '') params.dteMin = String(dteMin);
+  if (dteMax !== '') params.dteMax = String(dteMax);
+  if (deltaMin !== '') params.deltaMin = String(deltaMin);
+  if (deltaMax !== '') params.deltaMax = String(deltaMax);
+  if (maxSpreadPct !== '') params.maxSpreadPct = String(maxSpreadPct);
+  if (minContractOi !== '') params.minContractOi = String(minContractOi);
+  if (minContractVolume !== '') params.minContractVolume = String(minContractVolume);
 
   const query = new URLSearchParams(params);
   return getJson(`/api/scan?${query.toString()}`);

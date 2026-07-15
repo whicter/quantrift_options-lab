@@ -669,11 +669,45 @@
 - [x] Scanner row navigation：click row navigates directly to `/analyze?symbol=XXX&tab=0`.
 - [x] Analyze URL sync：automatic data-load URL normalization uses replace/skip when params already match, avoiding an extra `/analyze?symbol=XXX` browser-history entry.
 - [x] Scanner API cache key includes unusual/PCR filters, preventing filtered results from reusing stale cache entries from different filter combinations.
+- [x] Scanner filter UX copy：default flow uses opportunity presets; advanced filters keep English market terms with Chinese explanations for OI, Volume, Local Gamma, OI Delta, Unusual Count and Put/Call Ratio.
+- [x] Scanner universe copy：replace visible watchlist ticker chips with a data-coverage summary; document watchlist as transitional Phase 3 data pool, not final product scope.
 - [x] Verification：
   - Migration completed against Railway PostgreSQL after adding trend columns.
   - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows with trend fields.
   - Local API verified：`/api/scan?minIvr=0&maxIvr=100&limit=3` returned `trend_label`, `trend_score`, `trend_change_5d`, `trend_rsi14`, MA fields, and `earnings_date`.
   - Production API still requires Railway deploy to expose new `/api/scan` response fields; database rows are already materialized.
+
+**Phase 3G — Scanner Universe Expansion**
+- [ ] Replace transitional 67-symbol watchlist with a broader scanner universe.
+- [ ] Universe filters：
+  - market cap minimum / maximum
+  - stock price range
+  - underlying share volume / dollar volume
+  - optionable flag
+  - option chain liquidity：bid/ask spread, total OI, total volume
+  - sector / ETF category
+  - earnings window include/exclude
+- [ ] Keep scanner materialized：universe expansion must still write `scanner_results_snapshots`; user requests must not run full-market provider calls synchronously.
+
+**Phase 3H — Contract-Level Scanner Filters**
+- [x] Add optional advanced filters for contract-level strategy inputs：
+  - DTE min/max
+  - absolute Delta min/max
+  - max bid/ask spread percentage
+  - per-contract minimum OI
+  - per-contract minimum volume
+- [x] Backend behavior：blank values do not filter; provided values require at least one latest option contract snapshot matching the constraints.
+- [x] Scanner result display：show contract data summary per symbol, including DTE range, absolute Delta range, average bid/ask spread, quoted contract count and Greeks coverage count.
+- [x] Data source：current `option_contract_snapshots` already stores expiry, bid, ask, volume, open_interest, IV and Greeks from IB/TT transitional adapters.
+- [x] Product boundary：these filters are optional advanced controls; default scanner presets should work without the user understanding Greeks.
+- [x] Strategy parameter presets：
+  - 不限：不按合约参数过滤
+  - 保守：DTE 30-60, Abs Delta 0.10-0.20, Max Spread 10%, Contract OI >= 500, Contract Vol >= 50
+  - 标准：DTE 30-60, Abs Delta 0.16-0.30, Max Spread 15%, Contract OI >= 100, Contract Vol >= 10
+  - 进取：DTE 7-45, Abs Delta 0.25-0.40, Max Spread 20%, Contract OI >= 50, Contract Vol >= 5
+  - 短线：DTE 1-14, Abs Delta 0.20-0.40, Max Spread 20%, Contract OI >= 100, Contract Vol >= 20
+  - 流动性优先：DTE 7-60, Abs Delta 0.05-0.50, Max Spread 8%, Contract OI >= 1000, Contract Vol >= 100
+- [x] Advanced edits mark the strategy parameter profile as custom.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)

@@ -731,7 +731,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 
 /* Filter panel */
 .scan-filters {
-  width: 260px;
+  width: 300px;
   flex-shrink: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -745,10 +745,26 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-filter-section { display: flex; flex-direction: column; gap: 8px; }
 .scan-filter-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; }
-.scan-filter-sub { font-size: 11px; color: var(--text-dim); }
-.scan-filter-row { display: flex; align-items: center; gap: 8px; }
+.scan-filter-help {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.scan-filter-sub {
+  width: 64px;
+  flex: 0 0 64px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.scan-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .scan-num-input {
-  width: 56px;
+  width: 70px;
   padding: 4px 8px;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -775,10 +791,54 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   color: var(--text-dim);
   font-size: 12px;
+  white-space: nowrap;
 }
+.scan-check-row input { flex: 0 0 auto; }
+.scan-check-row span { flex: 1; min-width: 0; }
 .scan-ivr-presets { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.scan-opportunity-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.scan-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.scan-profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: left;
+}
+.scan-profile-card span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.scan-profile-card small {
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.25;
+}
+.scan-profile-card:hover {
+  border-color: var(--blue);
+  background: var(--bg-hover);
+}
+.scan-profile-card.active {
+  border-color: var(--blue);
+  background: var(--blue-dim);
+}
+.scan-profile-card.active span,
+.scan-profile-card.active small {
+  color: var(--blue);
+}
 .scan-preset {
   padding: 4px 8px;
   background: transparent;
@@ -790,6 +850,34 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   text-align: left;
 }
 .scan-preset:hover { background: var(--bg-hover); color: var(--text); }
+
+.scan-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+}
+.scan-advanced summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  list-style-position: outside;
+}
+.scan-advanced[open] summary {
+  margin-bottom: 10px;
+}
+.scan-advanced .scan-filter-section + .scan-filter-section {
+  margin-top: 14px;
+}
+.scan-advanced .scan-filter-sub {
+  width: 104px;
+  flex-basis: 104px;
+  white-space: normal;
+  line-height: 1.2;
+}
 
 .scan-strategy-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .scan-chip {
@@ -812,6 +900,21 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   font-size: 11px;
   color: var(--text-dim);
   font-family: monospace;
+}
+.scan-universe-card {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.scan-universe-card strong {
+  color: var(--text);
+  font-size: 18px;
 }
 
 .scan-btn {
@@ -847,7 +950,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-table { display: flex; flex-direction: column; gap: 4px; }
 .scan-table-head {
   display: grid;
-  grid-template-columns: 58px 64px 116px 96px 84px 106px 70px 62px 104px 44px 54px 54px;
+  grid-template-columns: 58px 64px 116px 96px 84px 92px 64px 62px 92px 96px 44px 54px 54px;
   gap: 8px;
   padding: 6px 12px;
   font-size: 11px;
@@ -858,7 +961,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-table-row {
   display: grid;
-  grid-template-columns: 58px 64px 116px 96px 84px 106px 70px 62px 104px 44px 54px 54px;
+  grid-template-columns: 58px 64px 116px 96px 84px 92px 64px 62px 92px 96px 44px 54px 54px;
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -907,6 +1010,15 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-wall-cell {
   color: var(--text-dim);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.scan-contract-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 .scan-price-status { font-size: 10px; font-weight: 800; text-transform: uppercase; }

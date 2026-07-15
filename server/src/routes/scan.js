@@ -47,6 +47,13 @@ router.get('/', async (req, res) => {
   const minOiDelta = optionalInt(req.query.minOiDelta);
   const pcrMin = optionalFloat(req.query.pcrMin);
   const pcrMax = optionalFloat(req.query.pcrMax);
+  const dteMin = optionalInt(req.query.dteMin);
+  const dteMax = optionalInt(req.query.dteMax);
+  const deltaMin = optionalFloat(req.query.deltaMin);
+  const deltaMax = optionalFloat(req.query.deltaMax);
+  const maxSpreadPct = optionalFloat(req.query.maxSpreadPct);
+  const minContractOi = optionalInt(req.query.minContractOi);
+  const minContractVolume = optionalInt(req.query.minContractVolume);
   const unusualOnly = String(req.query.unusualOnly ?? 'false').toLowerCase() === 'true';
   const sort = String(req.query.sort ?? 'ivr').toLowerCase();
   const scanKey = String(req.query.scanKey ?? DEFAULT_SCAN_KEY).trim() || DEFAULT_SCAN_KEY;
@@ -62,6 +69,10 @@ router.get('/', async (req, res) => {
     || Number.isNaN(minVolumeOiRatio)
     || Number.isNaN(minUnusualOi) || Number.isNaN(minOiDelta)
     || Number.isNaN(pcrMin) || Number.isNaN(pcrMax)
+    || Number.isNaN(dteMin) || Number.isNaN(dteMax)
+    || Number.isNaN(deltaMin) || Number.isNaN(deltaMax)
+    || Number.isNaN(maxSpreadPct)
+    || Number.isNaN(minContractOi) || Number.isNaN(minContractVolume)
     || !validRegimes.has(gammaRegime) || !validWalls.has(wall) || !validSorts.has(sort)
   ) {
     return res.status(400).json({ error: 'invalid query params' });
@@ -82,6 +93,13 @@ router.get('/', async (req, res) => {
     minOiDelta,
     pcrMin,
     pcrMax,
+    dteMin,
+    dteMax,
+    deltaMin,
+    deltaMax,
+    maxSpreadPct,
+    minContractOi,
+    minContractVolume,
     unusualOnly,
     sort,
     scanKey,
@@ -102,9 +120,31 @@ router.get('/', async (req, res) => {
          FROM scanner_results_snapshots s
          JOIN latest_batch b ON b.snapshot_ts = s.snapshot_ts
          WHERE s.scan_key = $1
+       ),
+       latest_chain AS (
+         SELECT DISTINCT ON (symbol)
+           symbol, id AS snapshot_id
+         FROM option_chain_snapshots
+         ORDER BY symbol, snapshot_ts DESC
+       ),
+       contract_quality AS (
+         SELECT
+           c.symbol,
+           COUNT(*)::int AS contract_count,
+           COUNT(*) FILTER (WHERE c.delta IS NOT NULL AND c.gamma IS NOT NULL AND c.theta IS NOT NULL AND c.vega IS NOT NULL)::int AS greeks_contract_count,
+           COUNT(*) FILTER (WHERE c.bid IS NOT NULL AND c.ask IS NOT NULL AND c.ask > 0)::int AS quoted_contract_count,
+           MIN((c.expiry::date - CURRENT_DATE))::int AS min_dte,
+           MAX((c.expiry::date - CURRENT_DATE))::int AS max_dte,
+           MIN(ABS(c.delta)) AS min_abs_delta,
+           MAX(ABS(c.delta)) AS max_abs_delta,
+           AVG(((c.ask - c.bid) / NULLIF(((c.ask + c.bid) / 2.0), 0)) * 100)
+             FILTER (WHERE c.bid IS NOT NULL AND c.ask IS NOT NULL AND c.ask > c.bid) AS avg_spread_pct
+         FROM option_contract_snapshots c
+         JOIN latest_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
+         GROUP BY c.symbol
        )
        SELECT
-         symbol,
+         latest_rows.symbol,
          metric_date AS date,
          iv30, hv30, iv_rank, iv_percentile, iv_hv_diff, earnings_date, source,
          price_close, price_date, price_source, price_status,
@@ -116,6 +156,8 @@ router.get('/', async (req, res) => {
          trend_score, trend_label, trend_signal, trend_change_5d,
          trend_rsi14, trend_ma20, trend_ma50, trend_ma200,
          unusual_oi_count, max_oi_delta, max_volume_oi_ratio, unusual_status,
+         cq.contract_count, cq.greeks_contract_count, cq.quoted_contract_count,
+         cq.min_dte, cq.max_dte, cq.min_abs_delta, cq.max_abs_delta, cq.avg_spread_pct,
          snapshot_ts,
          CASE
            WHEN snapshot_ts IS NULL THEN 'missing'
@@ -129,6 +171,7 @@ router.get('/', async (req, res) => {
          END AS is_stale,
          refresh_status
        FROM latest_rows
+       LEFT JOIN contract_quality cq ON cq.symbol = latest_rows.symbol
        WHERE iv_rank >= $2
          AND iv_rank <= $3
          AND COALESCE(iv_hv_diff, -999) >= $4
@@ -139,9 +182,32 @@ router.get('/', async (req, res) => {
          AND ($12::numeric IS NULL OR volume_oi_ratio >= $12)
          AND ($15::int IS NULL OR COALESCE(unusual_oi_count, 0) >= $15)
          AND ($16::bigint IS NULL OR ABS(COALESCE(max_oi_delta, 0)) >= $16)
-         AND ($17::numeric IS NULL OR pcr_oi >= $17)
-         AND ($18::numeric IS NULL OR pcr_oi <= $18)
-         AND ($19::boolean = FALSE OR COALESCE(unusual_oi_count, 0) > 0)
+        AND ($17::numeric IS NULL OR pcr_oi >= $17)
+        AND ($18::numeric IS NULL OR pcr_oi <= $18)
+        AND ($19::boolean = FALSE OR COALESCE(unusual_oi_count, 0) > 0)
+         AND (
+           ($20::int IS NULL AND $21::int IS NULL AND $22::numeric IS NULL AND $23::numeric IS NULL
+             AND $24::numeric IS NULL AND $25::bigint IS NULL AND $26::bigint IS NULL)
+           OR EXISTS (
+             SELECT 1
+             FROM latest_chain lc
+             JOIN option_contract_snapshots c ON c.snapshot_id = lc.snapshot_id AND c.symbol = lc.symbol
+             WHERE lc.symbol = latest_rows.symbol
+               AND ($20::int IS NULL OR (c.expiry::date - CURRENT_DATE) >= $20)
+               AND ($21::int IS NULL OR (c.expiry::date - CURRENT_DATE) <= $21)
+               AND ($22::numeric IS NULL OR ABS(c.delta) >= $22)
+               AND ($23::numeric IS NULL OR ABS(c.delta) <= $23)
+               AND (
+                 $24::numeric IS NULL
+                 OR (
+                   c.bid IS NOT NULL AND c.ask IS NOT NULL AND c.ask > c.bid
+                   AND ((c.ask - c.bid) / NULLIF(((c.ask + c.bid) / 2.0), 0)) * 100 <= $24
+                 )
+               )
+               AND ($25::bigint IS NULL OR COALESCE(c.open_interest, 0) >= $25)
+               AND ($26::bigint IS NULL OR COALESCE(c.volume, 0) >= $26)
+           )
+         )
          AND (
            $9 = 'all'
            OR $10::numeric IS NULL
@@ -177,6 +243,13 @@ router.get('/', async (req, res) => {
         pcrMin,
         pcrMax,
         unusualOnly,
+        dteMin,
+        dteMax,
+        deltaMin,
+        deltaMax,
+        maxSpreadPct,
+        minContractOi,
+        minContractVolume,
       ]
     );
 

@@ -525,7 +525,39 @@ src/
 - `maxIvr`：最高 IV Rank。
 - `minIvHv`：最低 IV30 - HV30 差值。
 - `limit`：返回数量上限。
-- universe：只扫描 watchlist；不扫描 `iv_history` 中的 extra symbols。
+- universe：当前 Phase 3 只扫描 transitional watchlist；不扫描 `iv_history` 中的 extra symbols。最终产品不应暴露为“Watchlist scanner”，而应扩展为全市场/大范围 scanner universe，并支持 market cap、价格、成交额、期权可交易性、option-chain liquidity、行业/ETF 类别和 earnings window 等过滤。
+
+用户界面术语：
+- 默认 scanner 不应要求用户理解所有期权微观结构字段。主流程使用 opportunity presets，例如 high-IV income、near wall、unusual OI。
+- 高级过滤保留英文市场术语，同时给中文解释。
+- OI / Open Interest：未平仓合约数量。用户不需要手工知道这个值；系统从期权链快照读取，用于衡量期权链是否足够活跃。
+- Volume / Option Volume：期权合约在当前统计窗口内的成交量。
+- Volume / OI：volume divided by open interest，用于观察今天交易是否相对异常活跃。
+- Gamma：期权 Delta 对标的价格变化的敏感度。产品里的 Gamma 指标来自期权链聚合，不是让用户手工计算。
+- Local Gamma：当前价格附近 strike 的净 Gamma 强度。它不是单个合约 Gamma，而是价格附近期权仓位对标的价格的局部影响。
+- Unusual Count：命中 OI Delta 阈值的合约数量。
+- OI Delta：当前 snapshot 与上一 snapshot 的 open interest 差值。正值表示未平仓增加，负值表示减少；它只能说明持仓变化，需要结合价格、成交、bid/ask 和方向确认。
+- Put/Call Ratio：put OI or put volume divided by call OI or call volume。大于 1 表示 Put 相对更多，小于 1 表示 Call 相对更多。
+- DTE / Days To Expiration：期权到期剩余天数。30-60 DTE 常用于很多 premium-selling 策略，短 DTE 更事件/周权，长 DTE 更慢。
+- Abs Delta：Delta 的绝对值。比如 0.16-0.30 常用于寻找较远 OTM 的 short premium legs。Call Delta 通常为正，Put Delta 通常为负，所以 scanner 用绝对值。
+- Bid/Ask Spread：通常用 `(ask - bid) / mid` 估算，mid = `(bid + ask) / 2`。spread 越宽，滑点和成交难度通常越高。
+- Greeks / bid / ask：当前 IB/TT 过渡 adapters 和 `option_contract_snapshots` schema 已有这些字段；生产产品仍需要 licensed provider 的覆盖率、延迟、授权和再分发条款确认。
+
+高级合约过滤的后端语义：
+- 所有 DTE/Delta/spread/contract OI/contract volume 参数留空时，不启用这些过滤。
+- 只要用户填写任一合约级参数，`/api/scan` 要求 latest option snapshot 中存在至少一个合约满足所有已填写条件。
+- 这仍然是数据库 snapshot 查询，不允许在用户请求路径同步调用 IB、TT 或 licensed provider。
+- Scanner result rows should surface the same contract data summary: DTE range, absolute Delta range, average bid/ask spread, quoted contract count and Greeks coverage count. Users should not need to infer whether contract-level data exists.
+
+Strategy parameter presets：
+- Presets are product language; DTE / Delta / spread / OI / volume are execution parameters.
+- `不限` leaves contract-level filters blank.
+- `保守` maps to farther Delta and stricter liquidity：DTE 30-60, Abs Delta 0.10-0.20, max spread 10%, contract OI >= 500, contract volume >= 50.
+- `标准` maps to balanced premium-selling defaults：DTE 30-60, Abs Delta 0.16-0.30, max spread 15%, contract OI >= 100, contract volume >= 10.
+- `进取` maps to closer strikes and looser liquidity：DTE 7-45, Abs Delta 0.25-0.40, max spread 20%, contract OI >= 50, contract volume >= 5.
+- `短线` maps to weekly/short-DTE setups：DTE 1-14, Abs Delta 0.20-0.40, max spread 20%, contract OI >= 100, contract volume >= 20.
+- `流动性优先` maps to broad DTE/Delta but strict liquidity：DTE 7-60, Abs Delta 0.05-0.50, max spread 8%, contract OI >= 1000, contract volume >= 100.
+- Editing Advanced fields manually switches the UI profile to custom.
 
 排序：
 - 默认按 `iv_rank DESC` 排序。
