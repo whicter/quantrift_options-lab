@@ -312,8 +312,12 @@
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
 - [ ] 服务层自动切换：252天 option snapshot 积累后改为自算 IV Rank，停止调用 Tastytrade（见 P0.3）
 
-**基础设施可靠性**
-- [ ] Mac Studio 断电风险：加装 UPS，配置电源恢复后自动开机（短期过渡方案）
+**基础设施可靠性 / 云端迁移**
+- [ ] Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job（纯 REST API，无需本地网关，可直接云端跑）
+- [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS），配置 macOS 电源恢复后自动开机，短期过渡方案
+- [ ] IB Gateway 云端迁移评估：Docker + IBC（参考 gnzsnz/ib-gateway-docker）部署到云 VPS（DigitalOcean/AWS/Linode），解决 Mac Studio 单点故障
+  - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活
+  - 上线前置条件：面向付费用户/需要高可用时必须完成此项，个人 Mac Studio 不适合作为生产基础设施
 - [ ] （可选）心跳监控：Mac Studio → Railway 心跳上报，云端检测断线告警
 
 **前端路由（Vite + React Router）**
