@@ -716,6 +716,15 @@
   - strategy column shows a concrete action summary, e.g. Bear Call Spread = sell lower-strike call and buy higher-strike call
   - missing GEX/Wall/OI/contract values display as user-facing status instead of raw `missing`; contract data displays `待采集` when no latest option contract snapshot exists
   - automatic option-chain refresh jobs default to `tt_internal` during the transition, so queued symbol refreshes can be consumed by the current worker
+- [x] Refresh provider regression tests：
+  - Server `npm test` asserts the default option-chain refresh provider is executable by the worker and does not silently fall back to a placeholder provider.
+  - Collector unittest asserts worker-supported option providers include `tt_internal` and exclude `licensed_options_provider`.
+- [ ] Expand option-chain snapshot backfill from PLTR-only to the scanner ingestion pool in bounded batches, then rerun GEX, OI delta, and scanner materialization.
+- [ ] Scanner strategy recommendation expansion：
+  - Current recommendation engine emits `Bull Put Spread`, `Bear Call Spread`, `Iron Condor`, `Long Straddle`, and fallback `Bull Call Spread` / `Short Strangle` labels.
+  - Strategy knowledge base already contains `Short Put`, `Short Call`, `Iron Butterfly`, `Long Call Butterfly`, `Long Put Butterfly`, `Short Butterfly`, and related structures.
+  - Add explicit recommendation candidates for naked sell put / naked sell call only behind a risk-defined suitability gate; default beginner flow should prefer defined-risk put spread / call spread.
+  - Add butterfly candidates for pinning / low realized move / price-near-body scenarios after contract-level chain selection is available.
 
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)

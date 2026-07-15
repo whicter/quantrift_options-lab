@@ -1,5 +1,8 @@
 const pool = require('../db');
 
+const DEFAULT_OPTIONS_REFRESH_PROVIDER = process.env.OPTIONS_REFRESH_PROVIDER || 'tt_internal';
+const SUPPORTED_OPTIONS_REFRESH_PROVIDERS = new Set(['ib_internal', 'tt_internal']);
+
 function isMissingTableError(err) {
   return err?.code === '42P01';
 }
@@ -7,7 +10,7 @@ function isMissingTableError(err) {
 async function enqueueRefreshJob({
   symbol,
   jobType,
-  provider = process.env.OPTIONS_REFRESH_PROVIDER || 'tt_internal',
+  provider = DEFAULT_OPTIONS_REFRESH_PROVIDER,
   requestParams = {},
   minIntervalSeconds = parseInt(process.env.REFRESH_MIN_INTERVAL_SECONDS ?? 60, 10),
 }) {
@@ -48,5 +51,7 @@ async function enqueueRefreshJob({
 }
 
 module.exports = {
+  DEFAULT_OPTIONS_REFRESH_PROVIDER,
+  SUPPORTED_OPTIONS_REFRESH_PROVIDERS,
   enqueueRefreshJob,
 };

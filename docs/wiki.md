@@ -588,6 +588,17 @@ GEX filters：
 - `minTotalVolume`
 - `minVolumeOiRatio`：当前阶段的 unusual activity proxy；真正 OI delta 异常需要连续快照历史
 
+Wall availability:
+- Wall values come from `gex_snapshots.call_wall` / `gex_snapshots.put_wall`.
+- A row can only have Wall values after the pipeline has written `option_chain_snapshots`, `option_contract_snapshots`, computed GEX via `compute_gex.py`, and rematerialized scanner rows.
+- If only PLTR has latest option contracts and GEX snapshots, only PLTR can show Wall. Other symbols showing empty Wall means they have not been through that chain yet, not that TT/IB cannot provide the chain.
+
+Scanner recommendation coverage:
+- Current recommendation engine favors defined-risk structures：`Bull Put Spread`, `Bear Call Spread`, `Iron Condor`, plus limited long-vol/fallback labels.
+- Put spread and call spread are present under their directional names: `Bull Put Spread` = sell put spread; `Bear Call Spread` = sell call spread.
+- Naked `Short Put` / `Short Call` and butterfly variants exist in the strategy knowledge base but are not yet emitted by the scanner recommendation engine.
+- Butterfly recommendations should be added only when contract-level selection can identify body/wing strikes, expected pinning area, debit/credit, max profit/loss, and expiration.
+
 #### Scanner 前端策略标签
 
 当前 scanner 的策略标签仍是 IV-first 规则，不是完整链数据选腿推荐；GEX 只用于筛选环境、排序和显示 positioning context：
