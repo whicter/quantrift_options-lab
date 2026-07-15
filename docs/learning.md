@@ -326,3 +326,65 @@ V1 公式：
 - Analyze pages must not seed real symbols with mock GEX/Wall values. If real GEX is stale, missing or unusable, clear Wall/recommendation fields and show a partial-data panel instead of carrying mock Call Wall / Put Wall forward.
 - Analyze 技术评分已使用真实 price history 的 MA20/50/200、RSI14、MACD 和 5日变化；MA200 数据不足时保持 null，不伪造。
 - 策略矩阵已用 IV Rank + trend score + GEX context 生成策略/DTE/delta/width；当前 legs 是 target fallback，不是完整 live-chain optimal leg selection。
+
+## 开发复盘：已确认的 Bug 与踩坑
+
+这一节记录开发过程中已经被代码、日志、数据库或生产 API 证实的问题。它们不是抽象的架构偏好，而是后续修改必须回归测试的具体经验。
+
+### 1. 不允许用 expiry/strike/right 笛卡尔积生成合约
+
+- 旧错误：把 `reqSecDefOptParams` 返回的全局 expiration 集合和 strike 集合互相组合，再拼出 call/put。
+- 根因：IB 返回的 expiration 集合和 strike 集合是独立可用集合，不代表每个组合都存在。
+- 后果：可以生成现实中不存在的 contract symbol，进而得到错误的 DTE、Wall、GEX 和策略腿。PLTR 曾出现远离现价的虚假 Call Wall/Put Wall，就是这一类数据污染的表现。
+- 修复：先按 DTE bucket 选 expiry，再对每个 `expiry + right` 调用无 strike 的 `reqContractDetails`；只接受 IB 实际返回且 `conId > 0`、expiry/right 精确匹配的 contract。
+- 不变量：同一 snapshot 按 `conId` 去重；没有 valid `conId/localSymbol` 就不能请求行情或写入 contract snapshot。
+- 测试：`test_option_provider_selection.py` 验证不会选择 IB 未返回的 strike/right 组合。
+
+### 2. snapshot 的“有记录”不等于“字段可用于 GEX”
+
+- 旧错误：只看到 option contract rows 就认为 quote、Greeks、OI 都可用。
+- 根因：IB 可以返回 contract definition，但 market data 权限、延迟行情类型、generic ticks 或当前合约流动性可能导致 bid/ask、Greeks 或 OI 缺失。
+- 修复：snapshot 记录 `completeness_pct`、`missing_greeks_ratio`、`missing_oi_ratio` 和 provider status；GEX 对缺少 gamma/OI 的 contract fail closed，不用估算值补齐。
+- UI 规则：required fields 完整但 snapshot stale/partial 时继续显示真实 GEX/Wall，并标记 age/confidence；required fields 缺失才显示 unavailable。
+- 经验：STX/TSLA 曾有 54 个 IB contract rows，但 completeness 为 0%，因此没有 GEX/Wall。这是正确的保护行为，不是把 metadata 当成行情。
+
+### 3. mock 数据泄漏会制造看似完整的错误分析
+
+- 旧错误：Analyze 先初始化 `mockAnalysis`，真实 GEX stale 或请求失败后仍保留 mock Call Wall、Put Wall、scenarios 和 recommendation。
+- 后果：PLTR 页面曾显示与现价完全不相称的 `$595 / $575`，用户无法判断数据是否真实。
+- 修复：typed symbol 不允许 API 失败时回退到本地 mock；missing/unusable GEX 清空 Wall、strikes、scenarios 和策略腿；stale/partial 且字段完整则显示实际数据并加质量提示。
+- 测试：frontend regression tests 覆盖 fresh、stale、missing、low-confidence 四种状态。
+
+### 4. collector 默认 universe 错误会造成“只有 PLTR 有数据”
+
+- 旧错误：`collect_options.py` 默认只采集 `AAPL,SPY,QQQ,PLTR`，而 scanner 实际 watchlist 是 67 个标的。
+- 后果：price/IV 覆盖率看起来正常，但 option snapshot/GEX 覆盖严重不足；其他标的 Analyze 显示不可用。
+- 修复：option collector 默认读取 `collector/watchlist.txt`；`OPTION_SYMBOLS`/`SYMBOLS` 只用于 bounded backfill。PM2 scheduler 每批最多补 2 个 missing/old symbols，missing 优先、最旧优先，失败后冷却 30 分钟。
+- 验证：NBIS 真实 IB snapshot 完成后，生产 option coverage 从 8/67 增至 9/67，随后继续处理 AIQ。
+
+### 5. provider job 的默认值必须是 worker 真正支持的 provider
+
+- 旧错误：API enqueue 使用占位 provider 名称，job 能写入 PostgreSQL，却永远不能被 worker 消费。
+- 修复：server 和 collector 共用支持集合；测试确认默认 `tt_internal` 可执行，`licensed_options_provider` 不会被假装执行。
+- 额外保护：malformed ticker（包括中文输入法组合产生的 `SS'TS'T'XSTX`）在入队前拒绝；`__SCAN__` 只允许 scanner materialize。
+
+### 6. Tastytrade 认证不能在每次请求时重新申请 session
+
+- 旧错误：把 401/网络错误都当成可重试登录，并让多个 worker/每个 symbol 重复申请 TT session。
+- 后果：产生登录风暴，触发 provider circuit lock 或 device challenge，反而扩大故障。
+- 已确认现象：remember-token 续期返回 `403 device_challenge_required`，这不是普通请求可以无限重试的 401。
+- 修复：worker 在一次运行内缓存 provider/session；认证不可用时阻断 TT 重复尝试，option job 立即 fallback 到 IB；失败 job 写回 `provider_fetch_jobs`，不假装成功。
+- 运行策略：TT 作为自动 refresh 首选；IB delayed data 作为当前 fallback。失败 symbol 有冷却时间，不会持续 rotate token。
+
+### 7. cron/LaunchAgent runtime copy 造成“改了代码但运行的不是这份”
+
+- 旧错误：把 repo 复制到 `~/.quantrift_options_collector`，再通过 LaunchAgent/cron 运行副本；后续改动需要同步，容易出现线上/本地代码不一致。
+- 另一个问题：本机 `crontab` 写入曾在系统权限环境中挂起，不能把“写入成功”当作调度已生效。
+- 修复：PM2 直接执行当前 repo 的 `collector/venv311`；`ecosystem.config.cjs` 是唯一运行配置，不再同步 runtime 副本。
+- 验证：`quantrift-options-collector` 常驻，价格任务完成 67 symbols/4020 rows/0 failed，`pm2 save` 已完成。
+
+### 8. 只做 py_compile 不足以证明 collector 可用
+
+- 语法通过只说明 Python 能解析文件，不能证明 IB contract identity、行情字段、数据库落库、GEX 计算和 API 输出正确。
+- 当前最低验证闭环：collector unit tests、server tests、frontend tests/build、真实 IB snapshot、PostgreSQL row identity/completeness、GEX/OI delta/scanner materialization、生产 API 查询。
+- 本次记录：collector 37 tests、server 4 tests、frontend 6 tests 全部通过；NBIS 真实 snapshot 30 个 distinct valid `conId`，Greeks missing 0%，OI missing 3.33%，并成功生成 GEX 与 scanner rows。

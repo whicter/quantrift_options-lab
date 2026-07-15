@@ -231,12 +231,12 @@ Each chart:
   Step 4: POST /sessions + challenge-token + OTP header + remember-me:true
        → 返回 session-token（24h）+ remember-token（数周）
 
-日常自动续期（全自动）：
+日常自动续期（通常自动，但可能触发设备挑战）：
   POST /sessions {"login": "...", "remember-token": "..."}
-  → 返回新 session-token，无需人工介入
+  → 正常返回新 session-token；如果返回 403 device_challenge_required，必须停止重复尝试并走设备验证/手动登录流程
 
 remember-token 过期时：
-  → 脚本发邮件提醒 → 手动重新登录一次
+  → 脚本记录错误并提醒 → 手动重新登录一次；不能把 401/403 当作无限重试登录
 ```
 
 **API 端点：**
@@ -638,7 +638,7 @@ Option-chain collector persistence:
 - `Direction` 来自 materialized scanner snapshot：`collector/materialize_scan.py` 读取 `price_history` 计算 MA20/50/200、RSI14、5D change 和 trend_score；60日数据不足时 MA200 为 null，不伪造长周期趋势。
 - `Earnings` 来自 `iv_history.earnings_date`；scanner 前端显示日期，并在 0-14 天窗口内标记事件风险 warning。
 - `/api/scan` 现在读取 latest `gex_snapshots` 和 `gex_by_strike_snapshots`，但只读数据库快照，不在用户请求路径直连 IB/TT/provider。
-- GEX fresh/stale/missing 由后端返回 `gex_status`；前端不能把 stale/missing GEX 当 fresh。
+- GEX fresh/stale/missing 由后端返回 `gex_status`；stale 但 required fields 完整时继续显示并标记质量，missing/unusable 才隐藏 GEX/Wall。前端不能把 stale 当 fresh。
 - 真正的 options scanner 还需要 bid/ask spread、DTE、contract-level liquidity、自动选腿和 POP 模型。
 - OI delta unusual 已实现为连续 snapshot 差分；`volume_oi_ratio` 仍只说明“当期成交相对持仓是否活跃”，不能等同机构建仓确认。
 

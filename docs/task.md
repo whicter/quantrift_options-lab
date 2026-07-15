@@ -292,7 +292,7 @@
 - [x] 冷启动方案：Tastytrade API 第一天即可提供 IV Rank，同时自积累历史数据
 - [x] Tastytrade 账户注册完成（whicter.han@gmail.com）
 - [x] Tastytrade API 测试通过：/market-metrics 字段确认，认证流程完整验证
-- [x] remember-token 自动续期机制验证通过（全自动，无需人工介入）
+- [x] remember-token 正常续期路径验证通过；遇到 `403 device_challenge_required` 时停止重试并提醒手动完成设备验证，不把认证错误当成可无限重试请求
 - [x] 生产数据原则：IB Gateway 只作为 internal research adapter，不作为公开/付费产品的默认 option chain 数据源，除非授权和再分发权利已确认
 
 **Infrastructure**
@@ -307,7 +307,7 @@
 
 **Mac Studio 数据采集脚本**
 - [x] Python 定时脚本：collector/collect.py（每日 4:30pm ET，采集 IV → 写入 Railway PostgreSQL）
-  - Tastytrade 认证：collector/auth.py，remember-token 自动续期，过期时发邮件提醒
+  - Tastytrade 认证：collector/auth.py；正常使用 remember-token 续期，device challenge/过期时写入明确错误并发提醒
   - 采集字段：iv_rank, iv30, hv30/60/90, iv_hv_diff, earnings_date, term_structure
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
 - [x] 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
@@ -487,7 +487,7 @@
   - Collector command after DXLink merge：`OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py`
   - Collector result after DXLink merge：`snapshot_id=6`、`contracts=10`、`source=tt_internal`、`provider_status=ok`
   - API verified after DXLink merge：`completeness_pct=100.00`、`missing_greeks_ratio=0.0000`、`missing_oi_ratio=0.0000`、`underlying_bid=133.5400`、`underlying_ask=133.6500`
-  - Credential handling：使用 `.env` remember-token 自动续期；secret 未写入仓库
+  - Credential handling：使用 `.env` remember-token 正常续期；遇到 device challenge 转人工登录；secret 未写入仓库
 - [x] Gate before GEX：
   - GEX / Wall / Gamma Flip 只有在 gamma + OI completeness 达标后才计算
   - `metadata_only` snapshot 不参与 GEX
@@ -743,8 +743,8 @@
   - Scanner strategy column now shows legs, DTE, credit/debit estimate, max-loss / breakeven where available.
   - If the current snapshot cannot form the strategy, the row says the contract snapshot is insufficient instead of showing only a strategy name.
 - [x] Analyze mock-data leakage fix：
-  - PLTR showed fake `Call Wall $595 / Put Wall $575` because Analyze initialized from `mockAnalysis` and kept mock walls when real GEX was stale/unusable.
-  - GEX stale/unusable now marks the result partial and clears `callWall`, `putWall`, GEX strikes, scenarios and recommendation so mock walls cannot appear as real data.
+  - PLTR showed fake `Call Wall $595 / Put Wall $575` because Analyze initialized from `mockAnalysis` and kept mock walls when real GEX was unavailable; the old contract construction path could also create invalid option combinations.
+  - GEX missing/unusable now marks the result partial and clears `callWall`, `putWall`, GEX strikes, scenarios and recommendation so mock walls cannot appear as real data. Stale/partial snapshots with required fields remain visible with quality labels.
   - API failure no longer falls back to local mock structures for a typed symbol.
 - [x] Analyze GEX regression tests：
   - Frontend `npm test` covers stale GEX, missing GEX, and fresh usable GEX merge behavior.
