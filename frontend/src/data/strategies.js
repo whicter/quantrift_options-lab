@@ -15,6 +15,21 @@ export const CATEGORIES = [
   { id: 'guide',      label: 'Guide',       zh: '向导' },
 ];
 
+const NUMERIC_NOTE_DEFAULTS = {
+  iv: '量化默认阈值：IV Rank 30-60；超出范围时降低仓位或不新开仓。',
+  dte: '量化默认期限：30-60 DTE，以 45 DTE 为基准。',
+  tp: '量化默认止盈：达到初始最大潜在利润的 50% 时平仓。',
+  sl: '量化默认止损：亏损达到初始最大风险的 50% 时平仓。',
+};
+
+function standardizeNumericNotes(strategy) {
+  const notes = { ...strategy.notes };
+  for (const [field, fallback] of Object.entries(NUMERIC_NOTE_DEFAULTS)) {
+    if (!/\d/.test(notes[field] || '')) notes[field] = `${notes[field]} ${fallback}`.trim();
+  }
+  return { ...strategy, notes };
+}
+
 export const STRATEGIES = [
 
   // ─────────────────────────────────────────────
@@ -2014,4 +2029,4 @@ export const STRATEGIES = [
     legs: [{ type: 'put', dir: 1, K: 96, dte: 45, iv: 0.25, qty: 1 }, { type: 'put', dir: -1, K: 100, dte: 45, iv: 0.24, qty: 2 }, { type: 'put', dir: 1, K: 108, dte: 45, iv: 0.23, qty: 1 }],
     notes: { build: '买 1 张 96 Put，卖 2 张 100 Put，买 1 张 108 Put，形成不等宽蝶式。', when: '预期指数在到期时靠近中间行权价，且希望一侧风险更小。', strike: '中间短腿放在目标点位，较宽的一翼放在可接受的风险方向。', iv: 'IV Rank 30-60 时适用；高 IV 可尝试构建小信用。', dte: '30-60 DTE，45 DTE 是默认示例。', delta: '初始轻微方向性 Delta，接近中间行权价时 Gamma 高。', tp: '达到最大利润的 25-50% 时平仓。', sl: '价格突破宽翼并使亏损达到预设最大风险的 50% 时止损。', adj: '避免接近到期才调整，DTE 少于 14 天时主动平仓或滚动。' },
   },
-];
+].map(standardizeNumericNotes);

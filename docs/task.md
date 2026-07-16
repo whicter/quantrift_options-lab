@@ -279,7 +279,7 @@
 - [x] Mobile-responsive layout (stack panels vertically)（策略库在 ≤900px 将 sidebar / 主内容 / 参数面板垂直排列；≤560px 将图表、notes、Greeks 网格收为单列并避免标题与操作按钮溢出）
 - [x] Payoff chart: show multiple DTE snapshots (not just current + expiry)（自动生成 75% / 50% / 25% 剩余 DTE 曲线；跨期结构按每条 leg 的实际剩余时间定价）
 - [x] Add 10 more strategies (exotic, FX, index-specific)（策略库增至 88 个模板：Call/Put Ladder、比例日历、Calendar Condor、Double Diagonal Condor、FX Risk Reversal / Seagull、Index Iron Condor / Broken-Wing Butterfly；catalog 测试校验数量、ID 唯一和新增模板存在）
-- [ ] 策略 notes 进一步标准化（确保所有策略 iv/dte/tp/sl 字段有具体数字）
+- [x] 策略 notes 进一步标准化（所有 88 个策略的 `iv` / `dte` / `tp` / `sl` 均展示至少一个数字阈值；模板本身已有数字时保留原规则，缺失项补入统一的 IV Rank 30-60、30-60 DTE/45 DTE、50% 止盈和 50% 最大风险止损基准；单元测试逐策略校验）
 
 ## 🚀 V2 — Real Data
 

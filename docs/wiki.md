@@ -1285,3 +1285,7 @@ Payoff 图的蓝色阴影是以策略各腿的数量加权 IV、最长 DTE、利
 ### 策略模板扩展
 
 策略库现有 88 个可编辑模板。新增的 10 个覆盖 Call/Put Ladder、Call/Put Ratio Calendar、Calendar Condor、Double Diagonal Condor、FX Risk Reversal、FX Seagull、Index Iron Condor 与 Index Broken-Wing Butterfly。FX 和指数模板仍使用同一套标准期权腿表示，用户需要在实际下单前按对应产品的合约乘数、结算方式和行权价间距调整参数。
+
+### 策略规则数字化
+
+每个策略模板的 IV、DTE、止盈和止损说明都至少包含一个可见数字。已有具体规则维持原文；过去缺失数字的说明会补入统一基准：IV Rank 30-60、30-60 DTE（45 DTE 基准）、50% 最大潜在利润止盈、50% 最大风险止损。基准是阅读与比较策略的默认规则，用户仍可在策略参数面板调整实际合约。
