@@ -9,6 +9,7 @@ import run_refresh_worker
 import schedule_option_refresh
 import check_collector_health
 import derive_volatility
+import evaluate_scanner_alerts
 
 
 POLL_SECONDS = max(int(os.getenv('COLLECTOR_POLL_SECONDS', '60')), 5)
@@ -52,6 +53,7 @@ def run() -> None:
         if started_at >= next_scan_at:
             try:
                 materialize_scan.run()
+                evaluate_scanner_alerts.run()
             except Exception:
                 log.exception('scanner materialization cycle failed')
             next_scan_at = started_at + SCAN_SECONDS

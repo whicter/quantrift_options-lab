@@ -506,3 +506,12 @@ V1 公式：
 - **真实产品画面比装饰图更可信**：hero 使用 scanner 结果截图，live strip 再读取当前 regime；视觉与运行数据来源分开，API 失败不影响导航。
 - **Home 不能抢占工具的信息密度**：入口可以有强品牌尺度，进入 scanner/dashboard 后仍保持紧凑操作界面。
 - **移动端首屏要保留下一段提示**：hero 与 live strip 使用稳定高度和 2-column mobile grid，workflow section 不被无限长首屏吞掉。
+
+## Scanner Alert Lessons (2026-07-15)
+
+- **通知要有 durable outbox**：直接“算完就发”无法区分发送前崩溃与发送后崩溃。先插入 unique delivery，再更新 sent/blocked/failed，至少能审计和抑制重复。
+- **未配置 channel 不是发送成功**：SMTP/VAPID 缺失时必须写 blocked，UI 只能说 subscription saved，不能说 message delivered。
+- **Web Push 只把 public key 给浏览器**：VAPID private key 属于 Mac collector secret；Service Worker 只负责展示 payload 和打开产品链接。
+- **规则字段缺失应 fail closed**：用户要求 `min_iv_rank=50` 而 row 没有 IV Rank 时不能命中。
+- **退订不应暴露 destination**：随机 token 足够完成当前匿名阶段的撤销；用户 auth 上线后再把 subscription 归属绑定到账户。
+- **通知 evaluator 不能调用 provider**：只消费 materialized scanner batch，避免用户数量放大外部请求成本。

@@ -1610,3 +1610,23 @@ No schema migration was required. `weeklyMock.js` was removed. Runtime evidence:
 `/` is the Quantrift product entry, not a redirect to the education tool. It reads `/api/market/regime` for a compact live context strip and links directly to the three repeated workflows: scanner discovery, symbol analysis and weekly review. The hero uses an actual product screenshot rather than an abstract illustration. The nav brand returns home; `/learn` remains the educational workspace.
 
 This section is frontend-only and adds no data contract or persistence. Market API failure degrades the live strip to loading labels without blocking navigation. Desktop and mobile use fixed responsive constraints; the hero leaves the workflow section visible below it on normal viewports.
+
+## 31. Scanner Alert Delivery
+
+`scanner_alert_subscriptions` stores channel, opaque destination JSON, rules and a random unsubscribe token. `scanner_alert_deliveries` is the durable outbox/audit table. Its unique `(subscription_id, scan_snapshot_ts, candidate_key)` constraint makes evaluator retries idempotent.
+
+```text
+Scan UI -> POST /api/alerts/subscriptions -> subscription + token
+
+materialize_scan.py -> evaluate_scanner_alerts.py
+                    -> latest materialized rows + active rules
+                    -> insert pending delivery (unique)
+                    -> SMTP or VAPID
+                    -> sent | blocked | failed
+
+token -> DELETE /api/alerts/subscriptions/:token -> inactive
+```
+
+Rules are conjunctive: optional symbols, minimum IV Rank, Gamma regime and unusual-only. Missing required row fields fail closed. The evaluator never invokes a provider and links the user back to the real symbol analysis. Email addresses and push endpoints are never returned by create/list responses. No SMTP/VAPID configuration yields `blocked`, not `sent`; external delivery failure never blocks scanner materialization.
+
+Runtime on 2026-07-15: additive migration succeeded; no-subscription evaluator returned zero counts; a temporary email subscription was created then token-unsubscribed; public VAPID key returned null; PM2 completed materialization and evaluator with zero errors. Real inbox/browser delivery remains an explicit secret-dependent deployment check.

@@ -1173,3 +1173,9 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 ### Product Home
 
 `Home.jsx` is the first product signal. It uses the scanner interface as the hero visual, reads the real Market Regime endpoint for context, and exposes direct actions for the three core workflows. It does not duplicate feature documentation or hide the actual app behind a signup screen. `/learn` stays available as a distinct education workspace.
+
+### Scanner Alerts
+
+The Scan page can persist the current minimum IV Rank, Gamma regime and unusual-only state as an email or browser-push rule. Browser push uses `public/sw.js`; the client obtains only the VAPID public key. The private key remains with the collector delivery process.
+
+Each latest materialized row is tested against active rules. A unique delivery outbox row is inserted before sending, so process restart cannot resend the same symbol from the same scanner batch. Delivery states are `pending`, `sent`, `blocked`, `failed`; missing channel configuration is blocked. Unsubscribe uses a random token rather than an email address or push endpoint.

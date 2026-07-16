@@ -1397,3 +1397,20 @@ No migration or collector restart is required for this section. Deploy/restart t
 The Vercel artifact must include `public/quantrift-scanner.png` and route `/` to `Home.jsx`. Smoke checks: `/` returns the Quantrift heading, brand navigation returns to `/`, and Scan/Analyze/Weekly links route client-side. No new environment variable is required; the live strip reuses `VITE_API_URL` and `/api/market/regime`.
 
 Verification: frontend tests 19/19, changed-file lint 0 errors and Vite production build passed. Browser plugin initialization still failed with `Cannot redefine property: process`, so automated screenshot verification was not claimed. Rollback is the P2.1 commit.
+
+## Scanner Alert Deployment
+
+Run the additive migration, install collector requirements, and restart the direct-repository PM2 process:
+
+```bash
+cd /Users/congrenhan/Documents/quantrift_options-lab
+set -a; source collector/.env; set +a
+NODE_ENV=production node server/src/migrate.js
+collector/venv311/bin/pip install -r collector/requirements.txt
+pm2 restart quantrift-options-collector --update-env
+pm2 save
+```
+
+Email requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`. Web Push requires one VAPID pair: public key in Railway `WEB_PUSH_VAPID_PUBLIC_KEY`; private key and `WEB_PUSH_VAPID_SUBJECT` in Mac Studio `collector/.env`. Never put the private key in Vercel or Git.
+
+Smoke checks: `GET /api/alerts/vapid-public-key`; create a consented test subscription; run `collector/venv311/bin/python evaluate_scanner_alerts.py`; inspect `scanner_alert_deliveries`; unsubscribe through its token. Without secrets, expected status is `blocked`. With secrets, require a real inbox/browser receipt before calling external delivery verified. Rollback disables subscriptions and reverts P2.2; additive tables may remain.

@@ -126,4 +126,22 @@ export function getWeekly(symbol) {
   return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
 }
 
+export function getVapidPublicKey() {
+  return getJson('/api/alerts/vapid-public-key');
+}
+
+export async function createAlertSubscription(payload) {
+  const response = await fetch(`${API_BASE}/api/alerts/subscriptions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  return response.json();
+}
+
+export async function deleteAlertSubscription(token) {
+  const response = await fetch(`${API_BASE}/api/alerts/subscriptions/${encodeURIComponent(token)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  return response.json();
+}
+
 export { API_BASE };

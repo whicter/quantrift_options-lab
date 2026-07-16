@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDataStatus, getMarketRegime, getScan } from '../lib/api';
 import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
+import ScannerAlerts from '../components/ScannerAlerts';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -488,6 +489,8 @@ export default function Scan() {
           ))}
         </div>
       )}
+
+      <ScannerAlerts minIvr={minIvr} gammaRegime={gammaRegime} unusualOnly={unusualOnly} />
 
       <div className="scan-body">
         {/* 过滤面板 */}

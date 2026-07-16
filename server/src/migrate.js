@@ -259,6 +259,38 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS option_oi_delta_snapshots_symbol_unusual
       ON option_oi_delta_snapshots (symbol, is_unusual, snapshot_ts DESC);
 
+    CREATE TABLE IF NOT EXISTS scanner_alert_subscriptions (
+      id                BIGSERIAL PRIMARY KEY,
+      unsubscribe_token TEXT        NOT NULL UNIQUE,
+      channel           TEXT        NOT NULL CHECK (channel IN ('email', 'web_push')),
+      destination       JSONB       NOT NULL,
+      rules             JSONB       NOT NULL DEFAULT '{}',
+      active            BOOLEAN     NOT NULL DEFAULT TRUE,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS scanner_alert_subscriptions_active
+      ON scanner_alert_subscriptions (active, channel);
+
+    CREATE TABLE IF NOT EXISTS scanner_alert_deliveries (
+      id                BIGSERIAL PRIMARY KEY,
+      subscription_id   BIGINT      NOT NULL REFERENCES scanner_alert_subscriptions(id) ON DELETE CASCADE,
+      scan_key           TEXT        NOT NULL,
+      scan_snapshot_ts   TIMESTAMPTZ NOT NULL,
+      candidate_key      TEXT        NOT NULL,
+      payload            JSONB       NOT NULL,
+      status             TEXT        NOT NULL CHECK (status IN ('pending', 'sent', 'blocked', 'failed')),
+      channel            TEXT        NOT NULL,
+      error              TEXT,
+      attempted_at       TIMESTAMPTZ,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (subscription_id, scan_snapshot_ts, candidate_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS scanner_alert_deliveries_status
+      ON scanner_alert_deliveries (status, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

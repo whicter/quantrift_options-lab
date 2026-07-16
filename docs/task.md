@@ -350,7 +350,10 @@
 **功能**
 - ✅ 用 live 链数据填充推荐策略的 legs（`scanOpportunity.js` 使用真实同到期 bid/ask contracts，输出 expiry/DTE/legs/credit/debit/max loss/breakeven/RoR）
 - ✅ Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值（server contract filters + frontend presets/advanced filters 已实现；无完整可执行 legs 时 fail closed）
-- [ ] Push notifications: email + web push 当扫描命中条件
+- [x] Push notifications pipeline：Scan 可按当前 IV Rank/Gamma/异动条件创建 email 或 browser push subscription；token 退订；collector 每次 materialize 后评估；delivery 表按 subscription+batch+symbol 去重
+  - [x] 无 SMTP/VAPID 时 delivery 明确 `blocked`，不假装 sent
+  - [x] Railway additive migration、API create/unsubscribe、PM2 evaluator dry-run 已验证
+  - [ ] 人工配置 SMTP 与 VAPID public/private secrets 后完成真实 inbox/browser 收件验收
 
 **✅ Phase 3D — Options Positioning Data Layer（已完成，Polygon 已在 Phase 3I 替代 IB internal 成为生产 provider）**
 
@@ -916,7 +919,7 @@
 | P1.3 | Universe / on-demand | ✅ 2026-07-15 完成：persistent universe、filters、unknown symbol enqueue/wait/blocker UI、materialized invariant | market cap / sector / optionable reference values 尚未填充；TT metrics 当前需 manual login |
 | P1.4 | Market/weekly signals | ✅ 2026-07-15 完成：SPY/QQQ regime header、30M breakout freshness gate、Weekly GEX/Max Pain/ΔOI 实数接入 | 30M 最新运行数据为前一交易日，当前正确标记 stale，不生成 breakout |
 | P2.1 | 产品入口 | ✅ 2026-07-15 完成：真实产品视觉、live regime、三条核心 workflow、mobile layout | Browser plugin 初始化错误导致无自动 screenshot |
-| P2.2 | Scanner alerts | email/web push subscriptions、dedupe、delivery worker | web push/email production secrets 只影响真实发送验证 |
+| P2.2 | Scanner alerts | ✅ 2026-07-15 完成：subscriptions、rules、token unsubscribe、dedupe delivery、PM2 evaluator、Email/Web Push adapters | SMTP/VAPID secrets 尚未配置，真实收件验收需人工提供 |
 | P2.3 | Heartbeat | Mac Studio 上报、Railway status/timeout alert | 外部通知 secret 只影响真实发送验证 |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
 | External | 硬件与采购 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 必须人工采购、登录或提供 API key |

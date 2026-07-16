@@ -13,6 +13,7 @@ const { router: supportResistanceRouter } = require('./routes/supportResistance'
 const analyzeRouter = require('./routes/analyze');
 const { router: marketRouter } = require('./routes/market');
 const { router: weeklyRouter } = require('./routes/weekly');
+const { router: alertsRouter } = require('./routes/alerts');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -53,6 +54,7 @@ app.use('/api/sr', supportResistanceRouter);
 app.use('/api/analyze', analyzeRouter);
 app.use('/api/market', marketRouter);
 app.use('/api/weekly', weeklyRouter);
+app.use('/api/alerts', alertsRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

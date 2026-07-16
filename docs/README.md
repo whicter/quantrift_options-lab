@@ -71,6 +71,7 @@ Open http://localhost:5173
 - Universe filters: price, share/dollar volume and earnings are live; market cap, sector and optionable filtering is wired but remains null until reference fields are populated
 - Market Regime: `/api/market/regime` combines SPY/QQQ daily momentum, regular-session 30M breakout, IV Rank and GEX; stale intraday bars cannot confirm a breakout
 - Weekly Recap: `/api/weekly/:symbol` uses real rolling-week OHLC, daily GEX snapshots, Max Pain and ΔOI. It contains no mock fallback or fabricated money-flow data
+- Scanner alerts: email and browser-push subscriptions persist rules and tokenized unsubscribe state; PM2 evaluates each materialized scan batch with delivery deduplication
 
 ## Data Sources (V2)
 - ATM IV / HV30/60/90: Polygon option snapshots and daily OHLCV, derived into `volatility_history`
@@ -120,6 +121,7 @@ Open http://localhost:5173
 - [x] V2: Persistent scanner universe and unknown-symbol on-demand price/options/GEX refresh
 - [x] V2: Market Regime and fully real-data Weekly Recap
 - [x] V2: Quantrift responsive product home
+- [x] V2: Scanner email/web-push subscription and delivery pipeline
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

@@ -42,6 +42,8 @@ Scheduled price history uses `PRICE_PROVIDER=polygon`. Each run upserts up to 40
 
 Collector health checks run inside `run_collector_daemon.py` every 300 seconds by default. They evaluate option coverage, 24h failed jobs, snapshot age and completeness, then persist deduplicated events in `collector_health_alerts`. Configure `ALERT_WEBHOOK_URL` or SMTP variables for external delivery; without them alerts remain visible in PM2 logs. Set `COLLECTOR_HEALTH_CHECK_ENABLED=false` to disable the check without changing collection.
 
+Scanner user alerts run immediately after scanner materialization. `evaluate_scanner_alerts.py` reads active rules and the latest materialized batch, inserts a unique delivery outbox row, then uses generic SMTP or VAPID Web Push. Without channel secrets deliveries are `blocked`. It never calls a market-data provider.
+
 ```bash
 venv311/bin/python collect_prices.py
 ```
@@ -199,6 +201,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `materialize_oi_delta.py` — contract-level OI delta materializer
 - `materialize_scan.py` — scanner cache materializer, PostgreSQL snapshot input only
 - `run_refresh_worker.py` — queued refresh worker and provider budget gate
+- `evaluate_scanner_alerts.py` — idempotent materialized-scanner email/web-push evaluator
 - `sync_universe.py` — seed/upsert persistent scanner universe from watchlist and existing data tables
 - `run_collector_daemon.py` — persistent worker/materializer loop used by PM2
 - `schedule_option_refresh.py` — bounded watchlist coverage scheduler with stale selection and retry cooldown

@@ -15,6 +15,7 @@ module.exports = {
         OPTION_MAX_STRIKES_PER_SIDE: '6',
         COLLECTOR_POLL_SECONDS: '60',
         SCAN_MATERIALIZE_SECONDS: '300',
+        PUBLIC_APP_URL: 'https://www.quantrift.io',
         OPTION_AUTO_REFRESH: 'true',
         OPTION_REFRESH_PROVIDER: 'polygon_licensed',
         OPTION_REFRESH_BATCH_SIZE: '2',
