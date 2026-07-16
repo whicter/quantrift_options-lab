@@ -17,6 +17,21 @@ const TABS = [
   { id: 3, label: '信号追踪' },
 ];
 
+function daysUntilEarnings(dateText) {
+  if (!dateText) return null;
+  const date = new Date(`${String(dateText).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return Math.ceil((date.getTime() - todayUtc) / 86400000);
+}
+
+function earningsTimingLabel(daysAway) {
+  if (daysAway === 0) return '今日财报';
+  if (daysAway != null && daysAway > 0) return `${daysAway} 天后`;
+  return '财报已公布';
+}
+
 function applyMetrics(data, metrics) {
   if (!data || !metrics) return data;
   const asPercent = (value, fallback) => {
@@ -29,6 +44,7 @@ function applyMetrics(data, metrics) {
   const hv60 = asPercent(metrics.hv60, data.hv60);
   const ivHvDiff = asPercent(metrics.iv_hv_diff, data.ivHvDiff);
   const earningsDate = metrics.earnings_date ? String(metrics.earnings_date).slice(0, 10) : data.earnings?.date;
+  const earningsDaysAway = daysUntilEarnings(earningsDate);
 
   return {
     ...data,
@@ -45,6 +61,8 @@ function applyMetrics(data, metrics) {
     earnings: {
       ...data.earnings,
       date: earningsDate,
+      daysAway: earningsDaysAway,
+      warning: earningsDaysAway != null && earningsDaysAway >= 0 && earningsDaysAway <= 14,
     },
   };
 }
@@ -535,8 +553,9 @@ export default function Analyze() {
             </div>
             {result.earnings.date && (
               <div className={`az-earnings ${result.earnings.warning ? 'az-earnings-warn' : ''}`}>
-                财报 {result.earnings.date}
-                {result.earnings.daysAway && ` (${result.earnings.daysAway}天后)`}
+                <span className="az-earnings-label">财报事件</span>
+                <strong>{earningsTimingLabel(result.earnings.daysAway)}</strong>
+                <small>{result.earnings.date}</small>
               </div>
             )}
           </div>

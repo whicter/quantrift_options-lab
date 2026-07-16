@@ -282,8 +282,13 @@ body {
 .az-unavailable-panel {
   max-width: 760px;
 }
-.az-earnings { font-size: 12px; color: var(--text-dim); padding: 4px 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border); }
-.az-earnings-warn { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); }
+.az-earnings { display: grid; grid-template-columns: auto auto; column-gap: 8px; align-items: center; min-width: 140px; padding: 8px 11px; color: var(--text-dim); background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
+.az-earnings-label { grid-column: 1 / -1; color: var(--text-muted); font-size: 10px; font-weight: 800; letter-spacing: 0; }
+.az-earnings strong { color: var(--text); font-size: 13px; }
+.az-earnings small { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.az-earnings-warn { color: var(--yellow); border-color: var(--yellow); background: var(--yellow-dim); box-shadow: inset 3px 0 0 var(--yellow); }
+.az-earnings-warn .az-earnings-label, .az-earnings-warn small { color: var(--warning-text); }
+.az-earnings-warn strong { color: var(--yellow); }
 
 .az-grid {
   display: grid;
