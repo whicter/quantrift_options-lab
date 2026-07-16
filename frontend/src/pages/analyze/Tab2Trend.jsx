@@ -1,24 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
-
-function genPrices(symbol, currentPrice, days = 60) {
-  let seed = symbol.split('').reduce((a, c) => a + c.charCodeAt(0), 42);
-  const rng = () => {
-    seed = (seed * 1664525 + 1013904223) & 0xffffffff;
-    return (seed >>> 0) / 4294967295;
-  };
-  const prices = [];
-  let p = currentPrice * (0.91 + rng() * 0.05);
-  for (let i = 0; i < days; i++) {
-    const pull = (currentPrice - p) * 0.09;
-    const noise = (rng() - 0.5) * currentPrice * 0.009;
-    p = Math.max(p + pull + noise, currentPrice * 0.78);
-    prices.push(p);
-  }
-  prices[days - 1] = currentPrice;
-  return prices;
-}
 
 function calcKF(prices, alpha = 0.12) {
   const smooth = [];
@@ -40,7 +22,7 @@ function calcSpread(prices) {
   });
 }
 
-function TrendCanvas({ prices, dates, kf, spread }) {
+function TrendCanvas({ prices, dates, kf, spread, levels }) {
   const mainRef = useRef(null);
   const spreadRef = useRef(null);
 
@@ -99,6 +81,19 @@ function TrendCanvas({ prices, dates, kf, spread }) {
       ctx.arc(sx(prices.length - 1), sy(prices[prices.length - 1]), 3.5, 0, Math.PI * 2);
       ctx.fillStyle = theme.text; ctx.fill();
 
+      levels.forEach(level => {
+        if (level.price < minP || level.price > maxP) return;
+        const y = sy(level.price);
+        ctx.save();
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = level.type === 'support' ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)';
+        ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = level.type === 'support' ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)';
+        ctx.font = '8px monospace'; ctx.textAlign = 'left';
+        ctx.fillText(`${level.type === 'support' ? 'S' : 'R'} $${level.price.toFixed(2)}`, PAD.left + 4, y - 3);
+      });
+
       // X-axis date labels
       ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
       for (let i = 0; i < prices.length; i += 15) {
@@ -150,7 +145,7 @@ function TrendCanvas({ prices, dates, kf, spread }) {
     const el = mainRef.current?.parentElement;
     if (el) obs.observe(el);
     return () => obs.disconnect();
-  }, [prices, dates, kf, spread]);
+  }, [prices, dates, kf, spread, levels]);
 
   return (
     <>
@@ -161,14 +156,26 @@ function TrendCanvas({ prices, dates, kf, spread }) {
 }
 
 export default function Tab2Trend({ data }) {
-  const { trend, price, symbol, pcr, direction } = data;
+  const { trend, pcr, direction } = data;
   const priceOnly = data.partialData?.type === 'price_only';
   const realHistory = Array.isArray(data.priceHistory) && data.priceHistory.length >= 5 ? data.priceHistory : null;
   const stale = Boolean(data.priceMeta?.isStale || data.priceMeta?.freshness === 'stale');
-  const prices = realHistory ? realHistory.map(bar => bar.close) : genPrices(symbol, price);
-  const dates = realHistory ? realHistory.map(bar => bar.date) : null;
+  if (!realHistory) {
+    return (
+      <div className="az-card az-unavailable-panel">
+        <div className="az-card-title">价格走势暂不可用</div>
+        <div className="az-unavailable-text">当前没有足够的真实 OHLCV 历史，不生成示例走势或技术信号。</div>
+      </div>
+    );
+  }
+  const prices = realHistory.map(bar => bar.close);
+  const dates = realHistory.map(bar => bar.date);
   const kf = calcKF(prices);
   const spread = calcSpread(prices);
+  const levels = [
+    ...(data.supportResistance?.support || []).map(level => ({ ...level, type: 'support' })),
+    ...(data.supportResistance?.resistance || []).map(level => ({ ...level, type: 'resistance' })),
+  ];
 
   const insights = [
     `趋势格局：${trend.regime}，KF均线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
@@ -185,13 +192,13 @@ export default function Tab2Trend({ data }) {
         <div className="az-trend-header">
           <div className="az-card-title">
             趋势走势 · Kalman Filter
-            {realHistory ? ` · price_history${stale ? ' stale' : ''}` : ' · 示例走势'}
+            {` · price_history${stale ? ' stale' : ''}`}
           </div>
           <span className={`az-mini-badge ${trend.regime.includes('多头') ? 'green' : trend.regime.includes('空头') ? 'red' : 'yellow'}`}>
             {trend.regime}
           </span>
         </div>
-        <TrendCanvas prices={prices} dates={dates} kf={kf} spread={spread} />
+        <TrendCanvas prices={prices} dates={dates} kf={kf} spread={spread} levels={levels} />
       </div>
 
       {/* Output badges */}

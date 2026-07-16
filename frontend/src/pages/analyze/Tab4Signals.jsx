@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 
@@ -139,7 +139,7 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
 }
 
 export default function Tab4Signals({ data }) {
-  const { gexByStrike, putWall, callWall, price, scenarios } = data;
+  const { gexByStrike, putWall, callWall, price, scenarios, supportResistance } = data;
   const pctToCall = ((callWall / price - 1) * 100).toFixed(2);
   const pctToPut = ((price / putWall - 1) * 100).toFixed(2);
   const dToCall = (callWall - price).toFixed(2);
@@ -161,6 +161,13 @@ export default function Tab4Signals({ data }) {
         <span className="az-range-label">观察区间</span>
         <span className="az-range-val">${putWall} ~ ${callWall}</span>
       </div>
+      {supportResistance && (
+        <div className="az-level-strip">
+          <span>S/R 来自 {supportResistance.barCount} 根真实日线</span>
+          <span>S {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+          <span>R {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+        </div>
+      )}
       <div className="az-signals-layout">
         <div className="az-chip-ruler-wrap az-card">
           <div className="az-card-title">主力筹码标尺</div>

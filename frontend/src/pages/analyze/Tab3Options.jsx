@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 
@@ -108,7 +108,7 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
 }
 
 export default function Tab3Options({ data }) {
-  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, conclusion } = data;
+  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, conclusion, chainStats } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
@@ -156,6 +156,37 @@ export default function Tab3Options({ data }) {
           <div className="az-gex-num-label">IV ATM</div>
           <div className={`az-gex-num-val ${iv30 > 40 ? 'c-red' : iv30 > 20 ? 'c-yellow' : 'c-green'}`}>{iv30?.toFixed(1) ?? '--'}%</div>
           <div className="az-gex-num-sub">{iv30 > 40 ? 'IV偏高' : iv30 > 20 ? 'IV适中' : 'IV偏低'}</div>
+        </div>
+      </div>
+
+      <div className="az-chain-stats-grid">
+        <div className="az-card">
+          <div className="az-card-title">IV Term Structure · 期限结构</div>
+          {chainStats?.termStructure?.length ? (
+            <div className="az-chain-table">
+              {chainStats.termStructure.slice(0, 8).map(point => (
+                <div key={point.expiry} className="az-chain-row">
+                  <span>{point.expiry}</span>
+                  <strong>{(Number(point.atm_iv) * 100).toFixed(1)}%</strong>
+                  <small>ATM ${Number(point.atm_strike).toFixed(2)}</small>
+                </div>
+              ))}
+            </div>
+          ) : <div className="az-empty-copy">当前真实快照没有可用 ATM IV 期限结构。</div>}
+        </div>
+        <div className="az-card">
+          <div className="az-card-title">IV Skew · {chainStats?.skew?.expiry || '偏斜'}</div>
+          {chainStats?.skew?.points?.length ? (
+            <div className="az-chain-table">
+              {chainStats.skew.points.slice(0, 12).map(point => (
+                <div key={point.strike} className="az-chain-row">
+                  <span>${Number(point.strike).toFixed(2)}</span>
+                  <strong>P {point.put_iv == null ? '--' : `${(Number(point.put_iv) * 100).toFixed(1)}%`}</strong>
+                  <small>C {point.call_iv == null ? '--' : `${(Number(point.call_iv) * 100).toFixed(1)}%`}</small>
+                </div>
+              ))}
+            </div>
+          ) : <div className="az-empty-copy">当前真实快照没有可用 strike IV skew。</div>}
         </div>
       </div>
 

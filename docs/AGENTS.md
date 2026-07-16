@@ -61,7 +61,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 
 ## Next Task
 - Execution order is defined in `docs/task.md` under `实施优先级（执行顺序）`.
-- Phase 3D-6, collector alerts, Polygon price/derived volatility, and scanner strategy expansion are complete. Immediate next section: Analyze data product.
+- Phase 3D-6, collector alerts, Polygon price/derived volatility, scanner expansion, and Analyze data product are complete. Immediate next section: Universe/on-demand.
+- Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; missing real price/contract inputs must stay missing. Never generate example price paths or synthetic recommendation legs.
 - `volatility_history` owns Polygon-derived HV and ATM IV. IV Rank remains fail-closed until 252 market-day observations; APIs expose per-field provenance and retain the Tastytrade cold-start rank until ready.
 - Scanner positioning and quote snapshots are separate: select the newest usable real bid/ask snapshot for candidate legs and expose its source/time/freshness. Advanced naked-risk structures require explicit UI opt-in.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.

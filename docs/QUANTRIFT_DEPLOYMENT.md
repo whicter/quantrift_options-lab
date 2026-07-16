@@ -19,6 +19,17 @@
 - **当前已部署或已验证的配置**：可以作为现状使用。
 - **建议配置或演进项**：需要在对应平台或代码中确认后实施，不能视为已经完成。
 
+### 1.1 Analyze derived API deployment check（2026-07-15）
+
+本次新增无需 migration 或新 secret。Railway 部署后验收：
+
+```bash
+curl -f "$API/api/sr/AAPL"
+curl -f "$API/api/chain/stats/AAPL"
+```
+
+第一条应返回 `status=ready`、ISO `latest_date`、真实 `bar_count`、S/R 与 Focus readiness；第二条应返回 snapshot source/time、ISO expiry、term structure 和 skew。缺数据时必须返回 `missing`/空数组，不能返回 mock。回滚为回滚该 section commit 并重新部署 Railway/Vercel。
+
 ---
 
 ## 2. 当前生产拓扑

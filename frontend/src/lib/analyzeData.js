@@ -32,6 +32,7 @@ export function applyGex(data, gexData) {
       pcrVol: null,
       maxPain: null,
       gammaFlip: null,
+      localGamma: null,
       gammaRegime: null,
       scenarios: null,
       conclusion: 'GEX/Wall 数据不可用或已过期；当前不显示 Call Wall / Put Wall 结论。',
@@ -64,6 +65,7 @@ export function applyGex(data, gexData) {
   const callWall = toNumber(gexData.call_wall) ?? data.callWall;
   const putWall = toNumber(gexData.put_wall) ?? data.putWall;
   const gammaFlip = toNumber(gexData.gamma_flip);
+  const localGamma = toNumber(gexData.local_gamma);
   const gexTotal = toNumber(gexData.global_gex) ?? data.gexTotal;
   const pcr = toNumber(gexData.pcr_oi);
   const pcrVol = toNumber(gexData.pcr_volume);
@@ -86,6 +88,7 @@ export function applyGex(data, gexData) {
     pcrVol: pcrVol ?? data.pcrVol,
     maxPain: toNumber(gexData.max_pain),
     gammaFlip,
+    localGamma,
     gammaRegime: gexData.gamma_regime,
     gexMeta: {
       source: gexData.source,
@@ -105,6 +108,32 @@ export function applyGex(data, gexData) {
       downTarget: Number((putWall - downDistance).toFixed(2)),
     },
     conclusion: `${gexData.gamma_regime === 'positive' ? '正' : gexData.gamma_regime === 'negative' ? '负' : '近零'}Gamma ${gexText}，Call Wall $${callWall.toFixed(2)} / Put Wall $${putWall.toFixed(2)}；PCR(OI) ${(pcr ?? 0).toFixed(2)}，Max Pain $${(toNumber(gexData.max_pain) ?? putWall).toFixed(2)}。`,
+  };
+}
+
+export function applyDerivedAnalysis(data, supportResistance, chainStats) {
+  if (!data) return data;
+  const srReady = supportResistance?.status === 'ready';
+  const chainReady = chainStats?.status === 'ready';
+  return {
+    ...data,
+    supportResistance: srReady ? {
+      support: supportResistance.support || [],
+      resistance: supportResistance.resistance || [],
+      method: supportResistance.method,
+      source: supportResistance.source,
+      latestDate: supportResistance.latest_date,
+      barCount: supportResistance.bar_count,
+    } : null,
+    focusScore: srReady && supportResistance.focus?.ready ? supportResistance.focus : null,
+    chainStats: chainReady ? {
+      source: chainStats.source,
+      snapshotTs: chainStats.snapshot_ts,
+      freshness: chainStats.freshness,
+      termStructure: chainStats.term_structure || [],
+      skew: chainStats.skew || { expiry: null, points: [] },
+      ivContractCount: chainStats.iv_contract_count || 0,
+    } : null,
   };
 }
 

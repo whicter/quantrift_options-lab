@@ -42,7 +42,7 @@ Open http://localhost:5173
 | Route | Description |
 |---|---|
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
-| `/analyze` | V2 标的分析：输入股票代码，获取IV状态+方向信号+策略推荐 |
+| `/analyze` | V2 标的分析：真实价格趋势、S/R、Focus Score、GEX、VRP、IV skew 与期限结构 |
 | `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
 
 ## Features (V1 — /learn)
@@ -64,6 +64,8 @@ Open http://localhost:5173
 - Data coverage status API: `/api/status/data`
 - Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
+- Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
+- Analyze never creates example price history or synthetic option legs when real inputs are missing
 
 ## Data Sources (V2)
 - ATM IV / HV30/60/90: Polygon option snapshots and daily OHLCV, derived into `volatility_history`
@@ -92,7 +94,7 @@ Open http://localhost:5173
 - Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
 - Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
 - Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
-- Analyze now computes direction score from price history using MA20/50/200, RSI and MACD, then combines IV Rank, GEX and trend context into a strategy matrix recommendation.
+- Analyze computes direction context from real price history and displays Focus Score, VRP, Gamma Flip, Local Gamma, S/R, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
 - Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.
 - Refresh worker safeguards: stale `running` jobs are recovered, unsupported provider jobs fail closed, TT auth exits are converted into job errors, option-chain jobs can fall back from TT to IB, and malformed symbols are rejected before entering `provider_fetch_jobs`.
 - PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.

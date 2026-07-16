@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyGex, isUsableGex } from './analyzeData.js';
+import { applyDerivedAnalysis, applyGex, isUsableGex } from './analyzeData.js';
 
 const mockSeed = {
   symbol: 'PLTR',
@@ -72,6 +72,8 @@ test('fresh usable GEX replaces mock walls with real values', () => {
     pcr_oi: '1.10',
     pcr_volume: '0.90',
     gamma_regime: 'positive',
+    gamma_flip: '132.50',
+    local_gamma: '884400',
     strikes: [
       { strike: '140.0000', net_gex: '1000', call_gex: '2000', put_gex: '-1000' },
     ],
@@ -84,6 +86,8 @@ test('fresh usable GEX replaces mock walls with real values', () => {
   assert.equal(result.putWall, 140);
   assert.equal(result.price, 133.74);
   assert.equal(result.partialData, undefined);
+  assert.equal(result.gammaFlip, 132.5);
+  assert.equal(result.localGamma, 884400);
   assert.match(result.conclusion, /Call Wall \$140.00 \/ Put Wall \$140.00/);
 });
 
@@ -109,4 +113,34 @@ test('low-confidence delayed data remains visible with a quality notice', () => 
   assert.equal(result.putWall, 185);
   assert.equal(result.gexNotice.title, '部分期权数据');
   assert.match(result.gexNotice.message, /19.2% 暂缺 OI/);
+});
+
+test('derived analysis only attaches ready real-data products', () => {
+  const result = applyDerivedAnalysis(mockSeed, {
+    status: 'ready',
+    source: 'polygon',
+    latest_date: '2026-07-14',
+    bar_count: 250,
+    support: [{ price: 130, touches: 3 }],
+    resistance: [{ price: 140, touches: 2 }],
+    focus: { ready: true, score: 68, label: '偏强' },
+  }, {
+    status: 'ready',
+    source: 'ib_internal',
+    snapshot_ts: '2026-07-15T16:00:00Z',
+    freshness: 'fresh',
+    term_structure: [{ expiry: '2026-08-21', atm_iv: 0.4 }],
+    skew: { expiry: '2026-08-21', points: [{ strike: 135, put_iv: 0.42 }] },
+    iv_contract_count: 20,
+  });
+  assert.equal(result.focusScore.score, 68);
+  assert.equal(result.supportResistance.support[0].price, 130);
+  assert.equal(result.chainStats.ivContractCount, 20);
+});
+
+test('missing derived data remains null instead of using mock values', () => {
+  const result = applyDerivedAnalysis(mockSeed, { status: 'missing' }, { status: 'missing' });
+  assert.equal(result.supportResistance, null);
+  assert.equal(result.focusScore, null);
+  assert.equal(result.chainStats, null);
 });

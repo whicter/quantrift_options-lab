@@ -1520,8 +1520,15 @@ Alerting is observational：它不暂停 collector、不改变 provider fallback
 | Tab2 趋势图 | 60 天日线 close + Kalman Filter 趋势线 |
 | RVol（相对成交量） | 今日 volume ÷ 20 日均量 |
 | Scanner 趋势信号 | `materialize_scan.py` 计算 trend_score、RSI14、MA20/50/200 |
-| S/R 支撑压力（规划） | `pivot_high / pivot_low` 从 60 天 OHLCV 聚合 S/R zone |
-| Focus Score（规划 P2） | MA 位置 + RSI + 量能参与度组成复合评分 |
+| S/R 支撑压力（已实现） | `/api/sr/:symbol` 从最多 250 天 OHLCV 计算 2-bar pivots 并按 ±1% 聚合 zone |
+| Focus Score（已实现） | MA20/50/200 + RSI14 + 5日动量 + 完整日线 RVol 组成 0–100 评分 |
+| Chain stats（已实现） | `/api/chain/stats/:symbol` 从最新含 IV 的真实 contract snapshot 派生 skew 和 ATM term structure |
+
+### 15.8 Analyze derived-data path（2026-07-15）
+
+Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R 和 chain stats。S/R/Focus 只读取 `price_history`；IV skew/term structure 只读取 `option_contract_snapshots` 中实际存在且 `iv > 0` 的合约。PostgreSQL `DATE` 在 API 边界统一序列化为 `YYYY-MM-DD`，DTE/当日完整性使用 `America/New_York`。
+
+前端不再生成示例价格序列。Analyze 的推荐腿也不再由 spot、wall 与固定 width 合成；真实 candidate 尚未附加时 fail closed。该 section 无 schema migration，回滚仅需回滚对应 commit。
 | HV 自算 | stddev(log_return) × √252，替代 Tastytrade HV 字段 |
 
 **当前实现：** `PolygonPriceProvider` 与 `ib_internal`、`stooq` adapters 平行；PM2 已切到 Polygon，并将 30M 数据写入独立 `price_history_30m` 表。`PolygonStockRequestPacer` 用 file lock 协调 option `/prev` 与 price aggregates 两个 PM2 进程，覆盖连续 symbols/timeframes。

@@ -1431,6 +1431,19 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 
 /* ── GEX 4-column numbers ───────────────────────────────────── */
 .az-gex-numbers-4 { grid-template-columns: repeat(4, 1fr); }
+.az-analysis-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 14px; }
+.az-analysis-metric { border: 1px solid var(--border); background: var(--bg-card); padding: 10px; min-width: 0; }
+.az-analysis-metric span, .az-analysis-metric small { display: block; color: var(--text-muted); font-size: 10px; }
+.az-analysis-metric strong { display: block; margin: 5px 0 3px; color: var(--text); font-size: 17px; overflow-wrap: anywhere; }
+.az-level-strip { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 9px 11px; margin-bottom: 12px; border-left: 3px solid var(--blue); background: var(--bg-card); color: var(--text-muted); font-size: 11px; }
+.az-chain-stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.az-chain-table { display: grid; gap: 1px; max-height: 240px; overflow: auto; }
+.az-chain-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 10px; }
+.az-chain-row strong { color: var(--text); }
+.az-chain-row small, .az-empty-copy { color: var(--text-muted); font-size: 10px; }
+@media (max-width: 760px) {
+  .az-analysis-metrics, .az-chain-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ── Price range chip (Tab4) ────────────────────────────────── */
 .az-price-range-chip {

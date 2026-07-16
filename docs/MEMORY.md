@@ -46,7 +46,7 @@
 - PM2 app `quantrift-options-collector` 每 300 秒 bounded enqueue 最多 2 个 missing/stale option symbols、每 60 秒处理 queue、每 300 秒 materialize scanner；`quantrift-options-prices` 工作日 13:35 PT 跑 OHLCV。
 - IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
 - `IB_MARKET_DATA_TYPE=3` 接受延迟行情。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
-- Analyze 已有真实技术评分与策略矩阵；当前推荐腿是 target fallback，不是完整 live-chain optimal leg selection。
+- Analyze 已接入真实 S/R、Focus Score、VRP、Gamma Flip、Local Gamma、IV skew 与 term structure。旧 target fallback 推荐腿已移除；没有 actual contract candidate 时不显示策略腿。
 - Production option collection uses `polygon_licensed`; `ib_internal` / `tt_internal` remain fallback/research adapters. API 与前端只读取 PostgreSQL snapshot。
 - Provider credentials只允许存在于 `collector/.env` 或部署 secret store，不得写入 PM2 config、文档、测试或 Git。
 
@@ -68,9 +68,11 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Analyze data product completion
-2. Universe/on-demand and market-weekly product completion
+1. Universe/on-demand completion
+2. Market-weekly product completion
 3. Landing/notifications, then production auth/subscription/paywall
+
+Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。
 

@@ -1,4 +1,3 @@
-import React from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 
 function Badge({ label, value, colorFn }) {
@@ -12,7 +11,8 @@ function Badge({ label, value, colorFn }) {
 }
 
 export default function Tab1Overview({ data }) {
-  const { sector, gexTotal, putWall, callWall, pcr, trend, conclusion, scenarios, price, recommendation, earnings, iv30 } = data;
+  const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, earnings,
+    ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
@@ -55,6 +55,36 @@ export default function Tab1Overview({ data }) {
       <div className="az-sector-chips">
         {sector.map((s, i) => <span key={i} className="az-chip">{s}</span>)}
       </div>
+
+      <div className="az-analysis-metrics">
+        <div className="az-analysis-metric">
+          <span>Focus Score</span>
+          <strong>{focusScore?.score ?? '--'}</strong>
+          <small>{focusScore?.label || '历史不足'}</small>
+        </div>
+        <div className="az-analysis-metric">
+          <span>Vol Risk Premium</span>
+          <strong>{ivHvDiff == null ? '--' : `${ivHvDiff > 0 ? '+' : ''}${ivHvDiff.toFixed(1)}pt`}</strong>
+          <small>IV30 - HV30</small>
+        </div>
+        <div className="az-analysis-metric">
+          <span>Gamma Flip</span>
+          <strong>{gammaFlip == null ? '--' : `$${gammaFlip.toFixed(2)}`}</strong>
+          <small>{gammaFlip == null ? '当前快照未得出' : `${((price / gammaFlip - 1) * 100).toFixed(1)}% from spot`}</small>
+        </div>
+        <div className="az-analysis-metric">
+          <span>Local Gamma 局部Γ</span>
+          <strong>{localGamma == null ? '--' : localGamma.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+          <small>现价附近净 Gamma</small>
+        </div>
+      </div>
+
+      {supportResistance && (
+        <div className="az-level-strip">
+          <span>技术支撑 S: {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+          <span>技术阻力 R: {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+        </div>
+      )}
 
       {/* 3 Question cards */}
       <div className="az-question-grid">

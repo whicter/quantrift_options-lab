@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getDataStatus, getGex, getMetrics, getPrices, getUnusual } from '../lib/api';
-import { applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
+import { getChainStats, getDataStatus, getGex, getMetrics, getPrices, getSupportResistance, getUnusual } from '../lib/api';
+import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
 import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
@@ -222,83 +222,6 @@ function macd(values) {
   };
 }
 
-function buildStrategyRecommendation(data) {
-  if (data?.partialData) return null;
-  if (!data || data.ivRank == null || data.iv30 == null) return data?.recommendation || null;
-  const ivRank = Number(data.ivRank);
-  const trendScore = data.trend?.score ?? 0;
-  const gexPositive = (data.gexTotal ?? 0) >= 0;
-  const highIv = ivRank >= 50;
-  const lowIv = ivRank < 30;
-  const dte = highIv ? 45 : 30;
-  const width = Math.max(1, Math.round((data.price || 100) * 0.03));
-
-  if (highIv && Math.abs(trendScore) <= 2 && gexPositive) {
-    return {
-      strategy: 'Iron Condor',
-      reason: `IV Rank ${ivRank}% 偏高，趋势未单边确认，正Gamma/区间结构更适合定义风险卖方结构。`,
-      params: { pop: 66, dte, shortDelta: '0.16-0.20', maxCredit: Number((width * 0.32).toFixed(2)), maxLoss: Number((width * 0.68).toFixed(2)), width },
-      legs: [
-        { dir: -1, label: `PUT ${Math.round(data.putWall || data.price * 0.95)}`, deltaTarget: '-0.16', dte },
-        { dir: 1, label: `PUT ${Math.round((data.putWall || data.price * 0.95) - width)}`, deltaTarget: '-0.08', dte },
-        { dir: -1, label: `CALL ${Math.round(data.callWall || data.price * 1.05)}`, deltaTarget: '0.16', dte },
-        { dir: 1, label: `CALL ${Math.round((data.callWall || data.price * 1.05) + width)}`, deltaTarget: '0.08', dte },
-      ],
-    };
-  }
-
-  if (highIv && trendScore > 2) {
-    return {
-      strategy: 'Bull Put Spread',
-      reason: `IV Rank ${ivRank}% 偏高且技术方向偏强，优先考虑定义风险 put credit spread。`,
-      params: { pop: 64, dte, shortDelta: '0.20-0.30', maxCredit: Number((width * 0.35).toFixed(2)), maxLoss: Number((width * 0.65).toFixed(2)), width },
-      legs: [
-        { dir: -1, label: `PUT ${Math.round(data.putWall || data.price * 0.95)}`, deltaTarget: '-0.25', dte },
-        { dir: 1, label: `PUT ${Math.round((data.putWall || data.price * 0.95) - width)}`, deltaTarget: '-0.12', dte },
-      ],
-    };
-  }
-
-  if (highIv && trendScore < -2) {
-    return {
-      strategy: 'Bear Call Spread',
-      reason: `IV Rank ${ivRank}% 偏高且技术方向偏弱，优先考虑定义风险 call credit spread。`,
-      params: { pop: 64, dte, shortDelta: '0.20-0.30', maxCredit: Number((width * 0.35).toFixed(2)), maxLoss: Number((width * 0.65).toFixed(2)), width },
-      legs: [
-        { dir: -1, label: `CALL ${Math.round(data.callWall || data.price * 1.05)}`, deltaTarget: '0.25', dte },
-        { dir: 1, label: `CALL ${Math.round((data.callWall || data.price * 1.05) + width)}`, deltaTarget: '0.12', dte },
-      ],
-    };
-  }
-
-  if (lowIv) {
-    return {
-      strategy: 'Long Straddle',
-      reason: `IV Rank ${ivRank}% 偏低，若有催化或预期波动扩张，买方波动结构成本更低。`,
-      params: { pop: 42, dte: 30, shortDelta: 'ATM', maxCredit: 0, maxLoss: Number(((data.price || 100) * 0.06).toFixed(2)), width },
-      legs: [
-        { dir: 1, label: `CALL ${Math.round(data.price || 100)}`, deltaTarget: '0.50', dte: 30 },
-        { dir: 1, label: `PUT ${Math.round(data.price || 100)}`, deltaTarget: '-0.50', dte: 30 },
-      ],
-    };
-  }
-
-  return {
-    strategy: trendScore >= 0 ? 'Bull Call Spread' : 'Bear Call Spread',
-    reason: `IV Rank ${ivRank}% 中性，方向评分 ${trendScore}，更适合小仓位定义风险方向结构。`,
-    params: { pop: 55, dte: 35, shortDelta: '0.30', maxCredit: Number((width * 0.3).toFixed(2)), maxLoss: Number((width * 0.7).toFixed(2)), width },
-    legs: trendScore >= 0
-      ? [
-          { dir: 1, label: `CALL ${Math.round(data.price || 100)}`, deltaTarget: '0.55', dte: 35 },
-          { dir: -1, label: `CALL ${Math.round((data.price || 100) + width)}`, deltaTarget: '0.30', dte: 35 },
-        ]
-      : [
-          { dir: 1, label: `PUT ${Math.round(data.price || 100)}`, deltaTarget: '-0.55', dte: 35 },
-          { dir: -1, label: `PUT ${Math.round((data.price || 100) - width)}`, deltaTarget: '-0.30', dte: 35 },
-        ],
-  };
-}
-
 function buildPriceOnlyAnalysis(symbol, priceData) {
   const mock = getMockAnalysis(symbol) || getMockAnalysis('SPY');
   const priceHistory = normalizePriceHistory(priceData);
@@ -431,7 +354,7 @@ function IVGauge({ value }) {
 
 export default function Analyze() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => normalizeTickerInput(searchParams.get('symbol') || ''));
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -453,7 +376,6 @@ export default function Analyze() {
   useEffect(() => {
     const sym = searchParams.get('symbol');
     if (sym) {
-      setInput(normalizeTickerInput(sym));
       handleAnalyze(sym);
     }
     getDataStatus().then(setDataStatus).catch(() => {});
@@ -470,26 +392,28 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [metricsBySymbol, status, priceData, gexData, unusualData] = await Promise.all([
+      const [metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats] = await Promise.all([
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
         getPrices(sym, 60).catch(() => null),
         getGex(sym).catch(() => null),
         getUnusual(sym, 20).catch(() => null),
+        getSupportResistance(sym).catch(() => null),
+        getChainStats(sym).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData));
+          setResult(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats));
           syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
         }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
-          setResult(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData));
+          setResult(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats));
           syncSearchParams({ symbol: sym, tab: 1 }, { replace: true });
           setError('');
         } else {
@@ -500,11 +424,16 @@ export default function Analyze() {
       }
 
       const mock = getMockAnalysis(sym) || getMockAnalysis('SPY');
-      const dataWithSignals = applyUnusual(applyGex(applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData), gexData), unusualData);
-      const data = {
+      const withPrice = applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData);
+      const dataWithSignals = applyUnusual(applyGex({
+        ...withPrice,
+        trend: deriveTrendFromPriceHistory(withPrice.priceHistory, withPrice.trend),
+      }, gexData), unusualData);
+      const data = applyDerivedAnalysis({
         ...dataWithSignals,
-        recommendation: buildStrategyRecommendation(dataWithSignals),
-      };
+        // Analyze only displays executable legs after a real contract candidate is attached.
+        recommendation: null,
+      }, supportResistance, chainStats);
       setResult(data);
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {

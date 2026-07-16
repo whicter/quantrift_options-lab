@@ -86,4 +86,12 @@ export function getUnusual(symbol, limit = 20) {
   return getJson(`/api/unusual/${encodeURIComponent(symbol.toUpperCase())}?limit=${limit}`);
 }
 
+export function getSupportResistance(symbol) {
+  return getJson(`/api/sr/${encodeURIComponent(symbol.toUpperCase())}`);
+}
+
+export function getChainStats(symbol) {
+  return getJson(`/api/chain/stats/${encodeURIComponent(symbol.toUpperCase())}`);
+}
+
 export { API_BASE };

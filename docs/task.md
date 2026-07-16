@@ -909,7 +909,7 @@
 | P0.3 | Polygon price history | 日线与 30M adapter、schema、collector、PM2 调度、67 symbols runtime verification | 使用现有 Polygon key；若 rotate 后未提供新 key 才阻塞 |
 | P0.4 | 自算 HV / ATM IV / IV Rank | ✅ 2026-07-15 完成：派生脚本、历史门槛、对比报告、来源切换与 fail-closed readiness | 252 个独立交易日尚未积累，因此 IV Rank 暂继续使用 TT 冷启动值 |
 | P1.1 | Scanner 策略扩展 | ✅ 2026-07-15 完成：13 种结构按真实合约枚举、quote snapshot 分层、风险门控、测试和 UI 输出 | 无 |
-| P1.2 | Analyze 数据产品 | S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
+| P1.2 | Analyze 数据产品 | ✅ 2026-07-15 完成：S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
 | P1.3 | Universe / on-demand | broader universe、filters、unknown symbol enqueue/wait UI、materialized invariant | universe 数据来源不足时记录具体字段阻塞 |
 | P1.4 | Market/weekly signals | regime header、30M breakout、Weekly GEX/Max Pain 实数接入 | 依赖 P0.3 30M 数据 |
 | P2 | 产品入口与通知 | landing page、email/web push、heartbeat | web push/email production secrets 只影响部署验证 |
@@ -980,13 +980,13 @@
 
 **P1 — 数据已有，可立刻做**
 1. Screener 策略扩展：`scanOpportunity.js` 加 Short Strangle / Long Call / Long Put（不依赖新基础设施）
-2. S/R 端点：server 新增 `GET /api/sr/:symbol` + Tab2/Tab4 K线图叠加支撑压力水平线
+2. [x] S/R 端点：server 新增 `GET /api/sr/:symbol` + Tab2/Tab4 K线图叠加支撑压力水平线
 3. Scan 页顶部 Market Regime Header（SPY/QQQ/VIX GEX regime + IV Rank）
 
 **P2 — 需要小改后端**
 4. 非 watchlist 标的按需 enqueue + 前端等待 UI（`/api/analyze/:symbol` 对未知 symbol 触发 enqueue）
-5. Focus Score / 综合动量评分（`price_history` 派生：MA位置 + RSI + 量能参与度）
-6. Vol Risk Premium（IV-HV diff）作为独立指标在 Analyze 页显示，并在 Scanner 推荐理由里展示推理链条
+5. [x] Focus Score / 综合动量评分（`price_history` 派生：MA位置 + RSI + 量能参与度）
+6. [x] Vol Risk Premium（IV-HV diff）作为独立指标在 Analyze 页显示；Scanner 推理链条留在 P1.3 candidate ranking 文案中继续细化
 
 **P3 — 需要新数据源**
 7. Reddit Trends（Reddit API 免费，trending tickers → Scan 页"社区热度"列）
@@ -999,9 +999,9 @@
 | 优先级 | 页面/组件 | 当前状态 | 目标 |
 |---|---|---|---|
 | P1 | Tab4 OI 密度图 | GEX 代替 OI | 需 Polygon 真实 OI by strike（`option_contract_snapshots`） |
-| P2 | Tab3 IV Skew 图 | 无 | 需 `/api/chain/stats/:symbol`，Polygon IV by strike |
-| P2 | Tab1 Gamma Flip 指标 | 无前端 | 数据已在 `gex_snapshots.gamma_flip`，只需前端展示 |
-| P2 | Tab1 Local Gamma | 无前端 | 数据已在 `gex_snapshots.local_gamma`，只需前端展示 |
+| Done | Tab3 IV Skew / Term Structure | 已接入 | `/api/chain/stats/:symbol` 从真实 IV contracts 派生 |
+| Done | Tab1 Gamma Flip 指标 | 已接入 | `gex_snapshots.gamma_flip` |
+| Done | Tab1 Local Gamma | 已接入 | `gex_snapshots.local_gamma` |
 | P3 | Weekly Sec2 真实 Gamma 迁徙 | mock | `gex_snapshots` 每日快照已有，需前端接入 |
 | P3 | Weekly Sec3 真实 Max Pain | mock | `gex_snapshots.max_pain` 已有，需前端接入 |
 
@@ -1030,7 +1030,7 @@
 - Tests：frontend 17 passed、server 13 passed；changed frontend files lint 0；frontend build passed
 - Known verification gap：仓库全量 lint 仍有 21 个既有 errors，均不在本 section 修改文件；Browser plugin 初始化报 `Cannot redefine property: process`，因此本 section 未取得自动 screenshot，未宣称 visual browser tested
 - Rollback：回滚本 section commit；无 schema 迁移
-- [ ] **Vol Risk Premium UI 补全**：
+- [x] **Vol Risk Premium UI 补全**：
   - 后端 `iv_hv_diff`（IV30 - HV30）已采集，`signal_score` 已用，但前端未显示
   - Analyze Tab1 增加独立的 "Vol Risk Premium" 指标卡（IV-HV diff = 卖方溢价来源）
   - Scanner 推荐理由栏展示推理链条（"IV Rank 72 + IV > HV → 卖方溢价存在 → 推荐 Iron Condor"）
@@ -1050,8 +1050,8 @@
 ### 新增 API 端点规划
 
 ```
-GET /api/chain/stats/:symbol   ← 待建：IV Skew + Term Structure（Polygon IV by strike+expiry）
-GET /api/sr/:symbol            ← 待建：pivot-based S/R zones（从 price_history 计算）
+GET /api/chain/stats/:symbol   ← 已建：IV Skew + Term Structure（真实 IV by strike+expiry）
+GET /api/sr/:symbol            ← 已建：pivot-based S/R zones + Focus Score（从 price_history 计算）
 ```
 
 **`/api/chain/stats/:symbol` 逻辑**
@@ -1060,11 +1060,28 @@ GET /api/sr/:symbol            ← 待建：pivot-based S/R zones（从 price_hi
 - Term Structure：各 expiration 的 ATM IV（前端画连线图）
 
 **`/api/sr/:symbol` 逻辑**
-- 从 `price_history` 取最近 60 天 OHLCV
+- 从 `price_history` 取最多最近 250 天 OHLCV
 - Pivot High = high[i] > high[i-1] and high[i] > high[i+1]
 - Pivot Low = low[i] < low[i-1] and low[i] < low[i+1]
 - 聚合相近 pivots（±1%）成 S/R zone
 - 可叠加 Call Wall / Put Wall 作为 options-derived level
+
+### ✅ Analyze 数据产品（P1.2，2026-07-15 完成）
+
+- [x] `GET /api/sr/:symbol`：最多 250 根真实日线、2-bar pivot、±1% level clustering；返回最多 3 个 support / resistance 及触碰次数
+- [x] Focus Score：0–100，使用 MA20/50/200、RSI14、5日动量与 RVol；少于 20 bars fail closed；纽约当日未完成日线不计算 RVol
+- [x] `GET /api/chain/stats/:symbol`：选择最新含真实 IV 的 snapshot，返回最近 expiry 的 call/put IV skew 与各 expiry ATM IV term structure
+- [x] Analyze Tab1：独立展示 Focus Score、Vol Risk Premium、Gamma Flip、Local Gamma 与技术 S/R
+- [x] Analyze Tab2/Tab4：真实 price history 叠加 S/R；没有真实历史时显示 unavailable，不再生成示例走势
+- [x] Analyze Tab3：展示 IV Term Structure 与 IV Skew；保留 source/snapshot/freshness contract
+- [x] Analyze 不再从 spot/wall target 合成不存在的推荐合约腿；没有真实 candidate attachment 时 recommendation 保持空
+
+完成证据：
+- Server tests 21/21；frontend tests 19/19；affected frontend lint 0 errors（1 个既有 effect dependency warning）；Vite production build passed
+- Railway PostgreSQL runtime：AAPL S/R 读取 250 bars、Focus Score ready；chain stats 读取 56 个真实 IV contracts、5 个 ATM term points
+- Runtime 发现并修复 PostgreSQL `DATE` 被序列化为 `Wed Jul 15` 的问题；API 统一 `YYYY-MM-DD`，expiry 排序有 Date-object 回归测试
+- Visual verification gap：Browser plugin 初始化仍报 `Cannot redefine property: process`，因此本 section 未取得自动 screenshot，未宣称 browser-tested
+- Rollback：回滚本 section commit；无 schema migration
 
 ---
 

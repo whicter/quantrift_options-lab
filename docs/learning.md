@@ -472,3 +472,12 @@ V1 公式：
 - **跨期结构要测试腿方向**：Calendar/Diagonal 固定 near short、far long；只测试“返回 Calendar”无法发现 expiry 反向的灾难性错误。
 - **裸卖风险必须是产品状态**：Short Strangle/Short Put/Short Call 不因用户选择“策略不限”而静默出现；必须显式开启 advanced-risk gate。
 - **全量 lint 与改动 lint 分开报告**：本 section files lint 通过；仓库仍有 21 个既有 lint errors，不能冒充本次引入，也不能在独立风险 commit 中顺手清理。
+
+## Analyze Data Product Lessons (2026-07-15)
+
+- **PostgreSQL DATE 不能用 `String(value).slice(0, 10)`**：node-postgres 默认可返回 `Date`，结果会变成 `Wed Jul 15`，不仅 UI 错，lexicographic expiry sort 也会错。统一优先 `value.toISOString().slice(0, 10)` 并用真实 `Date` fixture 测试。
+- **当日日线 volume 不是完整日成交量**：收盘前将它与过去完整日均量计算 RVol，会得到极低假信号。纽约当前交易日的 daily RVol 保持 null；30M 参与度应在独立 intraday 信号中计算。
+- **最新 chain snapshot 未必适合所有派生指标**：chain stats 应选择最新“至少有真实 IV contract”的 snapshot，而不是无条件最新 row；source/time/freshness 跟随被选择的 snapshot。
+- **S/R zone 与 Wall 是不同证据**：S/R 来自历史价格 pivot；Call/Put Wall 来自期权持仓结构。UI 可以并列比较，但不能合并成同一来源或互相冒充。
+- **没有真实合约候选就不显示策略腿**：用 spot ± width 或 wall ± width 合成腿会制造不存在、无报价或错 expiry 的订单。Analyze 只展示结构数据，具体腿必须来自 scanner/contract candidate attachment。
+- **图表空状态优于 deterministic mock**：固定 seed 的示例曲线看起来稳定，仍会被用户理解为真实走势。真实 OHLCV 少于最低门槛时直接显示 unavailable。

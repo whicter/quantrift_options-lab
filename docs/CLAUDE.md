@@ -71,7 +71,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 
 ## Next Task
 - Follow `docs/task.md` section `实施优先级（执行顺序）`.
-- Phase 3D-6, collector alerts, Polygon price/derived volatility, and scanner strategy expansion are complete. Immediate next section: Analyze data product.
+- Phase 3D-6, collector alerts, Polygon price/derived volatility, scanner expansion, and Analyze data product are complete. Immediate next section: Universe/on-demand.
+- Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; preserve ISO dates and fail closed when real inputs are absent. Never synthesize price paths or option legs.
 - Derived volatility is isolated in `volatility_history`; use New York market dates for DTE and daily observations. Do not mark derived IV Rank ready before 252 observations.
 - Scanner candidate quotes come from the latest usable quoted snapshot, independently of the latest positioning snapshot. Preserve quote provenance and the explicit advanced-risk gate.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.

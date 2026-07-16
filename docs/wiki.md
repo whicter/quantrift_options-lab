@@ -1086,6 +1086,14 @@ Phase 3E-2 scanner：
 ### Analyze Direction / Strategy Matrix
 
 Current Analyze uses real `price_history` to compute:
+
+### Analyze Derived Data Products（2026-07-15）
+
+- `GET /api/sr/:symbol`：读取最多 250 根日线，以左右各 2 根 bar 识别 pivot high/low，再把 ±1% 内的 pivots 聚成 zone。只返回现价下方 support 与上方 resistance，各最多 3 个，并附 touches。
+- Focus Score：基础 50 分；MA20/50/200 相对位置、RSI14、5日变化与完整日线 RVol 加减分，截断到 0–100。少于 20 根日线不 ready；当天盘中 volume 不参与 RVol。
+- `GET /api/chain/stats/:symbol`：选最新一个至少含一条 `iv > 0` contract 的 snapshot。Term Structure 取每个 expiry 最靠近 spot 的 call/put 平均 ATM IV；Skew 保留最近 expiry 各 strike 的 call IV、put IV、delta 和 OI。
+- Analyze Tab1 展示 Focus / VRP / Gamma Flip / Local Gamma；Tab2/Tab4 展示技术 S/R；Tab3 展示 IV skew/term structure。
+- 数据缺失规则：不生成示例价格，不从 spot/wall 构造期权 legs，不把 mock 作为 fallback。
 - MA20 / MA50 / MA200
 - RSI14
 - MACD line / signal / histogram

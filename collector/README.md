@@ -217,3 +217,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Price history pipeline implemented: provider adapter → `price_history` → `/api/prices/:symbol`
 - Option positioning schema/API implemented: Polygon provider adapter → `option_chain_snapshots` → `/api/options/:symbol/snapshot`
 - Derived volatility runtime verified at 67/67 HV and 67/67 ATM coverage. DTE/observation dates use `America/New_York`, not UTC date truncation.
+- Analyze downstream derivatives are live: `/api/sr/:symbol` consumes persisted daily OHLCV for S/R and Focus Score; `/api/chain/stats/:symbol` consumes only actual persisted contracts with IV for skew and term structure. The collector does not write synthetic levels or option legs.
