@@ -6,6 +6,7 @@ import ScannerAlerts from '../components/ScannerAlerts';
 import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
 import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
 import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
+import { scanCandidateId, sortScannerRows } from '../lib/scannerResults';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -154,23 +155,6 @@ function oiDeltaSummary(unusual) {
   return 'ΔOI 未采集';
 }
 
-function sortValue(row, key) {
-  if (key === 'symbol') return row.symbol;
-  if (key === 'price') return Number(row.price ?? -Infinity);
-  if (key === 'ivRank') return row.ivRank;
-  if (key === 'iv30') return num(row.iv30) ?? -Infinity;
-  if (key === 'direction') return row.direction.score;
-  if (key === 'community') return row.community.score;
-  if (key === 'gex') return row.gex.score;
-  if (key === 'wall') return row.gex.nearestWall?.pct ?? Infinity;
-  if (key === 'doi') return Math.abs(row.unusual.maxDelta ?? -Infinity);
-  if (key === 'contract') return row.contractQuality.contractCount;
-  if (key === 'strategy') return row.recommendation.strategy;
-  if (key === 'score') return row.concreteSetup.score ?? -Infinity;
-  if (key === 'earnings') return row.earnings.daysAway ?? Infinity;
-  return 0;
-}
-
 function wallDistance(row) {
   const call = num(row.call_wall_distance_pct);
   const put = num(row.put_wall_distance_pct);
@@ -195,7 +179,7 @@ function toScanRow(row, concreteSetup) {
   const trendScore = num(row.trend_score);
   const trendLabel = row.trend_label || (trendScore == null ? '趋势数据不足' : '等待确认');
   return {
-    id: `${row.symbol}:${concreteSetup.strategy}:${concreteSetup.expiry}:${concreteSetup.legs.map(leg => `${leg.action}-${leg.right}-${leg.strike}`).join(':')}`,
+    id: scanCandidateId(row.symbol, concreteSetup),
     symbol: row.symbol,
     price: row.price_close == null ? null : Number(row.price_close).toFixed(2),
     ivRank: Math.round(Number(row.iv_rank ?? 0)),
@@ -429,17 +413,7 @@ export default function Scan() {
 
   const watchlist = dataStatus?.expected_symbols || [];
   const universeCount = dataStatus?.universe?.scan_enabled_count || watchlist.length;
-  const displayedResults = results ? [...results].sort((a, b) => {
-    const av = sortValue(a, tableSort.key);
-    const bv = sortValue(b, tableSort.key);
-    if (typeof av === 'string' || typeof bv === 'string') {
-      return tableSort.direction === 'asc'
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av));
-    }
-    const diff = (av ?? 0) - (bv ?? 0);
-    return tableSort.direction === 'asc' ? diff : -diff;
-  }) : null;
+  const displayedResults = results ? sortScannerRows(results, tableSort) : null;
 
   function toggleTableSort(key) {
     setTableSort(prev => ({

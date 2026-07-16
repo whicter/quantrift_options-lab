@@ -1148,6 +1148,8 @@ Scanner binary controls use fixed 16px checkbox columns and adjacent labels. The
 
 On desktop the Scanner filter panel is sticky but has a viewport-bounded internal vertical scroll. Long result lists must not trap lower filter controls or the scan action below the viewport. Mobile keeps the filter panel in normal page flow.
 
+Scanner sorting is client-side over the current actionable candidate set. Candidate keys include every leg's expiry, action, right, strike and contract identifier; cross-expiry Calendar/Diagonal candidates must not share React keys, because a key collision can make a correctly sorted array render in its old DOM order.
+
 当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
 
 - `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。
