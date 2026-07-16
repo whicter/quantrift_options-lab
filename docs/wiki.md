@@ -1200,7 +1200,7 @@ The evaluated target is a fixed-egress VPS, not a public Railway service. Gatewa
 
 ### Account and Entitlements
 
-Clerk verifies browser sessions; local `users` and `subscriptions` rows own product access. `/api/account/me` performs an idempotent user/free-plan upsert and returns entitlements. Frontend auth components are conditional on the Clerk publishable key. Product enforcement remains off until billing lifecycle and production credentials are present.
+Clerk verifies browser sessions; local `users` and `subscriptions` rows own product access. `/api/account/me` performs an idempotent user/free-plan upsert and returns entitlements. Frontend auth components are conditional on the Clerk publishable key. The additive account/portfolio/billing schema is applied in Railway PostgreSQL. Product enforcement remains off until billing lifecycle and production credentials are present.
 
 ### Portfolio
 

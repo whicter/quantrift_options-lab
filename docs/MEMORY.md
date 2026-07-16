@@ -88,11 +88,11 @@ Tastytrade metrics cron is deployment-ready: a dedicated one-shot Docker image a
 
 IB Gateway cloud evaluation is complete: use a fixed-egress VPS, pinned Gateway/IBC image, paper/read-only mode, Docker secret and loopback-only ports. `ops/ib-gateway/` holds the template and 72-hour soak gates. Collector 85 tests and compose config pass; VPS purchase and IBKR 2FA remain external.
 
-P3 Clerk scaffold is implemented locally: conditional frontend provider/sign-in/account UI, Express auth middleware, users/subscriptions schema, Free/Pro entitlements and `/api/account/me`. Server 43 and frontend 19 tests/build pass. Railway migration/push could not run after the Codex usage limit was reached; Clerk keys and real sign-in remain external.
+P3 Clerk scaffold is implemented: conditional frontend provider/sign-in/account UI, Express auth middleware, users/subscriptions schema, Free/Pro entitlements and `/api/account/me`. Server 43 and frontend 19 tests/build pass. The Railway additive migration succeeded and target tables were read-only verified; Clerk keys and real sign-in remain external.
 
-Portfolio is implemented locally: authenticated multi-leg CRUD, `positions`/`position_legs`, actual snapshot matching, signed P/L and aggregate Greeks, close lifecycle and fail-closed missing quotes. Server 46 and frontend 21 tests/build pass. Production migration/auth runtime remains pending.
+Portfolio is implemented: authenticated multi-leg CRUD, `positions`/`position_legs`, actual snapshot matching, signed P/L and aggregate Greeks, close lifecycle and fail-closed missing quotes. Server 46 and frontend 21 tests/build pass. Railway schema is applied; authenticated runtime remains pending Clerk keys.
 
-Stripe billing is implemented locally: Checkout/Portal, signed raw webhook, transactional event-id dedupe, subscription projection, per-user customer creation lock and rollout-gated paid-route entitlements. Frontend globally supplies Clerk bearer tokens. Server 56 and frontend 21 tests/build pass. Stripe keys/webhook, Clerk keys, migration and production lifecycle remain external blockers.
+Stripe billing is implemented: Checkout/Portal, signed raw webhook, transactional event-id dedupe, subscription projection, per-user customer creation lock and rollout-gated paid-route entitlements. Frontend globally supplies Clerk bearer tokens. Server 56 and frontend 21 tests/build pass, and Railway schema is applied. Stripe keys/webhook, Clerk keys and production lifecycle remain external blockers.
 
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 

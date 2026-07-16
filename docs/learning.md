@@ -556,7 +556,7 @@ V1 公式：
 - **API 鉴权不应 redirect**：浏览器 API route 返回 JSON 401/503，登录跳转由前端负责。
 - **authorized parties 必须显式配置**：只验证 token 签名而不限制来源会扩大跨站 token 风险。
 - **部分部署必须可控**：没有 publishable key 时前端不挂 ClerkProvider；没有后端 keys 时 protected API fail closed。
-- **建表代码不等于 migration applied**：本次 Railway migration 被 usage limit 阻止，因此只能记录 deployment-ready，不能声称 production schema 已完成。
+- **建表代码不等于 migration applied**：先执行 additive migration，再用 `information_schema` 只读核对目标表；2026-07-15 的 P3 五张表完成了这两个步骤，真实登录仍需单独验收。
 
 ## Portfolio Lessons (2026-07-15)
 

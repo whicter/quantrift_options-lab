@@ -126,7 +126,7 @@ Open http://localhost:5173
 - [x] V2: Per-symbol automatic Tastytrade IV Rank cutoff after derived 252-session readiness
 - [x] V2: Railway-ready one-shot Tastytrade metrics cron image/config (service binding and secrets pending)
 - [x] V2: IB Gateway cloud migration evaluation and secure fixed-egress VPS template
-- [x] V3 scaffold: Clerk auth boundary, account API/UI, Free/Pro entitlement model (keys and Railway migration pending)
+- [x] V3 scaffold: Clerk auth boundary, account API/UI, Free/Pro entitlement model and Railway schema (runtime keys pending)
 - [x] V3 Portfolio: authenticated multi-leg tracking, snapshot P/L and aggregate Greeks with missing-quote gates
 - [x] V3 billing code: Stripe Checkout/Portal, signed idempotent webhooks and rollout-gated Free/Pro enforcement
 - [ ] V3: User auth + subscription tiers
