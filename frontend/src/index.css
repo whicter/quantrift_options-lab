@@ -426,6 +426,10 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; border: none; b
 .cat-volatility { background: rgba(155,110,243,0.15); color: var(--purple); }
 .cat-calendar   { background: var(--yellow-dim); color: var(--yellow); }
 .cat-complex    { background: var(--red-dim); color: var(--red); }
+.iv-profile { border-radius: 3px; padding: 2px 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.03em; }
+.iv-profile-low { color: var(--blue); background: var(--blue-dim); }
+.iv-profile-medium { color: var(--yellow); background: var(--yellow-dim); }
+.iv-profile-high { color: var(--red); background: var(--red-dim); }
 .cat-arb        { background: rgba(6,214,218,0.15); color: var(--cyan); }
 .cat-guide      { background: rgba(249,115,22,0.15); color: var(--orange); }
 

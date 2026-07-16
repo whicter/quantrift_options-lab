@@ -645,3 +645,4 @@ V1 公式：
 - **导出行为应可脱离 DOM 测试**：`canvasExport` 将 PNG data URL 和浏览器下载拆开，单元测试覆盖 MIME、文件名与空 canvas 的 fail-fast 行为。
 - **多 DTE 曲线必须按每条腿递减**：Calendar / Diagonal 的近月腿可能先到期，不能把所有腿粗暴设成同一个剩余 DTE。Payoff 图以最远腿为时间轴，逐腿扣除 elapsed days；到期腿转 intrinsic value。
 - **策略对比不应改变编辑中的策略**：comparison 使用独立的两个 strategy ID，只读取模板摘要；主策略、腿编辑器和场景参数保持原样，避免“比较”操作悄悄重置用户正在研究的结构。
+- **策略 IV 标签与实时数据必须分开**：sidebar 的 `IV LOW/MED/HIGH` 从策略模板的首个明确 IV 条件派生，表达“该结构通常适用什么 IV 环境”。它不是当前 symbol 的 IV Rank，实时数值仍由 Analyze 和 Scan 的数据接口提供。
