@@ -566,3 +566,14 @@ V1 公式：
 - **部分报价不能生成完整 summary**：即使三条腿有价格、第四条缺失，组合 P/L/Greeks 仍应标记待报价。
 - **请求路径只读快照**：Portfolio 不同步请求 provider；身份匹配使用真实 symbol/expiry/strike/right，不构造不存在的合约。
 - **close 不是 delete**：保留 opening legs 和时间字段，才能支持后续历史 P/L、复盘和审计。
+
+## Stripe Billing Lessons (2026-07-15)
+
+- **success redirect 不是支付证据**：用户可以直接访问 URL；plan 只能由签名 webhook 更新。
+- **webhook 必须保留 raw body**：全局 JSON parser 先运行会破坏 Stripe signature verification。
+- **event idempotency 与业务更新要同 transaction**：否则 crash/retry 可能重复升级或留下“已处理但未更新”的状态。
+- **past_due 不应保留 Pro entitlement**：产品访问由 plan + lifecycle status 共同决定。
+- **enforcement rollout 要双向准备**：后端 gate 上线前，所有前端数据 fetch 必须携带 Clerk token；只改一边会让付费用户全站 401。
+- **payment identifiers 不是前端数据**：Account API 不返回 Stripe customer/subscription IDs，Portal 由受保护后端创建。
+- **customer 创建也需要幂等边界**：同一用户并发点击升级时，先锁定本地 subscription row，再检查或创建 Stripe customer；仅靠 `UPDATE ... WHERE stripe_customer_id IS NULL` 会留下多余 customer。
+- **回滚优先 feature flag**：billing schema/event audit 保留，关闭 enforcement 即可恢复公开访问，不手工改账单状态。

@@ -1,7 +1,17 @@
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+let authTokenProvider = null;
+
+export function setAuthTokenProvider(provider) {
+  authTokenProvider = typeof provider === 'function' ? provider : null;
+}
+
+async function requestHeaders(extra = {}) {
+  const token = authTokenProvider ? await authTokenProvider() : null;
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
 
 async function getJson(path) {
-  const response = await fetch(`${API_BASE}${path}`);
+  const response = await fetch(`${API_BASE}${path}`, { headers: await requestHeaders() });
   if (!response.ok) {
     throw new Error(`API ${response.status}`);
   }
@@ -162,16 +172,30 @@ export async function closePosition(token, id) {
   return response.json();
 }
 
+async function postAuthenticated(path, token) {
+  const response = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  return response.json();
+}
+
+export function createBillingCheckout(token) {
+  return postAuthenticated('/api/billing/checkout', token);
+}
+
+export function createBillingPortal(token) {
+  return postAuthenticated('/api/billing/portal', token);
+}
+
 export async function createAlertSubscription(payload) {
   const response = await fetch(`${API_BASE}/api/alerts/subscriptions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    method: 'POST', headers: await requestHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error(`API ${response.status}`);
   return response.json();
 }
 
 export async function deleteAlertSubscription(token) {
-  const response = await fetch(`${API_BASE}/api/alerts/subscriptions/${encodeURIComponent(token)}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/api/alerts/subscriptions/${encodeURIComponent(token)}`, { method: 'DELETE', headers: await requestHeaders() });
   if (!response.ok) throw new Error(`API ${response.status}`);
   return response.json();
 }

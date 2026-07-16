@@ -22,18 +22,21 @@ async function ensureAccount(clerkUserId) {
     [users[0].id]
   );
   const { rows: subscriptions } = await pool.query(
-    `SELECT plan, status, current_period_end, cancel_at_period_end
+    `SELECT plan, status, stripe_customer_id, stripe_subscription_id, current_period_end, cancel_at_period_end
      FROM subscriptions WHERE user_id=$1`,
     [users[0].id]
   );
   const subscription = subscriptions[0];
-  const plan = PLANS.find(item => item.id === subscription.plan) || PLANS[0];
+  const paidActive = subscription.plan === 'pro' && ['active', 'trialing'].includes(subscription.status);
+  const plan = PLANS.find(item => item.id === (paidActive ? 'pro' : 'free')) || PLANS[0];
   return { user: users[0], subscription, entitlements: plan.entitlements };
 }
 
 async function sendMe(req, res) {
   try {
-    return res.json(await ensureAccount(req.clerkUserId));
+    const account = await ensureAccount(req.clerkUserId);
+    const { stripe_customer_id: _customer, stripe_subscription_id: _subscription, ...publicSubscription } = account.subscription;
+    return res.json({ ...account, subscription: publicSubscription });
   } catch (error) {
     console.error('GET /api/account/me error:', error.message);
     return res.status(500).json({ error: 'database error' });

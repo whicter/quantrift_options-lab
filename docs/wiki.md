@@ -1205,3 +1205,11 @@ Clerk verifies browser sessions; local `users` and `subscriptions` rows own prod
 ### Portfolio
 
 `/portfolio` records real multi-leg option positions and reads the latest matching persisted contract quote for valuation. The API applies long/short sign, 100 multiplier, position quantity and leg quantity to P/L and Greeks. Missing quotes remain unpriced; the summary never presents a partial portfolio number as complete. Close preserves the record and updates lifecycle state.
+
+### Billing and Paid Access
+
+Stripe Checkout creates recurring Pro subscriptions; Customer Portal owns cancellation and payment-method changes. A successful browser redirect is never treated as payment evidence. Only a webhook whose signature was verified against the raw request body can update the local subscription projection.
+
+`stripe_webhook_events.event_id` makes replay idempotent. The event audit row and subscription update share one PostgreSQL transaction. Active and trialing map to Pro; past-due, unpaid, canceled and incomplete states fail closed to Free. Concurrent checkout requests lock the user's subscription row before creating a Stripe customer so one local user cannot accidentally acquire multiple billing customers.
+
+`AUTH_ENFORCEMENT_ENABLED` is the deployment switch. While false, existing product access remains unchanged. After Clerk and Stripe runtime acceptance, enabling it requires a valid Clerk bearer token plus the route entitlement; health, heartbeat and the signed billing webhook remain outside the paid gate.

@@ -1585,12 +1585,20 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .account-summary strong { color: var(--text); font-size: 18px; }
 .account-status { color: var(--text-muted); }
 .account-status.error { color: var(--red); }
+.account-plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 28px; border-block: 1px solid var(--border); }
+.account-plans > div { padding: 20px; border-right: 1px solid var(--border); }
+.account-plans > div:last-child { border-right: 0; }
+.account-plans h2 { margin: 0 0 8px; font-size: 18px; }
+.account-plans p { color: var(--text-muted); min-height: 36px; }
+.account-plans button { border: 1px solid var(--border); background: var(--bg-input); color: var(--text); padding: 7px 12px; border-radius: 6px; }
 
 @media (max-width: 720px) {
   .nav-auth { margin-left: auto; }
   .account-summary { grid-template-columns: 1fr; }
   .account-summary > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .account-summary > div:last-child { border-bottom: 0; }
+  .account-plans { grid-template-columns: 1fr; }
+  .account-plans > div { border-right: 0; border-bottom: 1px solid var(--border); }
 }
 
 .portfolio-page { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 32px 0 64px; }

@@ -230,3 +230,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - IB Gateway cloud evaluation artifacts live in `ops/ib-gateway/`. The candidate is fixed-egress VPS only, with paper/read-only defaults, secret-file password and loopback API ports; a 72-hour soak and manual 2FA precede any collector move.
 - Product identity is separate from collectors: Clerk sessions map to PostgreSQL `users`/`subscriptions`; collectors never receive Clerk or Stripe credentials.
 - Portfolio valuation reads collector-persisted option snapshots through the API. Collectors do not own positions and must not fabricate missing marks for portfolio consumers.
+- Billing and entitlements stay in the API database boundary. Collectors never receive Clerk/Stripe credentials and continue materializing data independently of subscriber count.

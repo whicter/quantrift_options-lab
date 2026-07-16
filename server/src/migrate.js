@@ -365,6 +365,14 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS position_legs_position
       ON position_legs (position_id);
 
+    CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+      event_id       TEXT        PRIMARY KEY,
+      event_type     TEXT        NOT NULL,
+      payload        JSONB       NOT NULL,
+      processed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

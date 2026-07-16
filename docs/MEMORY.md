@@ -92,6 +92,8 @@ P3 Clerk scaffold is implemented locally: conditional frontend provider/sign-in/
 
 Portfolio is implemented locally: authenticated multi-leg CRUD, `positions`/`position_legs`, actual snapshot matching, signed P/L and aggregate Greeks, close lifecycle and fail-closed missing quotes. Server 46 and frontend 21 tests/build pass. Production migration/auth runtime remains pending.
 
+Stripe billing is implemented locally: Checkout/Portal, signed raw webhook, transactional event-id dedupe, subscription projection, per-user customer creation lock and rollout-gated paid-route entitlements. Frontend globally supplies Clerk bearer tokens. Server 56 and frontend 21 tests/build pass. Stripe keys/webhook, Clerk keys, migration and production lifecycle remain external blockers.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

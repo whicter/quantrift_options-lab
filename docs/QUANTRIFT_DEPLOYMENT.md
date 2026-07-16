@@ -1504,3 +1504,19 @@ Code verification: server 43 tests, frontend 19 tests and production build passe
 The same additive migration creates `positions` and `position_legs`. After Clerk sign-in is verified, create a bounded test spread in `/portfolio`, confirm ownership in PostgreSQL, and verify marks come from an actual matching `option_contract_snapshots` row. Then close it and confirm status/`closed_at` change without deletion.
 
 Acceptance requires one fully priced spread with P/L and aggregate Greeks, plus one intentionally unmatched leg that displays `待报价`. Verify a second Clerk user cannot list or close the first user's position. Current evidence is server 46 tests, frontend 21 tests and production build; production database/runtime evidence is pending migration and Clerk keys.
+
+## Stripe Billing Rollout
+
+Railway secrets:
+
+```text
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRO_PRICE_ID=price_...
+PUBLIC_APP_URL=https://www.quantrift.io
+AUTH_ENFORCEMENT_ENABLED=false
+```
+
+Configure Stripe webhook endpoint `https://quantriftoptions-lab-production.up.railway.app/api/billing/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Run a test-mode checkout and verify one idempotency row per event, Pro activation, Customer Portal return, cancellation downgrade and replay safety.
+
+Only after signed-in scanner/Analyze/alerts/portfolio requests all carry Clerk bearer tokens should enforcement become true. Rollback is one variable change to false; do not edit subscription rows manually. Current code evidence is server 56 tests, frontend 21 tests and production build. Real Stripe lifecycle is blocked on three Stripe values and the pending Railway migration.

@@ -1719,3 +1719,18 @@ signed mark value + P/L + Delta/Gamma/Theta/Vega
 Contract matching uses symbol + expiry + strike + right against the newest persisted snapshot with a usable mark/bid/ask/last. It never constructs a contract or calls a provider in the request path. Contract multiplier is 100; long legs are positive exposure and short legs negative. Position quantity and per-leg quantity are both applied.
 
 If any leg lacks a current quote, that position and the aggregate summary are `pricing_complete=false`; UI displays `待报价` instead of partial P/L/Greeks. Entry values remain recorded but are never substituted as current marks. Railway schema application and signed-in runtime verification remain blocked by the same external auth/migration prerequisites.
+
+## 38. Billing and Entitlement Enforcement
+
+Stripe owns payment lifecycle; PostgreSQL owns the current product projection. Checkout creates a recurring session bound to local `user_id`. A redirect never upgrades access. Only a webhook with a valid Stripe signature can change subscription plan/status.
+
+```text
+Account -> Stripe Checkout -> signed webhook -> stripe_webhook_events (unique event_id)
+                                         -> subscriptions plan/status
+                                         -> entitlement middleware
+                                         -> live analysis / scanner / alerts / portfolio
+```
+
+Webhook raw body is mounted before `express.json()`. Event insertion and subscription projection share one database transaction; duplicate event IDs rollback without applying state twice. Active/trialing subscriptions receive Pro entitlements. Past-due, canceled and incomplete states fall back to Free access while retaining Stripe identifiers for portal/resubscription.
+
+`AUTH_ENFORCEMENT_ENABLED=false` is the rollout gate. When enabled, Clerk identity and local entitlement are required for paid APIs. The frontend installs one Clerk token provider for all API requests, including scanner and alert calls. Status/health/heartbeat and billing webhook remain outside paid gates. Production enforcement must stay off until migrations, Clerk keys, Stripe test-mode lifecycle and rollback are verified.
