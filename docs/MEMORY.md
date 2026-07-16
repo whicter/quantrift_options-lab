@@ -84,6 +84,8 @@ P2.3 heartbeat is complete in code and persistence: Mac daemon reports through a
 
 Derived IV Rank cutover is complete in all control planes: ready symbols are filtered before scheduled TT authentication, skipped by queued metrics jobs, and treated as covered by Analyze. Server 40 and collector 81 tests pass. Railway remains 0/67 ready, so current TT eligibility is expected until 252 independent market dates accumulate.
 
+Tastytrade metrics cron is deployment-ready: a dedicated one-shot Docker image and Railway config run weekdays at 22:30 UTC and exit. Collector 83 tests and Docker build pass. Creating the separate Railway service, injecting its DB/token variables and validating the first cloud run remain operator steps.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

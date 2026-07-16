@@ -124,5 +124,6 @@ Open http://localhost:5173
 - [x] V2: Scanner email/web-push subscription and delivery pipeline
 - [x] V2: Mac Studio collector heartbeat, cloud freshness status and offline incident lifecycle
 - [x] V2: Per-symbol automatic Tastytrade IV Rank cutoff after derived 252-session readiness
+- [x] V2: Railway-ready one-shot Tastytrade metrics cron image/config (service binding and secrets pending)
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

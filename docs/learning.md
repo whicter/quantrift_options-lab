@@ -532,3 +532,11 @@ V1 公式：
 - **切换应按 symbol 而非全局日期**：新加入的 symbol 仍需要冷启动，历史较长的 symbol 可以先独立停止 provider rank。
 - **队列中旧 job 也要短路**：只修 scheduler 不能阻止已排队或按需创建的 metrics job。
 - **时间门槛不是代码 TODO**：252 个独立市场日尚未自然积累属于运行状态；测试可用确定性序列验证逻辑，但生产不能伪造 observations。
+
+## Railway Cron Lessons (2026-07-15)
+
+- **Cron workload 必须 one-shot 并退出**：把长期 daemon 当 Railway cron 会让后续 schedule 被跳过。
+- **Railway cron 使用 UTC**：固定“美东 16:30”会受 DST 影响；选择全年都在美股收盘后的 22:30 UTC 更稳健。
+- **monorepo service 必须明确 config path**：metrics cron 使用 `/collector/railway.metrics.json`，不能继承 Node API 的 start command。
+- **镜像不能 COPY secret/venv**：`.dockerignore` 排除 `.env` 和 60MB 本地 virtualenv，secret 只由 Railway variable 注入。
+- **build passed 不是 cloud run passed**：容器与配置可在代码侧验证；service binding、secret 和首个 completed deployment 必须有 Railway 项目权限。

@@ -1,0 +1,7 @@
+.env
+venv311/
+__pycache__/
+tests/
+logs/
+*.pyc
+.DS_Store

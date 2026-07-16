@@ -1189,3 +1189,7 @@ The Railway monitor persists an incident in `collector_heartbeat_alerts` when a 
 ### IV Rank Automatic Cutover
 
 `volatility_history.iv_rank_ready` owns the transition from cold-start provider rank to self-derived rank. Readiness is checked per symbol. API/scanner consumption prefers derived data, while scheduled collection, queued refresh and Analyze orchestration all skip Tastytrade for ready symbols. Until readiness, the provider value remains available with explicit provenance.
+
+### Railway Metrics Cron
+
+The cloud metrics service is a separate one-shot deployment defined by `collector/railway.metrics.json`. It runs only `collect.py` after the US close and exits. It shares PostgreSQL but does not run IB, scanner materialization, provider refresh jobs or the Mac heartbeat. Derived-ready symbols are filtered before TT authentication.

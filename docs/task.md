@@ -315,6 +315,11 @@
 
 **基础设施可靠性 / 云端迁移**
 - [ ] Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job（纯 REST API，无需本地网关，可直接云端跑）
+  - [x] 独立 one-shot image/config：`collector/Dockerfile.metrics` + `collector/railway.metrics.json`
+  - [x] 固定 UTC 盘后 schedule：`30 22 * * 1-5`；`restartPolicyType=NEVER`，进程完成后退出
+  - [x] Secret contract：仅需 `DATABASE_URL`、`TT_REMEMBER_TOKEN`、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv
+  - [x] Verification：collector 83/83 tests；Docker image `quantrift-metrics-cron:test` build passed
+  - [ ] Railway 控制台创建独立 service、将 config path 指向 `/collector/railway.metrics.json`、注入 secrets 并确认首个 scheduled run（需要 Railway 项目权限与 TT remember token）
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS），配置 macOS 电源恢复后自动开机，短期过渡方案
 - [ ] IB Gateway 云端迁移评估：Docker + IBC（参考 gnzsnz/ib-gateway-docker）部署到云 VPS（DigitalOcean/AWS/Linode），解决 Mac Studio 单点故障
   - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活

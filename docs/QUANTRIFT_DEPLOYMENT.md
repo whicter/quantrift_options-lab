@@ -1453,3 +1453,18 @@ WHERE iv_rank_ready = TRUE;
 ```
 
 2026-07-15 runtime result is 0/67 ready, therefore TT cold-start collection remains expected. Never lower the threshold or duplicate market dates to force readiness. Rollback can set `USE_DERIVED_VOLATILITY=false`, but doing so intentionally resumes provider rank consumption.
+
+## Railway Metrics Cron
+
+Create a separate service from the same GitHub repository. Set its config file path to `/collector/railway.metrics.json`; that file selects `collector/Dockerfile.metrics`, runs `python collect.py`, schedules `30 22 * * 1-5` UTC and never restarts a completed run. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
+
+Required variables:
+
+```text
+DATABASE_URL=<Railway PostgreSQL reference variable>
+TT_REMEMBER_TOKEN=<current token>
+TT_BASE_URL=https://api.tastyworks.com
+TT_USER_AGENT=quantrift-options-lab/0.1
+```
+
+Do not copy `collector/.env` into the service. Trigger one manual deployment/run, confirm a completed deployment and new `iv_history` rows, then remove the old Mac `collect.py` cron to avoid duplicate writes. Current repository verification includes 83 collector tests and a successful local Docker build; service creation and first cloud execution require Railway project access and are not yet claimed complete.

@@ -1664,3 +1664,18 @@ Analyze orchestration -> derived readiness satisfies metrics coverage
 Before readiness, existing Tastytrade observations remain the cold-start fallback. The consumer plane already selects a ready derived rank ahead of the provider value. The new producer-plane gate prevents unnecessary auth and provider requests after cutover. A symbol cannot become ready from repeated same-day rows because the volatility pipeline keys observations by New York market date and requires 252 independent observations.
 
 Current Railway runtime is 0/67 ready, so 67 symbols correctly remain eligible for cold-start metrics. The implementation is complete; production transition awaits actual market-day accumulation. Rollback removes the producer gates while leaving derived consumer preference unchanged.
+
+## 34. Cloud Metrics Cron
+
+Tastytrade market metrics use REST only and are isolated from the Mac option collector. `collector/Dockerfile.metrics` builds a one-shot Python image whose sole command is `collect.py`; `collector/railway.metrics.json` configures a weekday `22:30 UTC` cron and `NEVER` restart policy.
+
+```text
+Railway cron start -> collect.py -> filter derived-ready symbols
+                                -> TT REST for remaining symbols
+                                -> iv_history upsert
+                                -> process exits
+```
+
+The later UTC schedule is intentionally after the US close in both daylight and standard time; Railway cron schedules are UTC. The image excludes `.env`, local virtualenv, tests and logs. This service must not run the Mac daemon, IB adapter, scanner materializer or heartbeat. A Railway service binding and its secrets remain an operator action because the repository has neither Railway CLI login nor project token.
+
+Rollback disables/deletes only the metrics cron service; Mac/on-demand transition paths remain available. Container build and config tests prove deployment readiness, not a successful scheduled cloud run.
