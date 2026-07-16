@@ -86,6 +86,22 @@ class AuthTokenRotationTest(unittest.TestCase):
                 self.assertEqual(state_file.read(), 'new-token\n')
             set_key.assert_not_called()
 
+    def test_required_durable_state_refuses_to_consume_token_without_volume(self):
+        with patch.dict(os.environ, {
+            'TT_LOGIN': 'user@example.com',
+            'TT_REMEMBER_TOKEN': 'seed-token',
+            'TT_REMEMBER_TOKEN_STATE_PATH': '/data/tastytrade-remember-token',
+            'TT_REMEMBER_TOKEN_STATE_REQUIRED': 'true',
+        }, clear=False), \
+             patch('auth.requests.post') as post, \
+             patch('auth.send_alert_email') as send_alert:
+            os.environ.pop('RAILWAY_VOLUME_MOUNT_PATH', None)
+            with self.assertRaises(SystemExit):
+                auth.get_session_token()
+
+        post.assert_not_called()
+        send_alert.assert_called_once()
+
     def test_session_request_uses_tastytrade_compliant_user_agent(self):
         response = Mock()
         response.status_code = 201

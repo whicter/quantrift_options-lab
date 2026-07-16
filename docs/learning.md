@@ -381,7 +381,7 @@ V1 公式：
 - **Confirmed from runtime output**：一次 TT `POST /sessions` 返回 201 后，紧接着使用旧 remember-token 的 collector 请求返回 401。响应模型包含 session-token 与 remember-token 字段。
 - **Root cause**：旧 collector 只缓存 session-token，丢弃成功响应内的 successor remember-token；one-shot cron 的下一次启动因此拿到旧状态。
 - **Fix**：只在 201 响应提供 successor 时，以原子替换持久化该返回值；没有 successor 不写入，401/403/网络失败也不写入。不会进行密码 fallback 或任意 token rotation。
-- **Deployment lesson**：Railway cron 容器是短生命周期，不能把 successor 留在容器环境变量。将 `TT_REMEMBER_TOKEN_STATE_PATH` 指向持久 `/data` volume，初始 secret 仅作为首次 seed。
+- **Deployment lesson**：Railway cron 容器是短生命周期，不能把 successor 留在容器环境变量。将 `TT_REMEMBER_TOKEN_STATE_PATH` 指向持久 `/data` volume，并启用 `TT_REMEMBER_TOKEN_STATE_REQUIRED=true`；缺少 mount 时应在 session exchange 前停止，初始 secret 仅作为首次 seed。
 
 ### 7. cron/LaunchAgent runtime copy 造成“改了代码但运行的不是这份”
 

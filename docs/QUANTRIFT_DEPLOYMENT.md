@@ -1467,11 +1467,12 @@ Required variables:
 DATABASE_URL=<Railway PostgreSQL reference variable>
 TT_REMEMBER_TOKEN=<current token>
 TT_REMEMBER_TOKEN_STATE_PATH=/data/tastytrade-remember-token
+TT_REMEMBER_TOKEN_STATE_REQUIRED=true
 TT_BASE_URL=https://api.tastyworks.com
 TT_USER_AGENT=quantrift-options-lab/0.1
 ```
 
-Do not copy `collector/.env` into the service. Attach a persistent Railway Volume at `/data`: the first cron run uses `TT_REMEMBER_TOKEN` as its seed and `auth.py` atomically writes only the successor remember-token returned by a successful TT session exchange to `/data/tastytrade-remember-token`. Later cron runs read that file first. This avoids inventing a token or repeatedly logging in, while preserving the provider's actual successor across one-shot containers. A 401/403 never writes token state and does not retry credentials. The service was created, deployed from commit `bcae42e`, and manually run on 2026-07-16; PostgreSQL connection and 67-symbol watchlist loading are confirmed. The prior implementation discarded a successful exchange's successor, leaving the next run invalid. After the new seed is entered, run the service once manually and verify the `iv_history` date/source rows before retiring the old Mac cron.
+Do not copy `collector/.env` into the service. Attach a persistent Railway Volume at `/data`: the first cron run uses `TT_REMEMBER_TOKEN` as its seed and `auth.py` atomically writes only the successor remember-token returned by a successful TT session exchange to `/data/tastytrade-remember-token`. Later cron runs read that file first. Set `TT_REMEMBER_TOKEN_STATE_REQUIRED=true`; without a Railway volume mount, the collector exits before contacting TT, so it cannot consume a seed it would lose. A 401/403 never writes token state and does not retry credentials. The service was created, deployed from commit `bcae42e`, and manually run on 2026-07-16; PostgreSQL connection and 67-symbol watchlist loading are confirmed. The prior implementation discarded a successful exchange's successor, leaving the next run invalid. After the new seed is entered, run the service once manually and verify the `iv_history` date/source rows before retiring the old Mac cron.
 
 Repository verification: `cd collector && ./venv311/bin/python -m unittest discover -s tests -v` passed 104 tests; `docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed. A read-only Railway DB check at the failed-run point found 76 `iv_history` rows across 76 symbols, all dated 2026-07-14; the failed run made no new rows.
 

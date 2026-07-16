@@ -26,6 +26,10 @@ ENV_FILE  = os.path.join(os.path.dirname(__file__), '.env')
 _SESSION_TOKEN_CACHE = None
 
 
+class TokenStateConfigurationError(RuntimeError):
+    """Raised before renewal when durable provider token state is misconfigured."""
+
+
 def _headers(session_token=None):
     h = {
         'Content-Type': 'application/json',
@@ -91,6 +95,35 @@ def _remember_token_state_path():
     return os.getenv('TT_REMEMBER_TOKEN_STATE_PATH', '').strip()
 
 
+def _durable_state_required():
+    return os.getenv('TT_REMEMBER_TOKEN_STATE_REQUIRED', '').strip().lower() in {'1', 'true', 'yes'}
+
+
+def _validate_remember_token_state():
+    """Require a mounted Railway volume before consuming a renewable seed token."""
+    if not _durable_state_required():
+        return
+
+    state_path = _remember_token_state_path()
+    volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH', '').rstrip('/')
+    if not state_path:
+        raise TokenStateConfigurationError(
+            'TT_REMEMBER_TOKEN_STATE_PATH is required when durable token state is enabled.'
+        )
+    if not volume_path:
+        raise TokenStateConfigurationError(
+            'Railway persistent volume is not attached; refusing to consume TT_REMEMBER_TOKEN.'
+        )
+    try:
+        common_path = os.path.commonpath([os.path.abspath(state_path), volume_path])
+    except ValueError as exc:
+        raise TokenStateConfigurationError('TT_REMEMBER_TOKEN_STATE_PATH is invalid.') from exc
+    if common_path != volume_path:
+        raise TokenStateConfigurationError(
+            'TT_REMEMBER_TOKEN_STATE_PATH must be inside RAILWAY_VOLUME_MOUNT_PATH.'
+        )
+
+
 def _load_remember_token():
     state_path = _remember_token_state_path()
     if state_path:
@@ -143,6 +176,17 @@ def get_session_token():
     global _SESSION_TOKEN_CACHE
     if _SESSION_TOKEN_CACHE:
         return _SESSION_TOKEN_CACHE
+
+    try:
+        _validate_remember_token_state()
+    except TokenStateConfigurationError as e:
+        msg = str(e)
+        print(f'[AUTH] {msg}')
+        send_alert_email(
+            subject='[Options Lab] durable Tastytrade token state misconfigured',
+            body=msg,
+        )
+        sys.exit(1)
 
     remember_token = _load_remember_token()
     if not remember_token:
