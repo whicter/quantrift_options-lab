@@ -98,6 +98,12 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS volatility_history_rank_ready
       ON volatility_history (iv_rank_ready, metric_date DESC);
 
+    CREATE TABLE IF NOT EXISTS provider_auth_state (
+      provider       TEXT PRIMARY KEY,
+      remember_token TEXT NOT NULL,
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS scanner_configs (
       id          SERIAL PRIMARY KEY,
       name        TEXT,

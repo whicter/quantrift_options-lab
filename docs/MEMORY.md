@@ -64,7 +64,7 @@
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
-- remember-token 存于 Mac Studio `collector/.env`（首次需 `python auth.py --login`）；Railway Cron 用 `/data` volume、`TT_REMEMBER_TOKEN_STATE_PATH=/data/tastytrade-remember-token` 和 `TT_REMEMBER_TOKEN_STATE_REQUIRED=true` 保存 provider 返回的 successor；未挂载时在 token exchange 前停止，不能只依赖短生命周期容器变量
+- remember-token 的共享状态在 PostgreSQL `provider_auth_state`（2026-07-16 additive migration 已执行，seed 前读到 0 rows）；首次 `python auth.py --login` 将 seed 写入该表，本机与 Railway Cron 在 transaction advisory lock 下读取并提交 successor。`collector/.env` 仅保存本机登录副本；不需要 `/data` Volume
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）

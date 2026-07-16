@@ -233,7 +233,7 @@ Each chart:
 日常自动续期（通常自动，但可能触发设备挑战）：
   POST /sessions {"login": "...", "remember-token": "..."}
   → 正常返回新 session-token，且可能附带 provider-supplied successor remember-token
-  → collector 只在 201 成功响应含 successor 时原子持久化该值；绝不自行生成或任意 rotate token
+  → collector 在 PostgreSQL `provider_auth_state` transaction lock 内持久化 successor；若响应没有 successor 则提交当前 token，绝不自行生成或任意 rotate token
   → 如果返回 401/403，绝不改写 token、绝不重试密码登录；停止并走设备验证/手动登录流程
 
 remember-token 过期时：
@@ -1201,7 +1201,7 @@ The Railway monitor persists an incident in `collector_heartbeat_alerts` when a 
 
 The cloud metrics service is the separate Railway service `quantrift-metrics-cron`, defined by `collector/railway.metrics.json`. It runs only `collect.py` after the US close and exits. It shares PostgreSQL but does not run IB, scanner materialization, provider refresh jobs or the Mac heartbeat. Derived-ready symbols are filtered before TT authentication. Its Docker build context is repo root, so Dockerfile references and `COPY` sources must be rooted at `collector/...`.
 
-2026-07-16 runtime incident and correction: the service reached PostgreSQL and loaded 67 symbols, but the previous auth code discarded a successor remember-token returned by a successful exchange. The next invocation used the obsolete value and failed. The collector now persists only the returned successor before accepting the session. Railway's one-shot containers require a persistent `/data` volume with `TT_REMEMBER_TOKEN_STATE_PATH=/data/tastytrade-remember-token` and `TT_REMEMBER_TOKEN_STATE_REQUIRED=true`; without the mount, it fails before the token exchange. `TT_REMEMBER_TOKEN` is only the initial seed. A fresh interactive `auth.py --login` seed and one verified manual run remain before marking the migration operational.
+2026-07-16 runtime incident and correction: the service reached PostgreSQL and loaded 67 symbols, but the previous auth code discarded a successor remember-token returned by a successful exchange. The next invocation used the obsolete value and failed. The additive migration now exists in Railway PostgreSQL, verified with zero rows before seeding. The collector uses `provider_auth_state` as the durable, shared state: manual login writes the seed, and each exchange holds a transaction advisory lock while committing the successor. Railway needs no Volume and does not receive successor values through environment variables. A fresh interactive `auth.py --login` seed and one verified manual run remain before marking the migration operational.
 
 ### IB Gateway Cloud Boundary
 

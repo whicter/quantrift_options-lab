@@ -317,11 +317,12 @@
 - [ ] Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job（纯 REST API，无需本地网关，可直接云端跑）
   - [x] 独立 one-shot image/config：`collector/Dockerfile.metrics` + `collector/railway.metrics.json`
   - [x] 固定 UTC 盘后 schedule：`30 22 * * 1-5`；`restartPolicyType=NEVER`，进程完成后退出
-  - [x] Secret contract：`DATABASE_URL`、初始 `TT_REMEMBER_TOKEN`、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv。TT 成功 session exchange 返回 successor token 时，collector 仅持久化该返回值；不会自行 rotate、不会在 401/403 后重试登录。
-  - [x] Token-state durability：`TT_REMEMBER_TOKEN_STATE_PATH` 可指向持久文件。Railway 需挂载 `/data` volume、设为 `/data/tastytrade-remember-token`，并设 `TT_REMEMBER_TOKEN_STATE_REQUIRED=true`；未看到 Railway volume mount 时 collector 在 session exchange 前 fail closed，不会消耗 seed。首跑使用 service variable seed，后续 cron 从 volume 读取并原子替换 provider 返回的 successor。
-  - [x] Verification：collector `unittest discover -s tests -v` 107/107 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed
+  - [x] Secret contract：`DATABASE_URL`、bootstrap `TT_REMEMBER_TOKEN`（仅在 `provider_auth_state` 尚无记录时使用）、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv。手动 `auth.py --login` 将 seed 写入 PostgreSQL，Railway 不需要接收 successor token。
+  - [x] Token-state durability：新表 `provider_auth_state(provider, remember_token, updated_at)` 是本机与 Railway Cron 的唯一续期状态。每次 exchange 先取得 PostgreSQL transaction advisory lock，201 后在同一事务写入 successor/当前 token；401/403/网络失败 rollback，不改状态。无需 Railway `/data` Volume。
+  - [x] Migration runtime：2026-07-16 `source collector/.env && node server/src/migrate.js` 成功；只读 `to_regclass('public.provider_auth_state')` 返回表存在、`row_count=0`，未读取 token 值。
+  - [x] Verification：collector `unittest discover -s tests -v` 109/109 passed；server `npm test` 65/65 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed after PostgreSQL token-state change
   - [x] Railway 独立 service：`quantrift-metrics-cron` 已创建，config path 为 `/collector/railway.metrics.json`，DB/TT variables 已注入，Git deployment active（2026-07-16）
-  - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols。旧认证实现丢弃了一次成功 exchange 返回的 successor token，导致后续运行 401；修复和 108 个测试已完成。完成条件：人工 `python auth.py --login` 取得新的 seed、在 Railway 配置 `/data` persistent volume、`TT_REMEMBER_TOKEN_STATE_PATH=/data/tastytrade-remember-token` 与 `TT_REMEMBER_TOKEN_STATE_REQUIRED=true`、更新 Railway `TT_REMEMBER_TOKEN`、手动 run 成功并验证新增/更新 `iv_history` rows。
+  - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols。旧认证实现丢弃了一次成功 exchange 返回的 successor token，导致后续运行 401；migration、修复和 109 个 collector 测试已完成。完成条件：人工 `python auth.py --login` 写入新 seed 到 PostgreSQL，手动运行 Railway Cron 成功，并验证新增/更新 `iv_history` rows 与 `provider_auth_state.updated_at`。
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS）并完成断电恢复演练
   - [x] macOS 自动恢复已验证：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`；市电恢复后系统会自动重启。
   - [x] PM2 开机恢复已验证：LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`；`~/.pm2/dump.pm2` 包含 `quantrift-options-collector`、`quantrift-options-prices`、`quantrift-reddit-trends`、`quantrift-universe-metadata`、`quantrift-unusual-whales-flow`。

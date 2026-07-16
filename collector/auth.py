@@ -13,8 +13,8 @@ import sys
 import json
 import smtplib
 import argparse
-import tempfile
 import requests
+import psycopg2
 from email.mime.text import MIMEText
 from dotenv import load_dotenv, set_key
 
@@ -24,10 +24,11 @@ TT_BASE   = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')
 TT_USER_AGENT = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')
 ENV_FILE  = os.path.join(os.path.dirname(__file__), '.env')
 _SESSION_TOKEN_CACHE = None
+AUTH_STATE_PROVIDER = 'tastytrade'
 
 
-class TokenStateConfigurationError(RuntimeError):
-    """Raised before renewal when durable provider token state is misconfigured."""
+class TokenStateError(RuntimeError):
+    """Raised when durable provider authentication state cannot be used."""
 
 
 def _headers(session_token=None):
@@ -90,128 +91,111 @@ def renew_session(remember_token):
     raise ValueError(f'remember-token renewal failed: {resp.status_code} {resp.text}')
 
 
-def _remember_token_state_path():
-    """Optional durable state path for stateless runtimes such as Railway Cron."""
-    return os.getenv('TT_REMEMBER_TOKEN_STATE_PATH', '').strip()
+def _database_url():
+    return os.getenv('DATABASE_URL', '').strip()
 
 
-def _durable_state_required():
-    return os.getenv('TT_REMEMBER_TOKEN_STATE_REQUIRED', '').strip().lower() in {'1', 'true', 'yes'}
+def _acquire_remember_token_state():
+    """Lock the shared provider state for one renewal, or fall back to local .env."""
+    database_url = _database_url()
+    if not database_url:
+        return None, os.getenv('TT_REMEMBER_TOKEN', '').strip()
 
-
-def _validate_remember_token_state():
-    """Require a mounted Railway volume before consuming a renewable seed token."""
-    if not _durable_state_required():
-        return
-
-    state_path = _remember_token_state_path()
-    volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH', '').rstrip('/')
-    if not state_path:
-        raise TokenStateConfigurationError(
-            'TT_REMEMBER_TOKEN_STATE_PATH is required when durable token state is enabled.'
-        )
-    if not volume_path:
-        raise TokenStateConfigurationError(
-            'Railway persistent volume is not attached; refusing to consume TT_REMEMBER_TOKEN.'
-        )
     try:
-        common_path = os.path.commonpath([os.path.abspath(state_path), volume_path])
-    except ValueError as exc:
-        raise TokenStateConfigurationError('TT_REMEMBER_TOKEN_STATE_PATH is invalid.') from exc
-    if common_path != volume_path:
-        raise TokenStateConfigurationError(
-            'TT_REMEMBER_TOKEN_STATE_PATH must be inside RAILWAY_VOLUME_MOUNT_PATH.'
-        )
+        conn = psycopg2.connect(database_url)
+        with conn.cursor() as cur:
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (AUTH_STATE_PROVIDER,))
+            cur.execute(
+                'SELECT remember_token FROM provider_auth_state WHERE provider = %s FOR UPDATE',
+                (AUTH_STATE_PROVIDER,),
+            )
+            row = cur.fetchone()
+        return conn, (row[0] if row else os.getenv('TT_REMEMBER_TOKEN', '').strip())
+    except psycopg2.Error as exc:
+        raise TokenStateError('PostgreSQL provider authentication state is unavailable.') from exc
 
 
-def _load_remember_token():
-    state_path = _remember_token_state_path()
-    if state_path:
-        try:
-            with open(state_path, encoding='utf-8') as state_file:
-                token = state_file.read().strip()
-            if token:
-                return token
-        except FileNotFoundError:
-            pass
-    return os.getenv('TT_REMEMBER_TOKEN')
+def _store_database_remember_token(conn, remember_token):
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''
+                INSERT INTO provider_auth_state (provider, remember_token, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (provider) DO UPDATE
+                SET remember_token = EXCLUDED.remember_token,
+                    updated_at = NOW()
+                ''',
+                (AUTH_STATE_PROVIDER, remember_token),
+            )
+    except psycopg2.Error as exc:
+        raise TokenStateError('PostgreSQL provider authentication state could not be updated.') from exc
 
 
-def _persist_replacement_remember_token(previous_token, replacement_token):
-    """Persist only a token returned by a successful provider renewal."""
-    if not replacement_token or replacement_token == previous_token:
-        return False
-
-    state_path = _remember_token_state_path()
-    if state_path:
-        state_dir = os.path.dirname(state_path) or '.'
-        os.makedirs(state_dir, mode=0o700, exist_ok=True)
-        fd, temp_path = tempfile.mkstemp(prefix='.tt-token-', dir=state_dir, text=True)
-        try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, 'w', encoding='utf-8') as state_file:
-                state_file.write(replacement_token)
-                state_file.write('\n')
-            os.replace(temp_path, state_path)
-        except Exception:
-            try:
-                os.unlink(temp_path)
-            except FileNotFoundError:
-                pass
-            raise
-    else:
-        set_key(ENV_FILE, 'TT_REMEMBER_TOKEN', replacement_token)
-
-    os.environ['TT_REMEMBER_TOKEN'] = replacement_token
-    return True
+def _persist_manual_remember_token(remember_token):
+    """Save a manually-issued seed to the shared database and local .env."""
+    conn = None
+    try:
+        conn, _ = _acquire_remember_token_state()
+        if conn:
+            _store_database_remember_token(conn, remember_token)
+            conn.commit()
+        set_key(ENV_FILE, 'TT_REMEMBER_TOKEN', remember_token)
+        os.environ['TT_REMEMBER_TOKEN'] = remember_token
+    except Exception:
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if conn:
+            conn.close()
 
 
 def get_session_token():
     """
     Returns a valid session-token.
-    Uses remember-token to create one session-token per process run. If the
-    successful TT response includes a successor remember-token, persist that
-    exact successor before accepting the new session.
+    Uses PostgreSQL-backed remember-token state to create one session-token per
+    process run. The database transaction lock prevents concurrent collectors
+    from consuming the same token.
     """
     global _SESSION_TOKEN_CACHE
     if _SESSION_TOKEN_CACHE:
         return _SESSION_TOKEN_CACHE
 
+    conn = None
     try:
-        _validate_remember_token_state()
-    except TokenStateConfigurationError as e:
-        msg = str(e)
-        print(f'[AUTH] {msg}')
-        send_alert_email(
-            subject='[Options Lab] durable Tastytrade token state misconfigured',
-            body=msg,
-        )
-        sys.exit(1)
-
-    remember_token = _load_remember_token()
-    if not remember_token:
-        print('[AUTH] No TT_REMEMBER_TOKEN in .env — run `python auth.py --login` first.')
-        sys.exit(1)
-
-    try:
+        conn, remember_token = _acquire_remember_token_state()
+        if not remember_token:
+            raise TokenStateError('No TT_REMEMBER_TOKEN seed is available; run `python auth.py --login` first.')
         session_token, replacement_token = renew_session(remember_token)
-        if _persist_replacement_remember_token(remember_token, replacement_token):
+        persisted_token = replacement_token or remember_token
+        if conn:
+            _store_database_remember_token(conn, persisted_token)
+            conn.commit()
+            print('[AUTH] Remember-token state committed to PostgreSQL.')
+        elif replacement_token and replacement_token != remember_token:
+            set_key(ENV_FILE, 'TT_REMEMBER_TOKEN', replacement_token)
+            os.environ['TT_REMEMBER_TOKEN'] = replacement_token
             print('[AUTH] Provider-supplied remember-token successor persisted.')
         _SESSION_TOKEN_CACHE = session_token
         print('[AUTH] Session token renewed.')
         return session_token
-    except ValueError as e:
+    except (ValueError, TokenStateError) as e:
+        if conn:
+            conn.rollback()
         msg = str(e)
         print(f'[AUTH] {msg}')
         send_alert_email(
-            subject='[Options Lab] Tastytrade remember-token expired — action required',
+            subject='[Options Lab] Tastytrade authentication unavailable',
             body=(
-                'The Tastytrade remember-token has expired.\n\n'
-                'Please run: python auth.py --login\n\n'
+                'The Tastytrade collector could not establish a session.\n\n'
                 f'Error: {msg}'
             ),
         )
         sys.exit(1)
+    finally:
+        if conn:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -302,11 +286,11 @@ def _complete_otp(login, password, challenge_token, otp):
 def _save_tokens(data):
     session_token  = data['session-token']
     remember_token = data.get('remember-token', '')
-    _persist_replacement_remember_token(None, remember_token)
+    _persist_manual_remember_token(remember_token)
     print(f'\n[AUTH] Login successful!')
     print(f'  session-token : {session_token[:20]}...')
     print(f'  remember-token: {remember_token[:20]}...')
-    print(f'  remember-token saved to .env')
+    print(f'  remember-token saved to PostgreSQL and .env')
 
 
 if __name__ == '__main__':
