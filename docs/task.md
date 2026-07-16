@@ -272,7 +272,7 @@
 ---
 
 ## 📋 V1 Backlog (Polish)
-- [ ] Strategy comparison mode (side by side, 2 strategies)
+- [x] Strategy comparison mode (side by side, 2 strategies)（策略库可选择任意两个策略，并排展示方向、风险级别、DTE、IV、TP/SL 与实际 legs；不会改变当前主策略）
 - [ ] IV Rank badge per strategy in sidebar (Low/Med/High indicator)
 - [ ] Probability cone on payoff chart (shaded distribution band)
 - [x] Export payoff chart as PNG（`PayoffChart` 导出当前 canvas 为命名 PNG；`canvasExport` 单元测试覆盖 PNG mime、下载文件名和缺失 canvas）
