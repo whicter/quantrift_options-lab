@@ -84,7 +84,7 @@ P2.3 heartbeat is complete in code and persistence: Mac daemon reports through a
 
 Derived IV Rank cutover is complete in all control planes: ready symbols are filtered before scheduled TT authentication, skipped by queued metrics jobs, and treated as covered by Analyze. Server 40 and collector 81 tests pass. Railway remains 0/67 ready, so current TT eligibility is expected until 252 independent market dates accumulate.
 
-Tastytrade metrics cron is deployment-ready: a dedicated one-shot Docker image and Railway config run weekdays at 22:30 UTC and exit. Collector 83 tests and Docker build pass. Creating the separate Railway service, injecting its DB/token variables and validating the first cloud run remain operator steps.
+Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`: one-shot image/config run weekdays at 22:30 UTC and exit. Collector 104 tests and a repo-root Docker build pass. The 2026-07-16 first manual execution connected to PostgreSQL and loaded 67 symbols, then TT rejected the remember token (`401 invalid_credentials`; local no-write probe `403`). Replace the Railway token after `auth.py --login`, manually rerun, and verify `iv_history` before marking the cloud collector live.
 
 IB Gateway cloud evaluation is complete: use a fixed-egress VPS, pinned Gateway/IBC image, paper/read-only mode, Docker secret and loopback-only ports. `ops/ib-gateway/` holds the template and 72-hour soak gates. Collector 85 tests and compose config pass; VPS purchase and IBKR 2FA remain external.
 

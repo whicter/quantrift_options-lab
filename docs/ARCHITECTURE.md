@@ -1680,7 +1680,9 @@ Railway cron start -> collect.py -> filter derived-ready symbols
                                 -> process exits
 ```
 
-The later UTC schedule is intentionally after the US close in both daylight and standard time; Railway cron schedules are UTC. The image excludes `.env`, local virtualenv, tests and logs. This service must not run the Mac daemon, IB adapter, scanner materializer or heartbeat. A Railway service binding and its secrets remain an operator action because the repository has neither Railway CLI login nor project token.
+The later UTC schedule is intentionally after the US close in both daylight and standard time; Railway cron schedules are UTC. The image excludes `.env`, local virtualenv, tests and logs. This service must not run the Mac daemon, IB adapter, scanner materializer or heartbeat. The Railway service `quantrift-metrics-cron` is created and its Git deployment is active as of 2026-07-16. The config file does not alter Railway's repo-root build context, so its Dockerfile and `COPY` paths are explicitly repo-root-relative.
+
+The first manual cloud execution reached PostgreSQL and loaded the 67-symbol watchlist, then failed at TT session renewal with `401 invalid_credentials`. The local current remember token returned `403` to the same session exchange, confirming token invalidity rather than an infrastructure failure. Cloud collection stays incomplete until a new `auth.py --login` token is stored in the Railway `TT_REMEMBER_TOKEN` variable and a manual run updates `iv_history`.
 
 Rollback disables/deletes only the metrics cron service; Mac/on-demand transition paths remain available. Container build and config tests prove deployment readiness, not a successful scheduled cloud run.
 

@@ -318,8 +318,9 @@
   - [x] 独立 one-shot image/config：`collector/Dockerfile.metrics` + `collector/railway.metrics.json`
   - [x] 固定 UTC 盘后 schedule：`30 22 * * 1-5`；`restartPolicyType=NEVER`，进程完成后退出
   - [x] Secret contract：仅需 `DATABASE_URL`、`TT_REMEMBER_TOKEN`、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv
-  - [x] Verification：collector 83/83 tests；Docker image `quantrift-metrics-cron:test` build passed
-  - [ ] Railway 控制台创建独立 service、将 config path 指向 `/collector/railway.metrics.json`、注入 secrets 并确认首个 scheduled run（需要 Railway 项目权限与 TT remember token）
+  - [x] Verification：collector `unittest discover -s tests -v` 104/104 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed
+  - [x] Railway 独立 service：`quantrift-metrics-cron` 已创建，config path 为 `/collector/railway.metrics.json`，DB/TT variables 已注入，Git deployment active（2026-07-16）
+  - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols，但 TT session renewal 返回 `401 invalid_credentials`；本机当前 remember token 的独立无写入探针亦返回 `403`。完成条件是人工 `python auth.py --login` 取得新 token、更新 Railway `TT_REMEMBER_TOKEN` 后手动 run 成功并验证新增/更新 `iv_history` rows。
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS），配置 macOS 电源恢复后自动开机，短期过渡方案
 - [x] IB Gateway 云端迁移评估：结论为固定出口 Linux VPS + pinned Docker/IBC + private API；模板见 `ops/ib-gateway/`（2026-07-15）
   - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活

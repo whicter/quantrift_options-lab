@@ -1456,7 +1456,9 @@ WHERE iv_rank_ready = TRUE;
 
 ## Railway Metrics Cron
 
-Create a separate service from the same GitHub repository. Set its config file path to `/collector/railway.metrics.json`; that file selects `collector/Dockerfile.metrics`, runs `python collect.py`, schedules `30 22 * * 1-5` UTC and never restarts a completed run. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
+The separate Railway service is `quantrift-metrics-cron`. Its config file path is `/collector/railway.metrics.json`; that file selects `collector/Dockerfile.metrics`, runs `python collect.py`, schedules `30 22 * * 1-5` UTC and never restarts a completed run. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
+
+The Railway build context remains the repository root even when the config file is inside `collector/`. Therefore the Dockerfile path and `COPY` sources must be repo-root-relative: config uses `collector/Dockerfile.metrics`, and the Dockerfile copies `collector/requirements.txt` and `collector/`. Do not rely on the config path to change build context.
 
 Required variables:
 
@@ -1467,7 +1469,9 @@ TT_BASE_URL=https://api.tastyworks.com
 TT_USER_AGENT=quantrift-options-lab/0.1
 ```
 
-Do not copy `collector/.env` into the service. Trigger one manual deployment/run, confirm a completed deployment and new `iv_history` rows, then remove the old Mac `collect.py` cron to avoid duplicate writes. Current repository verification includes 83 collector tests and a successful local Docker build; service creation and first cloud execution require Railway project access and are not yet claimed complete.
+Do not copy `collector/.env` into the service. The service was created, deployed from commit `bcae42e`, and manually run on 2026-07-16. Its logs confirm PostgreSQL connection and 67-symbol watchlist loading, but the run crashed before fetching metrics because TT returned `401 invalid_credentials` while exchanging the configured remember token. A separate local no-write session probe against the current local token returned `403`, so this is an invalid TT token rather than a Railway network or database failure. Run `python auth.py --login`, replace the Railway `TT_REMEMBER_TOKEN` with the newly issued value, then run the service manually and verify the `iv_history` date/source rows before retiring the old Mac cron.
+
+Repository verification: `cd collector && ./venv311/bin/python -m unittest discover -s tests -v` passed 104 tests; `docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed. A read-only Railway DB check at the failed-run point found 76 `iv_history` rows across 76 symbols, all dated 2026-07-14; the failed run made no new rows.
 
 ## IB Gateway VPS Candidate
 

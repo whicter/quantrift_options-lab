@@ -1196,7 +1196,9 @@ The Railway monitor persists an incident in `collector_heartbeat_alerts` when a 
 
 ### Railway Metrics Cron
 
-The cloud metrics service is a separate one-shot deployment defined by `collector/railway.metrics.json`. It runs only `collect.py` after the US close and exits. It shares PostgreSQL but does not run IB, scanner materialization, provider refresh jobs or the Mac heartbeat. Derived-ready symbols are filtered before TT authentication.
+The cloud metrics service is the separate Railway service `quantrift-metrics-cron`, defined by `collector/railway.metrics.json`. It runs only `collect.py` after the US close and exits. It shares PostgreSQL but does not run IB, scanner materialization, provider refresh jobs or the Mac heartbeat. Derived-ready symbols are filtered before TT authentication. Its Docker build context is repo root, so Dockerfile references and `COPY` sources must be rooted at `collector/...`.
+
+2026-07-16 manual runtime evidence: the service connected to PostgreSQL and loaded 67 symbols, then TT rejected its remember-token session exchange with `401 invalid_credentials`; the current local token independently returned `403`. The migration is therefore deployed but not operational until a new interactive `auth.py --login` token is written to the Railway service and a manual run updates `iv_history`.
 
 ### IB Gateway Cloud Boundary
 

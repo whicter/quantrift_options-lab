@@ -543,6 +543,8 @@ V1 公式：
 - **monorepo service 必须明确 config path**：metrics cron 使用 `/collector/railway.metrics.json`，不能继承 Node API 的 start command。
 - **镜像不能 COPY secret/venv**：`.dockerignore` 排除 `.env` 和 60MB 本地 virtualenv，secret 只由 Railway variable 注入。
 - **build passed 不是 cloud run passed**：容器与配置可在代码侧验证；service binding、secret 和首个 completed deployment 必须有 Railway 项目权限。
+- **config 文件位置不改变 Docker build context**：`/collector/railway.metrics.json` 被 Railway 读取时，构建 context 仍是仓库根目录。把 Dockerfile 写成相对 `collector/` 的 `COPY requirements.txt` 会在云端找不到文件；必须显式使用 `collector/Dockerfile.metrics`、`COPY collector/requirements.txt` 和 `COPY collector/`。本地以 `docker build -f collector/Dockerfile.metrics ... .` 覆盖这一点。
+- **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出；本机 token 的无写入探针也返回 `403`。这将故障归因到 token，而不是 Railway 网络、Docker 或数据库，并避免把 failed run 误记为已写入。
 
 ## IB Gateway Cloud Evaluation Lessons (2026-07-15)
 
