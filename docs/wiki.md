@@ -1281,3 +1281,7 @@ Payoff 图的蓝色阴影是以策略各腿的数量加权 IV、最长 DTE、利
 ### 策略库移动端
 
 在窄屏上，策略库从桌面三栏布局转为 sidebar、主内容、参数面板的纵向顺序。策略列表仍在有限高度内滚动，避免长策略目录淹没当前策略的 payoff、Greeks 和规则。更窄的屏幕把 payoff 图例、notes 和 Greeks 收为单列。
+
+### 策略模板扩展
+
+策略库现有 88 个可编辑模板。新增的 10 个覆盖 Call/Put Ladder、Call/Put Ratio Calendar、Calendar Condor、Double Diagonal Condor、FX Risk Reversal、FX Seagull、Index Iron Condor 与 Index Broken-Wing Butterfly。FX 和指数模板仍使用同一套标准期权腿表示，用户需要在实际下单前按对应产品的合约乘数、结算方式和行权价间距调整参数。
