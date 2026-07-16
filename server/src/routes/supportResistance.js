@@ -249,6 +249,47 @@ function deriveObv(bars) {
   };
 }
 
+function deriveMfi(bars, period = 14) {
+  const validBars = (bars || []).map(bar => ({
+    date: toDateString(bar.date),
+    high: Number(bar.high),
+    low: Number(bar.low),
+    close: Number(bar.close),
+    volume: Number(bar.volume),
+  })).filter(bar => bar.date && [bar.high, bar.low, bar.close, bar.volume].every(Number.isFinite) && bar.volume > 0);
+  if (validBars.length < period + 1) {
+    return { status: 'missing', reason: `requires_${period + 1}_daily_bars_with_volume`, period, bar_count: validBars.length, value: null, signal: null };
+  }
+
+  const recent = validBars.slice(-(period + 1));
+  let positiveFlow = 0;
+  let negativeFlow = 0;
+  for (let index = 1; index < recent.length; index += 1) {
+    const current = recent[index];
+    const previous = recent[index - 1];
+    const typicalPrice = (current.high + current.low + current.close) / 3;
+    const previousTypicalPrice = (previous.high + previous.low + previous.close) / 3;
+    const rawFlow = typicalPrice * current.volume;
+    if (typicalPrice > previousTypicalPrice) positiveFlow += rawFlow;
+    else if (typicalPrice < previousTypicalPrice) negativeFlow += rawFlow;
+  }
+
+  let value = 50;
+  if (negativeFlow === 0 && positiveFlow > 0) value = 100;
+  else if (positiveFlow === 0 && negativeFlow > 0) value = 0;
+  else if (positiveFlow > 0 && negativeFlow > 0) value = 100 - (100 / (1 + positiveFlow / negativeFlow));
+  value = Math.max(0, Math.min(100, value));
+  return {
+    status: 'ready',
+    period,
+    bar_count: validBars.length,
+    value,
+    signal: value >= 80 ? 'overbought' : value <= 20 ? 'oversold' : 'neutral',
+    positive_flow: positiveFlow,
+    negative_flow: negativeFlow,
+  };
+}
+
 async function sendSupportResistance(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
@@ -280,7 +321,7 @@ async function sendSupportResistance(req, res) {
     const momentum = deriveCompositeMomentum(rows, intradayResult.rows);
     const derived = deriveSupportResistance(rows);
     if (!derived) {
-      return res.json({ symbol, status: 'missing', bar_count: rows.length, support: [], resistance: [], focus: deriveFocusScore([]), obv: deriveObv(rows), momentum });
+      return res.json({ symbol, status: 'missing', bar_count: rows.length, support: [], resistance: [], focus: deriveFocusScore([]), obv: deriveObv(rows), mfi: deriveMfi(rows), momentum });
     }
     const latest = rows[rows.length - 1];
     return res.json({
@@ -296,6 +337,7 @@ async function sendSupportResistance(req, res) {
       method: { pivot_window: 2, cluster_tolerance_pct: 1 },
       focus: deriveFocusScore(derived.bars),
       obv: deriveObv(derived.bars),
+      mfi: deriveMfi(derived.bars),
       momentum,
     });
   } catch (err) {
@@ -306,4 +348,4 @@ async function sendSupportResistance(req, res) {
 
 router.get('/:symbol', sendSupportResistance);
 
-module.exports = { router, sendSupportResistance, deriveSupportResistance, deriveFocusScore, deriveObv, deriveCompositeMomentum };
+module.exports = { router, sendSupportResistance, deriveSupportResistance, deriveFocusScore, deriveObv, deriveMfi, deriveCompositeMomentum };

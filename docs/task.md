@@ -983,9 +983,12 @@ P2.6 verification：Railway 只读重放 AAPL 250 daily + 200 regular-session 30
   - 公式：上涨日加 volume，下跌日减 volume，收平不变；至少需两根有真实 volume 的日线，否则 `missing`
   - 前端：Analyze Tab2 趋势图下方独立小图；不与价格轴混用
   - 验证：server 70/70、frontend 40/40、full ESLint、Vite production build passed
-- [ ] **MFI（Money Flow Index）**：OHLCV + volume 14日窗口，0-100 超买超卖
-  - 与 RSI 配合：RSI 方向 + MFI 资金流入/流出确认
-  - 前端：Tab1 指标卡，与 Focus Score 并列
+- [x] **MFI（Money Flow Index）**（2026-07-16）：OHLCV + volume 14日窗口，0-100 超买超卖
+  - `GET /api/sr/:symbol` 的 `mfi` 字段以近 14 个典型价变化计算正/负 money flow；至少需 15 根有效日线
+  - `MFI = 100 - 100 / (1 + positive_flow / negative_flow)`；`>=80` 为 overbought，`<=20` 为 oversold，其余 neutral
+  - 与 RSI 并列但不合成单一信号：RSI 表示价格动量，MFI 用价格和成交量确认资金流方向
+  - 前端：Analyze Tab1 指标卡，与 Focus Score 并列；历史不足显示 `--`
+  - 验证：server 71/71、frontend 40/40、full ESLint、Vite production build passed
 
 P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additive migration passed。Runtime smoke 依次确认 expected node 从未上报时 `missing/degraded`、错误 token 为 HTTP 401、正确上报后 `online/ok`；受控 stale heartbeat 生成 `active` incident（无 webhook 时 channel=`blocked`），恢复 heartbeat 后 incident=`resolved`。Mac Studio PM2 collector 已重启并保持 online；因共享 `HEARTBEAT_TOKEN`/URL 尚未写入双方运行环境，定时上报当前按设计返回 `disabled`，不影响 collector 主循环。
 

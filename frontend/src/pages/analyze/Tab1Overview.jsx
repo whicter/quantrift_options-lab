@@ -12,7 +12,7 @@ function Badge({ label, value, colorFn }) {
 
 export default function Tab1Overview({ data }) {
   const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, earnings,
-    ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance } = data;
+    ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance, mfi } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
@@ -61,6 +61,11 @@ export default function Tab1Overview({ data }) {
           <span>Focus Score</span>
           <strong>{focusScore?.score ?? '--'}</strong>
           <small>{focusScore?.label || '历史不足'}</small>
+        </div>
+        <div className="az-analysis-metric">
+          <span>MFI · 资金流</span>
+          <strong>{mfi?.value == null ? '--' : mfi.value.toFixed(0)}</strong>
+          <small>{mfi?.signal === 'overbought' ? '超买区' : mfi?.signal === 'oversold' ? '超卖区' : mfi?.signal === 'neutral' ? '中性区' : '14日历史不足'}</small>
         </div>
         <div className="az-analysis-metric">
           <span>Vol Risk Premium</span>

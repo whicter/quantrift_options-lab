@@ -125,6 +125,7 @@ test('derived analysis only attaches ready real-data products', () => {
     resistance: [{ price: 140, touches: 2 }],
     focus: { ready: true, score: 68, label: '偏强' },
     obv: { status: 'ready', latest: 350000, change_20d: 80000, trend: 'inflow', series: [{ date: '2026-07-14', value: 350000 }] },
+    mfi: { status: 'ready', value: 73.4, signal: 'neutral', period: 14 },
     momentum: {
       status: 'ready', score: 72, label: '多周期强势', weights: { '30m': 0.3, '1d': 0.4, '1w': 0.3 },
       timeframes: { '30m': { score: 70 }, '1d': { score: 75 }, '1w': { score: 70 } },
@@ -151,6 +152,7 @@ test('derived analysis only attaches ready real-data products', () => {
   assert.equal(result.focusScore.score, 68);
   assert.equal(result.compositeMomentum.score, 72);
   assert.equal(result.obv.trend, 'inflow');
+  assert.equal(result.mfi.value, 73.4);
   assert.equal(result.supportResistance.support[0].price, 130);
   assert.equal(result.chainStats.ivContractCount, 20);
   assert.equal(result.chainStats.oiDensity.points[0].put_oi, 7000);
@@ -165,6 +167,7 @@ test('missing derived data remains null instead of using mock values', () => {
   assert.equal(result.focusScore, null);
   assert.equal(result.compositeMomentum, null);
   assert.equal(result.obv, null);
+  assert.equal(result.mfi, null);
   assert.equal(result.chainStats, null);
   assert.equal(result.volumeProfile, null);
 });

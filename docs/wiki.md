@@ -1098,6 +1098,7 @@ Current Analyze uses real `price_history` to compute:
 - Analyze Tab1 展示 Focus / VRP / Gamma Flip / Local Gamma；Tab2/Tab4 展示技术 S/R；Tab3 展示 IV skew/term structure。
 - Volume Profile：`GET /api/vp/:symbol?interval=30m&days=20&bins=40` 仅使用 regular-session 30M OHLCV。每根 bar 以典型价 `(high + low + close) / 3` 归入价格区间并累加成交量；Tab2 横条表示过去窗口内的成交密集度，前 5 个节点是高成交价位。它可辅助确认 S/R，但不是 S/R、Call Wall 或 Put Wall。
 - OBV（On-Balance Volume）：`GET /api/sr/:symbol` 使用日线 close 与 volume。close 上涨时累加 volume、下跌时扣减、收平不变；Tab2 的小图展示累计序列与最近 20 日方向。OBV 的方向用于验证价格走势是否有成交量配合，不是买卖资金金额，也不代表机构净买卖。
+- MFI（Money Flow Index）：`GET /api/sr/:symbol` 以典型价 `(high + low + close) / 3` 乘以 volume 取得 raw money flow，典型价上涨归为 positive flow、下跌归为 negative flow，使用最近 14 个变化计算 `MFI = 100 - 100 / (1 + positive/negative)`。`>=80` 是超买区、`<=20` 是超卖区，表示价格与成交量的相对极端状态，不是单独的买卖指令。
 - 数据缺失规则：不生成示例价格，不从 spot/wall 构造期权 legs，不把 mock 作为 fallback。
 - MA20 / MA50 / MA200
 - RSI14

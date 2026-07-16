@@ -132,6 +132,11 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats, volume
       trend: supportResistance.obv.trend,
       series: supportResistance.obv.series || [],
     } : null,
+    mfi: srReady && supportResistance.mfi?.status === 'ready' ? {
+      value: toNumber(supportResistance.mfi.value),
+      signal: supportResistance.mfi.signal,
+      period: supportResistance.mfi.period,
+    } : null,
     compositeMomentum: srReady && supportResistance.momentum ? supportResistance.momentum : null,
     volumeProfile: volumeProfile?.status === 'ready' ? {
       source: volumeProfile.source,

@@ -1608,7 +1608,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 
 /* ── GEX 4-column numbers ───────────────────────────────────── */
 .az-gex-numbers-4 { grid-template-columns: repeat(4, 1fr); }
-.az-analysis-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 14px; }
+.az-analysis-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 10px 0 14px; }
 .az-analysis-metric { border: 1px solid var(--border); background: var(--bg-card); padding: 10px; min-width: 0; }
 .az-analysis-metric span, .az-analysis-metric small { display: block; color: var(--text-muted); font-size: 10px; }
 .az-analysis-metric strong { display: block; margin: 5px 0 3px; color: var(--text); font-size: 17px; overflow-wrap: anywhere; }

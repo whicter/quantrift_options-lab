@@ -43,7 +43,7 @@ Open http://localhost:5173
 |---|---|
 | `/` | Quantrift 产品入口：live Market Regime + Scan/Analyze/Weekly workflow |
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
-| `/analyze` | V2 标的分析：真实价格趋势、S/R、Volume Profile、OBV、Focus Score、GEX、VRP、IV skew 与期限结构 |
+| `/analyze` | V2 标的分析：真实价格趋势、S/R、Volume Profile、OBV、MFI、Focus Score、GEX、VRP、IV skew 与期限结构 |
 | `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
 
 ## Features (V1 — /learn)
@@ -101,7 +101,7 @@ Open http://localhost:5173
 - Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
 - Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
 - Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
-- Analyze computes direction context from real price history and displays Focus Score, OBV, VRP, Gamma Flip, Local Gamma, S/R, 30M Volume Profile, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
+- Analyze computes direction context from real price history and displays Focus Score, OBV, MFI-14, VRP, Gamma Flip, Local Gamma, S/R, 30M Volume Profile, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
 - Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.
 - Refresh worker safeguards: stale `running` jobs are recovered, unsupported provider jobs fail closed, TT auth exits are converted into job errors, option-chain jobs can fall back from TT to IB, and malformed symbols are rejected before entering `provider_fetch_jobs`.
 - PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.

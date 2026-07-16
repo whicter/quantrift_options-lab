@@ -7,7 +7,7 @@ const queryResults = [];
 const pool = { async query() { return queryResults.shift(); } };
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: pool };
 delete require.cache[routePath];
-const { deriveCompositeMomentum, deriveFocusScore, deriveObv, deriveSupportResistance, sendSupportResistance } = require(routePath);
+const { deriveCompositeMomentum, deriveFocusScore, deriveMfi, deriveObv, deriveSupportResistance, sendSupportResistance } = require(routePath);
 
 function responseRecorder() {
   return {
@@ -85,6 +85,19 @@ test('OBV tracks daily volume direction without fabricating missing input', () =
   assert.equal(result.trend, 'outflow');
 });
 
+test('MFI uses 14 daily typical-price changes and exposes bounded signals', () => {
+  assert.equal(deriveMfi(bars(14)).status, 'missing');
+  const input = Array.from({ length: 15 }, (_, index) => ({
+    date: `2026-02-${String(index + 1).padStart(2, '0')}`,
+    high: 101 + index, low: 99 + index, close: 100 + index, volume: 1000,
+  }));
+  const result = deriveMfi(input);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.period, 14);
+  assert.equal(result.value, 100);
+  assert.equal(result.signal, 'overbought');
+});
+
 test('composite momentum weights fresh 30m, daily and weekly real bars', () => {
   const daily = validDailyBars();
   const marketDate = daily.at(-1).date.toISOString().slice(0, 10);
@@ -116,6 +129,7 @@ test('route returns missing instead of fabricated levels for short history', asy
   assert.deepEqual(res.body.support, []);
   assert.deepEqual(res.body.resistance, []);
   assert.equal(res.body.obv.status, 'ready');
+  assert.equal(res.body.mfi.status, 'missing');
 });
 
 test('route serializes PostgreSQL Date values as ISO dates', async () => {
@@ -126,4 +140,5 @@ test('route serializes PostgreSQL Date values as ISO dates', async () => {
   await sendSupportResistance({ params: { symbol: 'TEST' } }, res);
   assert.match(res.body.latest_date, /^2026-\d{2}-\d{2}$/);
   assert.equal(res.body.obv.status, 'ready');
+  assert.equal(res.body.mfi.status, 'ready');
 });
