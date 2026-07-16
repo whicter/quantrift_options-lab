@@ -443,7 +443,7 @@ Host mac-studio
 
 ### 路由结构
 ```
-/              → 落地页（产品介绍，吸引注册）
+/              → Quantrift 产品入口（live regime + Scan/Analyze/Weekly workflow）
 /learn         → V1 教育工具（现有 options-lab 所有组件）
 /analyze       → V2 标的分析 + 策略推荐（4-tab：今日概览/日内变化/数据解读/信号追踪）
 /scan          → V2 扫描器（批量筛选）
@@ -1169,3 +1169,7 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 - 交割偏离：latest actual Max Pain versus latest close;
 - 仓位变化：daily aggregate ΔOI and unusual count, never described as dollar flow;
 - 下周分叉：expected-side Wall first, then real pivot S/R; absent evidence leaves a direction missing.
+
+### Product Home
+
+`Home.jsx` is the first product signal. It uses the scanner interface as the hero visual, reads the real Market Regime endpoint for context, and exposes direct actions for the three core workflows. It does not duplicate feature documentation or hide the actual app behind a signup screen. `/learn` stays available as a distinct education workspace.

@@ -71,7 +71,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 
 ## Next Task
 - Follow `docs/task.md` section `实施优先级（执行顺序）`.
-- Phase 3D-6 through Market/weekly signals are complete. Immediate next section: landing, notifications, and heartbeat.
+- Phase 3D-6 through Market/weekly signals and P2.1 product home are complete. Immediate next section: scanner alert subscriptions/delivery.
+- `/` owns the Quantrift product entry with live Market Regime and direct core workflows. Keep `/learn` as a separate education route.
 - Preserve `/api/market/regime` freshness gating and the mock-free `/api/weekly/:symbol` contract. Missing GEX/Max Pain/ΔOI remains locally missing.
 - A Weekly Call Wall is only an upward trigger above spot; a Put Wall is only a downward trigger below spot. Never relabel ΔOI as money flow.
 - `symbol_universe` owns the persistent scanner registry. `/api/analyze/:symbol` registers valid unknown symbols and queues only missing field products; never perform a synchronous full-universe provider scan.

@@ -1,9 +1,9 @@
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 
 export default function NavBar({ theme, onThemeChange }) {
   return (
     <nav className="navbar">
-      <div className="navbar-brand">Options Lab</div>
+      <Link className="navbar-brand" to="/">Quantrift</Link>
       <div className="navbar-links">
         <NavLink to="/learn" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           策略库

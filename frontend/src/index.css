@@ -86,6 +86,7 @@ body {
   font-size: 14px;
   color: var(--text);
   letter-spacing: 0.5px;
+  text-decoration: none;
 }
 .navbar-links { display: flex; gap: 4px; }
 .nav-link {
@@ -129,6 +130,52 @@ body {
 
 /* ── Layout with navbar offset ── */
 .app { padding-top: 44px; }
+
+/* ── Product home ── */
+.home-page { height: 100vh; overflow-y: auto; padding-top: 44px; background: var(--bg); }
+.home-hero { position: relative; min-height: calc(100vh - 96px); display: flex; align-items: center; overflow: hidden; border-bottom: 1px solid var(--border); }
+.home-hero-image { position: absolute; inset: 0; background: url('/quantrift-scanner.png') center 34% / cover no-repeat; opacity: 0.52; filter: saturate(0.75) contrast(1.05); }
+.home-hero-overlay { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(8,10,14,0.98) 0%, rgba(8,10,14,0.86) 43%, rgba(8,10,14,0.32) 78%), linear-gradient(0deg, rgba(8,10,14,0.96) 0%, transparent 42%); }
+.home-hero-content { position: relative; z-index: 1; width: min(1180px, 100%); margin: 0 auto; padding: 70px 42px 150px; }
+.home-kicker, .home-section-head > span { color: var(--cyan); font: 700 11px/1 monospace; text-transform: uppercase; letter-spacing: 0; }
+.home-hero h1 { margin-top: 18px; font-size: clamp(54px, 8vw, 104px); line-height: 0.92; letter-spacing: 0; color: #f8fafc; }
+.home-hero-content > p { max-width: 620px; margin-top: 24px; color: #bdc8d8; font-size: 18px; line-height: 1.7; }
+.home-actions { display: flex; gap: 10px; margin-top: 30px; }
+.home-primary, .home-secondary { padding: 11px 18px; border-radius: 6px; text-decoration: none; font-weight: 700; }
+.home-primary { color: white; background: var(--blue); }
+.home-secondary { color: #e6edf7; border: 1px solid rgba(255,255,255,0.28); background: rgba(10,14,20,0.62); }
+.home-live-strip { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 96px; padding: 0 max(24px, calc((100vw - 1180px) / 2)); background: rgba(8,11,16,0.9); border-top: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(12px); }
+.home-live-strip > div { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 16px 22px; border-right: 1px solid rgba(255,255,255,0.1); min-width: 0; }
+.home-live-strip span, .home-live-strip small { color: #8793a5; font-size: 10px; text-transform: uppercase; }
+.home-live-strip strong { color: #eef3fa; font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
+.home-workflows { max-width: 1180px; margin: 0 auto; padding: 72px 42px 90px; }
+.home-section-head h2 { margin-top: 10px; font-size: 30px; letter-spacing: 0; }
+.home-product-grid { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 30px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.home-product { min-height: 220px; padding: 26px; border-right: 1px solid var(--border); color: var(--text); text-decoration: none; background: var(--bg); transition: background 0.15s ease; }
+.home-product:last-child { border-right: 0; }
+.home-product:hover { background: var(--bg-hover); }
+.home-product-top { display: flex; justify-content: space-between; font: 700 11px/1 monospace; color: var(--text-muted); }
+.home-product-blue .home-product-top { color: var(--blue); }
+.home-product-green .home-product-top { color: var(--green); }
+.home-product-red .home-product-top { color: var(--red); }
+.home-product h3 { margin-top: 52px; font-size: 20px; }
+.home-product p { margin-top: 10px; color: var(--text-dim); line-height: 1.7; max-width: 290px; }
+@media (max-width: 760px) {
+  .navbar { padding: 0 10px; gap: 8px; }
+  .navbar-links { overflow-x: auto; }
+  .nav-link { padding: 4px 8px; white-space: nowrap; }
+  .theme-toggle { display: none; }
+  .home-hero { min-height: 760px; align-items: flex-start; }
+  .home-hero-content { padding: 100px 22px 280px; }
+  .home-hero h1 { font-size: 54px; }
+  .home-hero-content > p { font-size: 16px; }
+  .home-live-strip { grid-template-columns: 1fr 1fr; padding: 0; }
+  .home-live-strip > div { min-height: 86px; padding: 12px 16px; }
+  .home-workflows { padding: 54px 22px 70px; }
+  .home-product-grid { grid-template-columns: 1fr; }
+  .home-product { border-right: 0; border-bottom: 1px solid var(--border); min-height: 180px; }
+  .home-product h3 { margin-top: 34px; }
+}
 
 /* ── Analyze page ── */
 .az-page {

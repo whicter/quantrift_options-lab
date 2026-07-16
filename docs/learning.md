@@ -499,3 +499,10 @@ V1 公式：
 - **Wall 需要方向有效性**：Call Wall 在现价下方不能作为向上突破，Put Wall 在现价上方不能作为向下跌破。先检查相对 spot 的方向，再 fallback 到真实 S/R。
 - **历史快照少就显示少**：AAPL 当前只有一个可用 GEX market day。Gamma migration 显示一日，不复制成 Mon–Fri 假历史。
 - **滚动五交易日比硬编码 Mon–Fri 更稳健**：节假日、周中运行和缺失交易日不会导致填充不存在的 candle。
+
+## Product Entry Lessons (2026-07-15)
+
+- **数据产品入口应先展示工作流**：首屏直接进入 Scan/Analyze/Weekly，比罗列技术能力更能说明产品用途。
+- **真实产品画面比装饰图更可信**：hero 使用 scanner 结果截图，live strip 再读取当前 regime；视觉与运行数据来源分开，API 失败不影响导航。
+- **Home 不能抢占工具的信息密度**：入口可以有强品牌尺度，进入 scanner/dashboard 后仍保持紧凑操作界面。
+- **移动端首屏要保留下一段提示**：hero 与 live strip 使用稳定高度和 2-column mobile grid，workflow section 不被无限长首屏吞掉。

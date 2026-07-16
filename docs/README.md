@@ -41,6 +41,7 @@ Open http://localhost:5173
 
 | Route | Description |
 |---|---|
+| `/` | Quantrift 产品入口：live Market Regime + Scan/Analyze/Weekly workflow |
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
 | `/analyze` | V2 标的分析：真实价格趋势、S/R、Focus Score、GEX、VRP、IV skew 与期限结构 |
 | `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
@@ -118,6 +119,7 @@ Open http://localhost:5173
 - [x] V2: Phase 3E OI delta / unusual activity snapshot layer
 - [x] V2: Persistent scanner universe and unknown-symbol on-demand price/options/GEX refresh
 - [x] V2: Market Regime and fully real-data Weekly Recap
+- [x] V2: Quantrift responsive product home
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

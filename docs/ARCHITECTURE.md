@@ -1604,3 +1604,9 @@ price_history + gex_snapshots + gex_by_strike_snapshots
 ```
 
 No schema migration was required. `weeklyMock.js` was removed. Runtime evidence: regime `Mixed 51`; SPY/QQQ 30M bars were dated 2026-07-14 while daily bars were 2026-07-15, so both correctly returned stale/no breakout. AAPL returned five actual candles, one available GEX day, Max Pain 310 and one ΔOI day. Its Call Wall 320 was below spot 327.50 and was correctly excluded from the upward scenario.
+
+## 30. Product Entry
+
+`/` is the Quantrift product entry, not a redirect to the education tool. It reads `/api/market/regime` for a compact live context strip and links directly to the three repeated workflows: scanner discovery, symbol analysis and weekly review. The hero uses an actual product screenshot rather than an abstract illustration. The nav brand returns home; `/learn` remains the educational workspace.
+
+This section is frontend-only and adds no data contract or persistence. Market API failure degrades the live strip to loading labels without blocking navigation. Desktop and mobile use fixed responsive constraints; the hero leaves the workflow section visible below it on normal viewports.

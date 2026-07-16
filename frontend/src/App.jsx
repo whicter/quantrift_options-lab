@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import NavBar from './components/NavBar';
 import Learn from './pages/Learn';
 import Analyze from './pages/Analyze';
 import Scan from './pages/Scan';
 import Weekly from './pages/Weekly';
+import Home from './pages/Home';
 
 const THEME_KEY = 'options-lab-theme';
 
@@ -27,7 +28,7 @@ export default function App() {
       <NavBar theme={theme} onThemeChange={setTheme} />
       <div key={theme}>
         <Routes>
-          <Route path="/" element={<Navigate to="/learn" replace />} />
+          <Route path="/" element={<Home />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/analyze" element={<Analyze />} />
           <Route path="/scan" element={<Scan />} />

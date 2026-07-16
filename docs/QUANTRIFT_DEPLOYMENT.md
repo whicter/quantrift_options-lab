@@ -1391,3 +1391,9 @@ curl -f "$API_BASE/api/weekly/AAPL"
 Acceptance requires SPY/QQQ per-instrument momentum and GEX provenance, an explicit 30M `ready|stale|missing` state, and no confirmed breakout from stale bars. Weekly acceptance requires five actual candles and local missing states for unavailable GEX, Max Pain or ΔOI. A wrong-side Wall must never become a breakout trigger.
 
 No migration or collector restart is required for this section. Deploy/restart the Node API and frontend. Rollback is the P1.4 commit; existing snapshots remain unchanged.
+
+## Product Home Deployment
+
+The Vercel artifact must include `public/quantrift-scanner.png` and route `/` to `Home.jsx`. Smoke checks: `/` returns the Quantrift heading, brand navigation returns to `/`, and Scan/Analyze/Weekly links route client-side. No new environment variable is required; the live strip reuses `VITE_API_URL` and `/api/market/regime`.
+
+Verification: frontend tests 19/19, changed-file lint 0 errors and Vite production build passed. Browser plugin initialization still failed with `Cannot redefine property: process`, so automated screenshot verification was not claimed. Rollback is the P2.1 commit.

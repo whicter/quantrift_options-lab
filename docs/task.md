@@ -323,7 +323,7 @@
 
 **前端路由（Vite + React Router）**
 - ✅ 安装 react-router-dom，配置多页路由
-- [ ] `/` 落地页（产品介绍）
+- [x] `/` 产品入口：Quantrift hero 使用真实 scanner 视觉、live Market Regime、Scan/Analyze/Weekly workflow；品牌导航返回首页；desktop/mobile responsive
 - ✅ `/learn` → V1 教育工具（Learn.jsx）
 - ✅ `/analyze` → V2 标的分析页（真实数据：GEX / 价格趋势 / OI异动）
 - ✅ `/scan` → V2 扫描器页（真实数据：scanner_results_snapshots）
@@ -915,7 +915,9 @@
 | P1.2 | Analyze 数据产品 | ✅ 2026-07-15 完成：S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
 | P1.3 | Universe / on-demand | ✅ 2026-07-15 完成：persistent universe、filters、unknown symbol enqueue/wait/blocker UI、materialized invariant | market cap / sector / optionable reference values 尚未填充；TT metrics 当前需 manual login |
 | P1.4 | Market/weekly signals | ✅ 2026-07-15 完成：SPY/QQQ regime header、30M breakout freshness gate、Weekly GEX/Max Pain/ΔOI 实数接入 | 30M 最新运行数据为前一交易日，当前正确标记 stale，不生成 breakout |
-| P2 | 产品入口与通知 | landing page、email/web push、heartbeat | web push/email production secrets 只影响部署验证 |
+| P2.1 | 产品入口 | ✅ 2026-07-15 完成：真实产品视觉、live regime、三条核心 workflow、mobile layout | Browser plugin 初始化错误导致无自动 screenshot |
+| P2.2 | Scanner alerts | email/web push subscriptions、dedupe、delivery worker | web push/email production secrets 只影响真实发送验证 |
+| P2.3 | Heartbeat | Mac Studio 上报、Railway status/timeout alert | 外部通知 secret 只影响真实发送验证 |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
 | External | 硬件与采购 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 必须人工采购、登录或提供 API key |
 
