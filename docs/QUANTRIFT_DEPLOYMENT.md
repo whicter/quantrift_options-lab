@@ -1465,12 +1465,13 @@ Required variables:
 
 ```text
 DATABASE_URL=<Railway PostgreSQL reference variable>
+TT_LOGIN=<tastytrade login>
 TT_REMEMBER_TOKEN=<current token>
 TT_BASE_URL=https://api.tastyworks.com
 TT_USER_AGENT=quantrift-options-lab/0.1
 ```
 
-Do not copy `collector/.env` into the service. The repository migration ran successfully on 2026-07-16 and read-only verification confirmed `provider_auth_state` exists. A local `python auth.py --login` writes a seed only to the PostgreSQL instance named by that local process's `DATABASE_URL`; it is shared with Railway only when the service is bound to that exact same database. Otherwise Railway bootstraps its own empty row from its `TT_REMEMBER_TOKEN`, then, under a transaction advisory lock, writes back the provider-supplied successor before it exits. No Railway Volume and no successor-variable update are needed. If a stored database token gets explicit 401/403 and differs from the configured seed, the collector tries that seed exactly once and commits it only after success; it never retries password login or transient errors. Verify that the post-deploy execution's `iv_history` date/source rows and `provider_auth_state.updated_at` before marking the cloud collector live or retiring the old Mac cron.
+Do not copy `collector/.env` into the service. The repository migration ran successfully on 2026-07-16 and read-only verification confirmed `provider_auth_state` exists. Railway must include both `TT_LOGIN` and `TT_REMEMBER_TOKEN`; an absent login fails before the collector makes an HTTP request. A local `python auth.py --login` writes a seed only to the PostgreSQL instance named by that local process's `DATABASE_URL`; it is shared with Railway only when the service is bound to that exact same database. Otherwise Railway bootstraps its own empty row from its `TT_REMEMBER_TOKEN`, then, under a transaction advisory lock, writes back the provider-supplied successor before it exits. No Railway Volume and no successor-variable update are needed. If a stored database token gets explicit 401/403 and differs from the configured seed, the collector tries that seed exactly once and commits it only after success; it never retries password login or transient errors. The 2026-07-16 post-deploy run proved the configured account/token pair itself was rejected, so do not issue additional runs until the existing pair is corrected. Verify that a later successful execution's `iv_history` date/source rows and `provider_auth_state.updated_at` before marking the cloud collector live or retiring the old Mac cron.
 
 Repository verification: `cd collector && ./venv311/bin/python -m unittest discover -s tests -v` passed 111 tests; `docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed. A read-only Railway DB check at the failed-run point found 76 `iv_history` rows across 76 symbols, all dated 2026-07-14; the failed run made no new rows.
 

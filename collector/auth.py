@@ -79,7 +79,9 @@ def renew_session(remember_token):
     Returns the session token and any provider-supplied replacement
     remember token, or raises on failure.
     """
-    login = os.getenv('TT_LOGIN')
+    login = os.getenv('TT_LOGIN', '').strip()
+    if not login:
+        raise TokenStateError('TT_LOGIN is required for remember-token renewal.')
     resp = requests.post(
         f'{TT_BASE}/sessions',
         headers=_headers(),

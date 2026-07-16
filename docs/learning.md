@@ -382,7 +382,7 @@ V1 公式：
 - **Root cause**：旧 collector 只缓存 session-token，丢弃成功响应内的 successor remember-token；one-shot cron 的下一次启动因此拿到旧状态。
 - **Fix**：以 PostgreSQL `provider_auth_state` 为唯一 token state。collector 先取得 transaction advisory lock；201 后原子提交 provider 返回的 successor（无 successor 则提交当前 token）；401/403/网络失败 rollback，不进行密码 fallback 或任意 token rotation。
 - **Recovery correction**：Railway 已配置的 `TT_REMEMBER_TOKEN` 与数据库状态可能不同。只有数据库 token 收到明确的 401/403、且 configured seed 不同，collector 才在同一锁内用该 seed 额外交换一次；成功才覆盖旧 row。相同 token、网络错误和密码登录绝不重试。
-- **Deployment lesson**：Railway cron 容器是短生命周期，持久状态应在数据库而不是 `/data` Volume。但“共享”以同一 `DATABASE_URL` 为前提：本机手动登录写入的 seed 不会自动出现在另一个 Railway PostgreSQL binding。Railway 空状态必须由它自己的 `TT_REMEMBER_TOKEN` bootstrap；成功 exchange 后才写回 successor，无需反复更新 Railway Variables。
+- **Deployment lesson**：Railway cron 容器是短生命周期，持久状态应在数据库而不是 `/data` Volume。但“共享”以同一 `DATABASE_URL` 为前提：本机手动登录写入的 seed 不会自动出现在另一个 Railway PostgreSQL binding。Railway 空状态必须由它自己的 `TT_LOGIN` 与 `TT_REMEMBER_TOKEN` bootstrap；成功 exchange 后才写回 successor，无需反复更新 Railway Variables。缺 `TT_LOGIN` 属于本地配置错误，必须在 HTTP 请求前 fail closed。
 
 ### 7. cron/LaunchAgent runtime copy 造成“改了代码但运行的不是这份”
 
@@ -552,7 +552,7 @@ V1 公式：
 - **镜像不能 COPY secret/venv**：`.dockerignore` 排除 `.env` 和 60MB 本地 virtualenv，secret 只由 Railway variable 注入。
 - **build passed 不是 cloud run passed**：容器与配置可在代码侧验证；service binding、secret 和首个 completed deployment 必须有 Railway 项目权限。
 - **config 文件位置不改变 Docker build context**：`/collector/railway.metrics.json` 被 Railway 读取时，构建 context 仍是仓库根目录。把 Dockerfile 写成相对 `collector/` 的 `COPY requirements.txt` 会在云端找不到文件；必须显式使用 `collector/Dockerfile.metrics`、`COPY collector/requirements.txt` 和 `COPY collector/`。本地以 `docker build -f collector/Dockerfile.metrics ... .` 覆盖这一点。
-- **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的早期手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出。这将故障归因到 Railway 的旧 bootstrap/state，而不是 Railway 网络、Docker 或数据库，并避免把 failed run 误记为已写入。当前 token 已写入 Railway 且 post-deploy run 已触发；必须读取该次日志并确认 `iv_history` 与 `provider_auth_state.updated_at`，才可宣称 cloud run 成功。
+- **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的早期手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出。随后确认 Railway 漏配了 `TT_LOGIN`；补入并部署后，单次 run 对数据库旧 token 与 configured seed 均收到同一明确 401。故障不是 Railway 网络、Docker 或 PostgreSQL，且没有继续重试。不能把 failed run 误记为已写入；只有日志确认 authentication/写入并验证 `iv_history` 与 `provider_auth_state.updated_at` 后才可宣称 cloud run 成功。
 
 ## Mac Power Recovery Lessons (2026-07-16)
 

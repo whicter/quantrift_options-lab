@@ -216,6 +216,14 @@ class AuthTokenRotationTest(unittest.TestCase):
         headers = post.call_args.kwargs['headers']
         self.assertRegex(headers['User-Agent'], r'^[^/]+/[^/]+$')
 
+    def test_missing_login_fails_before_making_a_tastytrade_request(self):
+        with patch.dict(os.environ, {'TT_LOGIN': ''}, clear=False), \
+             patch('auth.requests.post') as post:
+            with self.assertRaisesRegex(auth.TokenStateError, 'TT_LOGIN is required'):
+                auth.renew_session('stable-remember')
+
+        post.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
