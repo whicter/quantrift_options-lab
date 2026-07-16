@@ -876,7 +876,7 @@ iv_history + gex_snapshots + option_contract_snapshots + price_history
 
 **OI Delta / Unusual（派生，无外部 API）**
 ```text
-option_contract_snapshots（当前 snapshot vs 前一 snapshot 比较）
+option_contract_snapshots（最新 snapshot vs 同一来源的前一纽约交易日 snapshot 比较）
   → materialize_oi_delta.py
   → option_oi_delta_snapshots
       symbol, snapshot_ts, strike, expiry, option_right,

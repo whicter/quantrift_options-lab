@@ -690,6 +690,7 @@
 - ✅ Scanner universe copy：replace visible watchlist ticker chips with a data-coverage summary; document watchlist as transitional Phase 3 data pool, not final product scope.
 - ✅ Scanner idle layout：before the first scan, the result hint stays beside the filter panel instead of reserving a full-width, 300px-tall empty result area.
 - ✅ Scanner result hierarchy：replace the 13-column horizontal table with seven decision cells (symbol/price, volatility, trend, positioning, concrete candidate, score, earnings). The mobile view becomes a two-column row with the candidate spanning its own line; normal use no longer requires horizontal scrolling.
+- ✅ ΔOI daily comparison：same-day option snapshots are not a meaningful OI baseline. The materializer compares the latest snapshot with the latest prior New York market date from the same source; without that baseline the UI says `待下一交易日`, never `0 / 0`.
 - ✅ Verification：
   - Migration completed against Railway PostgreSQL after adding trend columns.
   - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows with trend fields.

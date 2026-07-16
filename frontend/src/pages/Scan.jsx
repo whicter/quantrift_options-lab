@@ -156,6 +156,16 @@ function missingLabel(value) {
   return value === 'missing' ? '未采集' : value;
 }
 
+function oiDeltaSummary(unusual) {
+  if (unusual.status === 'confirmed') {
+    const maxDelta = unusual.maxDelta == null ? '--' : Math.round(unusual.maxDelta).toLocaleString('en-US');
+    return `ΔOI 最大 ${maxDelta} · 异动 ${unusual.count}`;
+  }
+  if (unusual.status === 'baseline') return 'ΔOI 待下一交易日';
+  if (unusual.status === 'stale') return 'ΔOI 基线过期';
+  return 'ΔOI 未采集';
+}
+
 function sortValue(row, key) {
   if (key === 'symbol') return row.symbol;
   if (key === 'price') return Number(row.price ?? -Infinity);
@@ -893,7 +903,7 @@ export default function Scan() {
                         {d.gex.status === 'fresh' ? d.gex.regime : missingLabel(d.gex.status)}
                       </span>
                       <small>{compactMoney(d.gex.total)} · {d.gex.nearestWall ? `${d.gex.nearestWall.side} ${d.gex.nearestWall.pct.toFixed(1)}%` : 'Wall --'}</small>
-                      <small>{d.unusual.status === 'confirmed' ? `ΔOI ${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}` : `ΔOI ${missingLabel(d.unusual.status)}`} · 社区 {communityHeatLabel(d.community)}</small>
+                      <small>{oiDeltaSummary(d.unusual)} · 社区 {communityHeatLabel(d.community)}</small>
                     </span>
                     <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>

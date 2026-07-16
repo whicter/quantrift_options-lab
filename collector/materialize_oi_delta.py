@@ -63,11 +63,25 @@ def fetch_latest_and_previous_snapshots(conn, symbol: str) -> tuple[dict[str, An
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, symbol, snapshot_ts, source
-            FROM option_chain_snapshots
-            WHERE symbol = %s
-              AND contract_count > 0
-            ORDER BY snapshot_ts DESC
+            WITH latest AS (
+              SELECT id, symbol, snapshot_ts, source
+              FROM option_chain_snapshots
+              WHERE symbol = %s
+                AND contract_count > 0
+              ORDER BY snapshot_ts DESC
+              LIMIT 1
+            )
+            SELECT s.id, s.symbol, s.snapshot_ts, s.source
+            FROM option_chain_snapshots s
+            JOIN latest l ON l.symbol = s.symbol
+            WHERE s.contract_count > 0
+              AND s.source = l.source
+              AND (
+                s.id = l.id
+                OR (s.snapshot_ts AT TIME ZONE 'America/New_York')::date
+                   < (l.snapshot_ts AT TIME ZONE 'America/New_York')::date
+              )
+            ORDER BY s.snapshot_ts DESC
             LIMIT 2
             """,
             (symbol,),

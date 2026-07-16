@@ -1138,6 +1138,8 @@ Before a user runs the first scan, `/scan` keeps its instruction state compact b
 
 The returned candidate grid groups its data into seven decision cells: symbol/price, volatility (IV Rank and IV30/HV30), trend, positioning (GEX/Wall/Delta OI), concrete candidate, opportunity score and earnings. This replaces the previous 13-column horizontal table. Desktop results stay within a 1600px reading width; on mobile, the candidate cell spans its own line. Users must not need horizontal scrolling to read the result.
 
+`ΔOI` is a daily position comparison, not an intraday quote change. The materializer selects the latest usable option snapshot and compares it with the newest prior New York market-date snapshot from the same provider. Repeated same-day snapshots cannot become the baseline. When no previous trading-day baseline exists, Scanner shows `ΔOI 待下一交易日`; it must not display `0 / 0`.
+
 当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
 
 - `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。

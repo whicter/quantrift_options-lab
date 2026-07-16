@@ -106,7 +106,7 @@ Materialize OI delta / unusual activity from consecutive persisted option snapsh
 venv311/bin/python materialize_oi_delta.py
 ```
 
-The OI delta job reads PostgreSQL only. It writes `option_oi_delta_snapshots`. A contract's first observed snapshot is treated as `baseline`; it is not marked unusual until a previous snapshot exists for comparison.
+The OI delta job reads PostgreSQL only. It writes `option_oi_delta_snapshots`. It compares the latest snapshot with the newest prior New York market-date snapshot from the same provider, not with another intraday copy of the same OI data. A contract's first observed market day is treated as `baseline`; it is not marked unusual until a previous trading-day snapshot exists for comparison.
 
 Materialize scanner cache rows from existing snapshots:
 
