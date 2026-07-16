@@ -5,6 +5,7 @@ import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups 
 import ScannerAlerts from '../components/ScannerAlerts';
 import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
 import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
+import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -311,6 +312,7 @@ export default function Scan() {
   const [error, setError] = useState('');
   const [dataStatus, setDataStatus] = useState(null);
   const [marketRegime, setMarketRegime] = useState(null);
+  const [opportunityPreset, setOpportunityPreset] = useState('');
 
   useEffect(() => {
     getDataStatus().then(setDataStatus).catch(() => {});
@@ -341,33 +343,22 @@ export default function Scan() {
   }
 
   function applyOpportunityPreset(kind) {
-    if (kind === 'income') {
-      setMinIvr(50);
-      setMaxIvr(100);
-      setGammaRegime('all');
-      setWall('all');
-      setNearWallPct('');
-      setUnusualOnly(false);
-      setSort('ivr');
-    }
-    if (kind === 'wall') {
-      setMinIvr(30);
-      setMaxIvr(100);
-      setWall('either');
-      setNearWallPct('3');
-      setUnusualOnly(false);
-      setSort('combined');
-    }
-    if (kind === 'activity') {
-      setMinIvr(0);
-      setMaxIvr(100);
-      setUnusualOnly(true);
-      setMinUnusualOi('1');
-      setSort('combined');
-    }
+    const preset = OPPORTUNITY_PRESETS[kind];
+    if (!preset) return;
+    const values = preset.values;
+    setOpportunityPreset(kind);
+    setMinIvr(values.minIvr);
+    setMaxIvr(values.maxIvr);
+    setGammaRegime(values.gammaRegime);
+    setWall(values.wall);
+    setNearWallPct(values.nearWallPct);
+    setUnusualOnly(values.unusualOnly);
+    setSort(values.sort);
+    if ('minUnusualOi' in values) setMinUnusualOi(values.minUnusualOi);
+    handleScan(values);
   }
 
-  async function handleScan() {
+  async function handleScan(overrides = {}) {
     setLoading(true);
     setError('');
 
@@ -406,6 +397,7 @@ export default function Scan() {
         unusualOnly,
         sort,
         limit: 100,
+        ...overrides,
       });
       const selectionOverrides = {
         dteMin,
@@ -494,9 +486,17 @@ export default function Scan() {
             <div className="scan-filter-label">机会类型</div>
             <div className="scan-filter-help">不知道参数怎么填时，从这里开始。</div>
             <div className="scan-opportunity-grid">
-              <button className="scan-preset" onClick={() => applyOpportunityPreset('income')}>高 IV 收租</button>
-              <button className="scan-preset" onClick={() => applyOpportunityPreset('wall')}>靠近压力/支撑</button>
-              <button className="scan-preset" onClick={() => applyOpportunityPreset('activity')}>期权持仓异动</button>
+              {Object.entries(OPPORTUNITY_PRESETS).map(([key, preset]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`scan-preset${opportunityPreset === key ? ' active' : ''}`}
+                  aria-pressed={opportunityPreset === key}
+                  onClick={() => applyOpportunityPreset(key)}
+                >
+                  {preset.label}
+                </button>
+              ))}
             </div>
           </div>
 
