@@ -142,7 +142,7 @@ body {
 .home-hero-content > p { max-width: 620px; margin-top: 24px; color: #bdc8d8; font-size: 18px; line-height: 1.7; }
 .home-actions { display: flex; gap: 10px; margin-top: 30px; }
 .home-primary, .home-secondary { padding: 11px 18px; border-radius: 6px; text-decoration: none; font-weight: 700; }
-.home-primary { color: white; background: var(--blue); }
+.home-primary { color: white; background: var(--blue); box-shadow: 0 0 0 1px rgba(147,197,253,0.42), 0 8px 20px rgba(37,99,235,0.3); }
 .home-secondary { color: #e6edf7; border: 1px solid rgba(255,255,255,0.28); background: rgba(10,14,20,0.62); }
 .home-live-strip { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 96px; padding: 0 max(24px, calc((100vw - 1180px) / 2)); background: rgba(8,11,16,0.9); border-top: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(12px); }
 .home-live-strip > div { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 16px 22px; border-right: 1px solid rgba(255,255,255,0.1); min-width: 0; }

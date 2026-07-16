@@ -339,6 +339,7 @@
 **前端路由（Vite + React Router）**
 - ✅ 安装 react-router-dom，配置多页路由
 - ✅ `/` 产品入口：Quantrift hero 使用真实 scanner 视觉、live Market Regime、Scan/Analyze/Weekly workflow；品牌导航返回首页；desktop/mobile responsive
+  - 2026-07-16：首页 Hero 的主入口改为高亮“分析标的”，次级入口为“打开扫描器”；workflow 卡片同样以 Analyze 为首项。
 - ✅ `/learn` → V1 教育工具（Learn.jsx）
 - ✅ `/analyze` → V2 标的分析页（真实数据：GEX / 价格趋势 / OI异动）
 - ✅ `/scan` → V2 扫描器页（真实数据：scanner_results_snapshots）

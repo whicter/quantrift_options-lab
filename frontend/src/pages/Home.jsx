@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { getMarketRegime } from '../lib/api';
 
 const PRODUCTS = [
-  { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，并落到真实到期日和策略腿。', to: '/scan', accent: 'blue' },
   { title: '标的分析', label: 'Analyze', text: '把价格结构、GEX、Wall、波动率与期权链放进同一份分析。', to: '/analyze', accent: 'green' },
+  { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，并落到真实到期日和策略腿。', to: '/scan', accent: 'blue' },
   { title: '周度复盘', label: 'Weekly', text: '复盘五个交易日的价格、Gamma 迁徙、Max Pain 与 ΔOI。', to: '/weekly', accent: 'red' },
 ];
 
@@ -21,8 +21,8 @@ export default function Home() {
           <h1>Quantrift</h1>
           <p>从全市场扫描到具体期权结构，把价格趋势与期权仓位变成可核验的研究路径。</p>
           <div className="home-actions">
-            <Link className="home-primary" to="/scan">打开扫描器</Link>
-            <Link className="home-secondary" to="/analyze">分析标的</Link>
+            <Link className="home-primary" to="/analyze">分析标的</Link>
+            <Link className="home-secondary" to="/scan">打开扫描器</Link>
           </div>
         </div>
         <div className="home-live-strip">
