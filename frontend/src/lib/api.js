@@ -118,4 +118,12 @@ export function getAnalyzeStatus(symbol) {
   return getJson(`/api/analyze/${encodeURIComponent(symbol.toUpperCase())}`);
 }
 
+export function getMarketRegime() {
+  return getJson('/api/market/regime');
+}
+
+export function getWeekly(symbol) {
+  return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
+}
+
 export { API_BASE };

@@ -1589,3 +1589,18 @@ The request path is bounded to one symbol. It never scans providers or recalcula
 Scanner rows carry underlying volume/dollar volume and registry metadata. Price, volume and earnings filters are usable now. Market cap, sector/category and optionable columns and API/UI filters are complete but remain null until a reference-data ingestion source populates them; null values fail closed when those filters are selected.
 
 Runtime evidence on 2026-07-15: the registry seeded 77 symbols and COST on-demand expanded it to 78. COST obtained Polygon daily/30M history, a 54-contract option snapshot and fresh GEX/walls. Its unavailable TT metrics field is reported as blocked with queue depth zero, while price/options/GEX remain available.
+
+## 29. Market Regime and Weekly Products
+
+`GET /api/market/regime` is a read-only aggregation over SPY and QQQ. Daily momentum is 65% of the score; regular-session 30-minute momentum is 35%. A 30M breakout requires the latest close outside the prior 20 regular-session bars and volume ratio at least 1.2. If the latest intraday New York market date differs from the latest daily date, breakout status is `stale` and confirmation is forced false. GEX regime and high IV apply explicit risk penalties.
+
+`GET /api/weekly/:symbol` reads up to 250 real daily bars, the latest GEX snapshot per New York market date, its persisted by-strike rows, and daily aggregate `option_oi_delta_snapshots`. It returns a rolling five-session recap. Max Pain is never inferred without GEX. ΔOI is labeled positioning change, not dollar flow. Scenarios only use a Call Wall above spot and Put Wall below spot; wrong-side walls fall back to real price S/R or leave that direction missing.
+
+```text
+price_history + price_history_30m + SPY/QQQ GEX/IV -> /api/market/regime -> Scan header
+
+price_history + gex_snapshots + gex_by_strike_snapshots
+              + option_oi_delta_snapshots -> /api/weekly/:symbol -> five recap sections
+```
+
+No schema migration was required. `weeklyMock.js` was removed. Runtime evidence: regime `Mixed 51`; SPY/QQQ 30M bars were dated 2026-07-14 while daily bars were 2026-07-15, so both correctly returned stale/no breakout. AAPL returned five actual candles, one available GEX day, Max Pain 310 and one ΔOI day. Its Call Wall 320 was below spot 327.50 and was correctly excluded from the upward scenario.

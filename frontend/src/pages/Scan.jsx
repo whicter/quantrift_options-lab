@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDataStatus, getScan } from '../lib/api';
+import { getDataStatus, getMarketRegime, getScan } from '../lib/api';
 import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
@@ -314,9 +314,11 @@ export default function Scan() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dataStatus, setDataStatus] = useState(null);
+  const [marketRegime, setMarketRegime] = useState(null);
 
   useEffect(() => {
     getDataStatus().then(setDataStatus).catch(() => {});
+    getMarketRegime().then(setMarketRegime).catch(() => {});
   }, []);
 
   function toggleStrategy(s) {
@@ -464,6 +466,28 @@ export default function Scan() {
         <div className="scan-title">扫描器</div>
         <div className="scan-subtitle">扫描真实报价，输出具体到期日、策略腿和收益风险</div>
       </div>
+
+      {marketRegime?.regime?.status === 'ready' && (
+        <div className="scan-market-regime">
+          <div>
+            <span className="scan-market-label">Market Regime</span>
+            <strong>{marketRegime.regime.label}</strong>
+            <span>综合 {marketRegime.regime.score}</span>
+          </div>
+          {marketRegime.instruments.map(item => (
+            <div key={item.symbol} className="scan-market-symbol">
+              <strong>{item.symbol}</strong>
+              <span>{item.momentum.status === 'ready' ? `动量 ${item.momentum.score}` : '动量不足'}</span>
+              <span>{item.gex ? `${item.gex.gamma_regime} Gamma` : 'GEX --'}</span>
+              <span className={item.momentum.breakout_30m?.confirmed ? 'active' : ''}>
+                {item.momentum.breakout_30m?.confirmed
+                  ? `30M ${item.momentum.breakout_30m.direction === 'up' ? 'Breakout' : 'Breakdown'}`
+                  : '30M 无确认突破'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="scan-body">
         {/* 过滤面板 */}

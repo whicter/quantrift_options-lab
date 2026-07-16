@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { getCompanyInfo } from '../../data/companyInfo';
 import { getChartColors } from '../../lib/theme';
 
@@ -75,8 +75,6 @@ function CMEGauge({ score }) {
     ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
     const cx = W / 2, cy = H - 18, r = 70;
-    const startA = Math.PI, endA = 0;
-
     // Background arc zones
     const zones = [
       { from: 0, to: 30, color: 'rgba(239,68,68,0.5)' },
@@ -178,10 +176,10 @@ export default function Sec1Tone({ data }) {
           <CandleChart candles={candles} />
         </div>
         <div className="az-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>CME 情绪仪表盘</div>
+          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>综合市场状态</div>
           <CMEGauge score={cmeScore} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            {cmeScore < 30 ? '极度恐慌' : cmeScore < 50 ? '偏空情绪' : cmeScore < 70 ? '中性偏多' : '情绪偏热'}
+            {cmeScore < 30 ? '弱势' : cmeScore < 50 ? '偏弱' : cmeScore < 70 ? '中性偏强' : '强势'}
           </div>
         </div>
       </div>

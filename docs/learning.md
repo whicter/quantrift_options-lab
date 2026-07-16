@@ -490,3 +490,12 @@ V1 公式：
 - **动态 universe 不等于请求时全市场扫描**：用户请求只允许注册和补一个 symbol；全量排序仍由后台 materializer 写 `scanner_results_snapshots`。
 - **schema/filter 完成不代表字段已覆盖**：market cap、sector、optionable 当前 population 为零。状态 API 必须公开 populated counts，用户启用这些过滤时 null fail closed，不能用默认值伪造。
 - **运行验收要验证闭环而非只看 enqueue**：COST 从未知 symbol 变成 78th registry row，随后获得日线/30M、54 actual contracts 和 fresh GEX；第二次请求 queue depth 为零，证明 persistence 和 dedup/blocker 均生效。
+
+## Market and Weekly Lessons (2026-07-15)
+
+- **30M 必须先限定 regular session**：包含盘前/盘后 bars 会让 range、成交量基准和最后一根 bar 全部失真。SQL 先按 New York 09:30–16:00 过滤。
+- **突破信号必须校验跨 timeframe 日期**：daily 已到 7/15、30M 仍停在 7/14 时，即便价格和量能满足公式也只能返回 stale，不能确认 breakout。
+- **OI 变化不是资金流**：`SUM(oi_delta)` 的单位是合约，不是美元，也不能判断 opening buy/sell。Weekly 将“Smart Money”改为“仓位变化”。
+- **Wall 需要方向有效性**：Call Wall 在现价下方不能作为向上突破，Put Wall 在现价上方不能作为向下跌破。先检查相对 spot 的方向，再 fallback 到真实 S/R。
+- **历史快照少就显示少**：AAPL 当前只有一个可用 GEX market day。Gamma migration 显示一日，不复制成 Mon–Fri 假历史。
+- **滚动五交易日比硬编码 Mon–Fri 更稳健**：节假日、周中运行和缺失交易日不会导致填充不存在的 candle。

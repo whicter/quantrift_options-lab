@@ -71,7 +71,9 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 
 ## Next Task
 - Follow `docs/task.md` section `实施优先级（执行顺序）`.
-- Phase 3D-6, collector alerts, Polygon price/derived volatility, scanner expansion, Analyze data product, and Universe/on-demand are complete. Immediate next section: Market/weekly signals.
+- Phase 3D-6 through Market/weekly signals are complete. Immediate next section: landing, notifications, and heartbeat.
+- Preserve `/api/market/regime` freshness gating and the mock-free `/api/weekly/:symbol` contract. Missing GEX/Max Pain/ΔOI remains locally missing.
+- A Weekly Call Wall is only an upward trigger above spot; a Put Wall is only a downward trigger below spot. Never relabel ΔOI as money flow.
 - `symbol_universe` owns the persistent scanner registry. `/api/analyze/:symbol` registers valid unknown symbols and queues only missing field products; never perform a synchronous full-universe provider scan.
 - Preserve partial data and expose recent non-retryable failures as blockers instead of creating enqueue loops.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; preserve ISO dates and fail closed when real inputs are absent. Never synthesize price paths or option legs.

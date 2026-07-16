@@ -1,160 +1,54 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { getChartColors } from '../../lib/theme';
+import { useState } from 'react';
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-
-function GEXDayChart({ gexByStrike, putWall, callWall, price }) {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const draw = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const dpr = window.devicePixelRatio || 1;
-      const W = canvas.parentElement.getBoundingClientRect().width;
-      const H = 200;
-      canvas.width = W * dpr; canvas.height = H * dpr;
-      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-      const theme = getChartColors();
-      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
-
-      const PAD = { top: 24, right: 14, bottom: 34, left: 14 };
-      const cW = W - PAD.left - PAD.right;
-      const cH = H - PAD.top - PAD.bottom;
-      const strikes = gexByStrike.map(d => d.strike);
-      const minS = Math.min(...strikes), maxS = Math.max(...strikes);
-      const maxGex = Math.max(...gexByStrike.map(d => Math.abs(d.gex)));
-      const n = gexByStrike.length;
-      const gap = cW / n;
-      const barW = gap * 0.65;
-      const zero = PAD.top + cH / 2;
-      const sx = s => PAD.left + ((s - minS) / (maxS - minS)) * cW;
-      const sh = g => (Math.abs(g) / maxGex) * (cH / 2 - 4);
-
-      ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
-      ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
-
-      gexByStrike.forEach(({ strike, gex }) => {
-        const x = sx(strike);
-        const h = sh(gex);
-        const pos = gex >= 0;
-        if (pos) {
-          const g = ctx.createLinearGradient(0, zero - h, 0, zero);
-          g.addColorStop(0, 'rgba(34,197,94,0.9)'); g.addColorStop(1, 'rgba(16,100,50,0.5)');
-          ctx.fillStyle = g;
-          ctx.fillRect(x - barW / 2, zero - h, barW, h);
-        } else {
-          const g = ctx.createLinearGradient(0, zero, 0, zero + h);
-          g.addColorStop(0, 'rgba(100,30,30,0.5)'); g.addColorStop(1, 'rgba(239,68,68,0.9)');
-          ctx.fillStyle = g;
-          ctx.fillRect(x - barW / 2, zero, barW, h);
-        }
-        ctx.fillStyle = theme.axis; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(String(strike), x, H - PAD.bottom + 13);
-      });
-
-      // Put Wall
-      const pX = sx(putWall);
-      ctx.save(); ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = 'rgba(239,68,68,0.8)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(pX, PAD.top); ctx.lineTo(pX, H - PAD.bottom); ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = 'rgba(239,68,68,0.85)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`PUT $${putWall}`, pX, PAD.top - 6);
-
-      // Call Wall
-      const cX = sx(callWall);
-      ctx.save(); ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = 'rgba(34,197,94,0.8)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(cX, PAD.top); ctx.lineTo(cX, H - PAD.bottom); ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = 'rgba(34,197,94,0.85)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`CALL $${callWall}`, cX, PAD.top - 6);
-    };
-
-    draw();
-    const obs = new ResizeObserver(draw);
-    const el = canvasRef.current?.parentElement;
-    if (el) obs.observe(el);
-    return () => obs.disconnect();
-  }, [gexByStrike, putWall, callWall]);
-
-  return <canvas ref={canvasRef} style={{ display: 'block' }} />;
+function money(value) {
+  if (value == null) return '--';
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `${value < 0 ? '-' : ''}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${value < 0 ? '-' : ''}$${(abs / 1e6).toFixed(1)}M`;
+  return value.toLocaleString();
 }
 
 export default function Sec2Gamma({ data }) {
-  const { gammaByDay, gammaMigration, weekClose } = data;
-  const [selectedDay, setSelectedDay] = useState('Fri');
-  const snap = gammaByDay[selectedDay];
-
-  // Build migration table
-  const migration = DAYS.map(d => ({
-    day: d,
-    callWall: gammaByDay[d].callWall,
-    putWall: gammaByDay[d].putWall,
-  }));
-
+  const history = data.gamma.history;
+  const [selectedIndex, setSelectedIndex] = useState(Math.max(0, history.length - 1));
+  if (!history.length) return <div className="az-card"><div className="az-card-title">Gamma 历史不足</div><p>尚无真实 GEX 快照。</p></div>;
+  const snap = history[Math.min(selectedIndex, history.length - 1)];
   return (
     <div className="wk-section">
-      <div className="wk-section-subtitle">主力阵地延时摄影</div>
-
-      {/* Timeline slider */}
+      <div className="wk-section-subtitle">Gamma 结构迁徙</div>
       <div className="wk-timeline">
         <div className="wk-timeline-track">
-          {DAYS.map((d, i) => (
-            <div
-              key={d}
-              className={`wk-timeline-node ${selectedDay === d ? 'active' : ''}`}
-              style={{ left: `${(i / (DAYS.length - 1)) * 100}%` }}
-              onClick={() => setSelectedDay(d)}
+          {history.map((item, index) => (
+            <button
+              key={item.snapshot_ts}
+              type="button"
+              className={`wk-timeline-node ${index === selectedIndex ? 'active' : ''}`}
+              style={{ left: history.length === 1 ? '50%' : `${(index / (history.length - 1)) * 100}%`, border: 0, background: 'transparent' }}
+              onClick={() => setSelectedIndex(index)}
+              title={item.date}
             >
-              <div className="wk-timeline-dot" />
-              <div className="wk-timeline-label">{d}</div>
-            </div>
+              <span className="wk-timeline-dot" />
+              <span className="wk-timeline-label">{item.day} · {item.date}</span>
+            </button>
           ))}
-          <div
-            className="wk-timeline-progress"
-            style={{ width: `${(DAYS.indexOf(selectedDay) / (DAYS.length - 1)) * 100}%` }}
-          />
         </div>
       </div>
-
-      {/* GEX chart */}
       <div className="az-card">
-        <div className="az-trend-header">
-          <div className="az-card-title">Gamma Field — {selectedDay}</div>
-          <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-            <span style={{ color: 'var(--red)' }}>PUT ${snap.putWall}</span>
-            <span style={{ color: 'var(--green)' }}>CALL ${snap.callWall}</span>
-          </div>
+        <div className="az-card-title">{snap.date} · {snap.gamma_regime || 'unknown'} Gamma</div>
+        <div className="wk-money-summary">
+          <div className="wk-money-stat"><span>Global GEX</span><strong>{money(snap.global_gex)}</strong></div>
+          <div className="wk-money-stat"><span>Call Wall</span><strong>{snap.call_wall == null ? '--' : `$${snap.call_wall}`}</strong></div>
+          <div className="wk-money-stat"><span>Put Wall</span><strong>{snap.put_wall == null ? '--' : `$${snap.put_wall}`}</strong></div>
+          <div className="wk-money-stat"><span>Gamma Flip</span><strong>{snap.gamma_flip == null ? '--' : `$${snap.gamma_flip}`}</strong></div>
         </div>
-        <GEXDayChart
-          gexByStrike={snap.gexByStrike}
-          putWall={snap.putWall}
-          callWall={snap.callWall}
-          price={weekClose}
-        />
-      </div>
-
-      {/* Migration table */}
-      <div className="az-card">
-        <div className="az-card-title">Gamma Wall 迁移追踪</div>
         <div className="wk-migration-table">
-          <div className="wk-mig-header">
-            <span>日期</span><span style={{ color: 'var(--green)' }}>Call Wall</span><span style={{ color: 'var(--red)' }}>Put Wall</span>
-          </div>
-          {migration.map(({ day, callWall, putWall }) => (
-            <div key={day} className={`wk-mig-row ${day === selectedDay ? 'selected' : ''}`}>
-              <span className="wk-mig-day">{day}</span>
-              <span className="c-green">${callWall}</span>
-              <span className="c-red">${putWall}</span>
-            </div>
+          <div className="wk-mig-header"><span>Strike</span><span>Net GEX</span><span>Call / Put OI</span></div>
+          {snap.strikes.map(row => (
+            <div className="wk-mig-row" key={row.strike}><span>${row.strike}</span><span>{money(row.net_gex)}</span><span>{row.call_oi ?? '--'} / {row.put_oi ?? '--'}</span></div>
           ))}
         </div>
       </div>
-
-      <div className="wk-note">{gammaMigration}</div>
+      <div className="wk-note">仅展示数据库中实际存在的每日最新 GEX 快照；没有历史快照的日期不会补值。</div>
     </div>
   );
 }

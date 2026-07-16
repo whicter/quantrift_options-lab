@@ -61,7 +61,9 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 
 ## Next Task
 - Execution order is defined in `docs/task.md` under `实施优先级（执行顺序）`.
-- Phase 3D-6, collector alerts, Polygon price/derived volatility, scanner expansion, Analyze data product, and Universe/on-demand are complete. Immediate next section: Market/weekly signals.
+- Phase 3D-6 through Market/weekly signals are complete. Immediate next section: landing, notifications, and heartbeat.
+- `/api/market/regime` owns SPY/QQQ multi-timeframe regime; stale 30M data must never confirm breakout. `/api/weekly/:symbol` must remain mock-free and may return partial sections.
+- Weekly scenarios require Call Wall above spot and Put Wall below spot. ΔOI is contracts, never dollar flow or confirmed institutional direction.
 - `symbol_universe` is the persistent scanner registry. Unknown Analyze symbols use `/api/analyze/:symbol`; do not reintroduce a watchlist-only product boundary or synchronous full-universe provider work.
 - Recent non-retryable field failures must be returned as blockers and must not be re-enqueued on every page request.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; missing real price/contract inputs must stay missing. Never generate example price paths or synthetic recommendation legs.

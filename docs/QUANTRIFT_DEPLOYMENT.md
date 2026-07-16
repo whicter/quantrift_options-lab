@@ -1380,3 +1380,14 @@ venv311/bin/python materialize_scan.py
 Smoke test an uncached symbol with `GET /api/analyze/{symbol}`. The first response may be `queued`; later responses must become `ready`, `partial`, or `blocked` by field. Repeating a request after a recent non-retryable metrics failure must leave `queue_depth=0`, not create another job. `/api/status/data` exposes total/active/scannable universe counts and metadata population counts.
 
 Rollback is the P1.3 commit plus API/collector restart. The additive `symbol_universe` table and scanner columns may remain in PostgreSQL; older code ignores them. No destructive down migration is required.
+
+## Market and Weekly Smoke Checks
+
+```bash
+curl -f "$API_BASE/api/market/regime"
+curl -f "$API_BASE/api/weekly/AAPL"
+```
+
+Acceptance requires SPY/QQQ per-instrument momentum and GEX provenance, an explicit 30M `ready|stale|missing` state, and no confirmed breakout from stale bars. Weekly acceptance requires five actual candles and local missing states for unavailable GEX, Max Pain or ΔOI. A wrong-side Wall must never become a breakout trigger.
+
+No migration or collector restart is required for this section. Deploy/restart the Node API and frontend. Rollback is the P1.4 commit; existing snapshots remain unchanged.

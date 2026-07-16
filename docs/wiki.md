@@ -20,7 +20,6 @@ frontend/src/
 │   ├── strategies.js         # 86 strategy definitions, 7 categories
 │   ├── greeksKnowledge.js    # Greeks 知识库
 │   ├── mockAnalysis.js       # V2 mock data（9 symbols，含 GEX/scenarios/pcrVol 扩展）
-│   ├── weeklyMock.js         # 周复盘 mock data（AAPL/SPY/QQQ，含 5日 gammaByDay）
 │   └── companyInfo.js        # 公司信息 lookup（12 symbols：中文名/英文名/logo/tagline）
 ├── lib/
 │   └── blackscholes.js       # BS pricing engine + Greeks
@@ -49,7 +48,7 @@ frontend/src/
 │       ├── Sec1Tone.jsx      # 本周定调：公司logo+中文名/K线Canvas/CME Gauge Canvas
 │       ├── Sec2Gamma.jsx     # Gamma迁徙：时间轴滑块(Mon-Fri)/GEX日图Canvas/迁移表
 │       ├── Sec3Pinning.jsx   # 交割偏离：MaxPain vs FridayClose 条形图
-│       ├── Sec4Money.jsx     # 资金暗线：Smart Money 水平柱Canvas
+│       ├── Sec4Money.jsx     # 仓位变化：真实 ΔOI 日汇总
 │       └── Sec5Playbook.jsx  # 下周分叉：多头/空头剧本卡片
 └── App.jsx                   # BrowserRouter + Routes（含 /weekly + /weekly/:symbol）
 ```
@@ -193,7 +192,7 @@ Each chart:
 - 3 lines: current DTE, half DTE, quarter DTE (expiry)
 - DTE slider at top controls "current DTE" baseline
 
-## Data API (V2 — not yet implemented)
+## Data API (V2 — implemented)
 
 ### 数据源策略
 
@@ -449,7 +448,7 @@ Host mac-studio
 /analyze       → V2 标的分析 + 策略推荐（4-tab：今日概览/日内变化/数据解读/信号追踪）
 /scan          → V2 扫描器（批量筛选）
 /weekly        → 周复盘入口（无标的时显示快捷链接）
-/weekly/:symbol → 周复盘详情（5-section：本周定调/Gamma迁徙/交割偏离/资金暗线/下周分叉）
+/weekly/:symbol → 周复盘详情（5-section：本周定调/Gamma迁徙/交割偏离/仓位变化/下周分叉）
 /api/status/data → 数据覆盖状态：watchlist 覆盖率、missing/stale symbols、source counts、latest_date
 /portfolio     → V3 持仓追踪
 ```
@@ -459,7 +458,7 @@ Host mac-studio
 - 完整 5-section mock 仍只有 AAPL / SPY / QQQ。
 - `/weekly/:symbol` 现在会查真实 `/api/metrics` 和 `/api/prices/:symbol`。
 - 若存在 `price_history`，Sec1 会用真实 5日 OHLCV 覆盖 weekClose / prevClose / weekHigh / weekLow / 日K线。
-- 若 symbol 有真实 IV 数据但没有完整 weekly mock，则生成“真实 IV weekly 骨架”；若同时有真实价格历史，则 Sec1 使用真实价格。
+- Weekly 不再读取 mock。真实 price/GEX/Max Pain/ΔOI 按 section 独立返回；缺失 section 显示 unavailable。
 - 完整数据化仍需要后续接入 `gex_snapshots`、OI/flow 数据；GEX/flow/Max Pain 不应用 mock 伪装成真实。
 
 ### 框架决策
@@ -1159,3 +1158,14 @@ Universe filter semantics:
 - earnings include/exclude uses persisted `earnings_date`;
 - market cap, sector/category and optionable use nullable registry metadata and fail closed when a selected filter lacks the field;
 - contract liquidity remains a candidate-level filter over actual option contracts.
+
+### Market Regime and Weekly Recap
+
+The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily score, 30M score, breakout evidence, GEX regime and IV Rank. `30M Breakout` is not a label inferred from daily trend: it requires a close beyond the previous 20 regular-session 30M range plus `volume/current-average >= 1.2`, and the intraday date must match the latest daily market date.
+
+Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
+- 本周定调：last five actual daily bars and a transparent composite score;
+- Gamma 迁徙：one actual latest GEX/by-strike snapshot per New York market date;
+- 交割偏离：latest actual Max Pain versus latest close;
+- 仓位变化：daily aggregate ΔOI and unusual count, never described as dollar flow;
+- 下周分叉：expected-side Wall first, then real pivot S/R; absent evidence leaves a direction missing.
