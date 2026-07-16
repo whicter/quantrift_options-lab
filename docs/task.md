@@ -308,6 +308,7 @@
   - Tastytrade 认证：collector/auth.py；正常使用 remember-token 续期，device challenge/过期时写入明确错误并发提醒
   - 采集字段：iv_rank, iv30, hv30/60/90, iv_hv_diff, earnings_date, term_structure
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
+  - 2026-07-16 验收：authenticated Mac Studio 手动运行写入 67/67 watchlist rows、0 errors；生产 `/api/metrics?symbols=AAPL,PLTR,TSLA` 返回当天 `fresh` hybrid metrics，`iv_rank_source=tastytrade`。本机 crontab 已核实为每个工作日 13:30 PT。
 - ✅ 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
 - ✅ IB 连接管理：IB option fallback 默认 `IB_OPTION_CLIENT_ID=42`，price fallback 默认 `IB_PRICE_CLIENT_ID=12`，不再复用含糊的 clientId=2；均可由环境变量覆盖并与 futures bots 隔离
@@ -322,7 +323,7 @@
   - [x] Migration runtime：2026-07-16 `source collector/.env && node server/src/migrate.js` 成功；只读 `to_regclass('public.provider_auth_state')` 返回表存在、`row_count=0`，未读取 token 值。
   - [x] Verification：collector `unittest discover -s tests -v` 111/111 passed；server `npm test` 65/65 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed after PostgreSQL token-state change
   - [x] Railway 独立 service：`quantrift-metrics-cron` 已创建，config path 为 `/collector/railway.metrics.json`，DB/TT variables 已注入，Git deployment active（2026-07-16）
-  - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols。Railway 变量最初将 token 连同引号保存，随后已更正为原始值；更正后数据库 token 仍被 TT 401。修复后 cron 对已存在 database row 只发一条认证请求，并在日志输出不可逆 fingerprint 与 `railway-metrics-cron` consumer。完成条件：将已验证的现有 TT remember-token seed 写入共享 PostgreSQL row 后，单次 Railway execution log 显示成功 authentication/写入，并验证新增或更新 `iv_history` rows 与 `provider_auth_state.updated_at`。
+  - [ ] Railway TT metrics run（阻塞于 provider device challenge）：2026-07-16 本机以现有用户名/密码成功登录并将 fresh remember-token 写入共享 PostgreSQL；紧接着 Railway cron 使用同一 fingerprint 认证，TT 返回 `403 device_challenge_required`。确认 Railway 网络、数据库和 token state 均可达，但 TT 将 US West runner 识别为新设备。镜像现默认 `TT_METRICS_ENABLED=false`，保证后续 Railway schedule 不会读取凭据或调用 TT。当前可用路径是 Mac Studio 的 authenticated collector 写同一 Railway PostgreSQL；只有在 Railway 上完成明确的 TT device challenge 后，才将变量改为 true 并恢复此 cloud-cron task。
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS）并完成断电恢复演练
   - [x] macOS 自动恢复已验证：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`；市电恢复后系统会自动重启。
   - [x] PM2 开机恢复已验证：LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`；`~/.pm2/dump.pm2` 包含 `quantrift-options-collector`、`quantrift-options-prices`、`quantrift-reddit-trends`、`quantrift-universe-metadata`、`quantrift-unusual-whales-flow`。

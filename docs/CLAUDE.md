@@ -74,7 +74,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Phase 3D-6 through P2.3 heartbeat are complete. Remaining P3 commercialization requires an approved auth/billing design and credentials; audit non-external tasks before stopping.
 - Heartbeat expected nodes must include machines that have never reported. Missing URL/token disables only heartbeat, not the collector loop; missing webhook delivery is `blocked`, not `sent`.
 - A ready derived IV Rank must stop Tastytrade work in scheduled, queued, and on-demand paths. Never manufacture or duplicate market dates to satisfy the 252-observation gate.
-- The Railway metrics cron is one-shot `collect.py`, not the Mac daemon. Preserve `/collector/railway.metrics.json`, UTC schedule, `NEVER` restart and secret-free image.
+- The Railway metrics cron image is retained but defaults `TT_METRICS_ENABLED=false`: TT recognizes Railway as an untrusted device. Mac Studio's weekday 13:30 PT cron is the active metrics writer to shared PostgreSQL. Re-enable Railway only after an explicit TT device challenge.
 - IB Gateway cloud candidates must use fixed egress, paper/read-only first, pinned image and loopback/private API. Never expose ports 4001/4002 publicly or combine data migration with live write access.
 - Clerk owns authentication only; local users/subscriptions own entitlements. Railway P3 schema is applied; keep auth enforcement disabled until frontend/backend keys and billing runtime tests pass.
 - Portfolio routes must bind user ownership in SQL and value only actual matching persisted contracts. Any missing leg quote makes position and aggregate pricing incomplete; never substitute entry price.

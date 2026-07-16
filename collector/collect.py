@@ -40,6 +40,7 @@ DB_URL   = os.getenv('DATABASE_URL')
 
 # Tastytrade batch limit
 TT_BATCH = 50
+TT_METRICS_ENABLED = os.getenv('TT_METRICS_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 
 
 def filter_symbols_requiring_tastytrade(conn, symbols: list[str]) -> list[str]:
@@ -173,6 +174,9 @@ def upsert_rows(conn, rows: list[dict]):
 
 def run():
     log.info('=== IV Collector starting ===')
+    if not TT_METRICS_ENABLED:
+        log.info('Tastytrade metrics collection disabled for this runtime')
+        return
     today = date.today()
     watchlist = load_watchlist()
     log.info(f'Loaded {len(watchlist)} symbols from {WATCHLIST_PATH.name}')

@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    COLLECTOR_AUTH_CONSUMER=railway-metrics-cron
+    COLLECTOR_RUNTIME=railway-metrics-cron \
+    TT_METRICS_ENABLED=false
 
 WORKDIR /app
 

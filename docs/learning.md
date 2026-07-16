@@ -381,7 +381,7 @@ V1 公式：
 - **Confirmed from runtime output**：一次 TT `POST /sessions` 返回 201 后，紧接着使用旧 remember-token 的 collector 请求返回 401。响应模型包含 session-token 与 remember-token 字段。
 - **Root cause**：旧 collector 只缓存 session-token，丢弃成功响应内的 successor remember-token；one-shot cron 的下一次启动因此拿到旧状态。
 - **Fix**：以 PostgreSQL `provider_auth_state` 为唯一 token state。collector 先取得 transaction advisory lock；201 后原子提交 provider 返回的 successor（无 successor 则提交当前 token）；401/403/网络失败 rollback，不进行密码 fallback 或任意 token rotation。
-- **Recovery correction**：`TT_REMEMBER_TOKEN` 只允许 bootstrap 一个不存在的数据库 row。数据库 token 明确 401/403 后立即停止，不能再用环境 seed 发第二条请求；这样一个 cron run 不会意外消费两份 token state。Railway 变量若被粘贴为带成对引号的文本，代码会在 bootstrap request 前剥离引号。日志记录不可逆 fingerprint 与 `COLLECTOR_AUTH_CONSUMER`，用于定位消费路径而不泄露凭据。
+- **Recovery correction**：`TT_REMEMBER_TOKEN` 只允许 bootstrap 一个不存在的数据库 row。数据库 token 明确 401/403 后立即停止，不能再用环境 seed 发第二条请求；这样一个 cron run 不会意外消费两份 token state。Railway 变量若被粘贴为带成对引号的文本，代码会在 bootstrap request 前剥离引号。日志记录不可逆 fingerprint 与 `COLLECTOR_RUNTIME`，用于定位消费路径而不泄露凭据。
 - **Deployment lesson**：Railway cron 容器是短生命周期，持久状态应在数据库而不是 `/data` Volume。但“共享”以同一 `DATABASE_URL` 为前提：本机手动登录写入的 seed 不会自动出现在另一个 Railway PostgreSQL binding。Railway 空状态必须由它自己的 `TT_LOGIN` 与 `TT_REMEMBER_TOKEN` bootstrap；成功 exchange 后才写回 successor，无需反复更新 Railway Variables。缺 `TT_LOGIN` 属于本地配置错误，必须在 HTTP 请求前 fail closed。
 
 ### 7. cron/LaunchAgent runtime copy 造成“改了代码但运行的不是这份”
@@ -553,6 +553,8 @@ V1 公式：
 - **build passed 不是 cloud run passed**：容器与配置可在代码侧验证；service binding、secret 和首个 completed deployment 必须有 Railway 项目权限。
 - **config 文件位置不改变 Docker build context**：`/collector/railway.metrics.json` 被 Railway 读取时，构建 context 仍是仓库根目录。把 Dockerfile 写成相对 `collector/` 的 `COPY requirements.txt` 会在云端找不到文件；必须显式使用 `collector/Dockerfile.metrics`、`COPY collector/requirements.txt` 和 `COPY collector/`。本地以 `docker build -f collector/Dockerfile.metrics ... .` 覆盖这一点。
 - **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出。Railway token 曾被配置为包含字面引号；去除后，数据库当前 state 仍被 TT 401。故障不是 Railway 网络、Docker 或 PostgreSQL。修复后，已存在 state row 只会产生一条认证请求；以 fingerprint/consumer 日志定位后续实际消费者。不能把 failed run 误记为已写入；只有日志确认 authentication/写入并验证 `iv_history` 与 `provider_auth_state.updated_at` 后才可宣称 cloud run 成功。
+- **cloud host can be an untrusted TT device**：本机用既有账号登录成功并把 fresh token 写入 shared PostgreSQL 后，Railway 使用相同 fingerprint 的一次 exchange 返回 `403 device_challenge_required`。这证明当前失败不是 token/数据库/网络，而是 TT 的设备信任边界。结论：TT metrics 继续由受信任的 Mac Studio 执行并写 Railway PostgreSQL；不要以无界重跑 cron 试图跨过 device challenge。
+- **runtime gate prevents a known-bad scheduled call**：Railway image defaults `TT_METRICS_ENABLED=false`; `collect.py` exits before watchlist loading, database work, credential reads or TT traffic. The local default remains true. This keeps the deploy artifact reproducible without allowing a scheduled cloud invocation to repeatedly trigger the same device challenge.
 
 ## Mac Power Recovery Lessons (2026-07-16)
 

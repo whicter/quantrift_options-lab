@@ -17,7 +17,7 @@ module.exports = {
         SCAN_MATERIALIZE_SECONDS: '300',
         PUBLIC_APP_URL: 'https://www.quantrift.io',
         HEARTBEAT_SECONDS: '60',
-        COLLECTOR_AUTH_CONSUMER: 'mac-refresh-daemon',
+        COLLECTOR_RUNTIME: 'mac-refresh-daemon',
         OPTION_AUTO_REFRESH: 'true',
         OPTION_REFRESH_PROVIDER: 'polygon_licensed',
         OPTION_REFRESH_BATCH_SIZE: '2',

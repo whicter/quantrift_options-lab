@@ -125,7 +125,7 @@ Open http://localhost:5173
 - [x] V2: Scanner email/web-push subscription and delivery pipeline
 - [x] V2: Mac Studio collector heartbeat, cloud freshness status and offline incident lifecycle
 - [x] V2: Per-symbol automatic Tastytrade IV Rank cutoff after derived 252-session readiness
-- [x] V2: Railway-ready one-shot Tastytrade metrics cron image/config (service binding and secrets pending)
+- [x] V2: Tastytrade metrics runtime: Mac Studio weekday cron writes Railway PostgreSQL; Railway one-shot image is retained but defaults disabled after provider device challenge
 - [x] V2: IB Gateway cloud migration evaluation and secure fixed-egress VPS template
 - [x] V3 scaffold: Clerk auth boundary, account API/UI, Free/Pro entitlement model and Railway schema (runtime keys pending)
 - [x] V3 Portfolio: authenticated multi-leg tracking, snapshot P/L and aggregate Greeks with missing-quote gates

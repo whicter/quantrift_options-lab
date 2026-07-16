@@ -39,7 +39,7 @@ state. A successful renewal atomically writes any provider-supplied successor.
 falls back to a second configured seed, password login, or transient/network
 retry. Matching wrapping quotes in a Railway variable are stripped before a
 bootstrap request. Logs include a non-reversible token fingerprint and
-`COLLECTOR_AUTH_CONSUMER`, never the raw token.
+`COLLECTOR_RUNTIME`, never the raw token.
 
 ## Test Collection
 
@@ -239,6 +239,8 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Tastytrade metrics cutover is automatic per symbol: `collect.py` filters `iv_rank_ready=true` symbols before authentication, and queued metrics jobs return `already_ready`. Current runtime is 0/67 ready; do not force the 252-market-day threshold.
 - Cloud metrics cron artifacts are `Dockerfile.metrics` and `railway.metrics.json`. Railway service `quantrift-metrics-cron` uses `/collector/railway.metrics.json`; inject DB/TT variables in the service and never copy `.env`. The weekday 22:30 UTC job runs `collect.py` once and exits. The build context is repository root, so the Dockerfile must copy `collector/requirements.txt` and `collector/`, not paths relative to the config file.
 - 2026-07-16 authentication incident correction: `provider_auth_state` in PostgreSQL is the durable source of truth **for collectors bound to the same `DATABASE_URL`**. Every collector takes a transaction-scoped advisory lock, exchanges the stored token once, then commits the provider-supplied successor (or unchanged token when no successor is supplied). Railway needs both `TT_LOGIN` and `TT_REMEMBER_TOKEN`; the latter bootstraps only an absent row. A 401/403 performs no recovery-seed retry. The metrics image identifies itself as `railway-metrics-cron`; logs expose only a token fingerprint and consumer, so a later failure can be traced without revealing secrets.
+- Runtime boundary: a 2026-07-16 Railway run with a freshly seeded token returned `403 device_challenge_required`; TT treats the cloud runner as an untrusted device. Run TT metrics from the authenticated Mac Studio and persist to the same PostgreSQL database. Railway can continue hosting the API and database, but must not be the unattended TT login host unless its device challenge is explicitly completed.
+- Guard: the Railway metrics image sets `TT_METRICS_ENABLED=false`, so its scheduled container exits before reading credentials or calling TT. Local collection defaults to enabled. The active Mac Studio crontab runs `collect.py` at `13:30 PT` on weekdays (`16:30 ET`).
 - IB Gateway cloud evaluation artifacts live in `ops/ib-gateway/`. The candidate is fixed-egress VPS only, with paper/read-only defaults, secret-file password and loopback API ports; a 72-hour soak and manual 2FA precede any collector move.
 - Product identity is separate from collectors: Clerk sessions map to PostgreSQL `users`/`subscriptions`; collectors never receive Clerk or Stripe credentials.
 - Portfolio valuation reads collector-persisted option snapshots through the API. Collectors do not own positions and must not fabricate missing marks for portfolio consumers.

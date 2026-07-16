@@ -61,7 +61,7 @@ def _token_fingerprint(token):
 
 
 def _auth_consumer():
-    return os.getenv('COLLECTOR_AUTH_CONSUMER', 'collector').strip() or 'collector'
+    return os.getenv('COLLECTOR_RUNTIME', 'collector').strip() or 'collector'
 
 
 def send_alert_email(subject, body):
