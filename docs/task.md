@@ -689,6 +689,7 @@
 - ✅ Scanner filter UX copy：default flow uses opportunity presets; advanced filters keep English market terms with Chinese explanations for OI, Volume, Local Gamma, OI Delta, Unusual Count and Put/Call Ratio.
 - ✅ Scanner universe copy：replace visible watchlist ticker chips with a data-coverage summary; document watchlist as transitional Phase 3 data pool, not final product scope.
 - ✅ Scanner idle layout：before the first scan, the result hint stays beside the filter panel instead of reserving a full-width, 300px-tall empty result area.
+- ✅ Scanner wide-screen table：the candidate table has a stable 1380px column grid and scrolls within its result pane; ultra-wide displays cannot stretch the strategy column across the remaining viewport.
 - ✅ Verification：
   - Migration completed against Railway PostgreSQL after adding trend columns.
   - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows with trend fields.

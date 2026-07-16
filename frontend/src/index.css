@@ -1043,7 +1043,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Results */
-.scan-results { flex: 1; min-width: 0; }
+.scan-results { flex: 1; min-width: 0; overflow-x: auto; }
 .scan-body-idle .scan-results { flex: 0 1 420px; }
 .scan-empty {
   height: 300px;
@@ -1069,10 +1069,16 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-empty-idle span { color: var(--text-dim); }
 .scan-results-header { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
 
-.scan-table { display: flex; flex-direction: column; gap: 4px; }
+.scan-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  min-width: 1380px;
+}
 .scan-table-head {
   display: grid;
-  grid-template-columns: 58px 64px 116px 96px 84px 68px 92px 64px 62px 92px minmax(260px, 1fr) 44px 54px;
+  grid-template-columns: 58px 64px 116px 96px 84px 68px 92px 64px 62px 92px 320px 44px 54px;
   gap: 8px;
   padding: 6px 12px;
   font-size: 11px;
@@ -1107,7 +1113,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-table-row {
   display: grid;
-  grid-template-columns: 58px 64px 116px 96px 84px 68px 92px 64px 62px 92px minmax(260px, 1fr) 44px 54px;
+  grid-template-columns: 58px 64px 116px 96px 84px 68px 92px 64px 62px 92px 320px 44px 54px;
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -1129,9 +1135,9 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   .scan-body { flex-direction: column; }
   .scan-body-idle { max-width: none; }
   .scan-filters { position: static; width: 100%; }
-  .scan-results { width: 100%; overflow-x: auto; }
+  .scan-results { width: 100%; }
   .scan-body-idle .scan-results { flex-basis: auto; }
-  .scan-table { min-width: 1260px; }
+  .scan-table { min-width: 1380px; }
 }
 .scan-symbol { font-weight: 700; font-size: 14px; font-family: monospace; }
 .scan-strategy {
