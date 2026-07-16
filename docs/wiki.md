@@ -1223,3 +1223,9 @@ The repository-wide frontend baseline is ESLint clean, 21 unit tests passing and
 Open interest (OI) is the number of open contracts, while GEX estimates gamma exposure. They are related positioning views but are not interchangeable. Tab4 uses actual `option_contract_snapshots.open_interest`, aggregates all nonexpired expiries at each strike, and stacks Put OI and Call OI in different colors.
 
 The API chooses IV and OI snapshots independently and exposes OI-specific freshness/source. This matters when one provider snapshot has Greeks/IV but no OI, or another has OI but no IV. Missing OI produces an unavailable chart rather than a GEX fallback.
+
+### Community Heat
+
+Community heat is a separate context signal, not an options recommendation input. It counts unique Reddit posts mentioning a known universe symbol during the configured window and applies a logarithmically bounded engagement weight from upvotes/comments. It does not change IV Rank, GEX, candidate construction, POP or opportunity score.
+
+Only symbols in `symbol_universe` are retained. Ambiguous English tokens require `$TICKER`, reducing false positives such as ordinary uses of “AI” or “IT”. Scanner displays the latest batch as missing/stale/fresh and remains fully usable when Reddit collection is disabled.

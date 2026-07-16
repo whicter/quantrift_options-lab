@@ -1530,3 +1530,20 @@ Before deployment, run `cd frontend && npm run lint && npm test && npm run build
 Deploy the Node API and frontend; no migration or collector restart is required. Verify `/api/chain/stats/PLTR` returns `oi_density.status=ready`, OI-specific source/freshness, nonempty points and `aggregation=all_nonexpired_expiries`. Then verify Analyze Tab4 labels the chart `OI by Strike`, shows Put/Call legend and never displays GEX values as OI.
 
 2026-07-15 pre-deploy evidence: server 58/58, frontend 21/21, full ESLint and Vite build passed. Local API against Railway data returned fresh Polygon PLTR OI with 7 expiries, 84 contracts, 11 strikes and total OI 307,713. Rollback is the OI-density commit; endpoint additions are backward compatible.
+
+## Reddit Trends Rollout
+
+Reddit requires OAuth for Data API access. Obtain the approved app credentials, then set only in Mac Studio secret environment:
+
+```text
+REDDIT_CLIENT_ID=
+REDDIT_CLIENT_SECRET=
+REDDIT_USER_AGENT=macos:quantrift:1.0 (by /u/<account>)
+REDDIT_TRENDS_ENABLED=true
+REDDIT_SUBREDDITS=wallstreetbets,stocks,options,investing
+REDDIT_WINDOW_HOURS=24
+```
+
+Apply `node server/src/migrate.js`, then `pm2 restart quantrift-reddit-trends --update-env && pm2 save`. Acceptance requires one `community_trend_snapshots` row, symbol rows limited to `symbol_universe`, and `/api/scan` returning a fresh community field/visible sortable heat column. Disable rollback with `REDDIT_TRENDS_ENABLED=false`; existing snapshots may remain.
+
+2026-07-15 evidence: additive migration completed and both tables were read-only confirmed; empty-table Scanner smoke returned the original candidate plus `community_freshness=missing`; PM2 job is saved and logs `Reddit trends disabled`. Collector 90, server 58 and frontend 23 tests, full lint and build pass. Real Reddit response is not claimed without credentials/access. Official access references: https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki and https://support.reddithelp.com/hc/en-us/articles/14945211791892-Developer-Platform-Accessing-Reddit-Data.

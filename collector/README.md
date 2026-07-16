@@ -234,3 +234,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - The P3 account/portfolio/billing schema is applied in shared Railway PostgreSQL; this does not change collector scheduling or grant collectors access to product identities.
 - Frontend lint cleanup has no collector runtime impact; collector verification remains the Python test suite plus PM2/runtime evidence.
 - Analyze OI density consumes persisted `open_interest` across nonexpired expiries. Collectors must preserve null OI as missing and must not derive it from GEX or quote volume.
+- `collect_reddit_trends.py` is a credential-gated 30-minute PM2 one-shot. It stores universe-bounded mention/engagement snapshots; with `REDDIT_TRENDS_ENABLED=false` it exits successfully without network access. Community heat never enters option candidate scoring.

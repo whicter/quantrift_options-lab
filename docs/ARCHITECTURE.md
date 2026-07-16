@@ -1748,3 +1748,19 @@ The build still reports a non-failing bundle-size warning for the main JavaScrip
 OI rows are aggregated across all nonexpired expiries by strike into `call_oi`, `put_oi`, and `total_oi`. The response carries OI-specific source, timestamp, freshness, expiry count and contract count. Analyze Tab4 renders stacked Put/Call density bars and fails closed with an unavailable state when no real OI exists; GEX is never substituted for OI.
 
 The request path reads persisted snapshots only and performs no provider call. PLTR runtime smoke against Railway returned 7 expiries, 84 contracts, 11 strike points and total OI 307,713 from `polygon_licensed`.
+
+## 41. Reddit Community Trends
+
+The community product is an independent, optional data plane:
+
+```text
+Reddit OAuth listing -> collector normalization -> community_trend_snapshots
+                                             -> community_symbol_trends
+                                             -> Scanner read-only join -> 社区热度
+```
+
+The provider obtains one application token, caches it for its bounded lifetime, paginates at most the configured page count, refreshes once on 401 and honors bounded `Retry-After` on 429. Every request sends a configured descriptive User-Agent. Missing credentials never start a network call: the PM2 cron exits successfully with `disabled`.
+
+Ticker extraction intersects `symbol_universe`; ambiguous ordinary words such as `AI`, `IT`, and `ON` require an explicit cashtag. A post contributes at most one mention per symbol. The 24-hour score combines post count with logarithmically bounded upvotes/comments, stores at most three sample titles and does not affect the options opportunity score.
+
+Scanner joins the latest community batch at request time and exposes `missing`, `stale`, or `fresh` provenance. A completed batch with no mention for a symbol returns fresh zero heat; only an absent batch is missing. This keeps scanner materialization independent from Reddit availability. The wide result grid scrolls horizontally below 900px while filters stack above it. Railway schema and a missing-data runtime smoke are complete; real collection requires Reddit OAuth credentials/access.

@@ -373,6 +373,34 @@ async function migrate() {
       created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS community_trend_snapshots (
+      id              BIGSERIAL   PRIMARY KEY,
+      snapshot_ts     TIMESTAMPTZ NOT NULL,
+      source          TEXT        NOT NULL,
+      window_hours    INTEGER     NOT NULL CHECK (window_hours > 0),
+      post_count      INTEGER     NOT NULL DEFAULT 0 CHECK (post_count >= 0),
+      raw_metadata    JSONB       NOT NULL DEFAULT '{}',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (snapshot_ts, source)
+    );
+
+    CREATE INDEX IF NOT EXISTS community_trend_snapshots_ts
+      ON community_trend_snapshots (snapshot_ts DESC);
+
+    CREATE TABLE IF NOT EXISTS community_symbol_trends (
+      snapshot_id     BIGINT      NOT NULL REFERENCES community_trend_snapshots(id) ON DELETE CASCADE,
+      symbol          TEXT        NOT NULL,
+      mention_count   INTEGER     NOT NULL DEFAULT 0 CHECK (mention_count >= 0),
+      weighted_score  NUMERIC(14,4) NOT NULL DEFAULT 0,
+      total_upvotes   BIGINT      NOT NULL DEFAULT 0,
+      total_comments  BIGINT      NOT NULL DEFAULT 0,
+      sample_titles   JSONB       NOT NULL DEFAULT '[]',
+      PRIMARY KEY (snapshot_id, symbol)
+    );
+
+    CREATE INDEX IF NOT EXISTS community_symbol_trends_symbol_snapshot
+      ON community_symbol_trends (symbol, snapshot_id DESC);
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

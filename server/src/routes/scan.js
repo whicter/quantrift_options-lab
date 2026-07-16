@@ -14,6 +14,7 @@ const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
 const SCANNER_CACHE_SECONDS = parseInt(process.env.SCANNER_CACHE_SECONDS ?? 60, 10);
 const SCANNER_QUOTE_STALE_MINUTES = parseInt(process.env.SCANNER_QUOTE_STALE_MINUTES ?? 1440, 10);
+const COMMUNITY_STALE_MINUTES = parseInt(process.env.COMMUNITY_STALE_MINUTES ?? 90, 10);
 const DEFAULT_SCAN_KEY = process.env.SCAN_KEY || 'watchlist_v1';
 
 function optionalFloat(value) {
@@ -171,6 +172,20 @@ async function sendScan(req, res) {
          )
          ORDER BY s.symbol, s.snapshot_ts DESC
        ),
+       latest_community_batch AS (
+         SELECT id, snapshot_ts, source, window_hours
+         FROM community_trend_snapshots
+         ORDER BY snapshot_ts DESC
+         LIMIT 1
+       ),
+       latest_community AS (
+         SELECT
+           t.symbol, t.mention_count, t.weighted_score, t.total_upvotes, t.total_comments,
+           b.snapshot_ts AS community_snapshot_ts, b.source AS community_source,
+           b.window_hours AS community_window_hours
+         FROM community_symbol_trends t
+         JOIN latest_community_batch b ON b.id = t.snapshot_id
+       ),
        contract_quality AS (
          SELECT
            c.symbol,
@@ -230,6 +245,18 @@ async function sendScan(req, res) {
          trend_score, trend_label, trend_signal, trend_change_5d,
          trend_rsi14, trend_ma20, trend_ma50, trend_ma200,
          unusual_oi_count, max_oi_delta, max_volume_oi_ratio, unusual_status,
+         community_batch.snapshot_ts AS community_snapshot_ts,
+         community_batch.source AS community_source,
+         community_batch.window_hours AS community_window_hours,
+         COALESCE(mention_count, 0) AS community_mention_count,
+         COALESCE(weighted_score, 0) AS community_score,
+         COALESCE(total_upvotes, 0) AS community_upvotes,
+         COALESCE(total_comments, 0) AS community_comments,
+         CASE
+           WHEN community_batch.snapshot_ts IS NULL THEN 'missing'
+           WHEN EXTRACT(EPOCH FROM (NOW() - community_batch.snapshot_ts)) / 60.0 > $38 THEN 'stale'
+           ELSE 'fresh'
+         END AS community_freshness,
          cq.contract_count, cq.greeks_contract_count, cq.quoted_contract_count,
          cq.min_dte, cq.max_dte, cq.min_abs_delta, cq.max_abs_delta, cq.avg_spread_pct,
          lqc.quote_source, lqc.quote_snapshot_ts,
@@ -255,6 +282,8 @@ async function sendScan(req, res) {
        LEFT JOIN contract_quality cq ON cq.symbol = latest_rows.symbol
        LEFT JOIN contract_samples cs ON cs.symbol = latest_rows.symbol
        LEFT JOIN latest_quote_chain lqc ON lqc.symbol = latest_rows.symbol
+       LEFT JOIN latest_community_batch community_batch ON TRUE
+       LEFT JOIN latest_community community ON community.symbol = latest_rows.symbol
        WHERE iv_rank >= $2
          AND iv_rank <= $3
          AND COALESCE(iv_hv_diff, -999) >= $4
@@ -357,6 +386,7 @@ async function sendScan(req, res) {
         sector,
         earningsMode,
         earningsDays,
+        COMMUNITY_STALE_MINUTES,
       ]
     );
 

@@ -65,12 +65,17 @@ test('scanner selects the latest usable quote snapshot separately from positioni
   assert.equal(res.body[0].quote_source, 'ib_internal');
   assert.equal(res.body[0].quote_freshness, 'stale');
   assert.match(queries[0].sql, /latest_quote_chain AS/);
+  assert.match(queries[0].sql, /latest_community_batch AS/);
+  assert.match(queries[0].sql, /community_mention_count/);
+  assert.match(queries[0].sql, /COALESCE\(mention_count, 0\)/);
+  assert.match(queries[0].sql, /latest_community_batch community_batch ON TRUE/);
   assert.match(queries[0].sql, /quoted\.bid IS NOT NULL/);
   assert.match(queries[0].sql, /America\/New_York/);
   assert.match(queries[0].sql, /underlying_dollar_volume/);
   assert.match(queries[0].sql, /market_cap >= \$28/);
   assert.doesNotMatch(queries[0].sql, /expiry::date - CURRENT_DATE/);
   assert.equal(queries[0].params[26], 1440);
+  assert.equal(queries[0].params[37], 90);
   assert.equal(refreshCalls.length, 0);
 });
 

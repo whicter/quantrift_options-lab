@@ -930,6 +930,7 @@
 | P2.2 | Scanner alerts | ✅ 2026-07-15 完成：subscriptions、rules、token unsubscribe、dedupe delivery、PM2 evaluator、Email/Web Push adapters | SMTP/VAPID secrets 尚未配置，真实收件验收需人工提供 |
 | P2.3 | Heartbeat | ✅ 2026-07-15 完成：Mac Studio daemon 上报、Railway status API、missing/offline incident、cooldown 与 resolved lifecycle | Railway/Mac 共享 token 和 webhook secret 尚需人工配置；当前 daemon disabled-safe |
 | P2.4 | Frontend verification debt | ✅ 2026-07-15 完成：全量 ESLint 0 errors/0 warnings、frontend 21/21、production build | 无 |
+| P2.5 | Reddit community trends | ✅ 2026-07-15 代码/表/API/UI/PM2 完成；缺凭据时 disabled-safe | Reddit OAuth app credentials 与访问 approval |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
 | External | 硬件与采购 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 必须人工采购、登录或提供 API key |
 
@@ -1013,7 +1014,15 @@ P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additiv
 6. [x] Vol Risk Premium（IV-HV diff）作为独立指标在 Analyze 页显示；Scanner 推理链条留在 P1.3 candidate ranking 文案中继续细化
 
 **P3 — 需要新数据源**
-7. [ ] Reddit Trends（需要 Reddit OAuth app credentials；trending tickers → Scan 页"社区热度"列）
+7. [ ] Reddit Trends 真实采集验收
+   - [x] OAuth client-credentials provider、descriptive User-Agent、bounded pagination、401 单次刷新、429 `Retry-After`
+   - [x] 只匹配 persistent universe；ambiguous ticker 需 `$`；按帖子去重并生成 24h mention/engagement score
+   - [x] `community_trend_snapshots` / `community_symbol_trends` Railway migration
+   - [x] Scanner API 独立 join 最新社区 snapshot；社区数据不进入期权机会分
+   - [x] Scan 页可排序“社区热度”列；missing/stale/fresh 明确显示
+   - [x] PM2 30 分钟 job 已注册并保存，默认 `REDDIT_TRENDS_ENABLED=false`，日志验证 disabled-safe
+   - [x] Tests/build：collector 90/90、server 58/58、frontend 23/23、full ESLint、Vite build
+   - [ ] 提供 `REDDIT_CLIENT_ID`、`REDDIT_CLIENT_SECRET`、`REDDIT_USER_AGENT`，获得 Reddit Data API access 后完成真实 snapshot/UI 验收
 8. [x] 30min Breakout 信号：Polygon 30M OHLCV + previous-range/volume confirmation + freshness gate
 
 ---

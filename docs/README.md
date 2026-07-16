@@ -131,5 +131,6 @@ Open http://localhost:5173
 - [x] V3 billing code: Stripe Checkout/Portal, signed idempotent webhooks and rollout-gated Free/Pro enforcement
 - [x] Frontend verification baseline: full ESLint clean, 21 tests and production build
 - [x] Analyze Tab4: real Call/Put OI density by strike with independent snapshot freshness
+- [x] Reddit community-trend pipeline: OAuth provider, persisted snapshots, Scanner heat column and disabled-safe PM2 cron (credentials pending)
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

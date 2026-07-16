@@ -14,6 +14,9 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertGreaterEqual(config.count("POLYGON_STOCK_REQUEST_DELAY: '16'"), 2)
         self.assertGreaterEqual(config.count("DERIVED_VOLATILITY_ENABLED: 'true'"), 2)
         self.assertIn("COLLECTOR_HEALTH_CHECK_ENABLED: 'true'", config)
+        self.assertIn("name: 'quantrift-reddit-trends'", config)
+        self.assertNotIn('REDDIT_TRENDS_ENABLED:', config)
+        self.assertNotIn('REDDIT_CLIENT_SECRET:', config)
         self.assertNotIn('POLYGON_API_KEY:', config)
 
 

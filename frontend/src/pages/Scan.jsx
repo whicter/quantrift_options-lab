@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getDataStatus, getMarketRegime, getScan } from '../lib/api';
 import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
 import ScannerAlerts from '../components/ScannerAlerts';
+import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -102,6 +103,7 @@ const SORTABLE_COLUMNS = [
   { key: 'ivRank', label: 'IV Rank', title: '当前 IV 在过去一年隐含波动率区间中的位置。越高代表期权相对越贵。' },
   { key: 'iv30', label: 'IV30 / HV30', title: 'IV30 是 30 天隐含波动率，HV30 是 30 天历史波动率。' },
   { key: 'direction', label: '方向', title: '由 price history 派生的趋势标签。' },
+  { key: 'community', label: '社区热度', title: 'Reddit 过去 24 小时提及帖数与互动加权热度；未采集时不参与机会分。' },
   { key: 'gex', label: 'GEX', title: 'Gamma Exposure。missing/未采集表示当前没有该标的 GEX 快照。' },
   { key: 'wall', label: 'Wall', title: '离最近 Call Wall / Put Wall 的距离。没有 GEX 快照时为空。' },
   { key: 'doi', label: 'ΔOI', title: 'Open Interest 变化。missing/未采集表示没有连续 OI 快照。' },
@@ -166,6 +168,7 @@ function sortValue(row, key) {
   if (key === 'ivRank') return row.ivRank;
   if (key === 'iv30') return num(row.iv30) ?? -Infinity;
   if (key === 'direction') return row.direction.score;
+  if (key === 'community') return row.community.score;
   if (key === 'gex') return row.gex.score;
   if (key === 'wall') return row.gex.nearestWall?.pct ?? Infinity;
   if (key === 'doi') return Math.abs(row.unusual.maxDelta ?? -Infinity);
@@ -213,6 +216,7 @@ function toScanRow(row, concreteSetup) {
       change5d: num(row.trend_change_5d),
       rsi14: num(row.trend_rsi14),
     },
+    community: normalizeCommunityTrend(row),
     recommendation,
     concreteSetup,
     earnings: {
@@ -886,6 +890,10 @@ export default function Scan() {
                     </span>
                     <span style={{ color: DIR_COLOR(d.direction.score) }} title={d.direction.change5d == null ? '' : `5日 ${d.direction.change5d.toFixed(1)}%`}>
                       {d.direction.label}
+                    </span>
+                    <span className={`scan-community ${d.community.status}`} title={d.community.status === 'missing' ? 'Reddit OAuth 数据尚未采集' : `${d.community.windowHours}小时：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}`}>
+                      <strong>{communityHeatLabel(d.community)}</strong>
+                      {d.community.status !== 'missing' && <small>{d.community.mentions} 帖</small>}
                     </span>
                     <span>
                       <span className={`scan-gex-pill ${d.gex.regime}`}>

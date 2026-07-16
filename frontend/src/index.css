@@ -998,7 +998,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-table { display: flex; flex-direction: column; gap: 4px; }
 .scan-table-head {
   display: grid;
-  grid-template-columns: 58px 64px 116px 96px 84px 92px 64px 62px 92px minmax(260px, 1fr) 44px 54px;
+  grid-template-columns: 58px 64px 116px 96px 84px 68px 92px 64px 62px 92px minmax(260px, 1fr) 44px 54px;
   gap: 8px;
   padding: 6px 12px;
   font-size: 11px;
@@ -1033,7 +1033,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-table-row {
   display: grid;
-  grid-template-columns: 58px 64px 116px 96px 84px 92px 64px 62px 92px minmax(260px, 1fr) 44px 54px;
+  grid-template-columns: 58px 64px 116px 96px 84px 68px 92px 64px 62px 92px minmax(260px, 1fr) 44px 54px;
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -1045,6 +1045,18 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   transition: background 0.15s;
 }
 .scan-table-row:hover { background: var(--bg-hover); border-color: var(--blue); }
+.scan-community { display: flex; flex-direction: column; min-width: 0; color: var(--text-dim); }
+.scan-community strong { font-size: 12px; }
+.scan-community small { color: var(--text-muted); font-size: 9px; }
+.scan-community.stale strong { color: var(--yellow); }
+.scan-community.fresh strong { color: var(--blue); }
+@media (max-width: 900px) {
+  .scan-page { padding: 68px 14px 24px; }
+  .scan-body { flex-direction: column; }
+  .scan-filters { position: static; width: 100%; }
+  .scan-results { width: 100%; overflow-x: auto; }
+  .scan-table { min-width: 1260px; }
+}
 .scan-symbol { font-weight: 700; font-size: 14px; font-family: monospace; }
 .scan-strategy {
   display: flex;

@@ -53,5 +53,17 @@ module.exports = {
         DERIVED_VOLATILITY_ENABLED: 'true',
       },
     },
+    {
+      name: 'quantrift-reddit-trends',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_reddit_trends.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '*/30 * * * *',
+      env: {
+        REDDIT_WINDOW_HOURS: '24',
+        REDDIT_MAX_PAGES: '3',
+      },
+    },
   ],
 };

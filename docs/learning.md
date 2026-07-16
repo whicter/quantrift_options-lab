@@ -591,3 +591,13 @@ V1 公式：
 - **不同数据产品要独立选 snapshot**：最新 IV snapshot 和最新 OI snapshot 可能不是同一条；共享一个选择条件会让一种数据遮住另一种。
 - **跨 expiry 聚合必须公开口径**：本产品按所有未到期 expiry 聚合到 strike，并返回 expiry/contract counts，用户不会误以为这是单一期权到期日。
 - **真实 smoke 要报告数量级**：PLTR 返回 7 expiries、84 contracts、11 strikes、total OI 307,713，证明 UI 输入不是 mock 或空数组。
+
+## Reddit Trends Lessons (2026-07-15)
+
+- **社区信号不能污染期权评分**：Reddit 热度是上下文列；缺失时 scanner candidate 和机会分保持不变。
+- **ticker extraction 必须先有 universe**：只靠大写正则会把普通英文词当股票；ambiguous token 只有显式 cashtag 才接受。
+- **同帖重复 ticker 只算一次**：防止标题/正文重复写 `$AAPL` 放大 mention count。
+- **零提及不等于未采集**：batch freshness 属于整批采集；已完成 batch 中没有 symbol row 时返回 fresh + 0，只有 batch 不存在才是 missing。
+- **401 与 429 的恢复不同**：401 只刷新一次 app token；429 尊重 bounded `Retry-After`，不并发重试或循环登录。
+- **credential-gated job 要 disabled-safe**：无 key 的 PM2 cron 正常退出并写 disabled 日志，不制造 failure alert。
+- **migration 与真实 provider 验收分开**：表、API missing contract 和 UI 都能先验证；没有 OAuth access 时不伪造 Reddit row。
