@@ -546,6 +546,11 @@ V1 公式：
 - **config 文件位置不改变 Docker build context**：`/collector/railway.metrics.json` 被 Railway 读取时，构建 context 仍是仓库根目录。把 Dockerfile 写成相对 `collector/` 的 `COPY requirements.txt` 会在云端找不到文件；必须显式使用 `collector/Dockerfile.metrics`、`COPY collector/requirements.txt` 和 `COPY collector/`。本地以 `docker build -f collector/Dockerfile.metrics ... .` 覆盖这一点。
 - **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出；本机 token 的无写入探针也返回 `403`。这将故障归因到 token，而不是 Railway 网络、Docker 或数据库，并避免把 failed run 误记为已写入。
 
+## Mac Power Recovery Lessons (2026-07-16)
+
+- **自动重启设置与供电持续性是两项独立控制**：`pmset -g custom` 已确认 AC Power `autorestart 1`，所以市电恢复可启动机器；它不提供断电期间的续航。
+- **UPS 验收必须是恢复演练**：接入 UPS 后要受控地验证 Mac、IB Gateway、PM2 process list、collector health、队列和数据库最新 snapshot 全部恢复，不能只把“已购买 UPS”当完成。
+
 ## IB Gateway Cloud Evaluation Lessons (2026-07-15)
 
 - **IB API socket 不是普通公网 API**：它是未加密、未认证的 raw TCP；4001/4002 只能留在 localhost 或受控私网。

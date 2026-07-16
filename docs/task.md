@@ -321,7 +321,9 @@
   - [x] Verification：collector `unittest discover -s tests -v` 104/104 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed
   - [x] Railway 独立 service：`quantrift-metrics-cron` 已创建，config path 为 `/collector/railway.metrics.json`，DB/TT variables 已注入，Git deployment active（2026-07-16）
   - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols，但 TT session renewal 返回 `401 invalid_credentials`；本机当前 remember token 的独立无写入探针亦返回 `403`。完成条件是人工 `python auth.py --login` 取得新 token、更新 Railway `TT_REMEMBER_TOKEN` 后手动 run 成功并验证新增/更新 `iv_history` rows。
-- [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS），配置 macOS 电源恢复后自动开机，短期过渡方案
+- [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS）并完成断电恢复演练
+  - [x] macOS 自动恢复已验证：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`；市电恢复后系统会自动重启。
+  - [ ] UPS 采购、接入并进行断电/复电演练仍需物理硬件操作；验收需确认 Mac、IB Gateway、PM2 collector 均自动恢复且无未处理 jobs 丢失。
 - [x] IB Gateway 云端迁移评估：结论为固定出口 Linux VPS + pinned Docker/IBC + private API；模板见 `ops/ib-gateway/`（2026-07-15）
   - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活
   - 上线前置条件：面向付费用户/需要高可用时必须完成此项，个人 Mac Studio 不适合作为生产基础设施

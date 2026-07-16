@@ -792,11 +792,13 @@ collector/ecosystem.config.cjs
 
 运行保障：
 
-- 机器断电恢复后任务能继续。
+- 机器断电恢复后任务能继续：2026-07-16 `pmset -g custom` 已验证 AC Power `autorestart 1`。系统会在市电恢复后自动启动；PM2 的持久化恢复仍依赖已保存的 process list。
 - 网络失败可恢复。
 - 日志可查看。
 - 运行状态可告警。
 - Secret 安全存放。
+
+UPS 采购和实际断电/复电演练尚未完成。验收不能只看 `autorestart` 设置，还需验证 Mac、IB Gateway 和 PM2 collector 在一次受控断电后恢复，并检查 job 队列与最新快照没有丢失。
 
 ---
 
