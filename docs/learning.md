@@ -360,6 +360,7 @@ V1 公式：
 - 2026-07-16 事故：`GET /api/scan` 的 CTE 同时包含 `latest_rows.source` 与 `latest_community_batch.source`，final `SELECT source` 未限定，PostgreSQL 报 `column reference "source" is ambiguous` 并返回 HTTP 500。
 - 修复：final select 的 scanner fields 全部显式绑定 `latest_rows`，包括 `latest_rows.source AS source` 和 `latest_rows.snapshot_ts AS snapshot_ts`；freshness CASE 同样使用 `latest_rows.snapshot_ts`。
 - 防回归：scanner route test 对实际 SQL 字符串断言该 qualification；部署后必须以生产 `/api/scan` HTTP 200 + 非空 rows 做 smoke，mocked pool test 不能证明 PostgreSQL 能解析 SQL。
+- 生产验收：修复后 `/api/scan?minIvr=40&maxIvr=100&limit=5` 返回 HTTP 200 与真实 scanner rows；Vercel scanner 页面可实际渲染 1,700 个报价候选。
 
 ### 4. collector 默认 universe 错误会造成“只有 PLTR 有数据”
 

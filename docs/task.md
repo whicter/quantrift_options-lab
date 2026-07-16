@@ -577,7 +577,9 @@
   - 删除 `frontend/src/data/mockAnalysis.js`，`Analyze.jsx` 不再以 sample symbol 为页面基础对象。
   - 真实 price / metrics / GEX 各自独立注入；任一字段未返回时保持 `null` 或明确 unavailable，不可遗留样例价格、Wall、结论或策略腿。
   - `/api/scan` final query 将 `latest_rows.source` 显式限定，避免与 community snapshot 的 `source` 列冲突导致 PostgreSQL HTTP 500。
+  - 继续限定 `latest_rows.snapshot_ts` 与 freshness CASE，避免同一 join 中 community batch 的同名 timestamp 再次触发 PostgreSQL ambiguity。
   - 回归：frontend 检查 Analyze 无 mock import/use；server scanner SQL 检查 source qualification。
+  - Production smoke：2026-07-16 Railway `/api/scan?minIvr=40&maxIvr=100&limit=5` HTTP 200；Vercel `/analyze?symbol=NFLX` 显示实际 `$73.68`、Polygon price/GEX 和 $75/$73 Walls，`/scan` 显示 1,700 个实际报价候选单。
 - ✅ Verification：
   - Frontend build：`npm run build`
   - Production API prepared：PLTR `snapshot_id=7`、`/api/gex/PLTR` returned `freshness=fresh`、`confidence=high`
