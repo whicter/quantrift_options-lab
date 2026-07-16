@@ -266,15 +266,15 @@ async function sendScan(req, res) {
            ELSE 'fresh'
          END AS quote_freshness,
          COALESCE(cs.option_contracts, '[]'::jsonb) AS option_contracts,
-         snapshot_ts,
+         latest_rows.snapshot_ts AS snapshot_ts,
          CASE
-           WHEN snapshot_ts IS NULL THEN 'missing'
-           WHEN EXTRACT(EPOCH FROM (NOW() - snapshot_ts)) / 60.0 > $11 THEN 'stale'
+           WHEN latest_rows.snapshot_ts IS NULL THEN 'missing'
+           WHEN EXTRACT(EPOCH FROM (NOW() - latest_rows.snapshot_ts)) / 60.0 > $11 THEN 'stale'
            ELSE freshness
          END AS freshness,
          CASE
-           WHEN snapshot_ts IS NULL THEN TRUE
-           WHEN EXTRACT(EPOCH FROM (NOW() - snapshot_ts)) / 60.0 > $11 THEN TRUE
+           WHEN latest_rows.snapshot_ts IS NULL THEN TRUE
+           WHEN EXTRACT(EPOCH FROM (NOW() - latest_rows.snapshot_ts)) / 60.0 > $11 THEN TRUE
            ELSE is_stale
          END AS is_stale,
          refresh_status
