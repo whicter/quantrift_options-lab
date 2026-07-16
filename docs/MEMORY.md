@@ -86,6 +86,8 @@ Derived IV Rank cutover is complete in all control planes: ready symbols are fil
 
 Tastytrade metrics cron is deployment-ready: a dedicated one-shot Docker image and Railway config run weekdays at 22:30 UTC and exit. Collector 83 tests and Docker build pass. Creating the separate Railway service, injecting its DB/token variables and validating the first cloud run remain operator steps.
 
+IB Gateway cloud evaluation is complete: use a fixed-egress VPS, pinned Gateway/IBC image, paper/read-only mode, Docker secret and loopback-only ports. `ops/ib-gateway/` holds the template and 72-hour soak gates. Collector 85 tests and compose config pass; VPS purchase and IBKR 2FA remain external.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

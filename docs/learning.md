@@ -540,3 +540,12 @@ V1 公式：
 - **monorepo service 必须明确 config path**：metrics cron 使用 `/collector/railway.metrics.json`，不能继承 Node API 的 start command。
 - **镜像不能 COPY secret/venv**：`.dockerignore` 排除 `.env` 和 60MB 本地 virtualenv，secret 只由 Railway variable 注入。
 - **build passed 不是 cloud run passed**：容器与配置可在代码侧验证；service binding、secret 和首个 completed deployment 必须有 Railway 项目权限。
+
+## IB Gateway Cloud Evaluation Lessons (2026-07-15)
+
+- **IB API socket 不是普通公网 API**：它是未加密、未认证的 raw TCP；4001/4002 只能留在 localhost 或受控私网。
+- **固定出口 IP 是身份稳定性的一部分**：短生命周期 PaaS egress 变化会放大异常登录和 2FA 运维风险。
+- **Gateway 是有状态长期进程**：需要 settings volume、nightly restart、2FA timeout policy 和 reboot recovery，不适合 cron。
+- **先 paper/read-only 再谈迁移**：数据采集迁移不应顺带开启下单权限。
+- **镜像必须 pin 版本**：`stable`/`latest` 自动漂移会让 Gateway/IBC 变化绕过回归验证。
+- **真正验收是 soak test**：容器能启动不证明 2FA、重连、clientId、stale-data 和夜间重启可靠。

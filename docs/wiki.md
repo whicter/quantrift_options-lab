@@ -1193,3 +1193,7 @@ The Railway monitor persists an incident in `collector_heartbeat_alerts` when a 
 ### Railway Metrics Cron
 
 The cloud metrics service is a separate one-shot deployment defined by `collector/railway.metrics.json`. It runs only `collect.py` after the US close and exits. It shares PostgreSQL but does not run IB, scanner materialization, provider refresh jobs or the Mac heartbeat. Derived-ready symbols are filtered before TT authentication.
+
+### IB Gateway Cloud Boundary
+
+The evaluated target is a fixed-egress VPS, not a public Railway service. Gateway and a read-only collector share localhost/private networking; raw API ports are never internet-facing. `ops/ib-gateway/` contains the paper/read-only template and soak checklist. Mac Studio remains active until the candidate survives reconnect/reboot and data-parity checks.

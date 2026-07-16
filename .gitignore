@@ -17,6 +17,8 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+ops/ib-gateway/.env
+ops/ib-gateway/secrets/
 *.suo
 *.ntvs*
 *.njsproj

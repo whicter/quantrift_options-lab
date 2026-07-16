@@ -321,9 +321,12 @@
   - [x] Verification：collector 83/83 tests；Docker image `quantrift-metrics-cron:test` build passed
   - [ ] Railway 控制台创建独立 service、将 config path 指向 `/collector/railway.metrics.json`、注入 secrets 并确认首个 scheduled run（需要 Railway 项目权限与 TT remember token）
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS），配置 macOS 电源恢复后自动开机，短期过渡方案
-- [ ] IB Gateway 云端迁移评估：Docker + IBC（参考 gnzsnz/ib-gateway-docker）部署到云 VPS（DigitalOcean/AWS/Linode），解决 Mac Studio 单点故障
+- [x] IB Gateway 云端迁移评估：结论为固定出口 Linux VPS + pinned Docker/IBC + private API；模板见 `ops/ib-gateway/`（2026-07-15）
   - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活
   - 上线前置条件：面向付费用户/需要高可用时必须完成此项，个人 Mac Studio 不适合作为生产基础设施
+  - [x] Security template：paper + read-only 默认、password secret file、4001/4002 仅 loopback、persistent settings、pinned image
+  - [x] Verification：collector 85/85 tests；`docker compose config --no-interpolate` passed
+  - [ ] 实际 VPS 采购、固定 IP、防火墙、IBKR 2FA 与 72 小时 soak test 需要人工账户/硬件操作
 - [x] 心跳监控：Mac Studio → Railway 心跳上报，云端检测断线并持久化告警（P2.3，2026-07-15）
 
 **前端路由（Vite + React Router）**

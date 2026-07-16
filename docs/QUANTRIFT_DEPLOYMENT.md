@@ -1468,3 +1468,18 @@ TT_USER_AGENT=quantrift-options-lab/0.1
 ```
 
 Do not copy `collector/.env` into the service. Trigger one manual deployment/run, confirm a completed deployment and new `iv_history` rows, then remove the old Mac `collect.py` cron to avoid duplicate writes. Current repository verification includes 83 collector tests and a successful local Docker build; service creation and first cloud execution require Railway project access and are not yet claimed complete.
+
+## IB Gateway VPS Candidate
+
+Use `ops/ib-gateway/docker-compose.yml` only on a fixed-egress VPS. Copy `.env.example` to an untracked `.env`, create `secrets/tws_password.txt` with mode 600, and keep the host firewall closed to 4001/4002. The template binds both ports to `127.0.0.1` and starts in paper/read-only mode.
+
+Acceptance requires:
+
+1. Manual first 2FA and verified settings persistence.
+2. Collector connection through localhost/private network only.
+3. Nightly auto-restart, container restart and full VPS reboot tests.
+4. Disconnect/reconnect and stale-data fail-closed checks.
+5. Unique IB client IDs and no conflict with trading processes.
+6. 72 hours of coverage/freshness parity before moving the read-only collector.
+
+Never switch this template to live/write access as part of a data migration. That is a separate deployment and business-behavior approval. `docker compose config --no-interpolate` and 85 collector tests pass; no VPS/2FA runtime is claimed.

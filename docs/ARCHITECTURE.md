@@ -1679,3 +1679,11 @@ Railway cron start -> collect.py -> filter derived-ready symbols
 The later UTC schedule is intentionally after the US close in both daylight and standard time; Railway cron schedules are UTC. The image excludes `.env`, local virtualenv, tests and logs. This service must not run the Mac daemon, IB adapter, scanner materializer or heartbeat. A Railway service binding and its secrets remain an operator action because the repository has neither Railway CLI login nor project token.
 
 Rollback disables/deletes only the metrics cron service; Mac/on-demand transition paths remain available. Container build and config tests prove deployment readiness, not a successful scheduled cloud run.
+
+## 35. IB Gateway Cloud Evaluation
+
+Decision: IB Gateway is not a cron workload and should not expose its unauthenticated raw TCP API on a public PaaS network. The migration target is a fixed-egress Linux VPS with host firewall/VPN access and the collector on the same host or private network.
+
+`ops/ib-gateway/docker-compose.yml` pins `ghcr.io/gnzsnz/ib-gateway:10.45.1f`, defaults to paper/read-only, reads the password from a Docker secret, persists Gateway settings and binds 4001/4002 to loopback only. The upstream image combines Gateway, IBC, Xvfb and local TCP relay; its own security guidance warns that the IB API socket is unencrypted and unauthenticated when exposed beyond localhost ([upstream repository](https://github.com/gnzsnz/ib-gateway-docker)).
+
+Migration gate is a 72-hour paper/read-only soak covering initial 2FA, nightly restart, VPS reboot, reconnect, stale-data behavior and client-ID isolation. Mac Studio remains rollback until cloud coverage/freshness parity is proven. Actual VPS purchase, fixed IP and IBKR login/2FA are external operations, not repository work.
