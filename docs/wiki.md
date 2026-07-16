@@ -1156,8 +1156,12 @@ The scanner is no longer bounded by the visible 67-symbol watchlist. `symbol_uni
 Universe filter semantics:
 - price and underlying share/dollar volume use latest persisted OHLCV;
 - earnings include/exclude uses persisted `earnings_date`;
-- market cap, sector/category and optionable use nullable registry metadata and fail closed when a selected filter lacks the field;
+- market cap and sector/category use nullable registry metadata from Polygon reference data and fail closed when a selected filter lacks the field;
+- sector/category is currently `sec_sic_derived_v1`, derived from SIC codes rather than a provider-native product taxonomy;
+- optionable is true only when persisted usable option snapshots exist; absent evidence remains null instead of false;
 - contract liquidity remains a candidate-level filter over actual option contracts.
+
+2026-07-16 reference metadata runtime: 78 active/scan-enabled symbols were processed, 77 received Polygon reference metadata, `VIX` was the only missing reference, and no failures occurred. The latest materialized scanner batch contains market cap for 27 rows, sector/category for 28 rows and optionable true for 69 rows.
 
 ### Market Regime and Weekly Recap
 

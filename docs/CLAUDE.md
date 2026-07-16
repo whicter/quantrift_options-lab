@@ -90,6 +90,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Preserve `/api/market/regime` freshness gating and the mock-free `/api/weekly/:symbol` contract. Missing GEX/Max Pain/ΔOI remains locally missing.
 - A Weekly Call Wall is only an upward trigger above spot; a Put Wall is only a downward trigger below spot. Never relabel ΔOI as money flow.
 - `symbol_universe` owns the persistent scanner registry. `/api/analyze/:symbol` registers valid unknown symbols and queues only missing field products; never perform a synchronous full-universe provider scan.
+- Universe reference metadata comes from Polygon ticker reference data via `collect_universe_metadata.py`; sector/category is SIC-derived and nullable, and `optionable` is true only from persisted usable option snapshots.
 - Preserve partial data and expose recent non-retryable failures as blockers instead of creating enqueue loops.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; preserve ISO dates and fail closed when real inputs are absent. Never synthesize price paths or option legs.
 - Derived volatility is isolated in `volatility_history`; use New York market dates for DTE and daily observations. Do not mark derived IV Rank ready before 252 observations.

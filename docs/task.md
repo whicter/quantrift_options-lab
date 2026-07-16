@@ -681,17 +681,24 @@
 **Phase 3G — Scanner Universe Expansion**
 - [x] Replace transitional 67-symbol watchlist with persistent `symbol_universe`; seed it from the watchlist and every known price/IV/option symbol, and register valid unknown Analyze symbols on demand.
 - [x] Universe filters：
-  - market cap minimum / maximum（API/UI/schema complete; current registry population is null until a fundamentals source is connected）
+  - market cap minimum / maximum（API/UI/schema complete; populated from Polygon reference metadata when provider returns market_cap）
   - stock price range
   - underlying share volume / dollar volume
-  - optionable flag（API/UI/schema complete; current registry population is null until reference data is connected）
+  - optionable flag（API/UI/schema complete; true only when a usable option snapshot exists; unknown stays null）
   - option chain liquidity：bid/ask spread, total OI, total volume
-  - sector / ETF category（API/UI/schema complete; current registry population is null until reference data is connected）
+  - sector / ETF category（API/UI/schema complete; derived from Polygon/SEC SIC when available）
   - earnings window include/exclude
 - [x] Keep scanner materialized：`materialize_scan.py` reads the persistent universe and still writes `scanner_results_snapshots`; user requests never run full-market provider calls synchronously.
 - [x] Unknown-symbol flow：`GET /api/analyze/:symbol` registers the ticker, reports price/metrics/options/GEX coverage, and enqueues only missing price/metrics/options jobs. UI displays queued/partial/blocker state.
 - [x] Retry-loop guard：a recent non-retryable metrics failure is returned as `refresh.metrics=blocked`; repeated Analyze requests do not create duplicate jobs.
 - [x] 2026-07-15 runtime evidence：Railway migration succeeded; seed synced 77 symbols; COST on-demand registration expanded the universe to 78; COST obtained Polygon daily/30M price, a 54-contract option snapshot, fresh GEX and $925/$910 walls. TT metrics remain a field-specific manual-login blocker and do not suppress the available products.
+- [x] 2026-07-16 reference metadata completion：
+  - `collector/providers/polygon_reference_provider.py` reads Polygon `/v3/reference/tickers/{symbol}` for ticker name, type, market cap and SIC metadata.
+  - `collector/collect_universe_metadata.py` updates `symbol_universe` without overwriting manually maintained non-reference fields.
+  - Sector/category is `sec_sic_derived_v1`; this is a deterministic derived label, not a provider-native sector.
+  - `optionable=true` is set only from persisted usable option snapshots (`contract_count > 0` and not `empty`/`metadata_only`); missing evidence remains null.
+  - Railway runtime：78 active/scan-enabled symbols, 77 reference rows written, 1 missing (`VIX`), 0 failed；coverage after materialization：market_cap 27、sector 28、optionable true 69。
+  - PM2 `quantrift-universe-metadata` registered/saved as a Sunday 12:15 one-shot cron; stopped between runs with cron still active.
 
 **Phase 3H — Contract-Level Scanner Filters**
 - [x] Add optional advanced filters for contract-level strategy inputs：
@@ -934,7 +941,7 @@
 | P0.4 | 自算 HV / ATM IV / IV Rank | ✅ 2026-07-15 完成：派生脚本、历史门槛、对比报告、来源切换与 fail-closed readiness | 252 个独立交易日尚未积累，因此 IV Rank 暂继续使用 TT 冷启动值 |
 | P1.1 | Scanner 策略扩展 | ✅ 2026-07-15 完成：13 种结构按真实合约枚举、quote snapshot 分层、风险门控、测试和 UI 输出 | 无 |
 | P1.2 | Analyze 数据产品 | ✅ 2026-07-15 完成：S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
-| P1.3 | Universe / on-demand | ✅ 2026-07-15 完成：persistent universe、filters、unknown symbol enqueue/wait/blocker UI、materialized invariant | market cap / sector / optionable reference values 尚未填充；TT metrics 当前需 manual login |
+| P1.3 | Universe / on-demand | ✅ 2026-07-16 完成：persistent universe、filters、reference metadata population、unknown symbol enqueue/wait/blocker UI、materialized invariant | TT metrics 当前需 manual login；`VIX` 无 Polygon ticker reference |
 | P1.4 | Market/weekly signals | ✅ 2026-07-15 完成：SPY/QQQ regime header、30M breakout freshness gate、Weekly GEX/Max Pain/ΔOI 实数接入 | 30M 最新运行数据为前一交易日，当前正确标记 stale，不生成 breakout |
 | P2.1 | 产品入口 | ✅ 2026-07-15 完成：真实产品视觉、live regime、三条核心 workflow、mobile layout | Browser plugin 初始化错误导致无自动 screenshot |
 | P2.2 | Scanner alerts | ✅ 2026-07-15 完成：subscriptions、rules、token unsubscribe、dedupe delivery、PM2 evaluator、Email/Web Push adapters | SMTP/VAPID secrets 尚未配置，真实收件验收需人工提供 |
@@ -942,6 +949,7 @@
 | P2.4 | Frontend verification debt | ✅ 2026-07-15 完成：全量 ESLint 0 errors/0 warnings、frontend 21/21、production build | 无 |
 | P2.5 | Reddit community trends | ✅ 2026-07-15 代码/表/API/UI/PM2 完成；缺凭据时 disabled-safe | Reddit OAuth app credentials 与访问 approval |
 | P2.6 | Composite momentum | ✅ 2026-07-15 完成：30M/1D/1W score、freshness gate、Analyze UI | 无 |
+| P2.7 | Universe reference metadata | ✅ 2026-07-16 完成：Polygon ticker reference adapter、weekly PM2 one-shot、Railway coverage verification、scanner re-materialization | `VIX` reference missing；market cap/SIC 是 provider availability 问题 |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
 | External | 硬件与账户验收 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 数据层代码已完成；真实运行必须人工采购、登录或提供 API key |
 

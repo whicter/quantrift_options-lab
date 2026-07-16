@@ -188,6 +188,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects at most two missing/old watchlist symbols, enqueues option refreshes, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds.
 - Auto-refresh uses `polygon_licensed`. A recent failed attempt gets a 30-minute cooldown, so provider failures do not create a request storm.
 - `quantrift-options-prices`: runs `collect_prices.py` at `13:35 America/Los_Angeles` Monday-Friday.
+- `quantrift-universe-metadata`: runs `collect_universe_metadata.py` as a Sunday 12:15 one-shot cron; it is normally stopped between runs while PM2 keeps the cron active.
 - Both processes use this repository's `collector/venv311` and `collector/.env`.
 - `IB_MARKET_DATA_TYPE=3` accepts delayed market data for the current pipeline.
 
@@ -196,6 +197,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `auth.py` — Tastytrade auth + remember-token auto-renewal
 - `collect.py` — IV collector (Tastytrade → PostgreSQL)
 - `collect_prices.py` — OHLCV collector (provider adapter → PostgreSQL)
+- `collect_universe_metadata.py` — Polygon ticker reference metadata collector for `symbol_universe`
 - `collect_options.py` — bounded option-chain snapshot collector
 - `derive_volatility.py` — Polygon-only HV30/60/90 and 30–45 DTE ATM IV history; IV Rank remains not-ready before 252 market-day observations
 - `materialize_oi_delta.py` — contract-level OI delta materializer
@@ -206,7 +208,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `run_collector_daemon.py` — persistent worker/materializer loop used by PM2
 - `schedule_option_refresh.py` — bounded watchlist coverage scheduler with stale selection and retry cooldown
 - `ecosystem.config.cjs` — direct-repository PM2 process definitions
-- `providers/` — provider adapters; scheduled prices use `polygon`, while `ib_internal` and `stooq` remain explicit fallbacks
+- `providers/` — provider adapters; scheduled prices use `polygon`, universe reference uses `polygon_reference_provider.py`, while `ib_internal` and `stooq` remain explicit fallbacks
 - `common.py` — shared watchlist loader
 - `watchlist.txt` — Collector symbol list
 - `requirements.txt` — Python dependencies

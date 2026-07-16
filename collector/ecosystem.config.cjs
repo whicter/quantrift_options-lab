@@ -78,5 +78,17 @@ module.exports = {
         UW_WS_TIMEOUT_SECONDS: '30',
       },
     },
+    {
+      name: 'quantrift-universe-metadata',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_universe_metadata.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '15 12 * * 0',
+      env: {
+        REFERENCE_METADATA_ENABLED: 'true',
+        POLYGON_REFERENCE_RATE_LIMIT_BACKOFF: '60',
+      },
+    },
   ],
 };

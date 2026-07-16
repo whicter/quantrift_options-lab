@@ -80,6 +80,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - `/api/market/regime` owns SPY/QQQ multi-timeframe regime; stale 30M data must never confirm breakout. `/api/weekly/:symbol` must remain mock-free and may return partial sections.
 - Weekly scenarios require Call Wall above spot and Put Wall below spot. ΔOI is contracts, never dollar flow or confirmed institutional direction.
 - `symbol_universe` is the persistent scanner registry. Unknown Analyze symbols use `/api/analyze/:symbol`; do not reintroduce a watchlist-only product boundary or synchronous full-universe provider work.
+- Universe reference metadata comes from Polygon ticker reference data via `collect_universe_metadata.py`; sector/category is SIC-derived and nullable, and `optionable` is true only from persisted usable option snapshots.
 - Recent non-retryable field failures must be returned as blockers and must not be re-enqueued on every page request.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; missing real price/contract inputs must stay missing. Never generate example price paths or synthetic recommendation legs.
 - `volatility_history` owns Polygon-derived HV and ATM IV. IV Rank remains fail-closed until 252 market-day observations; APIs expose per-field provenance and retain the Tastytrade cold-start rank until ready.

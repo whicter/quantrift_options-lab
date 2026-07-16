@@ -68,7 +68,7 @@ Open http://localhost:5173
 - Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
 - Analyze never creates example price history or synthetic option legs when real inputs are missing
 - Persistent scanner universe: known database symbols plus on-demand Analyze registrations feed the materialized scanner; `/api/analyze/:symbol` reports field coverage and queues only missing data products
-- Universe filters: price, share/dollar volume and earnings are live; market cap, sector and optionable filtering is wired but remains null until reference fields are populated
+- Universe filters: price, share/dollar volume, earnings, market cap, sector/category and optionable status are live when the field is populated; nullable reference fields fail closed when a selected filter requires them
 - Market Regime: `/api/market/regime` combines SPY/QQQ daily momentum, regular-session 30M breakout, IV Rank and GEX; stale intraday bars cannot confirm a breakout
 - Weekly Recap: `/api/weekly/:symbol` uses real rolling-week OHLC, daily GEX snapshots, Max Pain and ΔOI. It contains no mock fallback or fabricated money-flow data
 - Scanner alerts: email and browser-push subscriptions persist rules and tokenized unsubscribe state; PM2 evaluates each materialized scan batch with delivery deduplication
@@ -80,6 +80,7 @@ Open http://localhost:5173
 - 30-minute OHLCV: 35 calendar days in Railway `price_history_30m`, including VWAP and trade count when supplied
 - Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
 - 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
+- 2026-07-16 runtime: persistent scanner universe has 78 active/scan-enabled symbols; Polygon reference metadata covers 77, market cap 27, sector/category 28, and persisted optionable=true 69. `VIX` remains the only missing ticker reference.
 - Dev/backfill provider: `stooq`, only when explicitly selected
 - Option chains: scheduled ingestion uses `polygon_licensed`; `ib_internal` and `tt_internal` remain explicit fallback/research adapters.
 - IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.

@@ -488,7 +488,10 @@ V1 公式：
 - **按需请求必须按字段判断 coverage**：一个 symbol 可以已有 price/options/GEX 但缺 metrics。把 symbol 简化成 available/unavailable 会隐藏可用产品并反复采集已有数据。
 - **非重试错误不能靠页面刷新重试**：TT manual-login failure 若每次 Analyze 都 enqueue，会形成稳定失败队列。保存最近失败并返回 field blocker，恢复后再显式重试。
 - **动态 universe 不等于请求时全市场扫描**：用户请求只允许注册和补一个 symbol；全量排序仍由后台 materializer 写 `scanner_results_snapshots`。
-- **schema/filter 完成不代表字段已覆盖**：market cap、sector、optionable 当前 population 为零。状态 API 必须公开 populated counts，用户启用这些过滤时 null fail closed，不能用默认值伪造。
+- **schema/filter 完成不代表字段已覆盖**：market cap、sector、optionable 必须有独立 population 验收。2026-07-16 之后 reference coverage 为 77/78，但 market cap 只有 27、SIC-derived sector 28、optionable true 69；用户启用这些过滤时 null 仍 fail closed，不能用默认值伪造。
+- **optionable 只能由真实快照证明**：reference/ticker metadata 不等于有可交易期权链。当前实现只在存在 `contract_count > 0` 且非 `empty`/`metadata_only` 的 option snapshot 时写 true；无证据保持 null。
+- **reference provider 的行业字段要标明口径**：Polygon ticker reference 给 SIC，不给完整商业 sector taxonomy。项目使用 `sec_sic_derived_v1`，文档/UI 必须知道这是派生分类。
+- **PM2 cron one-shot 会启动一次**：`pm2 startOrRestart ecosystem.config.cjs --only <cron-app>` 会立即跑一轮；已经手工 backfill 后要停掉进程并保存，保留 cron active。
 - **运行验收要验证闭环而非只看 enqueue**：COST 从未知 symbol 变成 78th registry row，随后获得日线/30M、54 actual contracts 和 fresh GEX；第二次请求 queue depth 为零，证明 persistence 和 dedup/blocker 均生效。
 
 ## Market and Weekly Lessons (2026-07-15)

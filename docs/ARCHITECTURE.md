@@ -1588,9 +1588,11 @@ symbol_universe -> materialize_scan.py -> scanner_results_snapshots -> /api/scan
 
 The request path is bounded to one symbol. It never scans providers or recalculates the full universe. Price jobs write daily and 30M bars and then derive volatility; option jobs use the existing provider fallback and GEX pipeline. Recent non-retryable field failures become explicit blockers instead of an enqueue loop.
 
-Scanner rows carry underlying volume/dollar volume and registry metadata. Price, volume and earnings filters are usable now. Market cap, sector/category and optionable columns and API/UI filters are complete but remain null until a reference-data ingestion source populates them; null values fail closed when those filters are selected.
+Scanner rows carry underlying volume/dollar volume and registry metadata. Price, volume, earnings, market cap, sector/category and optionable filters are usable when the underlying field is populated. Polygon reference metadata populates ticker name/type/market cap and SIC-derived sector labels. `optionable` is not inferred from a symbol master list: it becomes true only when the database contains a persisted usable option snapshot. Null values fail closed when a selected filter requires them.
 
 Runtime evidence on 2026-07-15: the registry seeded 77 symbols and COST on-demand expanded it to 78. COST obtained Polygon daily/30M history, a 54-contract option snapshot and fresh GEX/walls. Its unavailable TT metrics field is reported as blocked with queue depth zero, while price/options/GEX remain available.
+
+Runtime evidence on 2026-07-16: `collect_universe_metadata.py` processed 78 active/scan-enabled symbols, wrote 77 Polygon reference rows, missed only `VIX`, and failed 0. Latest materialized scanner snapshot has market cap for 27 rows, sector/category for 28 rows, and optionable true for 69 rows. The weekly PM2 one-shot `quantrift-universe-metadata` is saved with cron `15 12 * * 0`.
 
 ## 29. Market Regime and Weekly Products
 

@@ -1550,6 +1550,23 @@ Apply `node server/src/migrate.js`, then `pm2 restart quantrift-reddit-trends --
 
 Enabled-path schema regression (2026-07-15): `load_universe` now queries the actual `scan_enabled` column and has a direct database-contract test. This fixes a failure that disabled credential execution could not expose; collector 96/96 passes.
 
+## Universe Reference Metadata Rollout
+
+`collect_universe_metadata.py` is a Polygon reference-data one-shot. It reads `symbol_universe.active=TRUE AND scan_enabled=TRUE`, fetches `/v3/reference/tickers/{symbol}`, and updates ticker name, asset type, market cap, SIC metadata, derived sector/category and optionable status. It preserves existing non-reference fields unless they were previously written by the same reference source.
+
+Runtime evidence on 2026-07-16:
+
+- Command: `REFERENCE_METADATA_ENABLED=true ./venv311/bin/python collect_universe_metadata.py`
+- Git commit at runtime: local working tree before this section commit
+- Configuration: `DATABASE_URL` from `collector/.env`; `POLYGON_API_KEY` inherited from the existing PM2 collector secret; `POLYGON_STOCK_REQUEST_DELAY=16`; `POLYGON_REFERENCE_RATE_LIMIT_BACKOFF=60`
+- Data source: Polygon ticker reference endpoint plus existing Railway `option_chain_snapshots`
+- Result: 78 symbols, 77 updated, 1 missing (`VIX`), 0 failed
+- Coverage: `symbol_universe` active/scan-enabled total 78; reference source 77; non-null name 77; non-null market cap 27; non-null sector/category 28; optionable true 69
+- Scanner materialization: `./venv311/bin/python materialize_scan.py` wrote 78 rows for `scan_key=watchlist_v1`; latest scanner snapshot contains market cap 27, sector/category 28 and optionable true 69
+- PM2: `quantrift-universe-metadata` saved as a stopped one-shot with cron still active at `15 12 * * 0`
+
+Rollback: stop/delete the PM2 process and revert the commit. The DB updates are additive metadata; older code can ignore them. If needed, reference-authored fields can be cleared where `metadata->>'reference_source'='polygon_reference'`.
+
 ## Unusual Whales Flow Rollout
 
 The WebSocket transport requires the connection values issued for the account. Store them only in the Mac Studio collector secret environment:
