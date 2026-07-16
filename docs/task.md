@@ -974,6 +974,7 @@
 | P2.5 | Reddit community trends | ✅ 2026-07-15 代码/表/API/UI/PM2 完成；缺凭据时 disabled-safe | Reddit OAuth app credentials 与访问 approval |
 | P2.6 | Composite momentum | ✅ 2026-07-15 完成：30M/1D/1W score、freshness gate、Analyze UI | 无 |
 | P2.7 | Universe reference metadata | ✅ 2026-07-16 完成：Polygon ticker reference adapter、weekly PM2 one-shot、Railway coverage verification、scanner re-materialization | `VIX` reference missing；market cap/SIC 是 provider availability 问题 |
+| P2.8 | Data refresh throughput / concurrency | 未完成：把 78-symbol 线性补数据改为优先级队列 + bounded 并发 worker + shared provider limiter + stale-while-refresh UX | 需要验证 Polygon/DB 实际吞吐；不需要用户提供新 key |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
 | External | 硬件与账户验收 | UPS、IB cloud/VPS、Reddit API | 数据层代码已完成；真实运行必须人工采购、登录或提供 API key |
 | 暂缓 | Unusual Whales | 代码 disabled-safe，等待正向现金流 | API $125/月，暂不订阅 |
@@ -1008,6 +1009,135 @@ P2.6 verification：Railway 只读重放 AAPL 250 daily + 200 regular-session 30
   - 验证：server 71/71、frontend 40/40、full ESLint、Vite production build passed
 
 P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additive migration passed。Runtime smoke 依次确认 expected node 从未上报时 `missing/degraded`、错误 token 为 HTTP 401、正确上报后 `online/ok`；受控 stale heartbeat 生成 `active` incident（无 webhook 时 channel=`blocked`），恢复 heartbeat 后 incident=`resolved`。Mac Studio PM2 collector 已重启并保持 online；因共享 `HEARTBEAT_TOKEN`/URL 尚未写入双方运行环境，定时上报当前按设计返回 `disabled`，不影响 collector 主循环。
+
+**P2.8 — Data refresh throughput / concurrency（未完成，2026-07-16 讨论定稿）**
+
+目标：把当前“每 5 分钟最多挑 2 个 symbol、worker 顺序处理”的 78-symbol 采集方式，升级成可扩展的数据刷新层。用户输入新标的或固定 universe 扩大后，页面应优先读已有快照；缺失或过期时后台刷新并自动更新 UI，而不是让用户等待一整轮 collector。
+
+当前已确认的实现事实：
+- `schedule_option_refresh.py` 当前每 300 秒最多 enqueue 2 个 missing/stale symbols；78 个 symbol 一轮理论约 195 分钟。
+- `run_refresh_worker.py` 使用 `FOR UPDATE SKIP LOCKED` claim jobs，数据库层已经支持多 worker 并发领取不同 job。
+- 当前 worker 对 batch 内 jobs 仍是顺序 `for` loop；provider session/cache 只在单次进程内复用。
+- 当前每个 option job 成功后会触发 per-symbol GEX，同时还重复执行全局 `materialize_oi_delta.run()` 和 `materialize_scan.run()`；多个 symbol 连续刷新时会重复做全局派生。
+- Polygon option provider 当前每个 symbol 先请求 underlying prev aggregate，再分页请求 option snapshot；stock request 使用本地 file-lock pacer，不能跨 Railway replicas 共享。
+- Analyze orchestration 当前主要检查数据是否存在，freshness gate 不完整；有 stale snapshot 时可以显示旧数据，但用户提示和自动 refresh/polling 还不够统一。
+
+目标架构：
+```
+Railway API
+  -> 只读 PostgreSQL snapshots
+  -> missing/stale 时 enqueue provider_fetch_jobs
+  -> 不同步调用 provider
+
+Mac Studio / Railway Collector Workers
+  -> 多 worker 通过 PostgreSQL SKIP LOCKED 并发 claim jobs
+  -> provider-aware concurrency limit
+  -> bounded rate limiter shared by database state
+
+Derivation Worker
+  -> per-symbol GEX after option snapshot
+  -> OI delta / scanner materialization batched once per worker cycle
+
+PostgreSQL
+  -> snapshots
+  -> provider_fetch_jobs
+  -> provider pacing state
+  -> symbol_data_state freshness summary
+```
+
+任务拆分：
+- [ ] **P2.8.1 统一 freshness 口径**
+  - 在 task/API contract 中明确各数据产品的新鲜度目标：
+    - price daily：按最新 market date；非交易日允许使用上一交易日。
+    - price 30M：盘中按 regular-session 30M market date 判断；落后最新日线时 `stale`。
+    - option chain / GEX / Wall：默认目标 60 分钟内；scanner 可接受较旧但必须标记。
+    - metrics / IV Rank：交易日级别；derived rank 未满 252 observations 时继续返回 provider/cold-start provenance。
+  - Analyze 不能只检查 existence；必须按 product 返回 `fresh | stale | missing | queued | failed`。
+  - stale 不是空白页：返回最近可用真实 snapshot + `is_stale=true` + `age_minutes` + 后台刷新状态。
+
+- [ ] **P2.8.2 symbol data state 汇总表**
+  - 新增 additive table：`symbol_data_state(symbol, product, latest_snapshot_ts, latest_market_date, source, freshness, refresh_status, last_job_id, last_error_code, updated_at)`。
+  - collector 写入 snapshots 后更新该表；API 读该表决定是否 enqueue、是否提示 stale、是否继续展示旧数据。
+  - 支持 unknown symbol 被注册到 `symbol_universe` 后进入 data-state 流程；Weekly 自定义标的也应复用同一 orchestration。
+  - Rollback：表为 additive；旧 API 可继续直接读 snapshots。
+
+- [ ] **P2.8.3 queue-fill scheduler**
+  - 将当前“每轮只挑 2 个”改为“按目标队列深度补满”：
+    - `OPTION_REFRESH_QUEUE_TARGET`：例如 20。
+    - `OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE`：例如 20。
+    - `OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES`：失败/刚尝试过的 symbol 不重复刷。
+  - 优先级：
+    - `user_requested`：用户刚输入或点击的 symbol。
+    - `core`：SPY/QQQ/AAPL/TSLA/PLTR 等常用标的。
+    - `recent_active`：最近被用户查询或 scanner 点击的 symbol。
+    - `universe_scan`：正式 scanner universe。
+    - `cold_backfill`：低优先级补齐。
+  - 不再只读 `watchlist.txt`；watchlist 只是 seed，长期应从 `symbol_universe` + priority 字段生成 refresh candidates。
+
+- [ ] **P2.8.4 bounded parallel refresh workers**
+  - 利用现有 `FOR UPDATE SKIP LOCKED`，先在 Mac Studio 启 2 个 worker processes 验证，不在线程内共享 psycopg/provider session。
+  - 每个 worker 独立 DB connection；连接池上限必须小于 Railway PostgreSQL 可承受连接数。
+  - 初始并发建议：2；验证 429、job duration、DB CPU/connection 后升到 4。
+  - 并发边界：
+    - API service 不跑 collector。
+    - Railway 可以单独创建 `polygon-collector` service；Mac Studio 继续跑 IB/TT/internal collector。
+    - TT/IB 不跟 Polygon 共用 worker 池；provider adapter 独立限流。
+
+- [ ] **P2.8.5 shared provider rate limiter**
+  - 当前 Polygon stock pacer 使用本地 file lock，只能约束同一台机器/同一文件系统；多 Railway replicas 或多机器 worker 会失效。
+  - 新增 PostgreSQL-backed provider pacing：
+    - table example：`provider_rate_limits(provider, scope, next_allowed_at, last_status, updated_at)`。
+    - 通过 transaction/advisory lock 原子读取和推进 `next_allowed_at`。
+    - 429 时尊重 `Retry-After` 并延长该 provider/scope 的 next allowed time。
+  - 验证：两个并发 worker 同时请求时不会突破最小间隔；429 不会造成请求风暴。
+
+- [ ] **P2.8.6 ingestion 与 derivation 解耦**
+  - option snapshot 写入后只立即计算该 symbol 的 GEX。
+  - `materialize_oi_delta` 和 `materialize_scan` 从“每个 option job 执行一次”改为“每个 worker batch 或独立 derivation job 执行一次”。
+  - 新增 tests：同一 worker batch 处理 N 个 option jobs 时，global OI delta 和 scanner materialization 只执行一次。
+  - 好处：并发补齐多个 symbol 时不会重复重算全局 scanner。
+
+- [ ] **P2.8.7 减少每 symbol 冗余请求**
+  - option provider 请求前优先使用数据库最新 price snapshot 作为 underlying spot；只有缺失或 stale 时才请求 `/v2/aggs/ticker/{symbol}/prev`。
+  - 对同一 symbol 同一轮 refresh 的 price/options/GEX bundle 共用基础价格状态。
+  - 验证：option refresh 不再为每个 symbol 必然额外打一条 stock prev aggregate。
+
+- [ ] **P2.8.8 stale-while-refresh 前端体验**
+  - Analyze：
+    - fresh：正常显示。
+    - stale：显示旧快照并提示“正在刷新，通常 1-3 分钟”，每 5 秒轮询 data-state；刷新完成后自动重新分析。
+    - missing：显示“正在准备首次数据”，不显示 mock 或空策略。
+    - failed：显示可理解错误，不暴露 `price / metrics / metrics_source / options / gex` 内部字段名。
+  - Weekly：
+    - 自定义 symbol 若缺数据，注册并 enqueue；已有 stale 周复盘数据时显示旧版并标记刷新中。
+  - Scan：
+    - scanner batch stale 时仍显示上一批真实候选，并标记 batch age；后台 materialize 完成后刷新列表。
+
+- [ ] **P2.8.9 Railway 承载验证**
+  - PostgreSQL 承载估算：78 symbols × 120 contracts ≈ 9,360 contract rows/轮，批量 upsert 对 Railway PostgreSQL 可接受；真正瓶颈是 provider pacing 和重复派生。
+  - 验证顺序：
+    - Mac Studio 2 worker dry-run：记录 p50/p95 job duration、success/failure、429、DB connection count。
+    - shared limiter 开启后 2 worker live run。
+    - Railway 单独 `polygon-collector` service 2 worker。
+    - 观察后升 4 worker。
+  - 验收指标：
+    - 78-symbol option refresh full pass 从约 195 分钟降到目标 < 60 分钟。
+    - user-requested symbol 首次可用目标 1-3 分钟。
+    - `provider_fetch_jobs` 无 stale `running` 堆积。
+    - 429 被 backoff，不触发连续失败风暴。
+    - scanner materialization 不重复执行 N 次。
+
+测试要求：
+- Collector unit tests：scheduler priority、queue target、cooldown、SKIP LOCKED 多 worker、shared limiter、batch derivation once。
+- Server tests：fresh/stale/missing/queued 状态 contract；Analyze 不因 stale existence 误判 ready；Weekly custom symbol enqueue。
+- Frontend tests：stale old-data display、queued polling refresh、missing no-mock、scanner stale batch labeling。
+- Runtime evidence：记录 command、commit、DB URL environment（不打印 secret）、worker count、symbol count、contracts written、job duration、429 count、scanner rows、GEX rows。
+
+Deployment readiness：
+- 不把 collector 放进 API service；Railway 需要独立 `polygon-collector` service。
+- Mac Studio IB/TT collector 保留为 internal/fallback/ad hoc 路径。
+- 多 worker 上线前必须先合并 shared provider limiter；否则本地 file lock 在 Railway 多实例下无效。
+- 回滚方法：将 worker count 降回 1、queue target 降回 2、关闭 Railway collector service；additive `symbol_data_state` / pacing 表可保留。
 
 **P0 — 最高优先级：全量切换至 Polygon（使用环境变量中的订阅 key）**
 
@@ -1249,6 +1379,362 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 | Tastytrade API | 免费 | IV Rank 过渡期 | 积累 252 天后停 |
 | yfinance | 免费 | 价格历史 / HV / fallback | 长期保留 |
 | **合计** | **~$34/月** | | |
+
+---
+
+## 🛡️ V3A — Product Protection Architecture（商业化前架构调整）
+
+> 目的：把 Quantrift 的核心算法、候选生成、评分逻辑、数据权限和运营状态从浏览器可见层移到后端与数据库受控边界内。这个任务块对应 `docs/QUANTRIFT_IP_PROTECTION.md` 中的产品保护方案，不改变任何交易策略含义，不改变自动交易、下单或持仓逻辑。
+
+### Immediate Priority（现在就应先做）
+
+- [ ] **V3A immediate core**：把 `frontend/src/lib/scanOpportunity.js` 的推荐算法迁到后端，并让 `/api/scan` 停止返回完整合约链。
+  - 先做范围：`V3A-1 Backend Scanner Candidate Engine` + `V3A-3 Remove Raw Option Chain From Normal Scanner API`。
+  - 暂缓范围：认证、限流、数据库角色、审计和更完整的商业化安全边界可在高度商业化前按 `V3A-5` 到 `V3A-8` 分阶段完成。
+  - 完成标准：普通 scanner response 只返回最终 candidate DTO；前端不再包含候选枚举、评分权重和完整策略经济性算法；浏览器拿不到完整 raw option contract chain。
+
+### 当前已确认的问题
+
+- [ ] Scanner 候选生成仍在前端暴露：
+  - 当前证据：`frontend/src/pages/Scan.jsx` 调用 `frontend/src/lib/scanOpportunity.js`。
+  - 当前问题：策略列表、DTE/Delta/spread/OI/Volume 默认参数、评分权重、候选枚举、经济性筛选都随前端 bundle 发送给用户浏览器。
+  - 风险：核心 product logic 可被复制；前端 bundle/minify 不能作为保护边界。
+- [ ] `/api/scan` 仍向浏览器返回过多原始合约数据：
+  - 当前证据：`server/src/routes/scan.js` 聚合并返回 `option_contracts`。
+  - 当前问题：普通 scanner 用户不需要完整 option contract snapshot；他们需要具体候选单、legs、收益风险、解释和数据新鲜度。
+  - 风险：原始链数据和内部筛选空间暴露；也增加前端性能与 UI 复杂度。
+- [ ] Analyze 页部分解释/推荐逻辑仍在前端：
+  - 当前证据：`frontend/src/lib/analyzeData.js` 与页面组件承载部分 narrative / recommendation 拼接。
+  - 当前问题：用户看到的是产品结论，但结论生成逻辑不应放在浏览器端。
+- [ ] Auth/entitlement 仍处于 rollout gate：
+  - 当前证据：`AUTH_ENFORCEMENT_ENABLED=false`。
+  - 当前问题：商业化前可以保留 gate；商业化上线时付费 API 必须 fail closed。
+- [ ] Internal status/operation endpoints 需要拆分：
+  - 当前证据：`/api/status` 暴露 job summary、failures、scanner status、provider usage。
+  - 当前问题：健康检查可以公开；collector/provider/job failure 细节应进入 admin/service-token API。
+- [ ] Provider/source 文案暴露过细：
+  - 当前问题：普通 UI 不需要显示 `polygon_licensed`、`ib_internal`、`tt_internal` 这类内部 provider/source 名。
+  - 目标展示：数据日期、新鲜度、完整度、是否延迟/刷新中；内部 provider 保留给 admin/debug。
+- [ ] API memory cache 是单实例缓存：
+  - 当前证据：`server/src/lib/cache.js` 使用进程内 `Map`。
+  - 当前问题：商业化后多实例部署、rate limit、stale-while-refresh、provider budget accounting 需要共享状态。
+- [ ] Vite sourcemap 与前端 bundle 保护需要显式配置：
+  - 当前证据：`frontend/vite.config.js` 未显式声明 production sourcemap policy。
+  - 当前问题：商业化前应明确 `build.sourcemap=false` 并在 CI 中验证。
+
+### V3A-1 Backend Scanner Candidate Engine
+
+- [ ] 新增后端 domain modules：
+  - `server/src/domain/scanner/candidateEngine.js`
+  - `server/src/domain/scanner/candidateRules.js`
+  - `server/src/domain/scanner/candidateScoring.js`
+  - `server/src/domain/scanner/candidateEconomics.js`
+  - `server/src/domain/scanner/candidateDto.js`
+- [ ] 从 `frontend/src/lib/scanOpportunity.js` 迁移以下逻辑到后端：
+  - supported strategy list；
+  - preset → DTE/Delta/spread/OI/Volume/liquidity/risk 参数映射；
+  - actual contract enumeration；
+  - same-expiry / cross-expiry strategy rules；
+  - credit/debit、max loss、breakeven、return-on-risk；
+  - candidate score；
+  - fail-closed reason；
+  - unique candidate key；
+  - duplicate candidate elimination；
+  - rank/sort default order。
+- [ ] 前端保留内容：
+  - preset selector；
+  - advanced filter inputs；
+  - display labels/tooltips；
+  - selected sort state；
+  - row navigation；
+  - UI-only formatting。
+- [ ] 前端不再包含：
+  - hidden default strategy thresholds；
+  - scoring weights；
+  - candidate enumeration；
+  - complete strategy economics engine；
+  - raw option chain traversal。
+- [ ] API contract：
+  - request：`preset`, `strategyTypes[]`, optional advanced filters, pagination/sort。
+  - response：final candidate DTO only。
+  - response must include：symbol、spot、iv/hv summary、direction、positioning summary、strategy、legs、expiry/DTE、credit/debit、max loss、breakeven、score、reason、freshness、earnings risk。
+  - response must not include：complete `option_contracts` array、provider internal routing、scoring internals、raw provider payload。
+
+### V3A-2 Materialized Candidate Snapshots
+
+- [ ] 新增 PostgreSQL additive tables：
+  - `scanner_candidate_batches`
+  - `scanner_candidate_snapshots`
+- [ ] `scanner_candidate_batches` 字段：
+  - `id`
+  - `scan_key`
+  - `algorithm_version`
+  - `source_snapshot_cutoff`
+  - `universe_count`
+  - `candidate_count`
+  - `started_at`
+  - `completed_at`
+  - `status`
+  - `error`
+- [ ] `scanner_candidate_snapshots` 字段：
+  - `batch_id`
+  - `candidate_key`
+  - `symbol`
+  - `strategy`
+  - `strategy_family`
+  - `expiry`
+  - `dte`
+  - `spot`
+  - `score`
+  - `rank`
+  - `legs_json`
+  - `economics_json`
+  - `signals_json`
+  - `freshness_json`
+  - `created_at`
+- [ ] Additive migration only；不得删除现有 `scanner_results_snapshots`。
+- [ ] Materializer：
+  - 新增 `server/src/jobs/materializeScannerCandidates.js` 或 collector-side equivalent。
+  - 读取 latest option snapshot、GEX snapshot、IV/HV metrics、price trend、earnings。
+  - 写入 batch + candidate rows。
+  - `algorithm_version` 每次改变排序/评分/候选逻辑必须递增。
+- [ ] API read path：
+  - `/api/scan` 或新 `/api/v1/scanner/candidates` 读取 latest completed batch。
+  - stale batch 仍返回真实候选并标记 batch age。
+  - missing batch enqueue materialization job，不同步全市场 provider fetch。
+
+### V3A-3 Remove Raw Option Chain From Normal Scanner API
+
+- [ ] 普通 scanner API 不返回 `option_contracts`。
+- [ ] 新增 internal/admin chain endpoint 或给现有 chain endpoint 加权限：
+  - 用于 debug、coverage、data quality inspection。
+  - 需要 admin/service token 或 authenticated entitlement。
+- [ ] 前端 scanner row 只渲染 backend candidate DTO。
+- [ ] 删除或停用前端对 `row.option_contracts` 的依赖。
+- [ ] 测试必须覆盖：
+  - `/api/scan` response body 不包含 `option_contracts`。
+  - candidate legs 均来自真实 persisted contract snapshot。
+  - 不存在实际合约时不生成策略。
+  - same-expiry 策略不会跨 expiry 拼接。
+  - credit spread 不会用负 credit 伪装成可卖结构。
+
+### V3A-4 Backend Analyze DTO
+
+- [ ] 新增后端 analyze domain：
+  - `server/src/domain/analyze/analyzeDto.js`
+  - `server/src/domain/analyze/scenarioEngine.js`
+  - `server/src/domain/analyze/recommendationEngine.js`
+  - `server/src/domain/analyze/positioningSummary.js`
+- [ ] `/api/analyze/:symbol` 返回统一 product DTO：
+  - header；
+  - data freshness；
+  - key metrics；
+  - GEX/Wall/Gamma Flip；
+  - Q&A；
+  - playbooks；
+  - recommended setup；
+  - unavailable reasons。
+- [ ] 前端 Analyze 只负责展示，不拼接核心结论。
+- [ ] provider/source 对普通用户降级展示：
+  - 显示：`数据更新于 11m 前`、`延迟行情`、`刷新中`、`部分数据缺失`。
+  - 隐藏：`polygon_licensed`、`ib_internal`、`tt_internal`、internal job type。
+- [ ] 保留 admin/debug mode 查看 raw source provenance。
+
+### V3A-5 Auth, Entitlement, And Fail-Closed Production Gate
+
+- [ ] Production auth defaults：
+  - production 环境默认 `AUTH_ENFORCEMENT_ENABLED=true`。
+  - 缺 Clerk/Stripe required env 时 production startup fail closed 或 paid routes 503。
+  - local/dev 可显式关闭 enforcement。
+- [ ] API route classification：
+  - public：`/health`、billing webhook、必要的 landing/public market summary。
+  - authenticated free：account、learn/progress、有限 analyze preview。
+  - paid/pro：scanner candidates、alerts、portfolio、full analyze、weekly depth。
+  - admin/service-token：status detail、provider jobs、raw chain snapshots、heartbeat operations。
+- [ ] Tests：
+  - production env + missing Clerk key 不得开放 paid API。
+  - unauthenticated scanner returns 401/403 when enforcement true。
+  - free user cannot access pro scanner candidates。
+  - admin status requires admin/service token。
+
+### V3A-6 Internal Status And Operational API Separation
+
+- [ ] 保留 `/health` 为 minimal public health：
+  - status ok/error；
+  - no provider details；
+  - no job failure details；
+  - no database table row counts unless safe。
+- [ ] 新增 `/api/admin/status` 或 `/api/internal/status`：
+  - provider usage；
+  - recent failures；
+  - job backlog；
+  - scanner batch age；
+  - option snapshot coverage；
+  - stale/running job diagnostics。
+- [ ] Existing `/api/status/cache`、`/api/status/data`、`/api/status/heartbeat` 需分类：
+  - public product-safe summary；
+  - admin-only operational detail。
+- [ ] Tests：
+  - public status 不泄露 provider internals。
+  - admin status without token fails。
+  - admin status with token passes。
+
+### V3A-7 Database Permission Boundary
+
+- [ ] 拆分数据库 roles：
+  - migration owner：DDL only；
+  - collector writer：insert/upsert snapshots and jobs；
+  - API reader：read product views/candidate snapshots；
+  - admin/service：operational status and controlled maintenance。
+- [ ] Normal API 不直接拥有 raw provider payload write permissions。
+- [ ] Product-facing SQL 优先读 views/materialized product tables：
+  - `scanner_candidate_snapshots`
+  - `symbol_data_state`
+  - `gex_snapshots`
+  - derived read models。
+- [ ] Tests/deployment checks：
+  - API role cannot write raw option snapshots。
+  - collector role cannot read user billing data。
+  - migration role credentials never configured in runtime API service。
+
+### V3A-8 Shared Cache And Rate Limit Layer
+
+- [ ] 引入 Redis/Upstash 或 PostgreSQL-backed shared state：
+  - API response cache；
+  - per-user/IP rate limits；
+  - provider budget/rate coordination；
+  - stale-while-refresh polling state。
+- [ ] 保留 PostgreSQL 为 source of truth；Redis 只做 cache/coordination。
+- [ ] Rate limits：
+  - anonymous/public endpoints tight。
+  - authenticated free tier bounded。
+  - paid tier higher。
+  - admin/service tokens separately limited。
+- [ ] Anti-enumeration：
+  - unknown symbol requests require debounce/cooldown。
+  - bulk scanner export not exposed through public API。
+  - pagination limits enforced server-side。
+- [ ] Tests：
+  - repeated unknown symbol requests do not enqueue unlimited jobs。
+  - scanner pagination limit cannot be bypassed。
+  - stale cache is labeled, not silently treated as fresh。
+
+### V3A-9 Frontend Production Hardening
+
+- [ ] `frontend/vite.config.js` production build explicitly sets `build.sourcemap=false`。
+- [ ] CI/build verification checks no `.map` files in production artifact。
+- [ ] Remove unused mock modules from production import graph：
+  - `frontend/src/data/weeklyMock.js` 已删除；继续检查其他 mock imports。
+  - Any remaining examples must be clearly educational/demo route only。
+- [ ] Security headers:
+  - CSP appropriate for Vercel/Clerk/Stripe。
+  - `X-Content-Type-Options`。
+  - `Referrer-Policy`。
+  - `Permissions-Policy`。
+- [ ] Do not display internal source names in normal product UI。
+- [ ] Tests:
+  - production build contains no source maps。
+  - scanner/analyze UI does not render `polygon_licensed` / `ib_internal` / `tt_internal` for normal user mode。
+
+### V3A-10 Worker And Runtime Boundaries
+
+- [ ] Keep deployment units separated:
+  - Vercel：frontend only。
+  - Railway API：Express API only。
+  - Railway worker/scheduler：Polygon/data materialization only。
+  - Mac Studio：IB Gateway internal collector only。
+  - PostgreSQL：snapshots/read models/jobs/user data。
+  - Redis/shared cache：rate limit/cache/coordination。
+- [ ] API service must not run collector loops。
+- [ ] User request must not synchronously depend on Mac Studio。
+- [ ] Provider jobs:
+  - `ingest_option_chain`
+  - `derive_gex`
+  - `derive_oi_delta`
+  - `materialize_scanner_candidates`
+  - `materialize_analyze_summary`
+  - `materialize_weekly_summary`
+- [ ] Job records must include:
+  - input snapshot id；
+  - algorithm version；
+  - provider；
+  - dedupe key；
+  - priority；
+  - retry/backoff state。
+
+### V3A-11 Rollout Plan
+
+- [ ] Step 1：后端实现 candidate engine，与前端当前 `scanOpportunity.js` shadow compare。
+- [ ] Step 2：写入 `scanner_candidate_snapshots`，但 `/api/scan` 暂不切流。
+- [ ] Step 3：增加 API contract tests，确保 candidate DTO 完整且不返回 raw chain。
+- [ ] Step 4：前端 Scanner 改读 backend candidate DTO。
+- [ ] Step 5：删除前端 candidate enumeration/scoring 依赖。
+- [ ] Step 6：Analyze recommendation/narrative 迁移到 backend DTO。
+- [ ] Step 7：internal status/admin endpoint 拆分。
+- [ ] Step 8：production auth fail-closed gate。
+- [ ] Step 9：DB role split 与 deployment secret rotation。
+- [ ] Step 10：Redis/shared limiter/rate limit 接入。
+
+### V3A-12 Verification Requirements
+
+- [ ] Unit tests：
+  - strategy rule mapping；
+  - DTE/Delta/spread/OI/Volume gates；
+  - same-expiry validation；
+  - credit/debit economics；
+  - scoring order；
+  - duplicate candidate elimination；
+  - fail-closed missing legs。
+- [ ] API tests：
+  - scanner returns candidate DTO；
+  - scanner does not return `option_contracts`；
+  - stale batch returns old real candidates with stale flag；
+  - missing batch enqueues materialization；
+  - auth/entitlement gates paid endpoints。
+- [ ] Frontend tests：
+  - scanner renders backend DTO；
+  - sorting works after repeated clicks；
+  - no raw source names in normal UI；
+  - stale/queued/missing UX stays user-friendly。
+- [ ] Build/security tests：
+  - no source maps in production artifact；
+  - no frontend import of candidate scoring engine；
+  - no secrets in bundle；
+  - route entitlement matrix passes。
+- [ ] Runtime evidence：
+  - command；
+  - git commit；
+  - algorithm version；
+  - candidate batch id；
+  - candidate count；
+  - symbols covered；
+  - stale count；
+  - response payload sample without raw chain；
+  - rollback command/path。
+
+### V3A-13 Rollback
+
+- [ ] Candidate engine rollout must be reversible:
+  - keep old `scanner_results_snapshots` read path until backend candidate DTO is verified。
+  - feature flag：`SCANNER_CANDIDATE_ENGINE_ENABLED`。
+  - rollback：disable flag and read previous scanner materialized rows。
+- [ ] Additive DB tables can remain after rollback。
+- [ ] Auth enforcement rollback:
+  - local/dev can set `AUTH_ENFORCEMENT_ENABLED=false`。
+  - production rollback must be explicit and documented because it changes commercial access control。
+- [ ] Frontend rollback:
+  - keep UI compatible with backend DTO and previous scanner row shape for one release if needed。
+
+### V3A-14 Deployment Readiness
+
+- [ ] Do not deploy commercial paid launch until:
+  - scanner candidate generation no longer runs in frontend；
+  - normal scanner API no longer returns raw option contracts；
+  - paid APIs are auth/entitlement gated；
+  - internal status/provider details are admin-only；
+  - production sourcemaps are disabled；
+  - data freshness/stale/queued states are visible to users；
+  - rollback flag and previous read path are verified。
 
 ---
 
