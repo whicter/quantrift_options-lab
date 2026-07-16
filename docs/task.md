@@ -810,7 +810,16 @@
   - Rollback：`pm2 delete quantrift-options-collector quantrift-options-prices` 停止新 runtime；代码使用后续 commit 的 revert 回退。数据库 snapshot 为 append-only，本任务没有破坏性 schema migration。
   - Done：实现、单元测试、前端测试/build、真实 IB 采集、数据库 identity/completeness、GEX/OI delta/scanner 下游闭环均已验证。
 - [x] 按 bounded batches 自动扩展完整 scanner ingestion pool：PM2 scheduler/worker 已运行并持续补 missing/stale snapshots。
-- [ ] 增加 collector coverage/failure alert：对 covered_count、failed_count、snapshot age 和 completeness 阈值发送 operator alert。
+- ✅ 增加 collector coverage/failure alert（2026-07-15）：
+  - `collector/check_collector_health.py` 每轮计算 covered_count/coverage_pct、24h failed_count、snapshot age、completeness
+  - 阈值由 `HEALTH_MIN_COVERAGE_PCT`、`HEALTH_MAX_FAILED_24H`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES`、`HEALTH_MIN_COMPLETENESS_PCT` 配置
+  - `collector_health_alerts` 保存 fingerprint、active/resolved、last_seen、last_notified；`HEALTH_ALERT_COOLDOWN_MINUTES` 防止重复轰炸
+  - `collector/operator_alerts.py` 支持 webhook、SMTP；未配置外部 channel 时结构化 log，不假装发送成功
+  - daemon 默认每 300 秒运行，可用 `COLLECTOR_HEALTH_CHECK_ENABLED=false` 回滚关闭
+  - Tests：collector 49 tests passed；覆盖 healthy、coverage、failed jobs、stale、completeness、metadata-only、cooldown/fingerprint、log fallback、PM2 wiring
+  - Migration：Railway `collector_health_alerts` 表已创建
+  - Runtime：67 expected / 67 covered / 0 stale / 0 incomplete；24h historical failed jobs=31 触发 1 个 active critical alert；第二次运行 `notify=False`，证明 cooldown dedupe 生效
+  - 外部通知：当前 SMTP/webhook 均未配置，因此 runtime 只写 PM2 log；配置 secret 后无需改代码
 
 ---
 

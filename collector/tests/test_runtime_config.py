@@ -8,6 +8,7 @@ class RuntimeConfigTests(unittest.TestCase):
         config = config_path.read_text(encoding='utf-8')
 
         self.assertIn("OPTION_REFRESH_PROVIDER: 'polygon_licensed'", config)
+        self.assertIn("COLLECTOR_HEALTH_CHECK_ENABLED: 'true'", config)
         self.assertNotIn('POLYGON_API_KEY:', config)
 
 

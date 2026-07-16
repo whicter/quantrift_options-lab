@@ -1270,6 +1270,9 @@ Operational rules:
 - Scanner results should be precomputed and cached; avoid full-market scans in request path.
 - Secrets：`POLYGON_API_KEY` 等 provider credentials 只放在 Mac Studio `collector/.env` 或部署平台 secret store；禁止写入 `ecosystem.config.cjs`、文档或 Git。修改 secret 后使用 PM2 reload/update-env 并验证 provider health，不打印 secret 值。
 - Pre-deploy regression：`cd collector && venv311/bin/python -m unittest discover -s tests -p 'test_*.py'`，然后 `cd ../server && npm test`；后者验证 `/api/gex` fresh/missing/stale 不同步调用 provider。
+- Collector health env：`COLLECTOR_HEALTH_CHECK_ENABLED=true`、`COLLECTOR_HEALTH_CHECK_SECONDS=300`、`HEALTH_MIN_COVERAGE_PCT=95`、`HEALTH_MAX_FAILED_24H=0`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES=180`、`HEALTH_MIN_COMPLETENESS_PCT=75`、`HEALTH_ALERT_COOLDOWN_MINUTES=60`。
+- Operator channel：配置 `ALERT_WEBHOOK_URL` 或完整 SMTP (`SMTP_HOST/PORT/USER/PASS` + `ALERT_EMAIL`)；均缺失时只写 PM2 warning log。用 `SELECT status, last_seen_at, last_notified_at FROM collector_health_alerts` 验证 dedupe/resolution。
+- 2026-07-15 runtime：health checker 已由 `quantrift-options-collector` 每 300 秒执行，Railway 已记录 active alert；随后执行 `pm2 save`，当前进程与 health env 已写入 `/Users/congrenhan/.pm2/dump.pm2`。
 - Scanner UI must convert cached rows plus actual quoted contracts into complete actionable candidates. `不限` applies no hidden preset and enumerates the current 1-90 DTE ingestion window; named presets explicitly narrow it. Do not expose snapshot DTE ranges or fixed placeholder POP as recommendations.
 - Candidate deployment acceptance：the row shows an exact expiry/DTE, actual legs, executable-side credit/debit, max loss, breakeven and opportunity score; incomplete/non-positive-credit structures are absent.
 - `不限` acceptance：one symbol may produce multiple rows; all qualifying supported strategies/expiries/strikes are returned, while strategy chips narrow the enumeration explicitly.

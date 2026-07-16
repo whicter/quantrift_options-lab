@@ -242,6 +242,21 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS provider_request_usage_provider_date
       ON provider_request_usage (provider, usage_date DESC);
 
+    CREATE TABLE IF NOT EXISTS collector_health_alerts (
+      id                BIGSERIAL PRIMARY KEY,
+      fingerprint       TEXT        NOT NULL UNIQUE,
+      status            TEXT        NOT NULL DEFAULT 'active',
+      payload           JSONB       NOT NULL DEFAULT '{}',
+      first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_notified_at  TIMESTAMPTZ,
+      resolved_at       TIMESTAMPTZ,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS collector_health_alerts_status_seen
+      ON collector_health_alerts (status, last_seen_at DESC);
+
     CREATE TABLE IF NOT EXISTS scanner_results_snapshots (
       id                         BIGSERIAL PRIMARY KEY,
       scan_key                   TEXT        NOT NULL DEFAULT 'watchlist_v1',

@@ -68,7 +68,8 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Collector health/coverage alert：监控 queue、失败率、snapshot age 和 required-field completeness
-2. Polygon price history + derived HV/ATM IV/IV Rank readiness
-3. Scanner/Analyze/universe product completion
-4. Production auth/subscription/paywall
+1. Polygon price history + derived HV/ATM IV/IV Rank readiness
+2. Scanner/Analyze/universe product completion
+3. Production auth/subscription/paywall
+
+Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

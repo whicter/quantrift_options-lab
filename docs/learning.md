@@ -435,3 +435,11 @@ V1 公式：
 - 回归要求：server 默认 provider 必须属于 server supported set，也必须出现在 worker supported set；placeholder provider 必须被拒绝。
 - GEX 最低测试矩阵：Call 正/Put 负 exposure、walls 位于 spot 正确一侧、gamma flip 插值和 nearest-zero fallback、PCR denominator=0、confidence high/medium/low。
 - API 最低测试矩阵：seeded snapshot 返回完整字段；missing enqueue 后返回 missing；stale 返回旧数据并只异步 enqueue，不允许请求路径调用 provider。
+
+### 12. Health endpoint 不等于 operator alert
+
+- `/api/status/cache` 只能在有人主动查看时暴露 degraded；它不会主动通知，也不保存同一故障是否已经通知。
+- Collector health check 必须复用明确阈值，并把 issue code + affected symbols 做 fingerprint。否则每 5 分钟发一封相同邮件会让告警失效。
+- Snapshot 表里“有 row”不等于 covered：`contract_count=0`、`metadata_only`、stale、低 completeness 必须分别判断。
+- 告警本身不得阻断采集。Webhook/SMTP 失败写 error 并降级到日志；collector 下一轮继续运行。
+- Runtime 证据：67/67 snapshot coverage、0 stale、0 incomplete；31 个 24h 历史 failed jobs 触发一次 alert，第二次检查被 cooldown 正确抑制。

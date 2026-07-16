@@ -7,12 +7,15 @@ import time
 import materialize_scan
 import run_refresh_worker
 import schedule_option_refresh
+import check_collector_health
 
 
 POLL_SECONDS = max(int(os.getenv('COLLECTOR_POLL_SECONDS', '60')), 5)
 SCAN_SECONDS = max(int(os.getenv('SCAN_MATERIALIZE_SECONDS', '300')), POLL_SECONDS)
 OPTION_REFRESH_SECONDS = max(int(os.getenv('OPTION_REFRESH_SCHEDULE_SECONDS', '300')), POLL_SECONDS)
 AUTO_OPTION_REFRESH = os.getenv('OPTION_AUTO_REFRESH', 'false').strip().lower() in ('1', 'true', 'yes')
+HEALTH_CHECK_ENABLED = os.getenv('COLLECTOR_HEALTH_CHECK_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
+HEALTH_CHECK_SECONDS = max(int(os.getenv('COLLECTOR_HEALTH_CHECK_SECONDS', '300')), POLL_SECONDS)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +30,7 @@ for logger_name in ('ibapi', 'ibapi.client', 'ibapi.wrapper', 'ibapi.decoder'):
 def run() -> None:
     next_scan_at = 0.0
     next_option_refresh_at = 0.0
+    next_health_check_at = 0.0
     while True:
         started_at = time.monotonic()
         if AUTO_OPTION_REFRESH and started_at >= next_option_refresh_at:
@@ -47,6 +51,13 @@ def run() -> None:
             except Exception:
                 log.exception('scanner materialization cycle failed')
             next_scan_at = started_at + SCAN_SECONDS
+
+        if HEALTH_CHECK_ENABLED and started_at >= next_health_check_at:
+            try:
+                check_collector_health.run()
+            except Exception:
+                log.exception('collector health check cycle failed')
+            next_health_check_at = started_at + HEALTH_CHECK_SECONDS
 
         elapsed = time.monotonic() - started_at
         time.sleep(max(POLL_SECONDS - elapsed, 1))

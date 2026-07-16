@@ -771,6 +771,13 @@ Phase 3D-6 verification contract：
 - `/api/gex/:symbol` fresh/missing/stale tests verify snapshot-first behavior; missing/stale only enqueue refresh jobs.
 - API refresh default is `polygon_licensed` and must remain executable by the collector worker.
 
+Collector health semantics：
+- `coverage_below_threshold`：watchlist 中缺少可用 contract snapshot；empty/metadata-only 不算 covered。
+- `failed_jobs_above_threshold`：最近 24h failed refresh jobs 超阈值。
+- `snapshot_age_above_threshold`：latest snapshot age 超阈值。
+- `completeness_below_threshold`：latest snapshot completeness 缺失或低于阈值。
+- 相同 issue/symbol 集合生成稳定 fingerprint；cooldown 内不重复通知，健康恢复后状态写为 resolved，再次复发会重新通知。
+
 Phase 3D-7 licensed provider evaluation：
 
 | Provider candidate | Why it fits | Open questions | Current decision |

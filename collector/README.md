@@ -40,6 +40,8 @@ venv311/bin/python collect.py
 
 Price history uses `PRICE_PROVIDER=ib_internal` by default. This requires local IB Gateway and `ibapi`.
 
+Collector health checks run inside `run_collector_daemon.py` every 300 seconds by default. They evaluate option coverage, 24h failed jobs, snapshot age and completeness, then persist deduplicated events in `collector_health_alerts`. Configure `ALERT_WEBHOOK_URL` or SMTP variables for external delivery; without them alerts remain visible in PM2 logs. Set `COLLECTOR_HEALTH_CHECK_ENABLED=false` to disable the check without changing collection.
+
 ```bash
 venv311/bin/python collect_prices.py
 ```
