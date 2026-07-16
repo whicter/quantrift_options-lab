@@ -381,6 +381,7 @@ V1 公式：
 - **Confirmed from runtime output**：一次 TT `POST /sessions` 返回 201 后，紧接着使用旧 remember-token 的 collector 请求返回 401。响应模型包含 session-token 与 remember-token 字段。
 - **Root cause**：旧 collector 只缓存 session-token，丢弃成功响应内的 successor remember-token；one-shot cron 的下一次启动因此拿到旧状态。
 - **Fix**：以 PostgreSQL `provider_auth_state` 为唯一 token state。collector 先取得 transaction advisory lock；201 后原子提交 provider 返回的 successor（无 successor 则提交当前 token）；401/403/网络失败 rollback，不进行密码 fallback 或任意 token rotation。
+- **Recovery correction**：Railway 已配置的 `TT_REMEMBER_TOKEN` 与数据库状态可能不同。只有数据库 token 收到明确的 401/403、且 configured seed 不同，collector 才在同一锁内用该 seed 额外交换一次；成功才覆盖旧 row。相同 token、网络错误和密码登录绝不重试。
 - **Deployment lesson**：Railway cron 容器是短生命周期，持久状态应在数据库而不是 `/data` Volume。但“共享”以同一 `DATABASE_URL` 为前提：本机手动登录写入的 seed 不会自动出现在另一个 Railway PostgreSQL binding。Railway 空状态必须由它自己的 `TT_REMEMBER_TOKEN` bootstrap；成功 exchange 后才写回 successor，无需反复更新 Railway Variables。
 
 ### 7. cron/LaunchAgent runtime copy 造成“改了代码但运行的不是这份”

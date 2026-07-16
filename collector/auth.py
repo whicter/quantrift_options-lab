@@ -31,6 +31,10 @@ class TokenStateError(RuntimeError):
     """Raised when durable provider authentication state cannot be used."""
 
 
+class RememberTokenRejected(ValueError):
+    """Raised when Tastytrade explicitly rejects a remember token."""
+
+
 def _headers(session_token=None):
     h = {
         'Content-Type': 'application/json',
@@ -87,8 +91,10 @@ def renew_session(remember_token):
         data = resp.json()['data']
         return data['session-token'], data.get('remember-token')
 
-    # 401 means remember-token expired → need manual re-login
-    raise ValueError(f'remember-token renewal failed: {resp.status_code} {resp.text}')
+    message = f'remember-token renewal failed: {resp.status_code} {resp.text}'
+    if resp.status_code in (401, 403):
+        raise RememberTokenRejected(message)
+    raise ValueError(message)
 
 
 def _database_url():
@@ -167,7 +173,19 @@ def get_session_token():
         conn, remember_token = _acquire_remember_token_state()
         if not remember_token:
             raise TokenStateError('No TT_REMEMBER_TOKEN seed is available; run `python auth.py --login` first.')
-        session_token, replacement_token = renew_session(remember_token)
+        try:
+            session_token, replacement_token = renew_session(remember_token)
+        except RememberTokenRejected:
+            # A Railway deployment may retain an older database token while its
+            # TT_REMEMBER_TOKEN variable has been replaced with a fresh seed.
+            # Use that seed only for this explicit credential rejection, never
+            # for transient failures and never when it is the same token.
+            bootstrap_token = os.getenv('TT_REMEMBER_TOKEN', '').strip()
+            if not conn or not bootstrap_token or bootstrap_token == remember_token:
+                raise
+            print('[AUTH] Database remember token rejected; trying configured recovery seed once.')
+            session_token, replacement_token = renew_session(bootstrap_token)
+            remember_token = bootstrap_token
         persisted_token = replacement_token or remember_token
         if conn:
             _store_database_remember_token(conn, persisted_token)

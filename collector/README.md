@@ -32,6 +32,13 @@ python auth.py --login
 # remember-token is saved to .env automatically
 ```
 
+When `DATABASE_URL` is configured, `provider_auth_state` is the durable token
+state. A successful renewal atomically writes any provider-supplied successor.
+If that stored token receives an explicit 401/403 and the configured
+`TT_REMEMBER_TOKEN` is different, the collector tries that configured recovery
+seed once and commits it only after a successful exchange. It never retries a
+password login or transient/network failures.
+
 ## Test Collection
 
 ```bash

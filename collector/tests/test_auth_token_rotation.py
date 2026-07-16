@@ -98,6 +98,60 @@ class AuthTokenRotationTest(unittest.TestCase):
         conn.commit.assert_not_called()
         conn.close.assert_called_once()
 
+    def test_rejected_database_token_recovers_once_with_distinct_configured_seed(self):
+        rejected = Mock()
+        rejected.status_code = 401
+        rejected.text = 'invalid credentials'
+        recovered = Mock()
+        recovered.status_code = 201
+        recovered.json.return_value = {
+            'data': {'session-token': 'session-2', 'remember-token': 'successor-token'}
+        }
+        conn = MagicMock()
+        cursor = Mock()
+        cursor.fetchone.return_value = ('old-database-token',)
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        with patch.dict(os.environ, {
+            'DATABASE_URL': 'postgres://example',
+            'TT_LOGIN': 'user@example.com',
+            'TT_REMEMBER_TOKEN': 'configured-recovery-seed',
+        }, clear=False), \
+             patch('auth.psycopg2.connect', return_value=conn), \
+             patch('auth.requests.post', side_effect=[rejected, recovered]) as post:
+            self.assertEqual(auth.get_session_token(), 'session-2')
+
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(post.call_args_list[0].kwargs['json']['remember-token'], 'old-database-token')
+        self.assertEqual(post.call_args_list[1].kwargs['json']['remember-token'], 'configured-recovery-seed')
+        self.assertEqual(cursor.execute.call_args_list[2].args[1], ('tastytrade', 'successor-token'))
+        conn.commit.assert_called_once()
+        conn.rollback.assert_not_called()
+
+    def test_rejected_database_token_does_not_retry_the_same_configured_seed(self):
+        rejected = Mock()
+        rejected.status_code = 401
+        rejected.text = 'invalid credentials'
+        conn = MagicMock()
+        cursor = Mock()
+        cursor.fetchone.return_value = ('same-token',)
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        with patch.dict(os.environ, {
+            'DATABASE_URL': 'postgres://example',
+            'TT_LOGIN': 'user@example.com',
+            'TT_REMEMBER_TOKEN': 'same-token',
+        }, clear=False), \
+             patch('auth.psycopg2.connect', return_value=conn), \
+             patch('auth.requests.post', return_value=rejected) as post, \
+             patch('auth.send_alert_email'):
+            with self.assertRaises(SystemExit):
+                auth.get_session_token()
+
+        post.assert_called_once()
+        conn.rollback.assert_called_once()
+        conn.commit.assert_not_called()
+
     def test_database_write_failure_rolls_back_after_successful_exchange(self):
         response = Mock()
         response.status_code = 201
