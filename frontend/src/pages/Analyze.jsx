@@ -341,8 +341,7 @@ function UnavailableOptionsPanel({ symbol }) {
 
 function buildMissingMessage(symbol, status, onDemand) {
   if (onDemand?.status === 'queued') {
-    const missing = Object.entries(onDemand.coverage || {}).filter(([, ready]) => !ready).map(([key]) => key).join(' / ');
-    return `${symbol} 数据已进入采集队列（${missing || '缺失字段'}），预计 ${onDemand.estimated_wait || '~5-10min'}。完成后重新分析即可。`;
+    return `${symbol} 正在补齐价格与期权数据，通常 ${onDemand.estimated_wait || '~1-3min'}。完成后重新分析即可。`;
   }
   if (!status) {
     return `暂无 ${symbol} 的真实数据。数据覆盖状态暂时不可用，请稍后再试。`;
@@ -537,7 +536,7 @@ export default function Analyze() {
           {result.onDemandStatus?.status === 'queued' && (
             <PartialDataNotice partialData={{
               title: '后台数据补全中',
-              message: `${result.symbol} 的缺失价格、指标或期权快照已进入队列，预计 ${result.onDemandStatus.estimated_wait || '~5-10min'}。当前页面继续展示已存在的数据。`,
+              message: `${result.symbol} 正在补齐价格与期权数据，通常 ${result.onDemandStatus.estimated_wait || '~1-3min'}。当前页面继续展示已存在的数据。`,
             }} />
           )}
           {result.onDemandStatus?.blockers?.length > 0 && (

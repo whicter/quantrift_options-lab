@@ -1145,7 +1145,7 @@ P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additiv
 - 现有 `provider_fetch_jobs` 队列已支持按需 enqueue
 - 当前 `/api/gex/:symbol` 对未采集标的返回 `freshness=missing`
 - ✅ API 对未知标的注册 persistent universe，并 enqueue metrics/price/options/GEX/scanner bundle；返回 product-level ready/queued/blocked
-- ✅ 前端显示数据采集状态、已有 partial products 与 non-retryable blocker；PostgreSQL snapshot 是缓存层
+- ✅ 前端显示数据采集状态、已有 partial products 与 non-retryable blocker；PostgreSQL snapshot 是缓存层。按需 refresh worker 每 60 秒取队列，产品提示采用通常 `~1-3min`，不向用户暴露 `price / metrics / options / gex` 内部字段名。
 - 无需为此修改数据库 schema
 
 ---

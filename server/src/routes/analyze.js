@@ -3,6 +3,7 @@ const pool = require('../db');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 
 const router = express.Router();
+const ON_DEMAND_ESTIMATED_WAIT = '~1-3min';
 
 function normalizeSymbol(value) {
   return String(value || '').trim().toUpperCase();
@@ -79,7 +80,7 @@ async function sendAnalyzeStatus(req, res) {
       },
       refresh,
       queue_depth: coverage.queue_depth,
-      estimated_wait: queued ? '~5-10min' : null,
+      estimated_wait: queued ? ON_DEMAND_ESTIMATED_WAIT : null,
       blockers: coverage.metrics_blocked ? [{ field: 'metrics', reason: coverage.metrics_last_error }] : [],
     });
   } catch (err) {

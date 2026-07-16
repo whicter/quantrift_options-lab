@@ -30,7 +30,7 @@ test('unknown symbol is registered and enqueues the complete data bundle', async
   const res = responseRecorder();
   await sendAnalyzeStatus({ params: { symbol: 'new1' } }, res);
   assert.equal(res.body.status, 'queued');
-  assert.equal(res.body.estimated_wait, '~5-10min');
+  assert.equal(res.body.estimated_wait, '~1-3min');
   assert.deepEqual(refreshCalls.map(call => call.jobType), [
     'price_history_snapshot', 'symbol_metrics_snapshot', 'option_chain_snapshot',
   ]);

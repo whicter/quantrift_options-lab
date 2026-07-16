@@ -1173,7 +1173,7 @@ Runtime evidence：
 
 The scanner is no longer bounded by the visible 67-symbol watchlist. `symbol_universe` persists all known symbols and on-demand registrations. `sync_universe.py` imports the legacy watchlist plus symbols already known to price, IV and option tables; `materialize_scan.py` reads active/scannable registry rows.
 
-`GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
+`GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. The refresh worker polls every 60 seconds; the user-facing pending state says that data is being prepared and normally completes in `~1-3min`, without exposing internal coverage field names. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
 
 Universe filter semantics:
 - price and underlying share/dollar volume use latest persisted OHLCV;
