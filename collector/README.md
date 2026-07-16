@@ -137,8 +137,8 @@ The diagnostic output prints raw `tickPrice`, `tickSize`, `tickOptionComputation
 Default option-chain scope:
 
 - Symbols: `watchlist.txt` by default; `OPTION_SYMBOLS=NBIS,PLTR` narrows a targeted run.
-- DTE buckets: `OPTION_DTE_BUCKETS=0-14,30-60,60-90`
-- Expirations: `OPTION_MAX_EXPIRATIONS_PER_BUCKET=1`, so the collector samples short-term, standard premium, and farther-dated contracts instead of exhausting the cap on the first available expiration.
+- DTE buckets: `OPTION_DTE_BUCKETS=0-14,15-29,30-45,46-60,61-90`
+- Expirations: `OPTION_MAX_EXPIRATIONS_PER_BUCKET=2`; Polygon performs one bounded 30–45 DTE supplement when initial pagination lacks that bucket, so near-term contracts cannot consume the ATM-IV history window.
 - Contracts: IB `reqContractDetails` returns the actual contracts for each selected expiry/right. The collector filters those returned contracts around spot and never creates expiry x strike x right combinations locally.
 - Contract caps: `OPTION_MAX_CONTRACTS=240` global safety cap and `OPTION_MAX_CONTRACTS_PER_EXPIRATION=80` per-expiration cap.
 - Source label: `ib_internal`
@@ -184,7 +184,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 ```
 
 - `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects at most two missing/old watchlist symbols, enqueues option refreshes, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds.
-- Auto-refresh uses `tt_internal` first and the worker's `ib_internal` fallback. A recent failed attempt gets a 30-minute cooldown, so auth/network failures do not create a login/request storm.
+- Auto-refresh uses `polygon_licensed`. A recent failed attempt gets a 30-minute cooldown, so provider failures do not create a request storm.
 - `quantrift-options-prices`: runs `collect_prices.py` at `13:35 America/Los_Angeles` Monday-Friday.
 - Both processes use this repository's `collector/venv311` and `collector/.env`.
 - `IB_MARKET_DATA_TYPE=3` accepts delayed market data for the current pipeline.
@@ -195,6 +195,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `collect.py` — IV collector (Tastytrade → PostgreSQL)
 - `collect_prices.py` — OHLCV collector (provider adapter → PostgreSQL)
 - `collect_options.py` — bounded option-chain snapshot collector
+- `derive_volatility.py` — Polygon-only HV30/60/90 and 30–45 DTE ATM IV history; IV Rank remains not-ready before 252 market-day observations
 - `materialize_oi_delta.py` — contract-level OI delta materializer
 - `materialize_scan.py` — scanner cache materializer, PostgreSQL snapshot input only
 - `run_refresh_worker.py` — queued refresh worker and provider budget gate
@@ -214,5 +215,5 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Source: `tastytrade`
 - Cron installed on Mac Studio: `30 13 * * 1-5`
 - Price history pipeline implemented: provider adapter → `price_history` → `/api/prices/:symbol`
-- Option positioning schema/API implemented: provider adapter → `option_chain_snapshots` → `/api/options/:symbol/snapshot`
-- IB option-chain adapter is internal only and must be replaced by a licensed provider before public product use.
+- Option positioning schema/API implemented: Polygon provider adapter → `option_chain_snapshots` → `/api/options/:symbol/snapshot`
+- Derived volatility runtime verified at 67/67 HV and 67/67 ATM coverage. DTE/observation dates use `America/New_York`, not UTC date truncation.

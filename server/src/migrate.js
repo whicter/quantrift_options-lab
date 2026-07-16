@@ -67,6 +67,37 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS price_history_30m_ts
       ON price_history_30m (bar_ts DESC);
 
+    CREATE TABLE IF NOT EXISTS volatility_history (
+      id                    BIGSERIAL PRIMARY KEY,
+      symbol                TEXT        NOT NULL,
+      metric_date           DATE        NOT NULL,
+      hv30                  NUMERIC(10,6),
+      hv60                  NUMERIC(10,6),
+      hv90                  NUMERIC(10,6),
+      hv30_observations     INTEGER,
+      hv60_observations     INTEGER,
+      hv90_observations     INTEGER,
+      atm_iv                NUMERIC(10,6),
+      atm_expiry            DATE,
+      atm_strike            NUMERIC(14,4),
+      atm_dte               INTEGER,
+      atm_snapshot_id       BIGINT,
+      iv_rank               NUMERIC(6,2),
+      iv_percentile         NUMERIC(6,2),
+      iv_observation_count  INTEGER     NOT NULL DEFAULT 0,
+      iv_rank_ready         BOOLEAN     NOT NULL DEFAULT FALSE,
+      hv_source             TEXT,
+      iv_source             TEXT,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (symbol, metric_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS volatility_history_symbol_date
+      ON volatility_history (symbol, metric_date DESC);
+    CREATE INDEX IF NOT EXISTS volatility_history_rank_ready
+      ON volatility_history (iv_rank_ready, metric_date DESC);
+
     CREATE TABLE IF NOT EXISTS scanner_configs (
       id          SERIAL PRIMARY KEY,
       name        TEXT,
@@ -290,6 +321,14 @@ async function migrate() {
       iv_rank                    NUMERIC(6,2),
       iv_percentile              NUMERIC(6,2),
       iv_hv_diff                 NUMERIC(8,4),
+      atm_iv                     NUMERIC(10,6),
+      atm_expiry                 DATE,
+      atm_strike                 NUMERIC(14,4),
+      iv_source                  TEXT,
+      hv_source                  TEXT,
+      iv_rank_source             TEXT,
+      iv_rank_ready              BOOLEAN     NOT NULL DEFAULT FALSE,
+      iv_observation_count       INTEGER     NOT NULL DEFAULT 0,
       earnings_date              DATE,
       price_close                NUMERIC(12,4),
       price_date                 DATE,
@@ -356,6 +395,16 @@ async function migrate() {
       ADD COLUMN IF NOT EXISTS max_oi_delta BIGINT,
       ADD COLUMN IF NOT EXISTS max_volume_oi_ratio NUMERIC(12,6),
       ADD COLUMN IF NOT EXISTS unusual_status TEXT NOT NULL DEFAULT 'missing';
+
+    ALTER TABLE scanner_results_snapshots
+      ADD COLUMN IF NOT EXISTS atm_iv NUMERIC(10,6),
+      ADD COLUMN IF NOT EXISTS atm_expiry DATE,
+      ADD COLUMN IF NOT EXISTS atm_strike NUMERIC(14,4),
+      ADD COLUMN IF NOT EXISTS iv_source TEXT,
+      ADD COLUMN IF NOT EXISTS hv_source TEXT,
+      ADD COLUMN IF NOT EXISTS iv_rank_source TEXT,
+      ADD COLUMN IF NOT EXISTS iv_rank_ready BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS iv_observation_count INTEGER NOT NULL DEFAULT 0;
   `);
 
   console.log('Migrations complete.');

@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 DB_URL = os.getenv('DATABASE_URL')
 SCAN_KEY = os.getenv('SCAN_KEY', 'watchlist_v1')
 OPTIONS_STALE_MINUTES = int(os.getenv('OPTIONS_STALE_MINUTES', '15'))
+USE_DERIVED_VOLATILITY = os.getenv('USE_DERIVED_VOLATILITY', 'true').strip().lower() in ('1', 'true', 'yes')
 
 
 def load_symbols():
@@ -51,13 +52,39 @@ def fetch_rows(conn, symbols):
             WITH watchlist AS (
               SELECT UNNEST(%s::text[]) AS symbol
             ),
+            settings AS (
+              SELECT %s::boolean AS use_derived
+            ),
             latest_iv AS (
               SELECT DISTINCT ON (symbol)
-                symbol, date, iv30, hv30, iv_rank, iv_percentile, iv_hv_diff,
-                earnings_date, source
+                symbol, date, iv30, hv30, hv60, hv90, iv_rank, iv_percentile,
+                iv_hv_diff, earnings_date, source
               FROM iv_history
               WHERE symbol = ANY(%s)
               ORDER BY symbol, date DESC
+            ),
+            latest_hv AS (
+              SELECT DISTINCT ON (symbol)
+                symbol, metric_date, hv30, hv60, hv90, hv_source
+              FROM volatility_history
+              WHERE symbol = ANY(%s) AND hv30 IS NOT NULL
+              ORDER BY symbol, metric_date DESC
+            ),
+            latest_atm AS (
+              SELECT DISTINCT ON (symbol)
+                symbol, metric_date, atm_iv, atm_expiry, atm_strike,
+                iv_source, iv_rank_ready, iv_observation_count
+              FROM volatility_history
+              WHERE symbol = ANY(%s) AND atm_iv IS NOT NULL
+              ORDER BY symbol, metric_date DESC
+            ),
+            latest_derived_rank AS (
+              SELECT DISTINCT ON (symbol)
+                symbol, metric_date, iv_rank, iv_percentile, iv_source,
+                iv_observation_count
+              FROM volatility_history
+              WHERE symbol = ANY(%s) AND iv_rank_ready = TRUE
+              ORDER BY symbol, metric_date DESC
             ),
             latest_price AS (
               SELECT DISTINCT ON (symbol)
@@ -126,9 +153,29 @@ def fetch_rows(conn, symbols):
             SELECT
               watchlist.symbol,
               NOW() AS scanner_snapshot_ts,
-              latest_iv.date, latest_iv.iv30, latest_iv.hv30,
-              latest_iv.iv_rank, latest_iv.iv_percentile, latest_iv.iv_hv_diff,
-              latest_iv.earnings_date, latest_iv.source,
+              GREATEST(latest_iv.date, latest_hv.metric_date, latest_atm.metric_date) AS date,
+              CASE WHEN settings.use_derived THEN COALESCE(latest_atm.atm_iv, latest_iv.iv30) ELSE latest_iv.iv30 END AS iv30,
+              CASE WHEN settings.use_derived THEN COALESCE(latest_hv.hv30, latest_iv.hv30) ELSE latest_iv.hv30 END AS hv30,
+              CASE WHEN settings.use_derived THEN COALESCE(latest_derived_rank.iv_rank, latest_iv.iv_rank) ELSE latest_iv.iv_rank END AS iv_rank,
+              CASE WHEN settings.use_derived THEN COALESCE(latest_derived_rank.iv_percentile, latest_iv.iv_percentile) ELSE latest_iv.iv_percentile END AS iv_percentile,
+              CASE
+                WHEN (CASE WHEN settings.use_derived THEN COALESCE(latest_atm.atm_iv, latest_iv.iv30) ELSE latest_iv.iv30 END) IS NOT NULL
+                  AND (CASE WHEN settings.use_derived THEN COALESCE(latest_hv.hv30, latest_iv.hv30) ELSE latest_iv.hv30 END) IS NOT NULL
+                THEN (CASE WHEN settings.use_derived THEN COALESCE(latest_atm.atm_iv, latest_iv.iv30) ELSE latest_iv.iv30 END)
+                   - (CASE WHEN settings.use_derived THEN COALESCE(latest_hv.hv30, latest_iv.hv30) ELSE latest_iv.hv30 END)
+                ELSE NULL
+              END AS iv_hv_diff,
+              latest_atm.atm_iv, latest_atm.atm_expiry, latest_atm.atm_strike,
+              CASE WHEN settings.use_derived AND latest_atm.atm_iv IS NOT NULL THEN latest_atm.iv_source ELSE latest_iv.source END AS iv_source,
+              CASE WHEN settings.use_derived AND latest_hv.hv30 IS NOT NULL THEN latest_hv.hv_source ELSE latest_iv.source END AS hv_source,
+              CASE WHEN settings.use_derived AND latest_derived_rank.iv_rank IS NOT NULL THEN latest_derived_rank.iv_source ELSE latest_iv.source END AS iv_rank_source,
+              CASE WHEN settings.use_derived THEN COALESCE(latest_atm.iv_rank_ready, FALSE) ELSE FALSE END AS iv_rank_ready,
+              CASE WHEN settings.use_derived THEN COALESCE(latest_atm.iv_observation_count, 0) ELSE 0 END AS iv_observation_count,
+              latest_iv.earnings_date,
+              CASE
+                WHEN settings.use_derived AND (latest_atm.atm_iv IS NOT NULL OR latest_hv.hv30 IS NOT NULL) THEN 'hybrid'
+                ELSE latest_iv.source
+              END AS source,
               latest_price.price_close, latest_price.price_date, latest_price.price_source,
               CASE
                 WHEN latest_price.price_date IS NULL THEN 'missing'
@@ -165,7 +212,7 @@ def fetch_rows(conn, symbols):
                      / NULLIF(COALESCE(latest_price.price_close, latest_gex.underlying_price), 0) * 100
               END AS put_wall_distance_pct,
               (
-                COALESCE(latest_iv.iv_rank, 0)
+                COALESCE(CASE WHEN settings.use_derived THEN latest_derived_rank.iv_rank END, latest_iv.iv_rank, 0)
                 + CASE
                     WHEN latest_gex.gamma_regime = 'negative' THEN 20
                     WHEN latest_gex.gamma_regime = 'positive' THEN 10
@@ -188,14 +235,23 @@ def fetch_rows(conn, symbols):
               ) AS signal_score
             FROM watchlist
             LEFT JOIN latest_iv ON latest_iv.symbol = watchlist.symbol
+            LEFT JOIN latest_hv ON latest_hv.symbol = watchlist.symbol
+            LEFT JOIN latest_atm ON latest_atm.symbol = watchlist.symbol
+            LEFT JOIN latest_derived_rank ON latest_derived_rank.symbol = watchlist.symbol
             LEFT JOIN latest_price ON latest_price.symbol = watchlist.symbol
             LEFT JOIN latest_gex ON latest_gex.symbol = watchlist.symbol
             LEFT JOIN option_totals ON option_totals.symbol = watchlist.symbol
             LEFT JOIN unusual_totals ON unusual_totals.symbol = watchlist.symbol
             CROSS JOIN price_global
+            CROSS JOIN settings
             ORDER BY watchlist.symbol
             """,
-            (symbols, symbols, symbols, symbols, symbols, symbols, OPTIONS_STALE_MINUTES),
+            (
+                symbols, USE_DERIVED_VOLATILITY,
+                symbols, symbols, symbols, symbols,
+                symbols, symbols, symbols, symbols,
+                OPTIONS_STALE_MINUTES,
+            ),
         )
         columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -330,6 +386,8 @@ def insert_rows(conn, rows):
     cols = [
         'scan_key', 'symbol', 'snapshot_ts', 'source',
         'metric_date', 'iv30', 'hv30', 'iv_rank', 'iv_percentile', 'iv_hv_diff', 'earnings_date',
+        'atm_iv', 'atm_expiry', 'atm_strike', 'iv_source', 'hv_source',
+        'iv_rank_source', 'iv_rank_ready', 'iv_observation_count',
         'price_close', 'price_date', 'price_source', 'price_status',
         'gex_snapshot_ts', 'gex_source', 'gex_status', 'global_gex', 'local_gamma',
         'gamma_flip', 'gamma_regime', 'call_wall', 'put_wall', 'max_pain',
@@ -349,6 +407,11 @@ def insert_rows(conn, rows):
             'metric_date': row.get('date').isoformat() if row.get('date') else None,
             'gex_snapshot_ts': row.get('gex_snapshot_ts').isoformat() if row.get('gex_snapshot_ts') else None,
             'price_date': row.get('price_date').isoformat() if row.get('price_date') else None,
+            'iv_source': row.get('iv_source'),
+            'hv_source': row.get('hv_source'),
+            'iv_rank_source': row.get('iv_rank_source'),
+            'iv_rank_ready': bool(row.get('iv_rank_ready')),
+            'iv_observation_count': row.get('iv_observation_count') or 0,
         }
         freshness = 'fresh'
         is_stale = False
@@ -371,6 +434,14 @@ def insert_rows(conn, rows):
             row.get('iv_percentile'),
             row.get('iv_hv_diff'),
             row.get('earnings_date'),
+            row.get('atm_iv'),
+            row.get('atm_expiry'),
+            row.get('atm_strike'),
+            row.get('iv_source'),
+            row.get('hv_source'),
+            row.get('iv_rank_source'),
+            bool(row.get('iv_rank_ready')),
+            row.get('iv_observation_count') or 0,
             row.get('price_close'),
             row.get('price_date'),
             row.get('price_source'),

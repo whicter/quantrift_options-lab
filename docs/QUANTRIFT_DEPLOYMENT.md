@@ -1331,3 +1331,19 @@ Suggested TTLs:
 | Open interest | provider cadence, often daily |
 | GEX / Walls / Gamma Flip | after option chain refresh |
 | Scanner results | 1-5 minutes |
+
+## Derived Volatility Operations
+
+Schema migration creates `volatility_history` and scanner provenance columns. After migration:
+
+```bash
+cd /Users/congrenhan/Documents/quantrift_options-lab/collector
+VOLATILITY_BACKFILL=true venv311/bin/python derive_volatility.py
+venv311/bin/python materialize_scan.py
+```
+
+Runtime env：`DERIVED_VOLATILITY_ENABLED=true`、`DERIVED_VOLATILITY_SECONDS=3600`、`IV_RANK_MIN_OBSERVATIONS=252`、API/materializer `USE_DERIVED_VOLATILITY=true`。
+
+Acceptance must establish 67-symbol HV/ATM coverage, ATM DTE 30–45, source provenance, and rank readiness separately. Do not treat `iv_rank_ready=0` as a collector failure before 252 independent market days exist. Rollback is `USE_DERIVED_VOLATILITY=false`, followed by scanner rematerialization and API restart.
+
+2026-07-15 evidence：Railway migration succeeded；17-symbol Polygon supplement wrote 17 snapshots/0 failures；derived run wrote 67 latest HV + 67 ATM observations；scanner has 67 Polygon HV sources, 67 Polygon IV sources, 67 Tastytrade cold-start rank sources, and 0 premature derived ranks. PM2 collector was restored online and saved.

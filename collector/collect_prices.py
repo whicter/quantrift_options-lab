@@ -153,6 +153,9 @@ def run():
     if failed:
         log.warning(f'Failed symbols: {failed}')
         raise RuntimeError(f'price collection failed for {len(failed)} symbols: {failed}')
+    if os.getenv('DERIVED_VOLATILITY_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes'):
+        import derive_volatility
+        derive_volatility.run(backfill=False)
 
 
 if __name__ == '__main__':

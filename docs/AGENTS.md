@@ -61,7 +61,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 
 ## Next Task
 - Execution order is defined in `docs/task.md` under `实施优先级（执行顺序）`.
-- Phase 3D-6, collector health alerts and Polygon daily/30M price history are complete. Immediate next section: derived HV/ATM IV/IV Rank readiness.
+- Phase 3D-6, collector health alerts, Polygon daily/30M history, and derived HV/ATM IV/IV Rank readiness are complete. Immediate next section: scanner strategy expansion.
+- `volatility_history` owns Polygon-derived HV and ATM IV. IV Rank remains fail-closed until 252 market-day observations; APIs expose per-field provenance and retain the Tastytrade cold-start rank until ready.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
 - IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Do not represent volume-only signals as confirmed institutional positioning.

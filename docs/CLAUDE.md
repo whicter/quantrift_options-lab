@@ -71,7 +71,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 
 ## Next Task
 - Follow `docs/task.md` section `实施优先级（执行顺序）`.
-- Phase 3D-6 and collector coverage/failure alerts are complete. Immediate next section: Polygon daily/30M price history.
+- Phase 3D-6, collector alerts, Polygon price history, and derived HV/ATM IV/IV Rank readiness are complete. Immediate next section: scanner strategy expansion.
+- Derived volatility is isolated in `volatility_history`; use New York market dates for DTE and daily observations. Do not mark derived IV Rank ready before 252 observations.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
 - IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Volume/OI is only an activity proxy. Confirmed unusual OI requires previous snapshot comparison.

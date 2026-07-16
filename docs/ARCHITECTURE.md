@@ -1527,3 +1527,24 @@ Alerting is observational：它不暂停 collector、不改变 provider fallback
 **当前实现：** `PolygonPriceProvider` 与 `ib_internal`、`stooq` adapters 平行；PM2 已切到 Polygon，并将 30M 数据写入独立 `price_history_30m` 表。`PolygonStockRequestPacer` 用 file lock 协调 option `/prev` 与 price aggregates 两个 PM2 进程，覆盖连续 symbols/timeframes。
 
 2026-07-15 runtime invariant：watchlist 67/67 同时具备 Polygon 日线与 30M rows，两个表 `(symbol,time)` unique key 无重复。日线允许保留日期更新、source 不同的既有 row；消费者按日期取最新，不能为统一 source 丢弃更近数据。
+
+## 26. Derived Volatility Layer
+
+`volatility_history` 是派生数据所有权边界，不覆盖 `iv_history` 的 provider 原始观测：
+
+```text
+Polygon daily OHLCV -> log returns -> HV30/60/90
+Polygon option snapshots -> 30-45 DTE nearest-strike call IV -> ATM IV history
+ATM IV history >= 252 market days -> IV Rank / percentile ready
+                                      |
+                                      v
+metrics API + scanner materializer (per-field provenance)
+```
+
+- HV 输入只接受 `price_history.source='polygon_licensed'`，输出 `hv_source=polygon_derived`。
+- ATM IV 只接受 Polygon snapshots 中实际存在、IV 非空的 call contract；不合成 strike/expiry。
+- DTE 和 daily observation key 使用 `America/New_York` market date。UTC date truncation 会在美东晚间把 30 DTE 错算成 29 DTE，禁止使用。
+- `iv_rank_ready=false` 时 derived rank 必须为 null；API/scanner 显式 fallback 到 provider rank，并返回 `iv_rank_source` 与 observation count。
+- `USE_DERIVED_VOLATILITY=false` 是字段消费 rollback；原始表和派生表均保留，回滚不需要删数据。
+
+2026-07-15 runtime：历史回填 24,738 HV rows；最新 watchlist HV 67/67、ATM IV 67/67、ATM DTE 30–43；IV Rank 0/67 ready（每 symbol 1–2 market-day observations）。Tastytrade HV 对比 median absolute difference 为 14.97pp/8.39pp/6.40pp（30/60/90），因此 TT 数值不能作为同公式 `<1%` parity oracle。

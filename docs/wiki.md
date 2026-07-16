@@ -1109,6 +1109,16 @@ Boundary:
 - Current legs are target strikes from price / Call Wall / Put Wall, not contract-level optimal live-chain selection.
 - Full automatic leg selection requires broader option-chain snapshots with bid/ask spread, DTE, Greeks and liquidity for the watchlist.
 
+### Derived HV, ATM IV, and IV Rank
+
+- **HV30/60/90**：Polygon adjusted daily close 的 log return sample standard deviation，乘 `sqrt(252)` 年化。
+- **ATM IV observation**：每个美东交易日最新 Polygon option snapshot 中，30–45 DTE、strike 最接近 spot、IV 非空的 call。
+- **IV Rank**：`(current ATM IV - 52-week low) / (52-week high - 52-week low) * 100`；不足 252 个独立交易日不计算。
+- **IV Percentile**：历史 ATM IV 中小于等于当前值的比例；与 IV Rank 不是同一指标。
+- **来源展示**：`iv_source`、`hv_source`、`iv_rank_source` 分开，不用一个 `source=hybrid` 隐藏字段来源。
+
+选择 30–45 DTE 是为了建立稳定的标准期限 IV 序列，不代表该 expiry 就是 scanner 推荐合约。Scanner 的实际候选 expiry/legs 由策略枚举独立决定。
+
 Implemented files：
 - `collector/materialize_oi_delta.py`
 - `server/src/routes/unusual.js`

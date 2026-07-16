@@ -66,13 +66,14 @@ Open http://localhost:5173
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 
 ## Data Sources (V2)
-- IV Rank: Tastytrade API (free, pre-calculated)
+- ATM IV / HV30/60/90: Polygon option snapshots and daily OHLCV, derived into `volatility_history`
+- IV Rank: derived only after 252 independent market-day ATM observations; Tastytrade remains the explicit cold-start fallback until readiness
 - Daily OHLCV: up to 400 adjusted bars in Railway `price_history`, sourced by scheduled Polygon aggregates
 - 30-minute OHLCV: 35 calendar days in Railway `price_history_30m`, including VWAP and trade count when supplied
 - Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
 - 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
 - Dev/backfill provider: `stooq`, only when explicitly selected
-- Option chains: current ingestion uses the `ib_internal` and `tt_internal` adapters and persists snapshots before the API reads them.
+- Option chains: scheduled ingestion uses `polygon_licensed`; `ib_internal` and `tt_internal` remain explicit fallback/research adapters.
 - IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.
 - yfinance is not the default price or options data path because of rate-limit and licensing/reliability constraints
 
@@ -102,6 +103,7 @@ Open http://localhost:5173
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
 - [x] V2: Python collectors on Mac Studio (PM2 direct-repository runtime)
 - [x] V2: Polygon daily/30M OHLCV pipeline (`collect_prices.py`, `price_history`, `price_history_30m`, `/api/prices/:symbol`)
+- [x] V2: Polygon-derived HV/ATM IV pipeline with 252-day IV Rank readiness gate and per-field provenance
 - [x] V2: Vercel deployment
 - [x] V2: GEX data model + provider adapter abstraction
 - [x] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs

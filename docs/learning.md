@@ -452,3 +452,13 @@ V1 公式：
 - **运行坑**：长 backfill 不能依赖 Codex/SSH 的临时前台 exec；会话被回收后 Python 子进程既可能终止，也可能变成没有可见 session 的 orphan。后者会继续消耗 provider quota，并与 PM2 job 互相制造 429。交给 PM2 临时 one-shot process；切换前用 `ps ... | rg '[c]ollect_prices.py'` 核对 PID/PPID，只终止明确的旧 orphan。完成后查询 PostgreSQL coverage，再删除临时 process。
 - **环境不变量**：scheduled process 固定 `SYMBOLS=watchlist`。Targeted backfill 的 symbol 列表不能残留到下一次 cron。Key 只能从 `.env`/secret environment 注入，检查时只输出 configured boolean。
 - **最终证据**：清理 orphan 后 16 秒 cadence 稳定、最后 23 symbols 0 failed；Railway daily/30M 均 67/67、无 duplicate key。PM2 对 ecosystem reload 不会自动把 shell secret 合并到另一个 app，必须对具体 process 执行 `restart --update-env`，再检查 `key=True`（只输出 boolean）并 `pm2 save`。
+
+## Derived Volatility Lessons (2026-07-15)
+
+- **原始数据与派生数据不要混表覆盖**：`iv_history` 保存 provider observation，`volatility_history` 保存可重放的 Polygon-derived HV/ATM/rank。这样 fallback、来源审计和 rollback 都是字段级行为。
+- **交易日不能用 UTC `::date`**：美东晚间 snapshot 已进入次日 UTC。曾导致真实 30 DTE 合约在 SQL 中成为 29 DTE，并让 QQQ ATM IV 完全缺失。统一用 `(snapshot_ts AT TIME ZONE 'America/New_York')::date`，并测试 SQL 不再出现 `snapshot_ts::date`。
+- **总合约 cap 会形成期限偏差**：provider 分页通常先返回近月；简单 `contracts[:cap]` 会让远期 bucket 消失。先按 DTE bucket 选择 expiry，并在缺少 30–45 DTE 时做一次 bounded supplement，再应用总 cap。
+- **有 snapshot 不等于字段完整**：验收必须分别统计 snapshot count、30–45 DTE contracts、IV non-null contracts、ATM coverage、rank readiness。只看到 `snapshots written` 不能证明 ATM pipeline 完整。
+- **第三方指标不是公式 parity oracle**：同一 Polygon close 序列按明确公式计算的 HV 与 Tastytrade median difference 为 14.97pp/8.39pp/6.40pp。供应商可能使用不同价格、窗口、加权或年化口径；正确验证是固定输入的数学测试、来源隔离和 deterministic replay。
+- **SQL 参数类型应显式绑定**：scanner 新增 feature flag 后，位置参数曾把 stale numeric threshold 绑定为 boolean。用单行 `settings` CTE 固定布尔参数，并以 Railway 实库 materialization 作为回归验证。
+- **readiness 必须 fail closed**：当前每 symbol 只有 1–2 个 ATM market-day observations，0/67 满 252。系统继续使用明确标注的 Tastytrade cold-start rank，不能用短历史的 min/max 伪造 52-week IV Rank。

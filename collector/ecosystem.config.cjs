@@ -30,6 +30,8 @@ module.exports = {
         HEALTH_MIN_COMPLETENESS_PCT: '75',
         HEALTH_ALERT_COOLDOWN_MINUTES: '60',
         POLYGON_STOCK_REQUEST_DELAY: '16',
+        DERIVED_VOLATILITY_ENABLED: 'true',
+        DERIVED_VOLATILITY_SECONDS: '3600',
       },
     },
     {
@@ -46,6 +48,7 @@ module.exports = {
         PRICE_30M_LOOKBACK_DAYS: '35',
         POLYGON_STOCK_REQUEST_DELAY: '16',
         POLYGON_PRICE_RATE_LIMIT_BACKOFF: '60',
+        DERIVED_VOLATILITY_ENABLED: 'true',
       },
     },
   ],

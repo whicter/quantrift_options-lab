@@ -12,6 +12,7 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertIn("SYMBOLS: 'watchlist'", config)
         self.assertIn("PRICE_30M_LOOKBACK_DAYS: '35'", config)
         self.assertGreaterEqual(config.count("POLYGON_STOCK_REQUEST_DELAY: '16'"), 2)
+        self.assertGreaterEqual(config.count("DERIVED_VOLATILITY_ENABLED: 'true'"), 2)
         self.assertIn("COLLECTOR_HEALTH_CHECK_ENABLED: 'true'", config)
         self.assertNotIn('POLYGON_API_KEY:', config)
 

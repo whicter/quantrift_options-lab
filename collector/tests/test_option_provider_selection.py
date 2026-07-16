@@ -6,9 +6,34 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from providers.tastytrade_option_chain_provider import TastytradeOptionChainProvider
+from providers.base import OptionContractSnapshot
+from providers.polygon_option_chain_provider import _select_dte_bucket_contracts
 
 
 class OptionProviderSelectionTest(unittest.TestCase):
+    def test_polygon_contract_cap_preserves_30_to_45_dte_bucket(self):
+        today = date.today()
+        contracts = []
+        for dte in [2, 9, 20, 35, 52, 75]:
+            expiry = today + timedelta(days=dte)
+            for right in ['C', 'P']:
+                contracts.append(OptionContractSnapshot(
+                    symbol='AAPL', expiry=expiry, strike=100, right=right,
+                    bid=1, ask=1.1, last=1.05, mark=1.05, volume=10,
+                    open_interest=100, iv=0.3, delta=0.2, gamma=0.01,
+                    theta=-0.01, vega=0.1, rho=None,
+                ))
+
+        selected = _select_dte_bucket_contracts(
+            contracts,
+            today,
+            [(0, 14), (15, 29), (30, 45), (46, 60), (61, 90)],
+            1,
+        )
+
+        selected_dtes = {(contract.expiry - today).days for contract in selected}
+        self.assertEqual(selected_dtes, {9, 20, 35, 52, 75})
+
     def make_provider(self):
         env = {
             'OPTION_DTE_BUCKETS': '0-14,30-60,60-90',

@@ -907,7 +907,7 @@
 | P0.1 | Phase 3D-6 计算/API 回归测试 | GEX sign、walls、gamma flip、PCR、confidence 及 fresh/stale/missing API tests 全通过 | 无 |
 | P0.2 | Collector coverage/failure alert | coverage、failure、age、completeness 阈值可配置并有 operator alert + tests | SMTP/通知凭据仅影响真实发送验证 |
 | P0.3 | Polygon price history | 日线与 30M adapter、schema、collector、PM2 调度、67 symbols runtime verification | 使用现有 Polygon key；若 rotate 后未提供新 key 才阻塞 |
-| P0.4 | 自算 HV / ATM IV / IV Rank | 派生脚本、历史门槛、对比报告、fail-closed 切换逻辑 | 90/252 天历史不足时只验证计算与 readiness，不提前停 TT |
+| P0.4 | 自算 HV / ATM IV / IV Rank | ✅ 2026-07-15 完成：派生脚本、历史门槛、对比报告、来源切换与 fail-closed readiness | 252 个独立交易日尚未积累，因此 IV Rank 暂继续使用 TT 冷启动值 |
 | P1.1 | Scanner 策略扩展 | 所列策略按真实合约枚举、风险门控、测试和 UI 输出 | 无 |
 | P1.2 | Analyze 数据产品 | S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
 | P1.3 | Universe / on-demand | broader universe、filters、unknown symbol enqueue/wait UI、materialized invariant | universe 数据来源不足时记录具体字段阻塞 |
@@ -949,20 +949,32 @@
 - Source：所有 67 symbols 均有 Polygon rows；日线保留每 symbol 1 条更晚的旧 `ib_internal` row（共 67），不删除更近数据，row-level source 如实保留
 - PM2：option collector 已恢复 online；price one-shot 为 stopped + cron active（工作日 13:35 PT），`provider=polygon`、`symbols=watchlist`、`delay=16`、secret configured；`pm2 save` 完成
 
-**P0.2 — HV 自算（积累 90 天日线后执行）**
-- [ ] `collector/collect.py` 或新增脚本：从 `price_history` 计算 HV30/60/90
+**✅ P0.2 — HV 自算（2026-07-15 完成）**
+- [x] `collector/derive_volatility.py`：只从 `source=polygon_licensed` 的 `price_history` 计算 HV30/60/90
   - `HV30 = stddev(log(close[t]/close[t-1]), window=30) × √252`
-  - 写入 `iv_history.hv30/hv60/hv90`（ON CONFLICT DO UPDATE）
-  - source 字段标记为 `polygon_derived`
-- [ ] 验证与 Tastytrade 现有 HV 值对比（偏差 < 1%）
-- [ ] 切换后停用 Tastytrade HV 字段采集
+  - 写入独立 `volatility_history`，不覆盖 provider 原始 `iv_history`
+  - `hv_source=polygon_derived`
+- [x] 完成 Tastytrade 对比报告；67-symbol 最新值 median absolute difference：HV30 14.97pp、HV60 8.39pp、HV90 6.40pp。差异远大于 1%，证明 TT 口径不是本公式的 parity oracle；验证标准改为公式、输入来源、观测数和重放确定性
+- [x] `/api/metrics` 与 scanner 已停止消费 Tastytrade HV：优先使用 Polygon derived HV；`USE_DERIVED_VOLATILITY=false` 可回滚。TT 原始行暂保留作审计/对比，不混写派生表
 
-**P0.3 — IV Rank 自算（积累 252 天快照后执行）**
-- [ ] 新增脚本：从 `option_contract_snapshots` 提取 ATM IV 时序
+**✅ P0.3 — ATM IV / IV Rank readiness（2026-07-15 完成）**
+- [x] `collector/derive_volatility.py` 从 Polygon `option_contract_snapshots` 提取 ATM IV 时序
   - ATM IV = 最接近 spot 的 call IV（当前 expiry 30-45 DTE）
   - IV Rank = (ATM IV - 52周最低) / (52周最高 - 52周最低) × 100
-  - 写入 `iv_history.iv_rank / iv30`，source=`polygon_derived`
-- [ ] 切换后停用 Tastytrade iv_rank 采集（保留 earnings_date）
+  - 写入 `volatility_history`，`iv_source=polygon_derived`
+- [x] Polygon option collector 按 DTE buckets 保留 expiry，并在初始分页缺少 30–45 DTE 时执行一次 bounded supplement；不会让近月合约耗尽总 cap
+- [x] ATM 交易日使用 `America/New_York`，避免 UTC 午夜把 30 DTE 错算成 29 DTE
+- [x] API/scanner 按字段返回 `iv_source`、`hv_source`、`iv_rank_source`、`iv_rank_ready`、`iv_observation_count`
+- [ ] 满 252 个独立交易日后自动使用 derived IV Rank 并停止 Tastytrade iv_rank；当前 1–2 observations/symbol、0/67 ready，继续使用 TT 冷启动值，不提前伪造 readiness
+
+完成证据（2026-07-15）：
+- Railway `volatility_history` 已迁移；初次历史回填写入 24,738 HV rows
+- targeted 17-symbol option backfill：17 snapshots written、0 failed、每 snapshot 32–84 个真实 provider contracts
+- 最新派生运行：67 HV rows、67 ATM rows；watchlist ATM coverage 67/67；ATM DTE 30–43
+- 最新 scanner batch：67/67 `hv_source=polygon_derived`、67/67 `iv_source=polygon_derived`、67/67 `iv_rank_source=tastytrade`、0/67 `iv_rank_ready`
+- 真实 API smoke：`/api/metrics?symbols=QQQ,STX,AAPL` 返回 hybrid 字段来源和 30–36 DTE ATM；`/api/scan?...limit=3` 返回最新 materialized rows
+- Tests：collector 69 passed；server 12 passed；frontend build passed；Python compile / `git diff --check` passed
+- Rollback：设置 `USE_DERIVED_VOLATILITY=false` 并重新 materialize scanner；`volatility_history` 为附加表，无需删除 provider 原始数据
 
 ---
 

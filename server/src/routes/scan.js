@@ -173,6 +173,8 @@ router.get('/', async (req, res) => {
          latest_rows.symbol,
          metric_date AS date,
          iv30, hv30, iv_rank, iv_percentile, iv_hv_diff, earnings_date, source,
+         atm_iv, atm_expiry, atm_strike, iv_source, hv_source,
+         iv_rank_source, iv_rank_ready, iv_observation_count,
          price_close, price_date, price_source, price_status,
          gex_snapshot_ts, gex_source, gex_status, global_gex, local_gamma,
          gamma_flip, gamma_regime, call_wall, put_wall, max_pain,

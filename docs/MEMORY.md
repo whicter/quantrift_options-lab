@@ -68,11 +68,13 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Derived HV/ATM IV/IV Rank readiness from Polygon history/snapshots
-2. Scanner/Analyze/universe product completion
-3. Production auth/subscription/paywall
+1. Scanner strategy expansion with actual contracts and executable-side pricing
+2. Analyze/universe/market-weekly product completion
+3. Landing/notifications, then production auth/subscription/paywall
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。
 
 Polygon price history 已实现：`collect_prices.py` 同轮写 `price_history` 日线与 `price_history_30m`，source=`polygon_licensed`；PM2 scheduled provider 不再依赖 IB price，IB adapter 仅保留为显式 fallback。
 Runtime 已验证 67/67 双 timeframe coverage；shared Stocks limiter 为 16 秒并跨 option/price PM2 进程协调。下一 section 直接从 349+ 日线 rows 自算 HV30/60/90，并对 ATM IV/IV Rank 做 history readiness gate。
+
+Derived volatility 已完成：`volatility_history` 隔离 Polygon HV/ATM IV；API/scanner 输出字段级 provenance。Railway runtime 为 HV 67/67、ATM IV 67/67、ATM DTE 30–43；IV Rank 需要 252 个独立美东交易日，当前 1–2 observations/symbol、0/67 ready，因此仍使用 Tastytrade cold-start rank。一次 UTC 午夜 bug 曾把 30 DTE 算成 29 DTE，现统一使用 `America/New_York` market date 并有回归测试。

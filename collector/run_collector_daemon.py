@@ -8,6 +8,7 @@ import materialize_scan
 import run_refresh_worker
 import schedule_option_refresh
 import check_collector_health
+import derive_volatility
 
 
 POLL_SECONDS = max(int(os.getenv('COLLECTOR_POLL_SECONDS', '60')), 5)
@@ -16,6 +17,8 @@ OPTION_REFRESH_SECONDS = max(int(os.getenv('OPTION_REFRESH_SCHEDULE_SECONDS', '3
 AUTO_OPTION_REFRESH = os.getenv('OPTION_AUTO_REFRESH', 'false').strip().lower() in ('1', 'true', 'yes')
 HEALTH_CHECK_ENABLED = os.getenv('COLLECTOR_HEALTH_CHECK_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 HEALTH_CHECK_SECONDS = max(int(os.getenv('COLLECTOR_HEALTH_CHECK_SECONDS', '300')), POLL_SECONDS)
+DERIVED_VOLATILITY_ENABLED = os.getenv('DERIVED_VOLATILITY_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
+DERIVED_VOLATILITY_SECONDS = max(int(os.getenv('DERIVED_VOLATILITY_SECONDS', '3600')), POLL_SECONDS)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +34,7 @@ def run() -> None:
     next_scan_at = 0.0
     next_option_refresh_at = 0.0
     next_health_check_at = 0.0
+    next_derived_volatility_at = 0.0
     while True:
         started_at = time.monotonic()
         if AUTO_OPTION_REFRESH and started_at >= next_option_refresh_at:
@@ -58,6 +62,13 @@ def run() -> None:
             except Exception:
                 log.exception('collector health check cycle failed')
             next_health_check_at = started_at + HEALTH_CHECK_SECONDS
+
+        if DERIVED_VOLATILITY_ENABLED and started_at >= next_derived_volatility_at:
+            try:
+                derive_volatility.run(backfill=False)
+            except Exception:
+                log.exception('derived volatility cycle failed')
+            next_derived_volatility_at = started_at + DERIVED_VOLATILITY_SECONDS
 
         elapsed = time.monotonic() - started_at
         time.sleep(max(POLL_SECONDS - elapsed, 1))

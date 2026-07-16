@@ -31,6 +31,8 @@ class PolygonOptionChainProvider:
         self.strike_window_pct = float(os.getenv('OPTION_STRIKE_WINDOW_PCT', '15'))
         self.max_strikes_per_side = int(os.getenv('OPTION_MAX_STRIKES_PER_SIDE', '20'))
         self.max_contracts = int(os.getenv('OPTION_MAX_CONTRACTS', '500'))
+        self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,15-29,30-45,46-60,61-90'))
+        self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '2'))
         self.page_limit = min(int(os.getenv('POLYGON_PAGE_LIMIT', '250')), 250)
         self.request_delay = float(os.getenv('POLYGON_REQUEST_DELAY', '0.12'))
         self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
@@ -110,6 +112,20 @@ class PolygonOptionChainProvider:
             if url and self.request_delay > 0:
                 time.sleep(self.request_delay)
 
+        if not expirations and not _raw_has_dte_window(raw_results, today, 30, 45):
+            supplement_params = dict(params)
+            supplement_params['expiration_date.gte'] = (today + timedelta(days=30)).isoformat()
+            supplement_params['expiration_date.lte'] = (today + timedelta(days=45)).isoformat()
+            supplement_response = self._session.get(
+                f'{self.base_url}/v3/snapshot/options/{symbol}',
+                params=supplement_params,
+                timeout=self.timeout,
+            )
+            supplement_response.raise_for_status()
+            raw_results.extend(supplement_response.json().get('results') or [])
+
+        raw_results = _deduplicate_raw_contracts(raw_results)
+
         # Filter to requested specific expirations if provided
         expiration_set = {e for e in expirations} if expirations else None
 
@@ -124,6 +140,14 @@ class PolygonOptionChainProvider:
 
         if strike_limit:
             contracts = _apply_strike_limit(contracts, spot, strike_limit)
+
+        if not expirations:
+            contracts = _select_dte_bucket_contracts(
+                contracts,
+                today,
+                self.dte_buckets,
+                self.max_expirations_per_bucket,
+            )
 
         contracts = contracts[:self.max_contracts]
 
@@ -149,6 +173,7 @@ class PolygonOptionChainProvider:
                 'missing_oi_count': missing_oi,
                 'strike_window_pct': window_pct,
                 'max_strikes_per_side': strike_limit,
+                'selected_expirations': sorted({contract.expiry.isoformat() for contract in contracts}),
             },
         )
 
@@ -240,6 +265,68 @@ def _apply_strike_limit(
         result.extend(sorted_group[:max_per_side])
 
     return sorted(result, key=lambda c: (c.expiry, c.strike, c.right))
+
+
+def _parse_dte_buckets(value: str) -> list[tuple[int, int]]:
+    buckets = []
+    for part in value.split(','):
+        bounds = part.strip().split('-', 1)
+        if len(bounds) != 2:
+            continue
+        try:
+            lower, upper = int(bounds[0]), int(bounds[1])
+        except ValueError:
+            continue
+        if lower >= 0 and upper >= lower:
+            buckets.append((lower, upper))
+    return buckets or [(0, 14), (15, 29), (30, 45), (46, 60), (61, 90)]
+
+
+def _select_dte_bucket_contracts(
+    contracts: list[OptionContractSnapshot],
+    today: date,
+    buckets: list[tuple[int, int]],
+    max_expirations_per_bucket: int,
+) -> list[OptionContractSnapshot]:
+    expirations = sorted({contract.expiry for contract in contracts})
+    selected = set()
+    for lower, upper in buckets:
+        midpoint = (lower + upper) / 2
+        candidates = [expiry for expiry in expirations if lower <= (expiry - today).days <= upper]
+        candidates.sort(key=lambda expiry: (abs((expiry - today).days - midpoint), expiry))
+        selected.update(candidates[:max(max_expirations_per_bucket, 1)])
+    return [contract for contract in contracts if contract.expiry in selected]
+
+
+def _raw_has_dte_window(raw_results: list[dict], today: date, lower: int, upper: int) -> bool:
+    for item in raw_results:
+        expiry_value = (item.get('details') or {}).get('expiration_date')
+        if not expiry_value:
+            continue
+        try:
+            dte = (date.fromisoformat(expiry_value) - today).days
+        except ValueError:
+            continue
+        if lower <= dte <= upper:
+            return True
+    return False
+
+
+def _deduplicate_raw_contracts(raw_results: list[dict]) -> list[dict]:
+    seen = set()
+    deduplicated = []
+    for item in raw_results:
+        details = item.get('details') or {}
+        key = details.get('ticker') or (
+            details.get('expiration_date'),
+            details.get('strike_price'),
+            details.get('contract_type'),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(item)
+    return deduplicated
 
 
 def _to_float(value: Any) -> float | None:
