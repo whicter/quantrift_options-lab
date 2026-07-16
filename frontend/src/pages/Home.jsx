@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMarketRegime } from '../lib/api';
+import heroMark from '../assets/hero.png';
 
 const PRODUCTS = [
   { title: '标的分析', label: 'Analyze', text: '把价格结构、GEX、Wall、波动率与期权链放进同一份分析。', to: '/analyze', accent: 'green' },
   { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，并落到真实到期日和策略腿。', to: '/scan', accent: 'blue' },
   { title: '周度复盘', label: 'Weekly', text: '复盘五个交易日的价格、Gamma 迁徙、Max Pain 与 ΔOI。', to: '/weekly', accent: 'red' },
+];
+
+const HERO_PREVIEW_ROWS = [
+  { symbol: 'SPY', price: '$642.08', iv: 'IV Rank 42', gamma: 'Positive Gamma', wall: 'Call Wall $650', strategy: 'Bull Put Spread', score: '82' },
+  { symbol: 'QQQ', price: '$571.42', iv: 'IV Rank 37', gamma: 'Positive Gamma', wall: 'Put Wall $560', strategy: 'Iron Condor', score: '78' },
+  { symbol: 'AAPL', price: '$213.50', iv: 'IV Rank 31', gamma: 'Balanced Gamma', wall: 'Call Wall $220', strategy: 'Call Calendar', score: '74' },
+  { symbol: 'NVDA', price: '$164.92', iv: 'IV Rank 56', gamma: 'Negative Gamma', wall: 'Put Wall $160', strategy: 'Bear Call Spread', score: '71' },
 ];
 
 export default function Home() {
@@ -14,7 +22,25 @@ export default function Home() {
   return (
     <main className="home-page">
       <section className="home-hero">
-        <div className="home-hero-image" aria-hidden="true" />
+        <div className="home-hero-dashboard" aria-hidden="true">
+          <div className="home-dashboard-topline">
+            <span>MARKET SCANNER</span>
+            <span>LIVE RESEARCH VIEW</span>
+          </div>
+          <div className="home-dashboard-head">
+            <span>标的</span><span>波动</span><span>期权定位</span><span>候选单</span><span>分数</span>
+          </div>
+          {HERO_PREVIEW_ROWS.map(row => (
+            <div className="home-dashboard-row" key={row.symbol}>
+              <span><strong>{row.symbol}</strong><small>{row.price}</small></span>
+              <span>{row.iv}</span>
+              <span><i className={row.gamma.startsWith('Negative') ? 'negative' : ''} />{row.gamma}<small>{row.wall}</small></span>
+              <span>{row.strategy}</span>
+              <b>{row.score}</b>
+            </div>
+          ))}
+          <img className="home-hero-mark" src={heroMark} alt="" />
+        </div>
         <div className="home-hero-overlay" />
         <div className="home-hero-content">
           <div className="home-kicker">OPTIONS INTELLIGENCE</div>
@@ -34,7 +60,7 @@ export default function Home() {
               <small>{item.gex?.gamma_regime ? `${item.gex.gamma_regime} Gamma` : 'GEX unavailable'}</small>
             </div>
           ))}
-          <div><span>Data model</span><strong>Snapshot-first</strong><small>missing stays missing</small></div>
+          <div><span>Research workflow</span><strong>Concrete setups</strong><small>analysis to execution</small></div>
         </div>
       </section>
 
