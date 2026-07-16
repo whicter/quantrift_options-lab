@@ -81,6 +81,7 @@ Open http://localhost:5173
 - Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
 - 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
 - 2026-07-16 runtime: persistent scanner universe has 78 active/scan-enabled symbols; Polygon reference metadata covers 77, market cap 27, sector/category 28, and persisted optionable=true 69. `VIX` remains the only missing ticker reference.
+- 2026-07-16 production integrity verification: `/api/scan?minIvr=40&maxIvr=100&limit=5` returned HTTP 200 with real rows after qualifying scanner snapshot fields; `/analyze?symbol=NFLX` rendered real `$73.68`, Polygon price/GEX and $75/$73 Walls. Analyze has no sample-data fallback.
 - Dev/backfill provider: `stooq`, only when explicitly selected
 - Option chains: scheduled ingestion uses `polygon_licensed`; `ib_internal` and `tt_internal` remain explicit fallback/research adapters.
 - IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.

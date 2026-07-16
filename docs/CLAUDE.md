@@ -17,7 +17,6 @@ Target: self-use + subscribers. Bilingual (English strategy names, Chinese descr
 docs/                  ← All project documentation (task.md, wiki.md, learning.md, etc.)
 frontend/src/
   data/strategies.js       ← All 70+ strategy definitions
-  data/mockAnalysis.js     ← Mock data (9 symbols, GEX/PCR/trend/scenarios)
   data/companyInfo.js      ← Company info lookup (12 symbols, logo/zh/tagline)
   lib/blackscholes.js      ← BS pricing engine + Greeks
   components/              ← UI components (incl. InsightCarousel)
@@ -41,6 +40,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Phase 3E is complete: `option_oi_delta_snapshots` powers `/api/unusual/:symbol`, `/api/scan` unusual filters and Analyze Tab3 unusual activity.
 - `ib_internal` and `tt_internal` are internal/transitional data sources, not public licensed product sources.
 - Scheduled price history uses Polygon aggregates and writes both `price_history` (daily) and `price_history_30m`; IB price remains an explicit fallback only.
+- Analyze builds a null-initialized real-data model. It never imports sample analysis data; absent price, metrics or GEX fields remain unavailable instead of inheriting an unrelated symbol's value.
+- Scanner final SQL must qualify fields from `latest_rows` whenever joined CTEs expose the same column name. The 2026-07-16 production incident covered both `source` and `snapshot_ts`.
 
 ## Code Conventions
 - Use the Edit tool directly — never Python/Bash to modify files

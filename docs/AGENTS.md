@@ -24,6 +24,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - See `docs/ARCHITECTURE.md` first.
 - Phase 3C is complete: API reads PostgreSQL snapshots/cache; user requests do not synchronously call IB, TT, or any provider.
 - `/api/scan` reads `scanner_results_snapshots`, produced by `collector/materialize_scan.py`.
+- Analyze has no production mock seed or fallback. A displayed price, IV field, GEX, Wall, conclusion, or strategy leg must come from its real response; otherwise it remains unavailable.
+- Scanner SQL joins several snapshot products. Every duplicate column name in its final select/CASE expressions must be qualified to its owning CTE (for example `latest_rows.source` and `latest_rows.snapshot_ts`).
 - Refresh requests enqueue `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes queued jobs.
 - `/api/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
 - Scanner user output is an actionable candidate, not snapshot inventory: use actual same-expiry contracts, executable-side pricing and explicit risk; never display a DTE range or fixed POP as a recommendation.
@@ -83,6 +85,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Universe reference metadata comes from Polygon ticker reference data via `collect_universe_metadata.py`; sector/category is SIC-derived and nullable, and `optionable` is true only from persisted usable option snapshots.
 - Recent non-retryable field failures must be returned as blockers and must not be re-enqueued on every page request.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; missing real price/contract inputs must stay missing. Never generate example price paths or synthetic recommendation legs.
+- `frontend/src/data/mockAnalysis.js` was removed on 2026-07-16 after it leaked sample prices and Walls into production Analyze. Do not recreate it or import equivalent sample data into production routes.
 - `volatility_history` owns Polygon-derived HV and ATM IV. IV Rank remains fail-closed until 252 market-day observations; APIs expose per-field provenance and retain the Tastytrade cold-start rank until ready.
 - Scanner positioning and quote snapshots are separate: select the newest usable real bid/ask snapshot for candidate legs and expose its source/time/freshness. Advanced naked-risk structures require explicit UI opt-in.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.

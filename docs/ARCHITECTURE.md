@@ -1806,7 +1806,22 @@ When disabled, direct execution exits cleanly; the PM2 profile sets `UW_PM2_IDLE
 
 Freshness belongs to the provider stream, not to each ticker. A fresh stream with no event for a symbol is `quiet`; no provider heartbeat is `missing`; an old/error stream is `stale`. This prevents “no event” from being confused with “collector not running.” Events never alter GEX, IV Rank, recommendation legs, POP, or scanner opportunity score.
 
-## 43. Composite Momentum
+## 43. Real-Data Integrity Boundary
+
+Analyze has one production seed: a null-initialized model created from the requested symbol. It is then populated independently by persisted price history, symbol metrics, GEX and derived endpoints. There is no `mockAnalysis` file or sample-data fallback in the production frontend. A failed or missing API response must leave the corresponding value unavailable; it must never inherit another symbol's price, Wall, conclusion, scenario, or strategy leg.
+
+Scanner reads a materialized snapshot plus independent quote and community CTEs. These relations intentionally share common field names such as `source` and `snapshot_ts`. The final SQL must always qualify their owner. Current contract:
+
+```text
+latest_rows.source      -> scanner row provenance
+latest_rows.snapshot_ts -> scanner freshness / is_stale calculation
+community_batch.source  -> community provenance only
+community_batch.snapshot_ts -> community freshness only
+```
+
+2026-07-16 production verification: `GET /api/scan?minIvr=40&maxIvr=100&limit=5` returned HTTP 200 and real rows after both scanner fields were qualified. `GET /analyze?symbol=NFLX` rendered real `$73.68`, `polygon_licensed` price/GEX and `$75/$73` Walls; the scanner UI rendered 1,700 real quoted candidates.
+
+## 44. Composite Momentum
 
 `GET /api/sr/:symbol` reads up to 250 daily bars and 200 regular-session 30M bars from PostgreSQL. It performs no provider request. Daily bars are also grouped by calendar week using the last available close, producing a real 1W series.
 

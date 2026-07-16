@@ -67,6 +67,12 @@ Python collector
 
 ### 2.1 生产验收记录
 
+#### 2026-07-16 — Real-data integrity repair
+
+- Railway scanner had returned HTTP 500 because its final SQL joined `latest_rows` and `latest_community_batch` but left `source`, then `snapshot_ts`, unqualified. Both fields now explicitly read from `latest_rows`; freshness CASE expressions use the same owner.
+- Vercel Analyze had retained `mockAnalysis` as a base object before overlaying API responses. The file and all production imports were removed; the page now starts with null fields and only real price/metrics/GEX responses populate it.
+- Verification after deployment: Railway `GET /api/scan?minIvr=40&maxIvr=100&limit=5` returned HTTP 200 with real scanner rows. Vercel `GET /analyze?symbol=NFLX` rendered `$73.68`, `polygon_licensed` price/GEX, Call Wall `$75`, and Put Wall `$73`; `/scan` rendered 1,700 real quoted candidates.
+
 最近一次验收：2026-07-14
 
 已验证命令和结果：

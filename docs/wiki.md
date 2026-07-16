@@ -19,7 +19,6 @@ frontend/src/
 ├── data/
 │   ├── strategies.js         # 86 strategy definitions, 7 categories
 │   ├── greeksKnowledge.js    # Greeks 知识库
-│   ├── mockAnalysis.js       # V2 mock data（9 symbols，含 GEX/scenarios/pcrVol 扩展）
 │   └── companyInfo.js        # 公司信息 lookup（12 symbols：中文名/英文名/logo/tagline）
 ├── lib/
 │   └── blackscholes.js       # BS pricing engine + Greeks
@@ -1184,6 +1183,14 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 ### Product Home
 
 `Home.jsx` is the first product signal. It uses the scanner interface as the hero visual, reads the real Market Regime endpoint for context, and exposes direct actions for the three core workflows. It does not duplicate feature documentation or hide the actual app behind a signup screen. `/learn` stays available as a distinct education workspace.
+
+### Analyze 与 Scanner 的真实数据边界
+
+Analyze 页面不再有 mock/sample data 文件或 fallback。它先创建所有市场字段为 null 的 symbol model，再分别注入真实 price history、IV metrics、GEX 和派生指标。一个 response 缺失时，该字段显示 unavailable；不得借用其他 symbol 的价格、Wall、结论、剧本或策略腿。
+
+Scanner 的主数据来自 `scanner_results_snapshots`，但 query 还会 join 最新报价和社区批次。它们都有 `source`、`snapshot_ts` 等同名字段，因此 final SQL 必须写明字段 owner：`latest_rows.source` 是 scanner provenance，`latest_rows.snapshot_ts` 只用于 scanner freshness；community batch 只用于 community provenance/freshness。
+
+2026-07-16 production validation：Railway `/api/scan?minIvr=40&maxIvr=100&limit=5` 返回 HTTP 200 和真实 rows；Vercel NFLX Analyze 显示真实 `$73.68`、Polygon price/GEX 与 `$75/$73` Walls；Scanner 显示 1,700 个真实报价候选。
 
 ### Scanner Alerts
 
