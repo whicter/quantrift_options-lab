@@ -411,7 +411,7 @@ public.price_history_30m
   - `quantrift-options-prices`：工作日 13:35 PT / 16:35 ET 运行 repo 内 `collect_prices.py`；配置固定 `SYMBOLS=watchlist`，避免 targeted backfill 环境泄漏到下一次定时任务。
   - Python/env：repo 内 `collector/venv311` 与 `collector/.env`。
   - 旧 LaunchAgent 与 `~/.quantrift_options_collector` 已移除；不存在“先同步代码再运行”的步骤。
-  - 电源恢复：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`，Mac Studio 已配置为市电恢复后自动开机。UPS 采购和实际断电/复电演练尚未完成；演练须检查 PM2 process list、collector health、queued jobs 与最新 snapshots。
+  - 电源恢复：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`，Mac Studio 已配置为市电恢复后自动开机；LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`，其 saved list 包含五个 Quantrift collector apps。UPS 采购和实际断电/复电演练尚未完成；演练须检查 PM2 process list、collector health、queued jobs 与最新 snapshots。
   - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 start collector/ecosystem.config.cjs && pm2 save`
   - Inspect：`pm2 status quantrift-options-collector quantrift-options-prices`
   - Logs：`pm2 logs quantrift-options-collector --lines 50 --nostream`

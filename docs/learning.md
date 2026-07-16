@@ -549,6 +549,7 @@ V1 公式：
 ## Mac Power Recovery Lessons (2026-07-16)
 
 - **自动重启设置与供电持续性是两项独立控制**：`pmset -g custom` 已确认 AC Power `autorestart 1`，所以市电恢复可启动机器；它不提供断电期间的续航。
+- **开机不等于进程恢复**：还需验证 LaunchAgent。当前 `pm2.congrenhan` 在 `RunAtLoad` 运行 `pm2 resurrect`，且 `dump.pm2` 含五个 Quantrift collector apps；只有这两个条件同时满足，机器恢复后采集进程才会自动回来。
 - **UPS 验收必须是恢复演练**：接入 UPS 后要受控地验证 Mac、IB Gateway、PM2 process list、collector health、队列和数据库最新 snapshot 全部恢复，不能只把“已购买 UPS”当完成。
 
 ## IB Gateway Cloud Evaluation Lessons (2026-07-15)

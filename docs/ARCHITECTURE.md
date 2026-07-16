@@ -792,7 +792,7 @@ collector/ecosystem.config.cjs
 
 运行保障：
 
-- 机器断电恢复后任务能继续：2026-07-16 `pmset -g custom` 已验证 AC Power `autorestart 1`。系统会在市电恢复后自动启动；PM2 的持久化恢复仍依赖已保存的 process list。
+- 机器断电恢复后任务能继续：2026-07-16 `pmset -g custom` 已验证 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 使用 `RunAtLoad=true` 执行 `pm2 resurrect`，且 saved process list 含五个 Quantrift collector apps。系统在市电恢复后会启动并恢复已保存的 PM2 apps。
 - 网络失败可恢复。
 - 日志可查看。
 - 运行状态可告警。

@@ -86,7 +86,7 @@ Derived IV Rank cutover is complete in all control planes: ready symbols are fil
 
 Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`: one-shot image/config run weekdays at 22:30 UTC and exit. Collector 104 tests and a repo-root Docker build pass. The 2026-07-16 first manual execution connected to PostgreSQL and loaded 67 symbols, then TT rejected the remember token (`401 invalid_credentials`; local no-write probe `403`). Replace the Railway token after `auth.py --login`, manually rerun, and verify `iv_history` before marking the cloud collector live.
 
-Mac Studio power recovery is partially complete: `pmset -g custom` verified AC Power `autorestart 1` on 2026-07-16, so the machine auto-starts after mains power returns. UPS procurement and a controlled full recovery test for PM2, IB Gateway, collector health, jobs and snapshots remain physical operations.
+Mac Studio power recovery is partially complete: `pmset -g custom` verified AC Power `autorestart 1` on 2026-07-16, and LaunchAgent `pm2.congrenhan` has `RunAtLoad=true` with `pm2 resurrect`; its saved list contains all five Quantrift collector apps. UPS procurement and a controlled full recovery test for PM2, IB Gateway, collector health, jobs and snapshots remain physical operations.
 
 IB Gateway cloud evaluation is complete: use a fixed-egress VPS, pinned Gateway/IBC image, paper/read-only mode, Docker secret and loopback-only ports. `ops/ib-gateway/` holds the template and 72-hour soak gates. Collector 85 tests and compose config pass; VPS purchase and IBKR 2FA remain external.
 

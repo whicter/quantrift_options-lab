@@ -1055,7 +1055,7 @@ Phase 3C implementation status：
 - `/api/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
 - Runtime completed：Mac Studio PM2 直接运行 `collector/ecosystem.config.cjs`。`quantrift-options-collector` 每 300 秒 missing-first/oldest-first bounded enqueue 两个 symbols、每 60 秒消费 queue、每 300 秒 materialize scanner；失败 symbol 有 30 分钟 cooldown；`quantrift-options-prices` 工作日 13:35 PT 运行。
 - No runtime copy：旧 LaunchAgent、wrappers 和 `~/.quantrift_options_collector` 已移除；当前 repo 是唯一运行代码源。
-- Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`，Mac Studio 在市电恢复后自动开机。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
+- Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 以 `RunAtLoad=true` 调用 `pm2 resurrect`，saved list 已含五个 Quantrift collector apps。因此市电恢复后 Mac 会启动并恢复 collector apps。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
 
 ### 新增 API 端点规划（server/）
 
