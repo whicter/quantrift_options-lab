@@ -28,6 +28,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - `/api/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
 - Scanner user output is an actionable candidate, not snapshot inventory: use actual same-expiry contracts, executable-side pricing and explicit risk; never display a DTE range or fixed POP as a recommendation.
 - Scanner `不限` means all qualifying setups across supported strategies, not one inferred strategy per symbol. Multiple rows per symbol are expected.
+- Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` serves confirmed/baseline OI delta state.
 - Public options data still requires a licensed provider adapter; `ib_internal` and `tt_internal` are internal/transitional only.
 
@@ -59,7 +60,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 ```
 
 ## Next Task
-- Next data task: collector coverage/failure alerts while the bounded PM2 scheduler fills option snapshot/GEX/OI-delta coverage.
+- Execution order is defined in `docs/task.md` under `实施优先级（执行顺序）`.
+- Immediate next section: Phase 3D-6 calculation/API regression coverage, followed by collector coverage/failure alerts.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
 - IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Do not represent volume-only signals as confirmed institutional positioning.

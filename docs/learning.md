@@ -421,3 +421,10 @@ V1 公式：
 - UI 不变量：没有完整达标候选就不显示 row；只显示选中订单的 expiry/DTE、legs、credit/debit、max loss、breakeven、RoR 和机会分。DTE range 只用于内部 coverage/debug。
 - 测试：必须覆盖“snapshot 同时含 2 DTE 和 45 DTE 时默认选 45 DTE”、“负 credit 被拒绝”、“短线明确允许 2 DTE”、“Iron Condor 两侧同 expiry”。
 - 追加不变量：`不限`不是“推荐一个最匹配策略”；它应返回所有已支持策略中通过门槛的组合，同一 symbol 可以有多条候选。所谓全部不包括不可执行或质量不达标的笛卡尔排列。
+
+### 10. 不要用修复 dotenv 覆盖问题为理由硬编码 provider key
+
+- 已确认问题：PM2 config 注入 `POLYGON_API_KEY=''` 会让 `load_dotenv` 认为变量已存在，从而跳过 `.env` 的真实值。
+- 错误修复：把真实 key 直接写入 `ecosystem.config.cjs`。这会让凭据进入 Git 历史、文档和所有 clone。
+- 正确修复：从 PM2 `env` 中完全移除该变量，让 collector 工作目录的 `.env` 提供它；云端使用平台 secret store。不要打印 key，也不要在测试 fixture 中使用真实 key。
+- 运行验证：配置语法检查、repository secret scan、provider 使用脱敏 health check。已经进入 Git 历史的 key 必须由账户持有人 rotate。

@@ -1452,7 +1452,9 @@ Known current monitoring state:
                         └─────────────────────────────┘
 ```
 
-该架构适合当前项目阶段。近期重点是扩大 bounded option snapshot 覆盖、增加 collector health/coverage alert，并把 scanner/analyze 从 positioning context 推进到 actual contract-level strategy selection。
+该架构适合当前项目阶段。当前实施顺序以 `docs/task.md` 的“实施优先级（执行顺序）”为准：先补计算/API 回归测试与 collector health/coverage alert，再切 Polygon price/HV/IV 派生链，随后完成 scanner/analyze/universe。
+
+Provider credential invariant：API key 只存在于 `collector/.env` 或部署平台 secret store。PM2 ecosystem config、源码、测试和文档不得包含 key；也不得显式注入空字符串覆盖 dotenv。
 
 ---
 

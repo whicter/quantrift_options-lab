@@ -37,6 +37,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - `/api/status/cache` reports job backlog, failures, scanner age, empty snapshots and provider budget.
 - Scanner rows must represent complete actionable candidates from actual same-expiry quotes. DTE ranges are diagnostics only; fixed placeholder POP values are forbidden.
 - `不限` enumerates all qualifying setups across supported strategies and may return multiple rows for one symbol.
+- Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `option_oi_delta_snapshots` powers `/api/unusual/:symbol`, `/api/scan` unusual filters and Analyze Tab3 unusual activity.
 - `ib_internal` and `tt_internal` are internal/transitional data sources, not public licensed product sources.
 
@@ -68,7 +69,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 ```
 
 ## Next Task
-- Next data task: collector coverage/failure alerts while the bounded PM2 scheduler fills option snapshot/GEX/OI-delta coverage.
+- Follow `docs/task.md` section `实施优先级（执行顺序）`.
+- Immediate next section: Phase 3D-6 calculation/API regression coverage, then collector coverage/failure alerts.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
 - IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Volume/OI is only an activity proxy. Confirmed unusual OI requires previous snapshot comparison.

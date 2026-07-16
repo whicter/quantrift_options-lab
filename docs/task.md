@@ -310,7 +310,7 @@
   - 2026-07-14 首次手动跑通：写入 21 rows，source=tastytrade；cron 已安装为 1:30pm PT / 4:30pm ET
 - ✅ 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
-- [ ] IB 连接管理：clientId=2，复用 futures bot 的 IB Gateway（IB 仍为 fallback，需确保 clientId 不与 futures bot 冲突）
+- ✅ IB 连接管理：IB option fallback 默认 `IB_OPTION_CLIENT_ID=42`，price fallback 默认 `IB_PRICE_CLIENT_ID=12`，不再复用含糊的 clientId=2；均可由环境变量覆盖并与 futures bots 隔离
 - [ ] 服务层自动切换：252天 option snapshot 积累后改为自算 IV Rank，停止调用 Tastytrade（见 P0.3）
 
 **基础设施可靠性 / 云端迁移**
@@ -348,12 +348,8 @@
   - Mid IV：small defined-risk directional spread
 
 **功能**
-- [ ] 用 live 链数据填充推荐策略的 legs（自动选择最优行权价）
-  - Current fallback：用 price / Call Wall / Put Wall 生成 target strikes 与 delta/DTE/width 参数
-  - Blocked for full product：需要 broader option-chain snapshots with bid/ask, Greeks, DTE, liquidity across watchlist
-- [ ] Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值
-  - Current completed：IV Rank, GEX, PCR, OI/volume, OI delta filters
-  - Remaining：contract-level spread width / liquidity / DTE / Greeks thresholds require broader option-chain snapshots
+- ✅ 用 live 链数据填充推荐策略的 legs（`scanOpportunity.js` 使用真实同到期 bid/ask contracts，输出 expiry/DTE/legs/credit/debit/max loss/breakeven/RoR）
+- ✅ Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值（server contract filters + frontend presets/advanced filters 已实现；无完整可执行 legs 时 fail closed）
 - [ ] Push notifications: email + web push 当扫描命中条件
 
 **✅ Phase 3D — Options Positioning Data Layer（已完成，Polygon 已在 Phase 3I 替代 IB internal 成为生产 provider）**
@@ -706,7 +702,7 @@
   - IB provider uses the same DTE bucket and per-expiration cap semantics.
   - Runtime verified on PLTR：`OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=60 OPTION_MAX_CONTRACTS_PER_EXPIRATION=20 OPTION_MAX_STRIKES_PER_SIDE=3 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py` wrote `snapshot_id=9`, 28 contracts across 2/30/65 DTE, with 28 quoted contracts, 28 Greeks rows and 28 OI rows.
   - Runtime verified downstream：`compute_gex.py` wrote `gex_id=4`, `materialize_oi_delta.py` wrote 28 OI delta rows, and full `materialize_scan.py` restored 67 scanner rows with PLTR `gex_status=fresh`, `call_wall=140`, `put_wall=140`, DTE range 2-65.
-- [ ] Expand option-chain snapshot backfill from PLTR-only to the scanner ingestion pool in bounded batches, then rerun GEX, OI delta, and scanner materialization.
+- ✅ Expand option-chain snapshot backfill from PLTR-only to the scanner ingestion pool in bounded batches：`run_collector_daemon.py` + `schedule_option_refresh.py` 持续 enqueue missing/stale symbols，worker 后续运行 GEX、OI delta 与 scanner materialization
 - [ ] Scanner strategy recommendation expansion：
   - Current recommendation engine emits `Bull Put Spread`, `Bear Call Spread`, `Iron Condor`, `Long Straddle`, and fallback `Bull Call Spread` / `Short Strangle` labels.
   - Strategy knowledge base already contains `Short Put`, `Short Call`, `Iron Butterfly`, `Long Call Butterfly`, `Long Put Butterfly`, `Short Butterfly`, and related structures.
@@ -847,7 +843,8 @@
 
 ### ecosystem.config.cjs
 - [x] `OPTION_REFRESH_PROVIDER: 'polygon_licensed'`
-- [x] `POLYGON_API_KEY: 'Kl9GoygZPFFXnbiU1si_2l90yH9MNiL2'`（直接硬编码；`process.env.KEY || ''` 会注入空串，阻断 `load_dotenv` 读取 .env 文件）
+- [x] `POLYGON_API_KEY` 不写入 `ecosystem.config.cjs` 或 Git；collector 由工作目录 `.env` 读取。也不能注入空字符串，否则会阻断 `load_dotenv`。
+- [ ] Rotate 曾进入 Git 历史的 Polygon key，并只写入 Mac Studio `collector/.env` / 部署平台 secret store（需要账户持有人操作）。
 
 ### PM2 部署与验证
 - [x] `pm2 reload ecosystem.config.cjs --update-env`（必须用 reload；`pm2 restart --update-env` 只合并 shell env，不重读 .cjs 文件）
@@ -886,9 +883,28 @@
 
 ---
 
-### 实施优先级（下一步）
+### 实施优先级（执行顺序，2026-07-15）
 
-**P0 — 最高优先级：全量切换至 Polygon（同一 $29/月 key）**
+下面的顺序是从本节起完成所有未完成任务的依赖图，不按文档原有出现顺序盲目执行。每个 section 必须独立完成实现、测试、文档、commit 和 push。
+
+| 顺序 | Section | 完成条件 | 外部阻塞 |
+|---|---|---|---|
+| P0.0 | 凭据与任务校准 | 仓库无明文 key；过期 task 与真实代码状态一致 | 已暴露的 Polygon key 需人工 rotate，但不阻塞本地实现 |
+| P0.1 | Phase 3D-6 计算/API 回归测试 | GEX sign、walls、gamma flip、PCR、confidence 及 fresh/stale/missing API tests 全通过 | 无 |
+| P0.2 | Collector coverage/failure alert | coverage、failure、age、completeness 阈值可配置并有 operator alert + tests | SMTP/通知凭据仅影响真实发送验证 |
+| P0.3 | Polygon price history | 日线与 30M adapter、schema、collector、PM2 调度、67 symbols runtime verification | 使用现有 Polygon key；若 rotate 后未提供新 key 才阻塞 |
+| P0.4 | 自算 HV / ATM IV / IV Rank | 派生脚本、历史门槛、对比报告、fail-closed 切换逻辑 | 90/252 天历史不足时只验证计算与 readiness，不提前停 TT |
+| P1.1 | Scanner 策略扩展 | 所列策略按真实合约枚举、风险门控、测试和 UI 输出 | 无 |
+| P1.2 | Analyze 数据产品 | S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
+| P1.3 | Universe / on-demand | broader universe、filters、unknown symbol enqueue/wait UI、materialized invariant | universe 数据来源不足时记录具体字段阻塞 |
+| P1.4 | Market/weekly signals | regime header、30M breakout、Weekly GEX/Max Pain 实数接入 | 依赖 P0.3 30M 数据 |
+| P2 | 产品入口与通知 | landing page、email/web push、heartbeat | web push/email production secrets 只影响部署验证 |
+| P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
+| External | 硬件与采购 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 必须人工采购、登录或提供 API key |
+
+执行边界：`task.md` 中已经被后续 section 实现但仍保留 `[ ]` 的旧条目，先用代码和测试证据校准为完成；硬件采购和第三方账户操作不得伪装为代码完成。
+
+**P0 — 最高优先级：全量切换至 Polygon（使用环境变量中的订阅 key）**
 
 目标：消除对 IB Gateway 的价格依赖，并逐步替换 Tastytrade 的 IV/HV 字段。
 

@@ -1268,6 +1268,7 @@ Operational rules:
 - Manual refresh should create or reuse a `provider_fetch_jobs` row.
 - Per-symbol refresh should be rate-limited to at least 60 seconds.
 - Scanner results should be precomputed and cached; avoid full-market scans in request path.
+- Secrets：`POLYGON_API_KEY` 等 provider credentials 只放在 Mac Studio `collector/.env` 或部署平台 secret store；禁止写入 `ecosystem.config.cjs`、文档或 Git。修改 secret 后使用 PM2 reload/update-env 并验证 provider health，不打印 secret 值。
 - Scanner UI must convert cached rows plus actual quoted contracts into complete actionable candidates. `不限` applies no hidden preset and enumerates the current 1-90 DTE ingestion window; named presets explicitly narrow it. Do not expose snapshot DTE ranges or fixed placeholder POP as recommendations.
 - Candidate deployment acceptance：the row shows an exact expiry/DTE, actual legs, executable-side credit/debit, max loss, breakeven and opportunity score; incomplete/non-positive-credit structures are absent.
 - `不限` acceptance：one symbol may produce multiple rows; all qualifying supported strategies/expiries/strikes are returned, while strategy chips narrow the enumeration explicitly.

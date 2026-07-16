@@ -47,7 +47,8 @@
 - IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
 - `IB_MARKET_DATA_TYPE=3` 接受延迟行情。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
 - Analyze 已有真实技术评分与策略矩阵；当前推荐腿是 target fallback，不是完整 live-chain optimal leg selection。
-- `ib_internal` / `tt_internal` 是当前过渡数据链，API 与前端只读取 PostgreSQL snapshot。
+- Production option collection uses `polygon_licensed`; `ib_internal` / `tt_internal` remain fallback/research adapters. API 与前端只读取 PostgreSQL snapshot。
+- Provider credentials只允许存在于 `collector/.env` 或部署 secret store，不得写入 PM2 config、文档、测试或 Git。
 
 ## 关键文件
 - `server/src/migrate.js` — 建表脚本，Railway 上跑一次
@@ -67,7 +68,8 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Broader option snapshot coverage：按 bounded batches 扩展到完整 scanner ingestion pool
-2. Strategy leg selector V1 已完成：`不限`不施加隐藏 preset，枚举当前 1-90 DTE 采集窗口内所有已支持策略的达标组合，同一标的可返回多条；下一步增加更多结构与独立校准 POP
-3. Collector health/coverage alert：监控 queue、失败率、snapshot age 和 required-field completeness
-4. Production auth/subscription/paywall
+1. Phase 3D-6 GEX/API regression tests
+2. Collector health/coverage alert：监控 queue、失败率、snapshot age 和 required-field completeness
+3. Polygon price history + derived HV/ATM IV/IV Rank readiness
+4. Scanner/Analyze/universe product completion
+5. Production auth/subscription/paywall

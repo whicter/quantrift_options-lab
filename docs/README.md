@@ -79,6 +79,7 @@ Open http://localhost:5173
 - User requests should read precomputed snapshots from Railway PostgreSQL through the Railway API
 - Public user requests must not synchronously depend on a local Mac Studio IB Gateway
 - Provider adapters isolate ingestion so a future data source can be added without changing API or frontend contracts.
+- Provider credentials are loaded from local/deployment secret stores only. PM2 config, docs and Git must never contain API keys.
 - Production data UX should use snapshot cache + stale-while-revalidate: return fresh snapshots immediately, return stale-but-labeled snapshots while refreshing, and show queued/unavailable states instead of fake mock data when a symbol has no data
 - Scanner results should be precomputed/cached, not full-market recalculated on every user request
 - Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only

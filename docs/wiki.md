@@ -700,17 +700,17 @@ Unusual Activity
 
 不得把 mock shell 当作真实 options data 或交易建议。下一步 UI 接入应补 actual strategy legs / POP / unusual activity。
 
-#### Options Positioning 数据层现状与过渡方案
+#### Options Positioning 数据层现状
 
-当前缺口已经从“没有 option chain”推进到“有 TT internal snapshot + GEX compute，但尚未接入前端 analyze/scanner”：
+Production option snapshots 已切换到 `polygon_licensed`；TT/IB 仅保留为 fallback/research adapters。API 和前端继续只读 PostgreSQL snapshots，不直接调用 provider。
 
 | 数据 | 当前状态 | 当前过渡路径 | 下一步产品工作 |
 |---|---|---|---|
 | 60日 OHLCV / latest close | 已接入 | `ib_internal` | coverage/freshness alert |
 | IV Rank / IV30 / HV30 | 已接入 watchlist metrics | Tastytrade metrics | coverage alert |
-| Option chain bid/ask/last | 已接入 snapshot schema | TT primary + IB fallback/delayed | bounded universe backfill |
-| Open Interest / Volume | 已接入 contract snapshots | TT/IB actual fields | completeness monitoring |
-| Greeks / IV by contract | 已接入 contract snapshots | TT Greeks + IB model/delayed Greeks | completeness monitoring |
+| Option chain bid/ask/last | 已接入 snapshot schema | Polygon licensed | bounded universe backfill |
+| Open Interest / Volume | 已接入 contract snapshots | Polygon actual fields | completeness monitoring |
+| Greeks / IV by contract | 已接入 contract snapshots | Polygon Greeks | completeness monitoring |
 | GEX by strike | `compute_gex.py` 已实现 | latest usable option snapshot | broader symbol coverage |
 | Call Wall / Put Wall | GEX snapshot 已实现 | actual strike aggregation | broader symbol coverage |
 | Gamma Flip | GEX snapshot 已实现 | reproducible price grid | broader symbol coverage |
@@ -761,18 +761,13 @@ Interpretation rule：
 - If TWS shows those fields but `debug_ib_option_ticks.py` raw payload is empty, treat it as adapter/parser bug.
 - If raw payload contains IB permission errors, resolve market-data subscriptions before entering 3D-3 GEX calculation.
 
-Phase 3D transition provider decision：
-- Use `tt_internal` as the current transitional option-chain metadata provider.
-- tastytrade REST chain endpoint supplies expiration, strike, contract symbol, and streamer symbol.
-- tastytrade quote/Greeks/OI requires a DXLink streaming follow-up before GEX can be calculated.
-- `tt_internal` rows are internal validation data, not licensed product redistribution data.
-- Formal product launch still requires a paid/licensed options-data source with redistribution rights.
+Credential invariant：`POLYGON_API_KEY` 只存在于 `collector/.env` 或部署 secret store。PM2 config、源码、测试与文档不得包含真实 key，也不得注入空字符串覆盖 dotenv。
 
 Phase 3D-7 licensed provider evaluation：
 
 | Provider candidate | Why it fits | Open questions | Current decision |
 |---|---|---|---|
-| Massive / Polygon options snapshot | Official docs show option chain snapshot with pricing, Greeks, implied volatility, quotes/trades, open interest, and underlying asset fields; plans distinguish delayed vs real-time options data | Must confirm OPRA/commercial display and redistribution rights for the exact Quantrift product model | First adapter candidate once key/license are available |
+| Polygon options snapshot | Adapter and licensed snapshot path implemented with pricing, Greeks, implied volatility, quotes, volume and open interest | Continue coverage/completeness monitoring | Selected production provider |
 | Intrinio options APIs | Options chain/data APIs are available and may fit a commercial data workflow | Need confirm field completeness for gamma/OI/volume, rate limits, redistribution/display terms, and cost | Second candidate / quote comparison |
 | IB Gateway | Can validate internal formulas and compare snapshots | Not a public product data redistribution source; local gateway is not acceptable request-path dependency | Internal validation only |
 | Tastytrade internal | Useful transitional chain + DXLink data while building schema and GEX logic | Not documented here as a licensed redistribution source for a public SaaS product | Internal validation only |

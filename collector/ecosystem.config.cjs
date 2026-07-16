@@ -15,7 +15,6 @@ module.exports = {
         OPTION_MAX_STRIKES_PER_SIDE: '6',
         COLLECTOR_POLL_SECONDS: '60',
         SCAN_MATERIALIZE_SECONDS: '300',
-        POLYGON_API_KEY: 'Kl9GoygZPFFXnbiU1si_2l90yH9MNiL2',
         OPTION_AUTO_REFRESH: 'true',
         OPTION_REFRESH_PROVIDER: 'polygon_licensed',
         OPTION_REFRESH_BATCH_SIZE: '2',
