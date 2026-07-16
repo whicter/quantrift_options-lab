@@ -972,10 +972,12 @@ P2.6 verification：Railway 只读重放 AAPL 250 daily + 200 regular-session 30
 > 数据来源：`price_history`（日线）+ `price_history_30m`（30M）；无需新订阅。
 > Unusual Whales 暂不接入（API $125/月），OI Delta 异动已覆盖期权层异常检测。
 
-- [ ] **Volume Profile**：从 `price_history_30m` 按价格区间聚合成交量，返回 VP by price level
-  - `GET /api/vp/:symbol?interval=30m&days=20`
-  - 前端：Analyze Tab2 叠加横向 volume bars（显示哪些价位成交密集）
-  - 可与 S/R zones 叠加：volume node = 支撑/压力确认
+- [x] **Volume Profile**（2026-07-16）：从 `price_history_30m` 按价格区间聚合成交量，返回 VP by price level
+  - `GET /api/vp/:symbol?interval=30m&days=20&bins=40`；`days=1..60`、`bins=10..80`，仅取 regular-session 30M bars
+  - 每根 bar 用 `(high + low + close) / 3` 归入价格桶并累加真实 volume；返回完整 nodes 与前 5 个 high-volume nodes
+  - Analyze Tab2 显示横向 volume bars、成交量、相对现价距离；无至少两根有 volume 的 bar 或无价格区间时明确返回 `missing`，不显示模拟节点
+  - 可与 S/R zones 并列用于确认成交密集价位，但不把 volume node 冒充为 S/R 或期权 Wall
+  - 验证：server 69/69、frontend 40/40、full ESLint、Vite production build passed
 - [ ] **OBV（On-Balance Volume）**：从 `price_history` 日线计算累计量价关系
   - `GET /api/sr/:symbol` 已有，可在此端点扩展 OBV 字段
   - 前端：Tab2 趋势图下方小图

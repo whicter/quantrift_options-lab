@@ -1303,6 +1303,14 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-momentum-cell strong { color: var(--text); font-size: 18px; }
 .az-momentum-cell small { grid-column: 1 / -1; color: var(--text-dim); font-size: 10px; }
 @media (max-width: 540px) { .az-momentum-grid { grid-template-columns: 1fr; } }
+.az-volume-profile-card { min-width: 0; }
+.az-volume-profile { display: grid; gap: 4px; max-height: 310px; overflow-y: auto; padding-right: 4px; }
+.az-vp-row { display: grid; grid-template-columns: 72px minmax(80px, 1fr) 52px 50px; align-items: center; gap: 8px; min-width: 0; font-family: var(--font-mono, monospace); font-size: 10px; }
+.az-vp-price, .az-vp-volume, .az-vp-distance { color: var(--text-dim); white-space: nowrap; }
+.az-vp-distance { text-align: right; }
+.az-vp-bar-track { height: 12px; min-width: 0; background: var(--bg-hover); border-radius: 2px; overflow: hidden; }
+.az-vp-bar { height: 100%; background: rgba(59, 130, 246, 0.72); border-radius: inherit; }
+@media (max-width: 540px) { .az-vp-row { grid-template-columns: 64px minmax(60px, 1fr) 46px; gap: 6px; } .az-vp-distance { display: none; } }
 .c-green { color: var(--green); }
 .c-red { color: var(--red); }
 .c-yellow { color: var(--yellow); }

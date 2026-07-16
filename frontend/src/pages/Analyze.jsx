@@ -2,7 +2,7 @@ import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getUnusual } from '../lib/api';
+import { getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getUnusual, getVolumeProfile } from '../lib/api';
 import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
 import { applyExternalFlow } from '../lib/externalFlow';
 import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
@@ -391,7 +391,7 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData] = await Promise.all([
+      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, volumeProfile] = await Promise.all([
         getAnalyzeStatus(sym).catch(() => null),
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
@@ -401,20 +401,21 @@ export default function Analyze() {
         getSupportResistance(sym).catch(() => null),
         getChainStats(sym).catch(() => null),
         getExternalFlow(sym, 30).catch(() => null),
+        getVolumeProfile(sym).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats), flowData), onDemandStatus });
+          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats, volumeProfile), flowData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
         }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
-          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats), flowData), onDemandStatus });
+          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats, volumeProfile), flowData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: 1 }, { replace: true });
           setError('');
         } else {
@@ -435,7 +436,7 @@ export default function Analyze() {
         // Analyze only displays executable legs after a real contract candidate is attached.
         recommendation: null,
         onDemandStatus,
-      }, supportResistance, chainStats), flowData);
+      }, supportResistance, chainStats, volumeProfile), flowData);
       setResult(data);
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {

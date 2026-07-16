@@ -130,6 +130,11 @@ export function getSupportResistance(symbol) {
   return getJson(`/api/sr/${encodeURIComponent(symbol.toUpperCase())}`);
 }
 
+export function getVolumeProfile(symbol, { days = 20, bins = 40 } = {}) {
+  const query = new URLSearchParams({ interval: '30m', days: String(days), bins: String(bins) });
+  return getJson(`/api/vp/${encodeURIComponent(symbol.toUpperCase())}?${query.toString()}`);
+}
+
 export function getChainStats(symbol) {
   return getJson(`/api/chain/stats/${encodeURIComponent(symbol.toUpperCase())}`);
 }

@@ -111,7 +111,7 @@ export function applyGex(data, gexData) {
   };
 }
 
-export function applyDerivedAnalysis(data, supportResistance, chainStats) {
+export function applyDerivedAnalysis(data, supportResistance, chainStats, volumeProfile) {
   if (!data) return data;
   const srReady = supportResistance?.status === 'ready';
   const chainReady = chainStats?.status === 'ready';
@@ -127,6 +127,16 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats) {
     } : null,
     focusScore: srReady && supportResistance.focus?.ready ? supportResistance.focus : null,
     compositeMomentum: srReady && supportResistance.momentum ? supportResistance.momentum : null,
+    volumeProfile: volumeProfile?.status === 'ready' ? {
+      source: volumeProfile.source,
+      days: volumeProfile.days,
+      barCount: volumeProfile.bar_count,
+      priceLow: toNumber(volumeProfile.price_low),
+      priceHigh: toNumber(volumeProfile.price_high),
+      totalVolume: toNumber(volumeProfile.total_volume),
+      nodes: volumeProfile.nodes || [],
+      highVolumeNodes: volumeProfile.high_volume_nodes || [],
+    } : null,
     chainStats: chainReady ? {
       source: chainStats.source,
       snapshotTs: chainStats.snapshot_ts,

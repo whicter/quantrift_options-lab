@@ -155,6 +155,44 @@ function TrendCanvas({ prices, dates, kf, spread, levels }) {
   );
 }
 
+function formatVolume(value) {
+  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
+  return String(Math.round(value));
+}
+
+function VolumeProfile({ profile, spot }) {
+  if (!profile?.nodes?.length) return null;
+  const nodes = [...profile.nodes].sort((a, b) => b.price - a.price);
+  const maxVolume = Math.max(...nodes.map(node => Number(node.volume) || 0), 1);
+  return (
+    <div className="az-card az-volume-profile-card">
+      <div className="az-trend-header">
+        <div>
+          <div className="az-card-title">Volume Profile · 价位成交分布</div>
+          <div className="az-data-note">近 {profile.days} 天，{profile.barCount} 根 regular-session 30M bars；横条越长，成交越密集。</div>
+        </div>
+        <span className="az-mini-badge yellow">{profile.highVolumeNodes.length} 个高量节点</span>
+      </div>
+      <div className="az-volume-profile">
+        {nodes.map(node => {
+          const distance = spot ? ((Number(node.price) / spot - 1) * 100) : null;
+          return (
+            <div className="az-vp-row" key={node.price}>
+              <span className="az-vp-price">${Number(node.price).toFixed(2)}</span>
+              <div className="az-vp-bar-track">
+                <div className="az-vp-bar" style={{ width: `${Math.max(2, (Number(node.volume) / maxVolume) * 100)}%` }} />
+              </div>
+              <span className="az-vp-volume">{formatVolume(Number(node.volume))}</span>
+              <span className="az-vp-distance">{distance == null ? '--' : `${distance >= 0 ? '+' : ''}${distance.toFixed(1)}%`}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Tab2Trend({ data }) {
   const { trend, pcr, direction } = data;
   const composite = data.compositeMomentum;
@@ -177,6 +215,7 @@ export default function Tab2Trend({ data }) {
     ...(data.supportResistance?.support || []).map(level => ({ ...level, type: 'support' })),
     ...(data.supportResistance?.resistance || []).map(level => ({ ...level, type: 'resistance' })),
   ];
+  const volumeProfile = data.volumeProfile;
 
   const insights = [
     `趋势格局：${trend.regime}，KF均线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
@@ -201,6 +240,8 @@ export default function Tab2Trend({ data }) {
         </div>
         <TrendCanvas prices={prices} dates={dates} kf={kf} spread={spread} levels={levels} />
       </div>
+
+      <VolumeProfile profile={volumeProfile} spot={data.price} />
 
       {/* Output badges */}
       <div className="az-output-badges">

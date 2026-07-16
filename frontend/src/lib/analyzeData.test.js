@@ -141,6 +141,11 @@ test('derived analysis only attaches ready real-data products', () => {
       aggregation: 'all_nonexpired_expiries', expiry_count: 3, contract_count: 40, total_open_interest: 12000,
       points: [{ strike: 135, call_oi: 5000, put_oi: 7000, total_oi: 12000 }],
     },
+  }, {
+    status: 'ready', source: 'price_history_30m', days: 20, bar_count: 260,
+    price_low: 125, price_high: 145, total_volume: 2000000,
+    nodes: [{ price: 130, volume: 800000, volume_pct: 40 }],
+    high_volume_nodes: [{ price: 130, volume: 800000, volume_pct: 40 }],
   });
   assert.equal(result.focusScore.score, 68);
   assert.equal(result.compositeMomentum.score, 72);
@@ -148,6 +153,8 @@ test('derived analysis only attaches ready real-data products', () => {
   assert.equal(result.chainStats.ivContractCount, 20);
   assert.equal(result.chainStats.oiDensity.points[0].put_oi, 7000);
   assert.equal(result.chainStats.oiDensity.expiryCount, 3);
+  assert.equal(result.volumeProfile.days, 20);
+  assert.equal(result.volumeProfile.highVolumeNodes[0].price, 130);
 });
 
 test('missing derived data remains null instead of using mock values', () => {
@@ -156,4 +163,5 @@ test('missing derived data remains null instead of using mock values', () => {
   assert.equal(result.focusScore, null);
   assert.equal(result.compositeMomentum, null);
   assert.equal(result.chainStats, null);
+  assert.equal(result.volumeProfile, null);
 });
