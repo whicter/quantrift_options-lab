@@ -1146,6 +1146,8 @@ Scanner opportunity types are active controls, not explanatory labels. Selecting
 
 Scanner binary controls use fixed 16px checkbox columns and adjacent labels. They must not inherit generic input dimensions or split their checkbox and label across the filter panel.
 
+On desktop the Scanner filter panel is sticky but has a viewport-bounded internal vertical scroll. Long result lists must not trap lower filter controls or the scan action below the viewport. Mobile keeps the filter panel in normal page flow.
+
 当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
 
 - `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。

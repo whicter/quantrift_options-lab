@@ -851,6 +851,10 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   gap: 20px;
   position: sticky;
   top: 68px;
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .scan-filter-section { display: flex; flex-direction: column; gap: 8px; }
 .scan-filter-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; }
@@ -1144,7 +1148,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   .scan-page { padding: 68px 14px 24px; }
   .scan-body { flex-direction: column; }
   .scan-body-idle { max-width: none; }
-  .scan-filters { position: static; width: 100%; }
+  .scan-filters { position: static; width: 100%; max-height: none; overflow: visible; }
   .scan-results { width: 100%; max-width: none; }
   .scan-body-idle .scan-results { flex-basis: auto; }
   .scan-table-head { display: none; }

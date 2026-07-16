@@ -694,6 +694,7 @@
 - ✅ Scanner positioning copy：Wall now shows its actual strike and whether it is above or below spot; GEX now shows positive/negative Gamma, net exposure, the expected volatility tendency and snapshot freshness instead of unexplained `Call 4.5%` / `GEX -$1.1B` fragments.
 - ✅ Opportunity type controls：selecting High-IV income, near Wall, or unusual positioning now has a persistent selected state and immediately reruns Scanner with the preset's explicit filters; it is no longer a silent form-state change.
 - ✅ Scanner toggle alignment：Unusual OI and advanced-risk checkboxes use an explicit 16px control column with adjacent label text; browser input sizing cannot push the label across the filter panel.
+- ✅ Scanner filter scrolling：the desktop sticky filter panel has its own viewport-bounded vertical scroll, so advanced controls and the scan action remain reachable after long result lists render.
 - ✅ Verification：
   - Migration completed against Railway PostgreSQL after adding trend columns.
   - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows with trend fields.
