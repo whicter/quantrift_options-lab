@@ -10,6 +10,7 @@ const chainRouter = require('./routes/chain');
 const gexRouter = require('./routes/gex');
 const unusualRouter = require('./routes/unusual');
 const { router: supportResistanceRouter } = require('./routes/supportResistance');
+const analyzeRouter = require('./routes/analyze');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -47,6 +48,7 @@ app.use('/api/chain', chainRouter);
 app.use('/api/gex', gexRouter);
 app.use('/api/unusual', unusualRouter);
 app.use('/api/sr', supportResistanceRouter);
+app.use('/api/analyze', analyzeRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

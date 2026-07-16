@@ -239,10 +239,10 @@ def update_iv_rank_readiness(conn, symbols: list[str]) -> dict[str, dict]:
     return statuses
 
 
-def run(backfill: bool | None = None) -> dict:
+def run(backfill: bool | None = None, symbols: list[str] | None = None) -> dict:
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
-    symbols = load_watchlist()
+    symbols = symbols or load_watchlist()
     conn = psycopg2.connect(DB_URL)
     try:
         price_histories = fetch_polygon_prices(conn, symbols)

@@ -1366,3 +1366,17 @@ Acceptance must establish 67-symbol HV/ATM coverage, ATM DTE 30–45, source pro
 - Acceptance distinguishes latest positioning coverage from latest usable bid/ask coverage. A successful GEX snapshot is not evidence of candidate-pricing readiness.
 - Runtime smoke command：start the API against Railway, request `/api/scan?minIvr=0&maxIvr=100&limit=2`, and verify `quoted_contract_count > 0`, non-empty `option_contracts`, New York DTE, and quote provenance.
 - Rollback is the scanner section commit; no migration is required.
+
+## Universe and On-Demand Operations
+
+After deploying the additive migration, seed the persistent registry and rematerialize scanner rows:
+
+```bash
+cd /Users/congrenhan/Documents/quantrift_options-lab/collector
+venv311/bin/python sync_universe.py
+venv311/bin/python materialize_scan.py
+```
+
+Smoke test an uncached symbol with `GET /api/analyze/{symbol}`. The first response may be `queued`; later responses must become `ready`, `partial`, or `blocked` by field. Repeating a request after a recent non-retryable metrics failure must leave `queue_depth=0`, not create another job. `/api/status/data` exposes total/active/scannable universe counts and metadata population counts.
+
+Rollback is the P1.3 commit plus API/collector restart. The additive `symbol_universe` table and scanner columns may remain in PostgreSQL; older code ignores them. No destructive down migration is required.

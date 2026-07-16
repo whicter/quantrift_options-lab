@@ -1570,3 +1570,22 @@ latest snapshot with bid/ask -> actual legs -> credit/debit/risk candidate enume
 Candidate engine 支持 13 种结构。所有 sell legs 用 bid、buy legs 用 ask；Calendar/Diagonal 必须 near short + far long；Iron Butterfly 必须同 expiry、同 ATM body、对称 wings；Jade Lizard 必须 credit >= call width。Short Strangle/Short Put/Short Call 只能在显式 advanced-risk gate 后枚举。DTE 统一按 New York market date。
 
 2026-07-15 runtime：latest arbitrary snapshots 0 symbols 有 quote，但 latest usable quote snapshots 恢复 55 symbols（54 IB、1 TT）。前 20 scanner rows 产生 667 个默认定义风险 candidates，覆盖 10 种策略。
+
+## 28. Persistent Universe and On-Demand Refresh
+
+`symbol_universe` is the scanner ownership boundary. It is seeded from the former watchlist and every distinct symbol already present in IV, price or option snapshots. A valid unknown ticker requested through `GET /api/analyze/:symbol` is upserted with `added_via=on_demand`.
+
+```text
+Analyze request -> register symbol -> inspect field coverage
+                                  -> enqueue missing price history
+                                  -> enqueue missing metrics
+                                  -> enqueue missing option chain -> GEX
+
+symbol_universe -> materialize_scan.py -> scanner_results_snapshots -> /api/scan
+```
+
+The request path is bounded to one symbol. It never scans providers or recalculates the full universe. Price jobs write daily and 30M bars and then derive volatility; option jobs use the existing provider fallback and GEX pipeline. Recent non-retryable field failures become explicit blockers instead of an enqueue loop.
+
+Scanner rows carry underlying volume/dollar volume and registry metadata. Price, volume and earnings filters are usable now. Market cap, sector/category and optionable columns and API/UI filters are complete but remain null until a reference-data ingestion source populates them; null values fail closed when those filters are selected.
+
+Runtime evidence on 2026-07-15: the registry seeded 77 symbols and COST on-demand expanded it to 78. COST obtained Polygon daily/30M history, a 54-contract option snapshot and fresh GEX/walls. Its unavailable TT metrics field is reported as blocked with queue depth zero, while price/options/GEX remain available.

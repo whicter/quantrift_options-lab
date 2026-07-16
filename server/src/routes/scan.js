@@ -55,6 +55,16 @@ async function sendScan(req, res) {
   const maxSpreadPct = optionalFloat(req.query.maxSpreadPct);
   const minContractOi = optionalInt(req.query.minContractOi);
   const minContractVolume = optionalInt(req.query.minContractVolume);
+  const marketCapMin = optionalFloat(req.query.marketCapMin);
+  const marketCapMax = optionalFloat(req.query.marketCapMax);
+  const priceMin = optionalFloat(req.query.priceMin);
+  const priceMax = optionalFloat(req.query.priceMax);
+  const minUnderlyingVolume = optionalInt(req.query.minUnderlyingVolume);
+  const minDollarVolume = optionalFloat(req.query.minDollarVolume);
+  const optionable = String(req.query.optionable ?? 'all').toLowerCase();
+  const sector = String(req.query.sector ?? '').trim();
+  const earningsMode = String(req.query.earningsMode ?? 'all').toLowerCase();
+  const earningsDays = optionalInt(req.query.earningsDays ?? 14);
   const unusualOnly = String(req.query.unusualOnly ?? 'false').toLowerCase() === 'true';
   const sort = String(req.query.sort ?? 'ivr').toLowerCase();
   const scanKey = String(req.query.scanKey ?? DEFAULT_SCAN_KEY).trim() || DEFAULT_SCAN_KEY;
@@ -62,6 +72,8 @@ async function sendScan(req, res) {
   const validRegimes = new Set(['all', 'positive', 'negative', 'neutral']);
   const validWalls = new Set(['all', 'call', 'put', 'either']);
   const validSorts = new Set(['ivr', 'combined']);
+  const validOptionable = new Set(['all', 'true', 'false']);
+  const validEarningsModes = new Set(['all', 'exclude', 'only']);
 
   if (
     isNaN(minIvr) || isNaN(maxIvr) || isNaN(minIvHv) || isNaN(limit)
@@ -74,7 +86,12 @@ async function sendScan(req, res) {
     || Number.isNaN(deltaMin) || Number.isNaN(deltaMax)
     || Number.isNaN(maxSpreadPct)
     || Number.isNaN(minContractOi) || Number.isNaN(minContractVolume)
+    || Number.isNaN(marketCapMin) || Number.isNaN(marketCapMax)
+    || Number.isNaN(priceMin) || Number.isNaN(priceMax)
+    || Number.isNaN(minUnderlyingVolume) || Number.isNaN(minDollarVolume)
+    || Number.isNaN(earningsDays)
     || !validRegimes.has(gammaRegime) || !validWalls.has(wall) || !validSorts.has(sort)
+    || !validOptionable.has(optionable) || !validEarningsModes.has(earningsMode)
   ) {
     return res.status(400).json({ error: 'invalid query params' });
   }
@@ -101,6 +118,16 @@ async function sendScan(req, res) {
     maxSpreadPct,
     minContractOi,
     minContractVolume,
+    marketCapMin,
+    marketCapMax,
+    priceMin,
+    priceMax,
+    minUnderlyingVolume,
+    minDollarVolume,
+    optionable,
+    sector,
+    earningsMode,
+    earningsDays,
     unusualOnly,
     sort,
     scanKey,
@@ -193,6 +220,8 @@ async function sendScan(req, res) {
          atm_iv, atm_expiry, atm_strike, iv_source, hv_source,
          iv_rank_source, iv_rank_ready, iv_observation_count,
          price_close, price_date, price_source, price_status,
+         underlying_volume, underlying_dollar_volume, universe_name,
+         asset_type, sector, market_cap, optionable,
          gex_snapshot_ts, gex_source, gex_status, global_gex, local_gamma,
          gamma_flip, gamma_regime, call_wall, put_wall, max_pain,
          pcr_oi, pcr_volume, gex_confidence,
@@ -229,6 +258,19 @@ async function sendScan(req, res) {
        WHERE iv_rank >= $2
          AND iv_rank <= $3
          AND COALESCE(iv_hv_diff, -999) >= $4
+         AND ($28::numeric IS NULL OR market_cap >= $28)
+         AND ($29::numeric IS NULL OR market_cap <= $29)
+         AND ($30::numeric IS NULL OR price_close >= $30)
+         AND ($31::numeric IS NULL OR price_close <= $31)
+         AND ($32::bigint IS NULL OR underlying_volume >= $32)
+         AND ($33::numeric IS NULL OR underlying_dollar_volume >= $33)
+         AND ($34 = 'all' OR optionable = ($34 = 'true'))
+         AND ($35 = '' OR sector = $35)
+         AND (
+           $36 = 'all'
+           OR ($36 = 'exclude' AND (earnings_date IS NULL OR earnings_date > (NOW() AT TIME ZONE 'America/New_York')::date + $37::int))
+           OR ($36 = 'only' AND earnings_date BETWEEN (NOW() AT TIME ZONE 'America/New_York')::date AND (NOW() AT TIME ZONE 'America/New_York')::date + $37::int)
+         )
          AND ($5 = 'all' OR gamma_regime = $5)
          AND ($6::numeric IS NULL OR ABS(COALESCE(local_gamma, 0)) >= $6)
          AND ($7::bigint IS NULL OR COALESCE(total_oi, 0) >= $7)
@@ -305,6 +347,16 @@ async function sendScan(req, res) {
         minContractOi,
         minContractVolume,
         SCANNER_QUOTE_STALE_MINUTES,
+        marketCapMin,
+        marketCapMax,
+        priceMin,
+        priceMax,
+        minUnderlyingVolume,
+        minDollarVolume,
+        optionable,
+        sector,
+        earningsMode,
+        earningsDays,
       ]
     );
 

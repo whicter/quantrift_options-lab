@@ -481,3 +481,12 @@ V1 公式：
 - **S/R zone 与 Wall 是不同证据**：S/R 来自历史价格 pivot；Call/Put Wall 来自期权持仓结构。UI 可以并列比较，但不能合并成同一来源或互相冒充。
 - **没有真实合约候选就不显示策略腿**：用 spot ± width 或 wall ± width 合成腿会制造不存在、无报价或错 expiry 的订单。Analyze 只展示结构数据，具体腿必须来自 scanner/contract candidate attachment。
 - **图表空状态优于 deterministic mock**：固定 seed 的示例曲线看起来稳定，仍会被用户理解为真实走势。真实 OHLCV 少于最低门槛时直接显示 unavailable。
+
+## Universe and On-Demand Lessons (2026-07-15)
+
+- **Watchlist 是 ingestion seed，不应是产品 universe**：持久化 registry 可以同时容纳已知数据库 symbols、运营配置和用户按需发现的 ticker，scanner 仍读取 materialized snapshot。
+- **按需请求必须按字段判断 coverage**：一个 symbol 可以已有 price/options/GEX 但缺 metrics。把 symbol 简化成 available/unavailable 会隐藏可用产品并反复采集已有数据。
+- **非重试错误不能靠页面刷新重试**：TT manual-login failure 若每次 Analyze 都 enqueue，会形成稳定失败队列。保存最近失败并返回 field blocker，恢复后再显式重试。
+- **动态 universe 不等于请求时全市场扫描**：用户请求只允许注册和补一个 symbol；全量排序仍由后台 materializer 写 `scanner_results_snapshots`。
+- **schema/filter 完成不代表字段已覆盖**：market cap、sector、optionable 当前 population 为零。状态 API 必须公开 populated counts，用户启用这些过滤时 null fail closed，不能用默认值伪造。
+- **运行验收要验证闭环而非只看 enqueue**：COST 从未知 symbol 变成 78th registry row，随后获得日线/30M、54 actual contracts 和 fresh GEX；第二次请求 queue depth 为零，证明 persistence 和 dedup/blocker 均生效。

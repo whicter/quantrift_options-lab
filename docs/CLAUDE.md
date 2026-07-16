@@ -71,7 +71,9 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 
 ## Next Task
 - Follow `docs/task.md` section `实施优先级（执行顺序）`.
-- Phase 3D-6, collector alerts, Polygon price/derived volatility, scanner expansion, and Analyze data product are complete. Immediate next section: Universe/on-demand.
+- Phase 3D-6, collector alerts, Polygon price/derived volatility, scanner expansion, Analyze data product, and Universe/on-demand are complete. Immediate next section: Market/weekly signals.
+- `symbol_universe` owns the persistent scanner registry. `/api/analyze/:symbol` registers valid unknown symbols and queues only missing field products; never perform a synchronous full-universe provider scan.
+- Preserve partial data and expose recent non-retryable failures as blockers instead of creating enqueue loops.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; preserve ISO dates and fail closed when real inputs are absent. Never synthesize price paths or option legs.
 - Derived volatility is isolated in `volatility_history`; use New York market dates for DTE and daily observations. Do not mark derived IV Rank ready before 252 observations.
 - Scanner candidate quotes come from the latest usable quoted snapshot, independently of the latest positioning snapshot. Preserve quote provenance and the explicit advanced-risk gate.

@@ -67,7 +67,26 @@ test('scanner selects the latest usable quote snapshot separately from positioni
   assert.match(queries[0].sql, /latest_quote_chain AS/);
   assert.match(queries[0].sql, /quoted\.bid IS NOT NULL/);
   assert.match(queries[0].sql, /America\/New_York/);
+  assert.match(queries[0].sql, /underlying_dollar_volume/);
+  assert.match(queries[0].sql, /market_cap >= \$28/);
   assert.doesNotMatch(queries[0].sql, /expiry::date - CURRENT_DATE/);
   assert.equal(queries[0].params[26], 1440);
   assert.equal(refreshCalls.length, 0);
+});
+
+test('universe filters are bound without provider calls', async () => {
+  queryResults.push({ rows: [] });
+  const res = responseRecorder();
+  await sendScan({ query: {
+    marketCapMin: '1000000000', priceMin: '10', minDollarVolume: '5000000',
+    optionable: 'true', sector: 'Technology', earningsMode: 'exclude', earningsDays: '14',
+  } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(queries[0].params[27], 1000000000);
+  assert.equal(queries[0].params[29], 10);
+  assert.equal(queries[0].params[32], 5000000);
+  assert.equal(queries[0].params[33], 'true');
+  assert.equal(queries[0].params[34], 'Technology');
+  assert.equal(queries[0].params[35], 'exclude');
+  assert.equal(refreshCalls[0].jobType, 'scanner_materialize');
 });

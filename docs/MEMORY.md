@@ -68,9 +68,11 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Universe/on-demand completion
-2. Market-weekly product completion
-3. Landing/notifications, then production auth/subscription/paywall
+1. Market-weekly product completion
+2. Landing/notifications/heartbeat
+3. Production auth/subscription/paywall
+
+Universe/on-demand is complete: `symbol_universe` replaced the watchlist-only scanner boundary; `/api/analyze/:symbol` registers unknown tickers, reports independent price/metrics/options/GEX coverage, and queues only missing products. Scanner materialization reads the registry. COST runtime expanded the registry from 77 to 78 and produced Polygon price, 54 contracts and fresh GEX; its TT metrics manual-login failure is exposed as a blocker without a retry loop. Market cap/sector/optionable filters are wired but their registry values remain unpopulated.
 
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 

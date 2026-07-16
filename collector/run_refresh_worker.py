@@ -19,7 +19,9 @@ from psycopg2.extras import Json
 
 import collect
 import collect_options
+import collect_prices
 import compute_gex
+import derive_volatility
 import materialize_oi_delta
 import materialize_scan
 
@@ -383,6 +385,34 @@ def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def run_price_history_snapshot(
+    conn,
+    job: dict[str, Any],
+    provider_cache: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    symbol = job['symbol']
+    provider_cache = provider_cache if provider_cache is not None else {}
+    cache_key = 'price:polygon'
+    provider = provider_cache.get(cache_key)
+    if provider is None:
+        collect_prices.PRICE_PROVIDER = 'polygon'
+        provider = collect_prices.make_provider()
+        provider_cache[cache_key] = provider
+    reserve_budget(conn, provider.source, job['job_type'])
+    daily_rows, intraday_rows = collect_prices.fetch_price_rows(provider, symbol)
+    daily_written = collect_prices.upsert_price_rows(conn, daily_rows, commit=False)
+    intraday_written = collect_prices.upsert_30m_rows(conn, intraday_rows, commit=False)
+    conn.commit()
+    derived = derive_volatility.run(backfill=False, symbols=[symbol])
+    return {
+        'symbol': symbol,
+        'provider': provider.source,
+        'daily_written': daily_written,
+        'intraday_written': intraday_written,
+        'derived': derived,
+    }
+
+
 def handle_job(
     conn,
     job: dict[str, Any],
@@ -413,6 +443,8 @@ def handle_job(
             summary = run_option_chain_snapshot(conn, job, blocked_providers, provider_cache)
         elif job['job_type'] == 'symbol_metrics_snapshot':
             summary = run_symbol_metrics_snapshot(conn, job)
+        elif job['job_type'] == 'price_history_snapshot':
+            summary = run_price_history_snapshot(conn, job, provider_cache)
         else:
             raise RuntimeError(f"unsupported job_type={job['job_type']}")
         finish_job(conn, job_id, 'succeeded', summary=summary)

@@ -39,6 +39,16 @@ export function getScan({
   maxSpreadPct = '',
   minContractOi = '',
   minContractVolume = '',
+  marketCapMin = '',
+  marketCapMax = '',
+  priceMin = '',
+  priceMax = '',
+  minUnderlyingVolume = '',
+  minDollarVolume = '',
+  optionable = 'all',
+  sector = '',
+  earningsMode = 'all',
+  earningsDays = 14,
   unusualOnly = false,
   sort = 'ivr',
   limit = 50,
@@ -69,6 +79,16 @@ export function getScan({
   if (maxSpreadPct !== '') params.maxSpreadPct = String(maxSpreadPct);
   if (minContractOi !== '') params.minContractOi = String(minContractOi);
   if (minContractVolume !== '') params.minContractVolume = String(minContractVolume);
+  if (marketCapMin !== '') params.marketCapMin = String(marketCapMin);
+  if (marketCapMax !== '') params.marketCapMax = String(marketCapMax);
+  if (priceMin !== '') params.priceMin = String(priceMin);
+  if (priceMax !== '') params.priceMax = String(priceMax);
+  if (minUnderlyingVolume !== '') params.minUnderlyingVolume = String(minUnderlyingVolume);
+  if (minDollarVolume !== '') params.minDollarVolume = String(minDollarVolume);
+  if (optionable !== 'all') params.optionable = optionable;
+  if (sector) params.sector = sector;
+  if (earningsMode !== 'all') params.earningsMode = earningsMode;
+  params.earningsDays = String(earningsDays);
 
   const query = new URLSearchParams(params);
   return getJson(`/api/scan?${query.toString()}`);
@@ -92,6 +112,10 @@ export function getSupportResistance(symbol) {
 
 export function getChainStats(symbol) {
   return getJson(`/api/chain/stats/${encodeURIComponent(symbol.toUpperCase())}`);
+}
+
+export function getAnalyzeStatus(symbol) {
+  return getJson(`/api/analyze/${encodeURIComponent(symbol.toUpperCase())}`);
 }
 
 export { API_BASE };

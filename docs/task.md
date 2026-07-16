@@ -659,16 +659,19 @@
   - Production API still requires Railway deploy to expose new `/api/scan` response fields; database rows are already materialized.
 
 **Phase 3G — Scanner Universe Expansion**
-- [ ] Replace transitional 67-symbol watchlist with a broader scanner universe.
-- [ ] Universe filters：
-  - market cap minimum / maximum
+- [x] Replace transitional 67-symbol watchlist with persistent `symbol_universe`; seed it from the watchlist and every known price/IV/option symbol, and register valid unknown Analyze symbols on demand.
+- [x] Universe filters：
+  - market cap minimum / maximum（API/UI/schema complete; current registry population is null until a fundamentals source is connected）
   - stock price range
   - underlying share volume / dollar volume
-  - optionable flag
+  - optionable flag（API/UI/schema complete; current registry population is null until reference data is connected）
   - option chain liquidity：bid/ask spread, total OI, total volume
-  - sector / ETF category
+  - sector / ETF category（API/UI/schema complete; current registry population is null until reference data is connected）
   - earnings window include/exclude
-- [ ] Keep scanner materialized：universe expansion must still write `scanner_results_snapshots`; user requests must not run full-market provider calls synchronously.
+- [x] Keep scanner materialized：`materialize_scan.py` reads the persistent universe and still writes `scanner_results_snapshots`; user requests never run full-market provider calls synchronously.
+- [x] Unknown-symbol flow：`GET /api/analyze/:symbol` registers the ticker, reports price/metrics/options/GEX coverage, and enqueues only missing price/metrics/options jobs. UI displays queued/partial/blocker state.
+- [x] Retry-loop guard：a recent non-retryable metrics failure is returned as `refresh.metrics=blocked`; repeated Analyze requests do not create duplicate jobs.
+- [x] 2026-07-15 runtime evidence：Railway migration succeeded; seed synced 77 symbols; COST on-demand registration expanded the universe to 78; COST obtained Polygon daily/30M price, a 54-contract option snapshot, fresh GEX and $925/$910 walls. TT metrics remain a field-specific manual-login blocker and do not suppress the available products.
 
 **Phase 3H — Contract-Level Scanner Filters**
 - [x] Add optional advanced filters for contract-level strategy inputs：
@@ -910,7 +913,7 @@
 | P0.4 | 自算 HV / ATM IV / IV Rank | ✅ 2026-07-15 完成：派生脚本、历史门槛、对比报告、来源切换与 fail-closed readiness | 252 个独立交易日尚未积累，因此 IV Rank 暂继续使用 TT 冷启动值 |
 | P1.1 | Scanner 策略扩展 | ✅ 2026-07-15 完成：13 种结构按真实合约枚举、quote snapshot 分层、风险门控、测试和 UI 输出 | 无 |
 | P1.2 | Analyze 数据产品 | ✅ 2026-07-15 完成：S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
-| P1.3 | Universe / on-demand | broader universe、filters、unknown symbol enqueue/wait UI、materialized invariant | universe 数据来源不足时记录具体字段阻塞 |
+| P1.3 | Universe / on-demand | ✅ 2026-07-15 完成：persistent universe、filters、unknown symbol enqueue/wait/blocker UI、materialized invariant | market cap / sector / optionable reference values 尚未填充；TT metrics 当前需 manual login |
 | P1.4 | Market/weekly signals | regime header、30M breakout、Weekly GEX/Max Pain 实数接入 | 依赖 P0.3 30M 数据 |
 | P2 | 产品入口与通知 | landing page、email/web push、heartbeat | web push/email production secrets 只影响部署验证 |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |

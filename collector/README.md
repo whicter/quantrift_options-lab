@@ -155,7 +155,7 @@ PRICE_PROVIDER=stooq SYMBOLS=AAPL venv311/bin/python collect_prices.py
 
 ## Watchlist
 
-IV and price collectors read symbols from `watchlist.txt`. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills and `SYMBOLS=watchlist` for an explicit full run.
+The watchlist is an ingestion seed, not the scanner product boundary. `sync_universe.py` persists it together with every known database symbol in `symbol_universe`; `materialize_scan.py` reads that registry. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills and `SYMBOLS=watchlist` for an explicit full run.
 
 `collect_options.py` defaults to the full watchlist. Use `OPTION_SYMBOLS` for a bounded backfill or diagnostic run.
 
@@ -199,6 +199,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `materialize_oi_delta.py` — contract-level OI delta materializer
 - `materialize_scan.py` — scanner cache materializer, PostgreSQL snapshot input only
 - `run_refresh_worker.py` — queued refresh worker and provider budget gate
+- `sync_universe.py` — seed/upsert persistent scanner universe from watchlist and existing data tables
 - `run_collector_daemon.py` — persistent worker/materializer loop used by PM2
 - `schedule_option_refresh.py` — bounded watchlist coverage scheduler with stale selection and retry cooldown
 - `ecosystem.config.cjs` — direct-repository PM2 process definitions
@@ -218,3 +219,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Option positioning schema/API implemented: Polygon provider adapter → `option_chain_snapshots` → `/api/options/:symbol/snapshot`
 - Derived volatility runtime verified at 67/67 HV and 67/67 ATM coverage. DTE/observation dates use `America/New_York`, not UTC date truncation.
 - Analyze downstream derivatives are live: `/api/sr/:symbol` consumes persisted daily OHLCV for S/R and Focus Score; `/api/chain/stats/:symbol` consumes only actual persisted contracts with IV for skew and term structure. The collector does not write synthetic levels or option legs.
+- On-demand refresh is live: `/api/analyze/:symbol` can enqueue a targeted Polygon price job and option snapshot job; the worker persists both timeframes, derives volatility, and reuses the normal GEX path. Recent non-retryable metrics failures are reported as blockers rather than repeatedly queued.

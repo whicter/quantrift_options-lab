@@ -3,7 +3,7 @@ Materialize scanner rows from existing PostgreSQL snapshots.
 
 This job does not call IB, TT, or any external data provider. It reads the
 latest IV, price, option-chain GEX, and strike-level positioning snapshots,
-then writes one scanner row per watchlist symbol to scanner_results_snapshots.
+then writes one scanner row per active persisted-universe symbol to scanner_results_snapshots.
 """
 
 import logging
@@ -31,7 +31,7 @@ OPTIONS_STALE_MINUTES = int(os.getenv('OPTIONS_STALE_MINUTES', '15'))
 USE_DERIVED_VOLATILITY = os.getenv('USE_DERIVED_VOLATILITY', 'true').strip().lower() in ('1', 'true', 'yes')
 
 
-def load_symbols():
+def load_symbols(conn=None):
     raw_symbols = os.getenv('SYMBOLS')
     if raw_symbols:
         seen = set()
@@ -42,6 +42,17 @@ def load_symbols():
                 seen.add(symbol)
                 symbols.append(symbol)
         return symbols
+    if conn is not None:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol FROM symbol_universe WHERE active = TRUE AND scan_enabled = TRUE ORDER BY symbol"
+                )
+                symbols = [row[0] for row in cur.fetchall()]
+                if symbols:
+                    return symbols
+        except psycopg2.errors.UndefinedTable:
+            conn.rollback()
     return load_watchlist()
 
 
@@ -88,7 +99,8 @@ def fetch_rows(conn, symbols):
             ),
             latest_price AS (
               SELECT DISTINCT ON (symbol)
-                symbol, date AS price_date, close AS price_close, source AS price_source
+                symbol, date AS price_date, close AS price_close, volume AS underlying_volume,
+                close * volume AS underlying_dollar_volume, source AS price_source
               FROM price_history
               WHERE symbol = ANY(%s)
               ORDER BY symbol, date DESC
@@ -177,6 +189,7 @@ def fetch_rows(conn, symbols):
                 ELSE latest_iv.source
               END AS source,
               latest_price.price_close, latest_price.price_date, latest_price.price_source,
+              latest_price.underlying_volume, latest_price.underlying_dollar_volume,
               CASE
                 WHEN latest_price.price_date IS NULL THEN 'missing'
                 WHEN latest_price.price_date < price_global.latest_price_date THEN 'stale'
@@ -379,6 +392,34 @@ def attach_trends(rows, histories):
     return rows
 
 
+def attach_universe_metadata(conn, rows):
+    symbols = [row['symbol'] for row in rows]
+    if not symbols:
+        return rows
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT symbol, name, asset_type, sector, market_cap, optionable
+            FROM symbol_universe
+            WHERE symbol = ANY(%s)
+            """,
+            (symbols,),
+        )
+        metadata = {
+            symbol: {
+                'universe_name': name,
+                'asset_type': asset_type,
+                'sector': sector,
+                'market_cap': market_cap,
+                'optionable': optionable,
+            }
+            for symbol, name, asset_type, sector, market_cap, optionable in cur.fetchall()
+        }
+    for row in rows:
+        row.update(metadata.get(row['symbol'], {}))
+    return rows
+
+
 def insert_rows(conn, rows):
     if not rows:
         return 0
@@ -389,6 +430,8 @@ def insert_rows(conn, rows):
         'atm_iv', 'atm_expiry', 'atm_strike', 'iv_source', 'hv_source',
         'iv_rank_source', 'iv_rank_ready', 'iv_observation_count',
         'price_close', 'price_date', 'price_source', 'price_status',
+        'underlying_volume', 'underlying_dollar_volume',
+        'universe_name', 'asset_type', 'sector', 'market_cap', 'optionable',
         'gex_snapshot_ts', 'gex_source', 'gex_status', 'global_gex', 'local_gamma',
         'gamma_flip', 'gamma_regime', 'call_wall', 'put_wall', 'max_pain',
         'pcr_oi', 'pcr_volume', 'gex_confidence', 'total_oi', 'total_volume',
@@ -446,6 +489,13 @@ def insert_rows(conn, rows):
             row.get('price_date'),
             row.get('price_source'),
             row.get('price_status') or 'missing',
+            row.get('underlying_volume'),
+            row.get('underlying_dollar_volume'),
+            row.get('universe_name'),
+            row.get('asset_type'),
+            row.get('sector'),
+            row.get('market_cap'),
+            row.get('optionable'),
             row.get('gex_snapshot_ts'),
             row.get('gex_source'),
             row.get('gex_status') or 'missing',
@@ -506,15 +556,15 @@ def run():
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
 
-    symbols = load_symbols()
-    if not symbols:
-        log.warning('No symbols configured; nothing to materialize')
-        return
-
     conn = psycopg2.connect(DB_URL)
     try:
+        symbols = load_symbols(conn)
+        if not symbols:
+            log.warning('No symbols configured; nothing to materialize')
+            return
         rows = fetch_rows(conn, symbols)
         rows = attach_trends(rows, fetch_price_histories(conn, symbols))
+        rows = attach_universe_metadata(conn, rows)
         written = insert_rows(conn, rows)
         log.info('Materialized %s scanner rows for scan_key=%s', written, SCAN_KEY)
     finally:

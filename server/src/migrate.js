@@ -309,6 +309,27 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS collector_health_alerts_status_seen
       ON collector_health_alerts (status, last_seen_at DESC);
 
+    CREATE TABLE IF NOT EXISTS symbol_universe (
+      symbol            TEXT PRIMARY KEY,
+      active            BOOLEAN     NOT NULL DEFAULT TRUE,
+      scan_enabled      BOOLEAN     NOT NULL DEFAULT TRUE,
+      source            TEXT        NOT NULL DEFAULT 'watchlist_seed',
+      name              TEXT,
+      asset_type        TEXT,
+      sector            TEXT,
+      market_cap        NUMERIC(20,2),
+      optionable        BOOLEAN,
+      added_via         TEXT        NOT NULL DEFAULT 'seed',
+      metadata          JSONB       NOT NULL DEFAULT '{}',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS symbol_universe_scan_active
+      ON symbol_universe (scan_enabled, active, symbol);
+    CREATE INDEX IF NOT EXISTS symbol_universe_market_cap
+      ON symbol_universe (market_cap DESC) WHERE active = TRUE;
+
     CREATE TABLE IF NOT EXISTS scanner_results_snapshots (
       id                         BIGSERIAL PRIMARY KEY,
       scan_key                   TEXT        NOT NULL DEFAULT 'watchlist_v1',
@@ -334,6 +355,13 @@ async function migrate() {
       price_date                 DATE,
       price_source               TEXT,
       price_status               TEXT        NOT NULL DEFAULT 'missing',
+      underlying_volume          BIGINT,
+      underlying_dollar_volume   NUMERIC(20,2),
+      universe_name              TEXT,
+      asset_type                 TEXT,
+      sector                     TEXT,
+      market_cap                 NUMERIC(20,2),
+      optionable                 BOOLEAN,
       gex_snapshot_ts            TIMESTAMPTZ,
       gex_source                 TEXT,
       gex_status                 TEXT        NOT NULL DEFAULT 'missing',
@@ -404,7 +432,14 @@ async function migrate() {
       ADD COLUMN IF NOT EXISTS hv_source TEXT,
       ADD COLUMN IF NOT EXISTS iv_rank_source TEXT,
       ADD COLUMN IF NOT EXISTS iv_rank_ready BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS iv_observation_count INTEGER NOT NULL DEFAULT 0;
+      ADD COLUMN IF NOT EXISTS iv_observation_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS underlying_volume BIGINT,
+      ADD COLUMN IF NOT EXISTS underlying_dollar_volume NUMERIC(20,2),
+      ADD COLUMN IF NOT EXISTS universe_name TEXT,
+      ADD COLUMN IF NOT EXISTS asset_type TEXT,
+      ADD COLUMN IF NOT EXISTS sector TEXT,
+      ADD COLUMN IF NOT EXISTS market_cap NUMERIC(20,2),
+      ADD COLUMN IF NOT EXISTS optionable BOOLEAN;
   `);
 
   console.log('Migrations complete.');

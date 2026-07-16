@@ -73,7 +73,7 @@ router.get('/data', async (req, res) => {
   const watchlist = loadWatchlist();
 
   try {
-    const [{ rows }, priceTableResult] = await Promise.all([
+    const [{ rows }, priceTableResult, universeTableResult] = await Promise.all([
       pool.query(
       `SELECT DISTINCT ON (symbol)
          symbol, date, source, created_at
@@ -81,9 +81,24 @@ router.get('/data', async (req, res) => {
        ORDER BY symbol, date DESC`
       ),
       pool.query(`SELECT to_regclass('public.price_history') AS table_name`),
+      pool.query(`SELECT to_regclass('public.symbol_universe') AS table_name`),
     ]);
 
     const hasPriceHistory = Boolean(priceTableResult.rows[0]?.table_name);
+    const hasUniverse = Boolean(universeTableResult.rows[0]?.table_name);
+    let universe = { total_count: watchlist.length, active_count: watchlist.length, scan_enabled_count: watchlist.length };
+    if (hasUniverse) {
+      const universeResult = await pool.query(
+        `SELECT COUNT(*)::int AS total_count,
+                COUNT(*) FILTER (WHERE active)::int AS active_count,
+                COUNT(*) FILTER (WHERE active AND scan_enabled)::int AS scan_enabled_count,
+                COUNT(*) FILTER (WHERE market_cap IS NOT NULL)::int AS market_cap_count,
+                COUNT(*) FILTER (WHERE sector IS NOT NULL)::int AS sector_count,
+                COUNT(*) FILTER (WHERE optionable IS NOT NULL)::int AS optionable_count
+         FROM symbol_universe`
+      );
+      universe = universeResult.rows[0];
+    }
     let priceRows = [];
     if (hasPriceHistory) {
       const result = await pool.query(
@@ -131,6 +146,7 @@ router.get('/data', async (req, res) => {
       missing_count: missingSymbols.length,
       stale_count: staleSymbols.length,
       source_counts: sourceCounts(rows),
+      universe: { table_exists: hasUniverse, ...universe },
       price_history: {
         table_exists: hasPriceHistory,
         expected_count: watchlist.length,

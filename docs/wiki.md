@@ -1147,3 +1147,15 @@ Implemented files：
 Runtime evidence：
 - `materialize_oi_delta.py` wrote 10 PLTR rows from consecutive TT internal snapshots.
 - Current PLTR status is `quiet`: rows are confirmed, but `oi_delta=0`, so no unusual OI is reported.
+
+### Persistent Scanner Universe and Unknown Symbols
+
+The scanner is no longer bounded by the visible 67-symbol watchlist. `symbol_universe` persists all known symbols and on-demand registrations. `sync_universe.py` imports the legacy watchlist plus symbols already known to price, IV and option tables; `materialize_scan.py` reads active/scannable registry rows.
+
+`GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
+
+Universe filter semantics:
+- price and underlying share/dollar volume use latest persisted OHLCV;
+- earnings include/exclude uses persisted `earnings_date`;
+- market cap, sector/category and optionable use nullable registry metadata and fail closed when a selected filter lacks the field;
+- contract liquidity remains a candidate-level filter over actual option contracts.

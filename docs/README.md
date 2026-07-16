@@ -66,6 +66,8 @@ Open http://localhost:5173
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 - Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
 - Analyze never creates example price history or synthetic option legs when real inputs are missing
+- Persistent scanner universe: known database symbols plus on-demand Analyze registrations feed the materialized scanner; `/api/analyze/:symbol` reports field coverage and queues only missing data products
+- Universe filters: price, share/dollar volume and earnings are live; market cap, sector and optionable filtering is wired but remains null until reference fields are populated
 
 ## Data Sources (V2)
 - ATM IV / HV30/60/90: Polygon option snapshots and daily OHLCV, derived into `volatility_history`
@@ -112,6 +114,7 @@ Open http://localhost:5173
 - [x] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
 - [x] V2: Refresh worker loop, provider budget accounting and stale/empty snapshot monitoring
 - [x] V2: Phase 3E OI delta / unusual activity snapshot layer
+- [x] V2: Persistent scanner universe and unknown-symbol on-demand price/options/GEX refresh
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation

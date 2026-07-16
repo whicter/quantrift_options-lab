@@ -174,6 +174,29 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertIs(cache['tt_internal'], provider)
         make_provider.assert_called_once()
 
+    def test_price_history_job_reuses_provider_and_persists_both_timeframes(self):
+        import run_refresh_worker
+
+        provider = SimpleNamespace(source='polygon_licensed')
+        conn = SimpleNamespace(commit=lambda: None)
+        cache = {}
+        with patch.object(run_refresh_worker.collect_prices, 'make_provider', return_value=provider) as make_provider, \
+             patch.object(run_refresh_worker.collect_prices, 'fetch_price_rows', return_value=([1, 2], [3])), \
+             patch.object(run_refresh_worker.collect_prices, 'upsert_price_rows', return_value=2), \
+             patch.object(run_refresh_worker.collect_prices, 'upsert_30m_rows', return_value=1), \
+             patch.object(run_refresh_worker, 'reserve_budget'), \
+             patch.object(run_refresh_worker.derive_volatility, 'run', return_value={'hv_rows': 1}):
+            summary = run_refresh_worker.run_price_history_snapshot(
+                conn, {'symbol': 'AAPL', 'job_type': 'price_history_snapshot'}, cache,
+            )
+            run_refresh_worker.run_price_history_snapshot(
+                conn, {'symbol': 'PLTR', 'job_type': 'price_history_snapshot'}, cache,
+            )
+        self.assertEqual(summary['daily_written'], 2)
+        self.assertEqual(summary['intraday_written'], 1)
+        self.assertIs(cache['price:polygon'], provider)
+        make_provider.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

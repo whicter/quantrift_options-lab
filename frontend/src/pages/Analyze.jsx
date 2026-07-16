@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getChainStats, getDataStatus, getGex, getMetrics, getPrices, getSupportResistance, getUnusual } from '../lib/api';
+import { getAnalyzeStatus, getChainStats, getDataStatus, getGex, getMetrics, getPrices, getSupportResistance, getUnusual } from '../lib/api';
 import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
 import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Tab1Overview from './analyze/Tab1Overview';
@@ -323,7 +323,11 @@ function UnavailableOptionsPanel({ symbol }) {
   );
 }
 
-function buildMissingMessage(symbol, status) {
+function buildMissingMessage(symbol, status, onDemand) {
+  if (onDemand?.status === 'queued') {
+    const missing = Object.entries(onDemand.coverage || {}).filter(([, ready]) => !ready).map(([key]) => key).join(' / ');
+    return `${symbol} 数据已进入采集队列（${missing || '缺失字段'}），预计 ${onDemand.estimated_wait || '~5-10min'}。完成后重新分析即可。`;
+  }
   if (!status) {
     return `暂无 ${symbol} 的真实数据。数据覆盖状态暂时不可用，请稍后再试。`;
   }
@@ -392,7 +396,8 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats] = await Promise.all([
+      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats] = await Promise.all([
+        getAnalyzeStatus(sym).catch(() => null),
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
         getPrices(sym, 60).catch(() => null),
@@ -406,18 +411,18 @@ export default function Analyze() {
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats));
+          setResult({ ...applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
         }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
-          setResult(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats));
+          setResult({ ...applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: 1 }, { replace: true });
           setError('');
         } else {
-          setError(buildMissingMessage(sym, status));
+          setError(buildMissingMessage(sym, status, onDemandStatus));
           setResult(null);
         }
         return;
@@ -433,6 +438,7 @@ export default function Analyze() {
         ...dataWithSignals,
         // Analyze only displays executable legs after a real contract candidate is attached.
         recommendation: null,
+        onDemandStatus,
       }, supportResistance, chainStats);
       setResult(data);
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
@@ -518,6 +524,18 @@ export default function Analyze() {
 
           <PartialDataNotice partialData={result.partialData} />
           <PartialDataNotice partialData={result.gexNotice} />
+          {result.onDemandStatus?.status === 'queued' && (
+            <PartialDataNotice partialData={{
+              title: '后台数据补全中',
+              message: `${result.symbol} 的缺失价格、指标或期权快照已进入队列，预计 ${result.onDemandStatus.estimated_wait || '~5-10min'}。当前页面继续展示已存在的数据。`,
+            }} />
+          )}
+          {result.onDemandStatus?.blockers?.length > 0 && (
+            <PartialDataNotice partialData={{
+              title: '部分字段暂未补全',
+              message: `价格与期权结构继续可用；${result.onDemandStatus.blockers.map(item => item.field).join(' / ')} 当前被数据任务阻断，系统不会重复排队。`,
+            }} />
+          )}
 
           {/* Tab nav */}
           <div className="az-tabs">

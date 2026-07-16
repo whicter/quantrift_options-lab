@@ -16,7 +16,7 @@ class FakeCursor:
     def __exit__(self, exc_type, exc, traceback):
         return False
 
-    def execute(self, sql, params):
+    def execute(self, sql, params=None):
         self.sql = sql
         self.params = params
 
@@ -45,6 +45,25 @@ class MaterializeScanVolatilityTests(unittest.TestCase):
         self.assertEqual(cursor.params[1], materialize_scan.USE_DERIVED_VOLATILITY)
         self.assertEqual(cursor.params[-1], materialize_scan.OPTIONS_STALE_MINUTES)
         self.assertEqual(sum(isinstance(value, bool) for value in cursor.params), 1)
+
+    def test_materialized_rows_include_universe_and_underlying_liquidity_fields(self):
+        conn = FakeConnection()
+        materialize_scan.fetch_rows(conn, ['AAPL'])
+        sql = conn.last_cursor.sql
+        self.assertIn('underlying_volume', sql)
+        self.assertIn('underlying_dollar_volume', sql)
+
+    def test_load_symbols_prefers_persisted_active_scan_universe(self):
+        class UniverseCursor(FakeCursor):
+            def fetchall(self):
+                return [('AAPL',), ('PLTR',)]
+
+        class UniverseConnection(FakeConnection):
+            def cursor(self):
+                self.last_cursor = UniverseCursor()
+                return self.last_cursor
+
+        self.assertEqual(materialize_scan.load_symbols(UniverseConnection()), ['AAPL', 'PLTR'])
 
 
 if __name__ == '__main__':

@@ -296,6 +296,15 @@ export default function Scan() {
   const [maxSpreadPct, setMaxSpreadPct] = useState(STRATEGY_PARAMETER_PRESETS.none.values.maxSpreadPct);
   const [minContractOi, setMinContractOi] = useState(STRATEGY_PARAMETER_PRESETS.none.values.minContractOi);
   const [minContractVolume, setMinContractVolume] = useState(STRATEGY_PARAMETER_PRESETS.none.values.minContractVolume);
+  const [marketCapMin, setMarketCapMin] = useState('');
+  const [marketCapMax, setMarketCapMax] = useState('');
+  const [priceMin, setPriceMin] = useState('');
+  const [priceMax, setPriceMax] = useState('');
+  const [minUnderlyingVolume, setMinUnderlyingVolume] = useState('');
+  const [minDollarVolume, setMinDollarVolume] = useState('');
+  const [optionable, setOptionable] = useState('all');
+  const [sector, setSector] = useState('');
+  const [earningsMode, setEarningsMode] = useState('all');
   const [unusualOnly, setUnusualOnly] = useState(false);
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
@@ -386,6 +395,16 @@ export default function Scan() {
         maxSpreadPct,
         minContractOi,
         minContractVolume,
+        marketCapMin: marketCapMin === '' ? '' : Number(marketCapMin) * 1e9,
+        marketCapMax: marketCapMax === '' ? '' : Number(marketCapMax) * 1e9,
+        priceMin,
+        priceMax,
+        minUnderlyingVolume,
+        minDollarVolume: minDollarVolume === '' ? '' : Number(minDollarVolume) * 1e6,
+        optionable,
+        sector,
+        earningsMode,
+        earningsDays: 14,
         unusualOnly,
         sort,
         limit: 100,
@@ -419,6 +438,7 @@ export default function Scan() {
   }
 
   const watchlist = dataStatus?.expected_symbols || [];
+  const universeCount = dataStatus?.universe?.scan_enabled_count || watchlist.length;
   const displayedResults = results ? [...results].sort((a, b) => {
     const av = sortValue(a, tableSort.key);
     const bv = sortValue(b, tableSort.key);
@@ -506,6 +526,48 @@ export default function Scan() {
 
           <details className="scan-advanced">
             <summary>高级期权数据过滤</summary>
+            <div className="scan-filter-section">
+              <div className="scan-filter-label">Universe / 标的池</div>
+              <div className="scan-filter-help">市值单位为十亿美元，Dollar Volume 单位为百万美元。元数据未知时，填写对应条件会将该标的排除。</div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Market Cap ($B)</span>
+                <input type="number" min={0} className="scan-num-input" placeholder="min" value={marketCapMin} onChange={e => setMarketCapMin(e.target.value)} />
+                <input type="number" min={0} className="scan-num-input" placeholder="max" value={marketCapMax} onChange={e => setMarketCapMax(e.target.value)} />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Stock Price</span>
+                <input type="number" min={0} className="scan-num-input" placeholder="min" value={priceMin} onChange={e => setPriceMin(e.target.value)} />
+                <input type="number" min={0} className="scan-num-input" placeholder="max" value={priceMax} onChange={e => setPriceMax(e.target.value)} />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Share Volume</span>
+                <input type="number" min={0} className="scan-wide-input" placeholder="最低日成交股数" value={minUnderlyingVolume} onChange={e => setMinUnderlyingVolume(e.target.value)} />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Dollar Volume ($M)</span>
+                <input type="number" min={0} className="scan-wide-input" placeholder="最低" value={minDollarVolume} onChange={e => setMinDollarVolume(e.target.value)} />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Optionable</span>
+                <select className="scan-select" value={optionable} onChange={e => setOptionable(e.target.value)}>
+                  <option value="all">不限 / Unknown allowed</option>
+                  <option value="true">仅已确认可交易期权</option>
+                  <option value="false">仅不可交易期权</option>
+                </select>
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Sector</span>
+                <input className="scan-wide-input" placeholder="精确 sector 名称" value={sector} onChange={e => setSector(e.target.value)} />
+              </div>
+              <div className="scan-filter-row">
+                <span className="scan-filter-sub">Earnings 14D</span>
+                <select className="scan-select" value={earningsMode} onChange={e => setEarningsMode(e.target.value)}>
+                  <option value="all">不限</option>
+                  <option value="exclude">排除未来 14 天财报</option>
+                  <option value="only">仅未来 14 天财报</option>
+                </select>
+              </div>
+            </div>
             <div className="scan-filter-section">
               <div className="scan-filter-label">Strategy Contract Filters</div>
               <div className="scan-filter-help">DTE 是 Days To Expiration，到期剩余天数。Delta 常用来选 short leg，例如 0.16-0.30。Bid/Ask Spread 越窄，合约越容易成交。</div>
@@ -736,10 +798,10 @@ export default function Scan() {
           <div className="scan-filter-section">
             <div className="scan-filter-label">扫描池</div>
             <div className="scan-universe-card">
-              <strong>{watchlist.length || '...'}</strong>
+              <strong>{universeCount || '...'}</strong>
               <span>个已接入数据的标的</span>
             </div>
-            <div className="scan-filter-help">当前是过渡数据池；正式版会扩展为全市场 universe，并支持市值、价格、成交量、期权流动性等过滤。</div>
+            <div className="scan-filter-help">Universe 已持久化并支持按需扩展；只有 materialized snapshot 中具备所需字段的标的会通过筛选。</div>
           </div>
 
           <button className="scan-btn" onClick={handleScan} disabled={loading}>
