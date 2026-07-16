@@ -241,10 +241,6 @@ body {
 }
 .az-symbol { font-size: 24px; font-weight: 800; }
 .az-price { font-size: 18px; color: var(--text-dim); }
-.az-data-meta { font-size: 11px; color: var(--text-muted); padding: 3px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
-.az-price-status { margin-left: 6px; font-weight: 700; }
-.az-price-status.fresh { color: var(--green); }
-.az-price-status.stale { color: var(--yellow); }
 .az-iv-unavailable {
   display: inline-flex;
   align-items: center;

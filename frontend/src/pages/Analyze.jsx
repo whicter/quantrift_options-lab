@@ -317,27 +317,6 @@ function buildGexOnlyAnalysis(symbol, priceData, gexData) {
   };
 }
 
-function PriceStatus({ meta }) {
-  if (!meta) return null;
-  const stale = meta.isStale || meta.freshness === 'stale';
-  return (
-    <span className={`az-price-status ${stale ? 'stale' : 'fresh'}`}>
-      price {stale ? 'stale' : meta.source} {meta.latestDate}
-    </span>
-  );
-}
-
-function GexStatus({ meta }) {
-  if (!meta) return null;
-  const degraded = meta.isStale || meta.freshness === 'stale' || meta.confidence === 'low';
-  const age = meta.ageMinutes == null ? '' : ` ${meta.ageMinutes}m`;
-  return (
-    <span className={`az-price-status ${degraded ? 'stale' : 'fresh'}`}>
-      GEX {meta.source} {degraded ? '延迟/部分' : 'fresh'}{age} {meta.confidence || ''}
-    </span>
-  );
-}
-
 function PartialDataNotice({ partialData }) {
   if (!partialData) return null;
   return (
@@ -538,13 +517,6 @@ export default function Analyze() {
               );
             })()}
             <div className="az-price">${result.price}</div>
-            {result.dataMeta && (
-              <div className="az-data-meta">
-                {result.dataMeta.source} · {result.dataMeta.date}
-              </div>
-            )}
-            <PriceStatus meta={result.priceMeta} />
-            <GexStatus meta={result.gexMeta} />
             <div style={{ flex: 1 }} />
             <div style={{ minWidth: 200 }}>
               {result.dataMeta ? <IVGauge value={result.ivRank} /> : (
