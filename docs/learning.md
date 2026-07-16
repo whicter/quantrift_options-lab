@@ -381,7 +381,7 @@ V1 公式：
 - **Confirmed from runtime output**：一次 TT `POST /sessions` 返回 201 后，紧接着使用旧 remember-token 的 collector 请求返回 401。响应模型包含 session-token 与 remember-token 字段。
 - **Root cause**：旧 collector 只缓存 session-token，丢弃成功响应内的 successor remember-token；one-shot cron 的下一次启动因此拿到旧状态。
 - **Fix**：以 PostgreSQL `provider_auth_state` 为唯一 token state。collector 先取得 transaction advisory lock；201 后原子提交 provider 返回的 successor（无 successor 则提交当前 token）；401/403/网络失败 rollback，不进行密码 fallback 或任意 token rotation。
-- **Deployment lesson**：Railway cron 容器是短生命周期，但数据库已经是共享持久状态。手动登录写入 seed，Railway 与本机从同一行读写；不需要 `/data` Volume 或反复更新 Railway Variables。该 migration 已实际执行并在 seed 写入前确认空表存在。
+- **Deployment lesson**：Railway cron 容器是短生命周期，持久状态应在数据库而不是 `/data` Volume。但“共享”以同一 `DATABASE_URL` 为前提：本机手动登录写入的 seed 不会自动出现在另一个 Railway PostgreSQL binding。Railway 空状态必须由它自己的 `TT_REMEMBER_TOKEN` bootstrap；成功 exchange 后才写回 successor，无需反复更新 Railway Variables。
 
 ### 7. cron/LaunchAgent runtime copy 造成“改了代码但运行的不是这份”
 
@@ -551,7 +551,7 @@ V1 公式：
 - **镜像不能 COPY secret/venv**：`.dockerignore` 排除 `.env` 和 60MB 本地 virtualenv，secret 只由 Railway variable 注入。
 - **build passed 不是 cloud run passed**：容器与配置可在代码侧验证；service binding、secret 和首个 completed deployment 必须有 Railway 项目权限。
 - **config 文件位置不改变 Docker build context**：`/collector/railway.metrics.json` 被 Railway 读取时，构建 context 仍是仓库根目录。把 Dockerfile 写成相对 `collector/` 的 `COPY requirements.txt` 会在云端找不到文件；必须显式使用 `collector/Dockerfile.metrics`、`COPY collector/requirements.txt` 和 `COPY collector/`。本地以 `docker build -f collector/Dockerfile.metrics ... .` 覆盖这一点。
-- **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出；本机 token 的无写入探针也返回 `403`。这将故障归因到 token，而不是 Railway 网络、Docker 或数据库，并避免把 failed run 误记为已写入。
+- **cloud cron 首跑必须记录 provider 与 DB 两个边界**：2026-07-16 的早期手动 run 已证明容器可连 Railway PostgreSQL 且能加载 67-symbol watchlist，却在 TT session exchange 的 `401 invalid_credentials` 退出。这将故障归因到 Railway 的旧 bootstrap/state，而不是 Railway 网络、Docker 或数据库，并避免把 failed run 误记为已写入。当前 token 已写入 Railway 且 post-deploy run 已触发；必须读取该次日志并确认 `iv_history` 与 `provider_auth_state.updated_at`，才可宣称 cloud run 成功。
 
 ## Mac Power Recovery Lessons (2026-07-16)
 

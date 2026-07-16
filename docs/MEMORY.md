@@ -64,7 +64,7 @@
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
-- remember-token 的共享状态在 PostgreSQL `provider_auth_state`（2026-07-16 additive migration 已执行，seed 前读到 0 rows）；首次 `python auth.py --login` 将 seed 写入该表，本机与 Railway Cron 在 transaction advisory lock 下读取并提交 successor。`collector/.env` 仅保存本机登录副本；不需要 `/data` Volume
+- remember-token 的持久状态在 PostgreSQL `provider_auth_state`（2026-07-16 additive migration 已执行）。只有绑定同一 `DATABASE_URL` 的本机和 Railway Cron 才共享该行；若 Railway 自己的行为空，则从其 `TT_REMEMBER_TOKEN` bootstrap。随后在 transaction advisory lock 下读取并提交 successor。`collector/.env` 仅保存本机登录副本；不需要 `/data` Volume
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
@@ -84,7 +84,7 @@ P2.3 heartbeat is complete in code and persistence: Mac daemon reports through a
 
 Derived IV Rank cutover is complete in all control planes: ready symbols are filtered before scheduled TT authentication, skipped by queued metrics jobs, and treated as covered by Analyze. Server 40 and collector 81 tests pass. Railway remains 0/67 ready, so current TT eligibility is expected until 252 independent market dates accumulate.
 
-Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`: one-shot image/config run weekdays at 22:30 UTC and exit. Collector 104 tests and a repo-root Docker build pass. The 2026-07-16 first manual execution connected to PostgreSQL and loaded 67 symbols, then TT rejected the remember token (`401 invalid_credentials`; local no-write probe `403`). Replace the Railway token after `auth.py --login`, manually rerun, and verify `iv_history` before marking the cloud collector live.
+Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`: one-shot image/config runs weekdays at 22:30 UTC and exits. The 2026-07-16 failed run connected to PostgreSQL and loaded 67 symbols, then TT rejected the old Railway bootstrap token. The current token was written to Railway and a post-deployment run was triggered; cloud-run completion remains unconfirmed until its execution log and the resulting `iv_history`/`provider_auth_state.updated_at` are verified.
 
 Mac Studio power recovery is partially complete: `pmset -g custom` verified AC Power `autorestart 1` on 2026-07-16, and LaunchAgent `pm2.congrenhan` has `RunAtLoad=true` with `pm2 resurrect`; its saved list contains all five Quantrift collector apps. UPS procurement and a controlled full recovery test for PM2, IB Gateway, collector health, jobs and snapshots remain physical operations.
 
