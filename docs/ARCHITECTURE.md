@@ -1767,6 +1767,8 @@ Ticker extraction intersects `symbol_universe`; ambiguous ordinary words such as
 
 Scanner joins the latest community batch at request time and exposes `missing`, `stale`, or `fresh` provenance. A completed batch with no mention for a symbol returns fresh zero heat; only an absent batch is missing. This keeps scanner materialization independent from Reddit availability. The wide result grid scrolls horizontally below 900px while filters stack above it. Railway schema and a missing-data runtime smoke are complete; real collection requires Reddit OAuth credentials/access.
 
+The collector reads only `symbol_universe.active=TRUE AND scan_enabled=TRUE`. A database-contract unit test asserts the exact schema column so disabled credential paths cannot hide an enabled-runtime SQL mismatch.
+
 ## 42. External Sweep / Dark-Pool Flow
 
 ```text

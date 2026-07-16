@@ -65,7 +65,7 @@ def aggregate_posts(posts: list[RedditPost], universe: set[str], window_hours: i
 
 def load_universe(conn) -> set[str]:
     with conn.cursor() as cur:
-        cur.execute("SELECT symbol FROM symbol_universe WHERE active=TRUE AND scannable=TRUE")
+        cur.execute("SELECT symbol FROM symbol_universe WHERE active=TRUE AND scan_enabled=TRUE")
         return {row[0].upper() for row in cur.fetchall()}
 
 

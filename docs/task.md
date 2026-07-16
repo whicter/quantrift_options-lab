@@ -1034,6 +1034,7 @@ P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additiv
    - [x] Scanner API 独立 join 最新社区 snapshot；社区数据不进入期权机会分
    - [x] Scan 页可排序“社区热度”列；missing/stale/fresh 明确显示
    - [x] PM2 30 分钟 job 已注册并保存，默认 `REDDIT_TRENDS_ENABLED=false`，日志验证 disabled-safe
+   - [x] Schema-contract regression：universe SQL 使用真实列 `scan_enabled`；测试防止重新引入不存在的 `scannable`；collector 96/96
    - [x] Tests/build：collector 90/90、server 58/58、frontend 23/23、full ESLint、Vite build
    - [ ] 提供 `REDDIT_CLIENT_ID`、`REDDIT_CLIENT_SECRET`、`REDDIT_USER_AGENT`，获得 Reddit Data API access 后完成真实 snapshot/UI 验收
 8. [x] 30min Breakout 信号：Polygon 30M OHLCV + previous-range/volume confirmation + freshness gate

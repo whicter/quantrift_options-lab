@@ -601,6 +601,7 @@ V1 公式：
 - **401 与 429 的恢复不同**：401 只刷新一次 app token；429 尊重 bounded `Retry-After`，不并发重试或循环登录。
 - **credential-gated job 要 disabled-safe**：无 key 的 PM2 cron 正常退出并写 disabled 日志，不制造 failure alert。
 - **migration 与真实 provider 验收分开**：表、API missing contract 和 UI 都能先验证；没有 OAuth access 时不伪造 Reddit row。
+- **disabled-safe 测试不能替代 enabled path**：此前无凭据时在 provider 初始化前退出，掩盖了 `scannable`/`scan_enabled` 列名错误；必须直接测试 database contract helper。
 
 ## External Flow Lessons (2026-07-15)
 

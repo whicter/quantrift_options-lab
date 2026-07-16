@@ -100,6 +100,8 @@ Analyze Tab4 now uses real OI density rather than GEX: `/api/chain/stats` indepe
 
 Reddit community trends are deployment-ready: OAuth provider, bounded auth/rate handling, universe-safe extraction, normalized Railway tables, Scanner heat column and saved 30-minute PM2 cron are complete. Empty-table runtime preserves scanner results and reports missing. Collector 90, server 58, frontend 23, lint and build pass. Real snapshot remains blocked only on Reddit OAuth credentials/access; the job is currently disabled-safe.
 
+Reddit enabled-path schema fix: `load_universe` must query `symbol_universe.scan_enabled`, not the nonexistent `scannable`. A direct database-contract test now covers this path even when OAuth credentials are absent.
+
 Unusual Whales sweep/TRF data layer is code-complete: account-configured WebSocket JSON transport, official FlowAlert/TradeReport normalization, idempotent event/state tables, `/api/flow/:symbol`, Analyze UI and disabled-safe PM2 process. Railway migration is applied and both empty tables are confirmed. PM2 registration is saved and disabled runtime remains online/idle with restart count 0. Fresh stream + no ticker event is quiet; absent heartbeat is missing; only `market_center=L/2` is dark pool. Collector 95, server 62, frontend 25, lint and build pass. Real stream acceptance requires `UW_WS_URL`, `UW_API_TOKEN`, and the account subscription envelope.
 
 Composite Momentum is complete in `/api/sr/:symbol` and Analyze Tab2: regular-session 30M, daily and weekly-aggregated closes produce disclosed 30/40/30 weighted components. Missing timeframe history fails closed; lagging 30M marks the result stale. Railway AAPL replay used 250 daily/200 intraday rows and returned 84 with a correct 7/15 vs 7/14 stale gate.

@@ -1548,6 +1548,8 @@ Apply `node server/src/migrate.js`, then `pm2 restart quantrift-reddit-trends --
 
 2026-07-15 evidence: additive migration completed and both tables were read-only confirmed; empty-table Scanner smoke returned the original candidate plus `community_freshness=missing`; PM2 job is saved and logs `Reddit trends disabled`. Collector 90, server 58 and frontend 23 tests, full lint and build pass. Real Reddit response is not claimed without credentials/access. Official access references: https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki and https://support.reddithelp.com/hc/en-us/articles/14945211791892-Developer-Platform-Accessing-Reddit-Data.
 
+Enabled-path schema regression (2026-07-15): `load_universe` now queries the actual `scan_enabled` column and has a direct database-contract test. This fixes a failure that disabled credential execution could not expose; collector 96/96 passes.
+
 ## Unusual Whales Flow Rollout
 
 The WebSocket transport requires the connection values issued for the account. Store them only in the Mac Studio collector secret environment:

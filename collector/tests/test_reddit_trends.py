@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from collect_reddit_trends import aggregate_posts, extract_symbols
+from collect_reddit_trends import aggregate_posts, extract_symbols, load_universe
 from providers.reddit_trends_provider import RedditPost, RedditTrendsProvider
 
 
@@ -43,6 +43,32 @@ class FakeSession:
         return self.gets.pop(0)
 
 
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.sql = ''
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def execute(self, sql):
+        self.sql = sql
+
+    def fetchall(self):
+        return self.rows
+
+
+class FakeConnection:
+    def __init__(self, rows):
+        self.cursor_instance = FakeCursor(rows)
+
+    def cursor(self):
+        return self.cursor_instance
+
+
 def post(post_id, title, score=0, comments=0, hours_ago=1):
     return RedditPost(
         post_id=post_id, title=title, selftext='', subreddit='options', score=score,
@@ -51,6 +77,12 @@ def post(post_id, title, score=0, comments=0, hours_ago=1):
 
 
 class RedditTrendTests(unittest.TestCase):
+    def test_universe_query_uses_the_actual_scan_enabled_schema_column(self):
+        conn = FakeConnection([('aapl',), ('PLTR',)])
+        self.assertEqual(load_universe(conn), {'AAPL', 'PLTR'})
+        self.assertIn('scan_enabled=TRUE', conn.cursor_instance.sql)
+        self.assertNotIn('scannable', conn.cursor_instance.sql)
+
     def test_symbol_extraction_intersects_universe_and_requires_cashtag_for_ambiguous_tokens(self):
         universe = {'AAPL', 'AI', 'IT', 'PLTR'}
         self.assertEqual(extract_symbols('AAPL and $ai beat it while PLTR rallies aapl', universe), {'AAPL', 'AI', 'PLTR'})
