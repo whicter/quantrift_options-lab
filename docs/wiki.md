@@ -1144,6 +1144,8 @@ Scanner positioning copy is price-relative: `上方 Call Wall $220 (+4.8%)` mean
 
 Scanner opportunity types are active controls, not explanatory labels. Selecting one highlights it and immediately reruns the scan: `高 IV 收租` applies IV Rank 50-100; `靠近压力/支撑` applies IV Rank 30-100 and a 3% Wall-distance filter; `期权持仓异动` enables unusual-OI-only filtering. The selected preset's exact values remain visible in the surrounding filter controls.
 
+Scanner binary controls use fixed 16px checkbox columns and adjacent labels. They must not inherit generic input dimensions or split their checkbox and label across the filter panel.
+
 当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
 
 - `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。

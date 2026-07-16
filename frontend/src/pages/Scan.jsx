@@ -744,7 +744,7 @@ export default function Scan() {
             <div className="scan-filter-section">
               <div className="scan-filter-label">Unusual OI / Put-Call Ratio</div>
               <div className="scan-filter-help">OI Delta 比较连续快照的持仓变化；Put/Call Ratio 用来粗看期权情绪。</div>
-              <label className="scan-check-row">
+              <label className="scan-toggle">
                 <input
                   type="checkbox"
                   checked={unusualOnly}
@@ -795,7 +795,7 @@ export default function Scan() {
           <div className="scan-filter-section">
             <div className="scan-filter-label">策略类型（可多选）</div>
             <div className="scan-filter-help">默认只枚举定义风险结构。Short Strangle / Short Put / Short Call 需要显式开启高级风险。</div>
-            <label className="scan-check-row">
+            <label className="scan-toggle">
               <input
                 type="checkbox"
                 checked={allowUndefinedRisk}
