@@ -68,8 +68,11 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Polygon price history + derived HV/ATM IV/IV Rank readiness
+1. Derived HV/ATM IV/IV Rank readiness from Polygon history/snapshots
 2. Scanner/Analyze/universe product completion
 3. Production auth/subscription/paywall
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。
+
+Polygon price history 已实现：`collect_prices.py` 同轮写 `price_history` 日线与 `price_history_30m`，source=`polygon_licensed`；PM2 scheduled provider 不再依赖 IB price，IB adapter 仅保留为显式 fallback。
+Runtime 已验证 67/67 双 timeframe coverage；shared Stocks limiter 为 16 秒并跨 option/price PM2 进程协调。下一 section 直接从 349+ 日线 rows 自算 HV30/60/90，并对 ATM IV/IV Rank 做 history readiness gate。

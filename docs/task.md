@@ -81,7 +81,7 @@
 ## ✅ Phase 3B-1 — Provider-first 价格历史闭环（IB internal + Tastytrade）
 
 > 前置条件：Mac Studio PM2 直接运行当前 repo 的 collector
-> 价格历史默认走 provider adapter。当前默认 `PRICE_PROVIDER=ib_internal`，显式开发/回填可用 `PRICE_PROVIDER=stooq`。yfinance 不作为默认路径。
+> 本 phase 最初以 `PRICE_PROVIDER=ib_internal` 建立 provider-first 闭环；2026-07-15 scheduled default 已由 P0.1 切为 `polygon`，IB/Stooq 仅保留显式 fallback。yfinance 不作为默认路径。
 
 ### 真实价格历史（趋势图）
 - [x] **collector 新增每日价格采集**：symbol → 60 天 OHLCV
@@ -931,14 +931,23 @@
 | 财报日 earnings_date | Tastytrade | 无 Polygon 替代，保留 Tastytrade 仅取此字段 | 长期保留 |
 
 **P0.1 — Price history 切换（立即执行）**
-- [ ] `collector/providers/polygon_price_provider.py`：新增 Polygon price adapter
+- [x] `collector/providers/polygon_price_provider.py`：新增 Polygon price adapter
   - `GET /v2/aggs/ticker/{symbol}/range/1/day/{from}/{to}?adjusted=true&sort=asc&apiKey=...`
   - 同时采集 30M 数据：`/v2/aggs/ticker/{symbol}/range/30/minute/{from}/{to}`（写入 `price_history_30m` 或加 `interval` 字段）
   - BRK.B 等特殊 ticker 保持现有 normalization 规则
-- [ ] `collector/collect_prices.py`：加入 `PRICE_PROVIDER=polygon` 分支
-- [ ] `collector/ecosystem.config.cjs`：`quantrift-options-prices` 改用 `PRICE_PROVIDER=polygon`
-- [ ] 验证：67 symbols 全部写入，date range 正确，source=`polygon_licensed`
-- [ ] 停用 IB internal price 依赖（保留 `ib_price_provider.py` 文件但不再调度）
+- [x] `collector/collect_prices.py`：加入 `PRICE_PROVIDER=polygon` 分支
+- [x] `collector/ecosystem.config.cjs`：`quantrift-options-prices` 改用 `PRICE_PROVIDER=polygon`
+- [x] 验证：67 symbols 全部写入，date range 正确，source=`polygon_licensed`
+- [x] 停用 IB internal price 依赖（保留 `ib_price_provider.py` 文件但不再调度）
+
+完成证据（2026-07-15）：
+- Adapter：日线最多 400 bars；30M 近 35 calendar days；`BRK.B` canonical identity 保持不变；Polygon 任何 timeframe 空结果时该 symbol fail-closed
+- Schema/API：Railway 已创建 `price_history_30m`；`GET /api/prices/:symbol?interval=day|30m` 保持日线默认兼容并可读取 intraday VWAP/trade count
+- Rate limit：`PolygonStockRequestPacer` 用 file lock 在 option `/prev` 与 price aggregates 两个 PM2 进程间共享 16 秒间隔；429 尊重 `Retry-After`/长 backoff
+- Tests：collector 61 tests passed；server 10 tests passed；覆盖 parsing、UTC/ET 时间、normalization、429、跨进程 state、persistence、daily-only fallback、PM2 config、API intervals
+- Railway：daily 67/67、26815 rows、每 symbol 349-401 rows、range 2024-12-05 → 2026-07-15；30M 67/67、39135 rows、每 symbol 319-736 rows、range 2026-06-10 08:00Z → 2026-07-14 23:30Z；两个表 duplicate key=0
+- Source：所有 67 symbols 均有 Polygon rows；日线保留每 symbol 1 条更晚的旧 `ib_internal` row（共 67），不删除更近数据，row-level source 如实保留
+- PM2：option collector 已恢复 online；price one-shot 为 stopped + cron active（工作日 13:35 PT），`provider=polygon`、`symbols=watchlist`、`delay=16`、secret configured；`pm2 save` 完成
 
 **P0.2 — HV 自算（积累 90 天日线后执行）**
 - [ ] `collector/collect.py` 或新增脚本：从 `price_history` 计算 HV30/60/90

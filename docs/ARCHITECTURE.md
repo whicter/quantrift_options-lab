@@ -622,20 +622,21 @@ public.iv_history
 
 语义上，该表保存按 symbol 和交易日期组织的隐含波动率历史及相关字段。
 
-60 天 OHLCV 存入：
+价格 OHLCV 存入：
 
 ```text
 public.price_history
+public.price_history_30m
 ```
 
-该表用于趋势图、RVol、weekly recap 和后续技术指标。数据由 `collector/collect_prices.py` 每天按 watchlist upsert 最近 60 个交易日，API 只读查询最近窗口。不要把 OHLCV 长期放在前端 mock、浏览器缓存或本地 CSV 中。
+日线表用于趋势图、RVol、weekly recap、HV 和后续技术指标；30M 表用于 breakout 与盘中结构。`collect_prices.py` 每天按 watchlist 原子 upsert 两个 timeframe，API 只读查询最近窗口。
 
 当前状态：
 
-- `server/src/migrate.js` 已包含 `price_history` 建表和索引。
+- `server/src/migrate.js` 已包含两张 price history 表及索引。
 - 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
-- `collector/collect_prices.py` 已实现 provider adapter：默认 `PRICE_PROVIDER=ib_internal`，显式开发/回填可用 `PRICE_PROVIDER=stooq`。
-- `server/src/routes/prices.js` 暴露 `GET /api/prices/:symbol?limit=60`。
+- `collector/collect_prices.py` 默认 `PRICE_PROVIDER=polygon`；日线 400 bars、30M 35 calendar days，source=`polygon_licensed`。IB 与 Stooq 仅为显式 fallback。
+- `server/src/routes/prices.js` 暴露 `GET /api/prices/:symbol?limit=60&interval=day|30m`。
 - 前端 `/analyze` Tab2 和 `/weekly` Sec1 会优先使用 `price_history`，没有价格历史时保留清晰 fallback/提示。
 - yfinance 不作为默认路径；后续如接入订阅价格源，应新增 provider adapter，不改变前端 API contract。
 
@@ -1523,4 +1524,6 @@ Alerting is observational：它不暂停 collector、不改变 provider fallback
 | Focus Score（规划 P2） | MA 位置 + RSI + 量能参与度组成复合评分 |
 | HV 自算 | stddev(log_return) × √252，替代 Tastytrade HV 字段 |
 
-**建议：** 在 `collect_prices.py` 中新增 `PRICE_PROVIDER=polygon` adapter，与现有 `ib_internal` 和 `stooq` 平行。验证日线数据质量后切换，同时顺带采集 30M 数据写入 `price_history_30m` 或通过 `interval` 字段区分。
+**当前实现：** `PolygonPriceProvider` 与 `ib_internal`、`stooq` adapters 平行；PM2 已切到 Polygon，并将 30M 数据写入独立 `price_history_30m` 表。`PolygonStockRequestPacer` 用 file lock 协调 option `/prev` 与 price aggregates 两个 PM2 进程，覆盖连续 symbols/timeframes。
+
+2026-07-15 runtime invariant：watchlist 67/67 同时具备 Polygon 日线与 30M rows，两个表 `(symbol,time)` unique key 无重复。日线允许保留日期更新、source 不同的既有 row；消费者按日期取最新，不能为统一 source 丢弃更近数据。

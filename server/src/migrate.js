@@ -46,6 +46,27 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS price_history_symbol_date ON price_history (symbol, date DESC);
     CREATE INDEX IF NOT EXISTS price_history_date ON price_history (date DESC);
 
+    CREATE TABLE IF NOT EXISTS price_history_30m (
+      id          BIGSERIAL PRIMARY KEY,
+      symbol      TEXT        NOT NULL,
+      bar_ts      TIMESTAMPTZ NOT NULL,
+      open        NUMERIC(12,4),
+      high        NUMERIC(12,4),
+      low         NUMERIC(12,4),
+      close       NUMERIC(12,4) NOT NULL,
+      volume      BIGINT,
+      vwap        NUMERIC(12,4),
+      trade_count BIGINT,
+      source      TEXT        NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (symbol, bar_ts)
+    );
+
+    CREATE INDEX IF NOT EXISTS price_history_30m_symbol_ts
+      ON price_history_30m (symbol, bar_ts DESC);
+    CREATE INDEX IF NOT EXISTS price_history_30m_ts
+      ON price_history_30m (bar_ts DESC);
+
     CREATE TABLE IF NOT EXISTS scanner_configs (
       id          SERIAL PRIMARY KEY,
       name        TEXT,

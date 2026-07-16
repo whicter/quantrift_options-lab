@@ -8,6 +8,7 @@ from typing import Any
 import requests
 
 from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapshot
+from .polygon_rate_limit import PolygonStockRequestPacer
 
 
 class PolygonOptionChainProvider:
@@ -35,9 +36,11 @@ class PolygonOptionChainProvider:
         self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
         self._session = requests.Session()
         self._session.headers['Authorization'] = f'Bearer {self.api_key}'
+        self.stock_pacer = PolygonStockRequestPacer()
 
     def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
         url = f'{self.base_url}/v2/aggs/ticker/{symbol.upper()}/prev'
+        self.stock_pacer.wait()
         resp = self._session.get(url, params={'adjusted': 'true'}, timeout=self.timeout)
         resp.raise_for_status()
         data = resp.json()

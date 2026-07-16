@@ -62,13 +62,15 @@ Open http://localhost:5173
 - Earnings date detection
 - Scanner: filter by opportunity/preset, then rank complete same-expiry contract setups; click row → detailed analysis
 - Data coverage status API: `/api/status/data`
-- Price history API: `/api/prices/:symbol`
+- Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 
 ## Data Sources (V2)
 - IV Rank: Tastytrade API (free, pre-calculated)
-- 60-day OHLCV: `price_history` in Railway PostgreSQL; `collect_prices.py` writes provider-sourced bars
-- Price provider default: `ib_internal` for local/internal Mac Studio research pipeline
+- Daily OHLCV: up to 400 adjusted bars in Railway `price_history`, sourced by scheduled Polygon aggregates
+- 30-minute OHLCV: 35 calendar days in Railway `price_history_30m`, including VWAP and trade count when supplied
+- Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
+- 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
 - Dev/backfill provider: `stooq`, only when explicitly selected
 - Option chains: current ingestion uses the `ib_internal` and `tt_internal` adapters and persists snapshots before the API reads them.
 - IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.
@@ -99,7 +101,7 @@ Open http://localhost:5173
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
 - [x] V2: Python collectors on Mac Studio (PM2 direct-repository runtime)
-- [x] V2: provider-first 60-day OHLCV pipeline skeleton (`collect_prices.py`, `price_history`, `/api/prices/:symbol`)
+- [x] V2: Polygon daily/30M OHLCV pipeline (`collect_prices.py`, `price_history`, `price_history_30m`, `/api/prices/:symbol`)
 - [x] V2: Vercel deployment
 - [x] V2: GEX data model + provider adapter abstraction
 - [x] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs

@@ -202,7 +202,7 @@ Each chart:
 | 用途 | 来源 | 费用 | 备注 |
 |---|---|---|---|
 | IV Rank（预计算） | Tastytrade API | 免费 | 开空账户即可，无需在此交易 |
-| 60日OHLCV | provider adapter（默认 IB internal；显式 dev/backfill 可用 Stooq） | 免费/内部 | 写入 `price_history`，供趋势图、RVol、weekly recap 使用 |
+| 日线/30M OHLCV | Polygon aggregates（scheduled）；IB/Stooq 显式 fallback | 当前 provider | 写入 `price_history` / `price_history_30m`，供趋势、HV、RVol、weekly recap、breakout 使用 |
 | 实时期权链 | 授权 options data provider（生产） | 需确认 | 用于公开/付费产品的 option chain、OI、Greeks、volume、IV surface |
 | 实时期权链验证 | IB API | 免费/内部 | 仅用于个人研究、算法验证和 internal adapter，不作为公开产品默认数据源 |
 | yfinance | 不作为默认路径 | 免费 | 受限于 rate limit、稳定性和授权边界；如未来使用，必须显式作为 adapter 并标注数据等级 |
@@ -355,15 +355,17 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 
 - 期权 legs 用 **JSONB 列**存储，不提前固定 schema
 - `iv_history.source`: `'tastytrade'` | `'self'`（自算）等
-- `price_history.source`: `'ib_internal'` | `'stooq'` | future licensed/market-data provider
-- 60 天 OHLCV 写入 `price_history`，作为趋势图、RVol、weekly recap 的基础输入；不应放在前端 mock 或本地 CSV 中。
+- `price_history.source`: `'polygon_licensed'` | `'ib_internal'` | `'stooq'`
+- 最多 400 个日线 bar 写入 `price_history`；近 35 个自然日 30M bar 写入 `price_history_30m`，作为趋势图、HV、RVol、weekly recap、breakout 的基础输入。
 - `price_history` schema 已进入 `server/src/migrate.js`，并已于 2026-07-14 在 Railway PostgreSQL 创建。
-- `collector/collect_prices.py` 已实现 provider-first 写入逻辑；默认 `PRICE_PROVIDER=ib_internal`，显式 dev/backfill 可用 `PRICE_PROVIDER=stooq`。
-- `GET /api/prices/:symbol?limit=60` 返回最近 OHLCV，供 `/analyze` Tab2 和 `/weekly` Sec1 使用。
+- `collector/collect_prices.py` 默认 `PRICE_PROVIDER=polygon`，两个 timeframe 在同一 symbol transaction 中 upsert；IB/Stooq 仅显式 fallback。
+- `GET /api/prices/:symbol?limit=60&interval=day|30m` 返回对应 timeframe。
 - 2026-07-14 最小闭环已验证：AAPL 通过 `ib_internal` 写入 60 条 `price_history`，本地 API 可读取。
 - 2026-07-14 完整 watchlist 已验证：67/67 symbols 成功，写入 4020 rows，0 failed；`/api/status/data` 本地返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
 - 2026-07-14 生产 API 已验证：`/api/prices/AAPL?limit=3` 返回 HTTP 200，`/api/status/data` 返回 `expected_count=67` 和 `price_history.covered_count=67`。
 - IB symbol normalization：DB/UI canonical symbol 保持原样；IB stock contract symbol 将 `.` 映射为空格，例如 `BRK.B` → `BRK B`。
+- Polygon price normalization：DB/UI canonical symbol 保持原样；请求层仅把 `/` share-class separator 规范为 `.`。日线 bar 用 America/New_York 交易日期，30M `bar_ts` 统一存 UTC。
+- 2026-07-15 Polygon seed：daily 与 30M 均 67/67 covered，分别 26815 / 39135 rows，无 duplicate key。已有更新日期的 IB row 保留并依赖 row-level `source` 区分。
 
 ## Git & Deployment Workflow
 

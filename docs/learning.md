@@ -393,7 +393,7 @@ V1 公式：
 
 - **现象**：`.env` 里有 `POLYGON_API_KEY=xxx`，`load_dotenv` 也被调用，但 provider 仍报 `POLYGON_API_KEY is required`。
 - **根因**：`ecosystem.config.cjs` 里写了 `POLYGON_API_KEY: process.env.POLYGON_API_KEY || ''`。PM2 daemon 启动时 shell 没有该变量，所以 PM2 把 `''`（空字符串）注入为进程环境变量。`load_dotenv` 默认不覆盖已有 env var，空字符串被当作"已设"，`.env` 里的真实值被跳过。
-- **解法**：直接在 `ecosystem.config.cjs` 里写死 key 字符串，或去掉该行让 `load_dotenv` 从 `.env` 自然加载。
+- **解法**：从 `ecosystem.config.cjs` 删除该 key，让 `load_dotenv` 从 `.env` 读取；部署平台则用 secret store。禁止把真实 key 写死到 PM2 config。
 - **注意**：`pm2 restart --update-env` 只把当前 shell 环境变量合并进去，不重读 `.cjs` 配置文件。要重读配置文件必须用 `pm2 reload ecosystem.config.cjs --update-env`。
 
 ### 11. run_refresh_worker.py 有独立的 SUPPORTED_OPTION_PROVIDERS 白名单
@@ -443,3 +443,12 @@ V1 公式：
 - Snapshot 表里“有 row”不等于 covered：`contract_count=0`、`metadata_only`、stale、低 completeness 必须分别判断。
 - 告警本身不得阻断采集。Webhook/SMTP 失败写 error 并降级到日志；collector 下一轮继续运行。
 - Runtime 证据：67/67 snapshot coverage、0 stale、0 incomplete；31 个 24h 历史 failed jobs 触发一次 alert，第二次检查被 cooldown 正确抑制。
+
+### 13. Polygon 多 symbol backfill 必须共享 limiter，并交给进程管理器
+
+- **现象**：AAPL 单 symbol 日线/30M 都成功，但直接循环 67 symbols 时在第三个 symbol 开始连续 429；短 backoff 重试只会继续消耗请求并失败。
+- **根因**：Stocks aggregates entitlement 有独立 rate limit。每天两个 timeframe 意味着每个 symbol 至少两个请求；若 limiter 只存在于单次 HTTP retry 或每个 symbol 新建 provider，无法约束全局请求速率。
+- **修复**：一个 `PolygonPriceProvider` 实例服务整轮 watchlist；`PolygonStockRequestPacer` 通过 file lock 在 option `/prev` 与 price aggregates 两个 PM2 进程之间共享 `POLYGON_STOCK_REQUEST_DELAY=16`。Runtime 显示 13 秒会在每 4 个请求后触发 429，16 秒可保持低于 observed 4 req/min ceiling。429 优先尊重 `Retry-After`，否则按长 backoff 等待。
+- **运行坑**：长 backfill 不能依赖 Codex/SSH 的临时前台 exec；会话被回收后 Python 子进程既可能终止，也可能变成没有可见 session 的 orphan。后者会继续消耗 provider quota，并与 PM2 job 互相制造 429。交给 PM2 临时 one-shot process；切换前用 `ps ... | rg '[c]ollect_prices.py'` 核对 PID/PPID，只终止明确的旧 orphan。完成后查询 PostgreSQL coverage，再删除临时 process。
+- **环境不变量**：scheduled process 固定 `SYMBOLS=watchlist`。Targeted backfill 的 symbol 列表不能残留到下一次 cron。Key 只能从 `.env`/secret environment 注入，检查时只输出 configured boolean。
+- **最终证据**：清理 orphan 后 16 秒 cadence 稳定、最后 23 symbols 0 failed；Railway daily/30M 均 67/67、无 duplicate key。PM2 对 ecosystem reload 不会自动把 shell secret 合并到另一个 app，必须对具体 process 执行 `restart --update-env`，再检查 `key=True`（只输出 boolean）并 `pm2 save`。

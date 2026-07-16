@@ -61,7 +61,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 
 ## Next Task
 - Execution order is defined in `docs/task.md` under `实施优先级（执行顺序）`.
-- Phase 3D-6 and collector coverage/failure alerts are complete. Immediate next section: Polygon daily/30M price history.
+- Phase 3D-6, collector health alerts and Polygon daily/30M price history are complete. Immediate next section: derived HV/ATM IV/IV Rank readiness.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
 - IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Do not represent volume-only signals as confirmed institutional positioning.

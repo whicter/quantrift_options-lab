@@ -1,5 +1,5 @@
 /**
- * GET /api/prices/:symbol?limit=60
+ * GET /api/prices/:symbol?limit=60&interval=day|30m
  *
  * Returns daily OHLCV bars from price_history, sorted ascending by date.
  */
@@ -23,25 +23,31 @@ function daysSince(dateValue) {
   return Math.floor((today - date) / 86400000);
 }
 
-router.get('/:symbol', async (req, res) => {
+async function sendPrices(req, res) {
   const symbol = String(req.params.symbol || '').trim().toUpperCase();
-  const limit = Math.min(parseInt(req.query.limit ?? 60), 250);
+  const interval = String(req.query.interval || 'day').trim().toLowerCase();
+  const maxLimit = interval === '30m' ? 2000 : 400;
+  const limit = Math.min(parseInt(req.query.limit ?? (interval === '30m' ? 500 : 60)), maxLimit);
 
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!['day', '30m'].includes(interval)) return res.status(400).json({ error: 'invalid interval' });
   if (isNaN(limit) || limit <= 0) return res.status(400).json({ error: 'invalid limit' });
 
   try {
+    const table = interval === '30m' ? 'price_history_30m' : 'price_history';
+    const timeColumn = interval === '30m' ? 'bar_ts' : 'date';
+    const extraColumns = interval === '30m' ? ', vwap, trade_count' : '';
     const { rows } = await pool.query(
-      `SELECT symbol, date, open, high, low, close, volume, source, created_at
+      `SELECT symbol, ${timeColumn}, open, high, low, close, volume, source, created_at${extraColumns}
        FROM (
-         SELECT symbol, date, open, high, low, close, volume, source, created_at
-         FROM price_history
+         SELECT symbol, ${timeColumn}, open, high, low, close, volume, source, created_at${extraColumns}
+         FROM ${table}
          WHERE symbol = $1
-         ORDER BY date DESC
+         ORDER BY ${timeColumn} DESC
          LIMIT $2
        ) recent
-       ORDER BY date ASC`,
+       ORDER BY ${timeColumn} ASC`,
       [symbol, limit]
     );
 
@@ -50,31 +56,39 @@ router.get('/:symbol', async (req, res) => {
     }
 
     const latest = rows[rows.length - 1];
-    const ageDays = daysSince(latest.date);
+    const latestValue = interval === '30m' ? latest.bar_ts : latest.date;
+    const ageDays = daysSince(latestValue);
     const isStale = ageDays == null ? true : ageDays > PRICE_STALE_DAYS;
 
     res.json({
       symbol,
+      interval,
       source: latest.source,
       count: rows.length,
-      latest_date: latest.date,
+      latest_date: latestValue,
       snapshot_ts: latest.created_at,
       freshness: isStale ? 'stale' : 'fresh',
       is_stale: isStale,
       age_days: ageDays,
       prices: rows.map(row => ({
-        date: row.date,
+        date: interval === '30m' ? row.bar_ts : row.date,
+        timestamp: interval === '30m' ? row.bar_ts : undefined,
         open: row.open,
         high: row.high,
         low: row.low,
         close: row.close,
         volume: row.volume,
+        vwap: interval === '30m' ? row.vwap : undefined,
+        trade_count: interval === '30m' ? row.trade_count : undefined,
       })),
     });
   } catch (err) {
     console.error('GET /api/prices/:symbol error:', err.message);
     res.status(500).json({ error: 'database error' });
   }
-});
+}
+
+router.get('/:symbol', sendPrices);
 
 module.exports = router;
+module.exports.sendPrices = sendPrices;

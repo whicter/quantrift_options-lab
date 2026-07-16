@@ -38,7 +38,7 @@ python auth.py --login
 venv311/bin/python collect.py
 ```
 
-Price history uses `PRICE_PROVIDER=ib_internal` by default. This requires local IB Gateway and `ibapi`.
+Scheduled price history uses `PRICE_PROVIDER=polygon`. Each run upserts up to 400 adjusted daily bars into `price_history` and 35 calendar days of 30-minute bars into `price_history_30m`. Stocks REST requests from both price and option collectors share the cross-process `POLYGON_STOCK_REQUEST_DELAY=16` pacer so the watchlist stays below the observed four-request-per-minute ceiling. `ib_internal` and Stooq remain explicit daily-only fallbacks and are not scheduled.
 
 Collector health checks run inside `run_collector_daemon.py` every 300 seconds by default. They evaluate option coverage, 24h failed jobs, snapshot age and completeness, then persist deduplicated events in `collector_health_alerts`. Configure `ALERT_WEBHOOK_URL` or SMTP variables for external delivery; without them alerts remain visible in PM2 logs. Set `COLLECTOR_HEALTH_CHECK_ENABLED=false` to disable the check without changing collection.
 
@@ -147,7 +147,7 @@ Default option-chain scope:
 - tastytrade source label: `tt_internal`
 - tastytrade current status: chain metadata + DXLink quote/trade/OI/Greeks/TheoPrice when `TT_COLLECT_DXLINK=true`.
 
-For explicit development/backfill only, Stooq can be selected without changing production defaults:
+For explicit development/backfill only, Stooq can be selected without changing the scheduled default:
 
 ```bash
 PRICE_PROVIDER=stooq SYMBOLS=AAPL venv311/bin/python collect_prices.py
@@ -155,7 +155,7 @@ PRICE_PROVIDER=stooq SYMBOLS=AAPL venv311/bin/python collect_prices.py
 
 ## Watchlist
 
-IV and price collectors read symbols from `watchlist.txt`. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills.
+IV and price collectors read symbols from `watchlist.txt`. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills and `SYMBOLS=watchlist` for an explicit full run.
 
 `collect_options.py` defaults to the full watchlist. Use `OPTION_SYMBOLS` for a bounded backfill or diagnostic run.
 
@@ -201,7 +201,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - `run_collector_daemon.py` — persistent worker/materializer loop used by PM2
 - `schedule_option_refresh.py` — bounded watchlist coverage scheduler with stale selection and retry cooldown
 - `ecosystem.config.cjs` — direct-repository PM2 process definitions
-- `providers/` — provider adapters; `ib_internal` is default for internal IB adapters, `stooq` is explicit price dev/backfill
+- `providers/` — provider adapters; scheduled prices use `polygon`, while `ib_internal` and `stooq` remain explicit fallbacks
 - `common.py` — shared watchlist loader
 - `watchlist.txt` — Collector symbol list
 - `requirements.txt` — Python dependencies

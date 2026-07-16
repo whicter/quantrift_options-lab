@@ -15,11 +15,33 @@ class PriceBar:
     source: str
 
 
+@dataclass(frozen=True)
+class IntradayPriceBar:
+    symbol: str
+    bar_ts: datetime
+    open: float | None
+    high: float | None
+    low: float | None
+    close: float
+    volume: int | None
+    vwap: float | None
+    trade_count: int | None
+    source: str
+
+
 class PriceProvider(Protocol):
     source: str
 
     def fetch_daily_bars(self, symbol: str, limit: int = 60) -> list[PriceBar]:
         """Return daily OHLCV bars sorted ascending by date."""
+        ...
+
+
+class IntradayPriceProvider(Protocol):
+    source: str
+
+    def fetch_30m_bars(self, symbol: str, lookback_days: int = 35) -> list[IntradayPriceBar]:
+        """Return 30-minute OHLCV bars sorted ascending by UTC bar timestamp."""
         ...
 
 

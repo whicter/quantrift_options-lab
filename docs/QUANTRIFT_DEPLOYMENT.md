@@ -371,22 +371,25 @@ public.iv_history
 - `/api/status/data`：读取 watchlist，并汇总 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期。
   - 默认读取 repo 内 `collector/watchlist.txt`；如果 Railway 只部署 `server/` 子目录，需要设置 `WATCHLIST_PATH` 指向部署环境中的 watchlist 文件。
 
-下一阶段价格历史表：
+价格历史表：
 
 ```text
 public.price_history
+public.price_history_30m
 ```
 
-用途：保存 watchlist 标的最近 60 个交易日 OHLCV，供趋势图、RVol 和 weekly recap 使用。该表应由 collector upsert 到 Railway PostgreSQL，不应放在前端 mock、本地 CSV 或浏览器缓存中。
+用途：`price_history` 保存最多 400 个调整后日线 bar，供趋势、RVol、HV 和 weekly recap 使用；`price_history_30m` 保存近 35 个自然日的 30M bar，供 breakout 与盘中结构使用。两表均由 collector upsert 到 Railway PostgreSQL。
 
 状态：
 
-- `server/src/migrate.js` 已包含 `price_history` migration。
+- `server/src/migrate.js` 已包含 `price_history` 与 `price_history_30m` migration。
 - 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
 - `collector/collect_prices.py` 已实现 OHLCV 写入逻辑。
-- 默认 `PRICE_PROVIDER=ib_internal`，通过本地 Mac Studio / IB Gateway 拉取内部价格历史。
+- PM2 默认 `PRICE_PROVIDER=polygon`，同轮请求 `1/day` 与 `30/minute` aggregates，source=`polygon_licensed`。
+- `POLYGON_STOCK_REQUEST_DELAY=16` 通过 `/tmp/quantrift_polygon_stock_rate_limit` 在 option/price PM2 进程之间共享 Stocks REST 节流；该值按 runtime 观察到的 4 req/min ceiling 校准。429 读取 `Retry-After`，否则按 `POLYGON_PRICE_RATE_LIMIT_BACKOFF` 退避。
+- `PRICE_PROVIDER=ib_internal` 仅保留为显式 fallback，不再由 PM2 调度。
 - `PRICE_PROVIDER=stooq` 仅用于显式开发/回填测试，不是生产 options data。
-- Railway API 通过 `GET /api/prices/:symbol?limit=60` 读取最近价格历史。
+- Railway API 通过 `GET /api/prices/:symbol?limit=60` 读取日线，通过 `interval=30m` 读取 intraday。
 - 2026-07-14 最小闭环验证：`SYMBOLS=AAPL collector/venv311/bin/python collector/collect_prices.py` 成功写入 60 rows；Railway `price_history` 中 AAPL date range 为 2026-04-17 → 2026-07-14，source=`ib_internal`。
 - 本地 API 验证：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 成功返回 3 rows，source=`ib_internal`。
 - 2026-07-14 完整 watchlist 验证：`collector/venv311/bin/python collector/collect_prices.py` 成功处理 67/67 symbols，写入 4020 rows，0 failed。
@@ -394,7 +397,7 @@ public.price_history
 - 当前定时任务状态：PM2 直接运行 Mac Studio 当前 repo，不维护同步副本。
   - Config：`/Users/congrenhan/Documents/quantrift_options-lab/collector/ecosystem.config.cjs`
   - `quantrift-options-collector`：长期运行 `run_collector_daemon.py`；option coverage scheduler 300 秒（batch 2）、worker 60 秒、scanner materialization 300 秒。
-  - `quantrift-options-prices`：工作日 13:35 PT / 16:35 ET 运行 repo 内 `collect_prices.py`。
+  - `quantrift-options-prices`：工作日 13:35 PT / 16:35 ET 运行 repo 内 `collect_prices.py`；配置固定 `SYMBOLS=watchlist`，避免 targeted backfill 环境泄漏到下一次定时任务。
   - Python/env：repo 内 `collector/venv311` 与 `collector/.env`。
   - 旧 LaunchAgent 与 `~/.quantrift_options_collector` 已移除；不存在“先同步代码再运行”的步骤。
   - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 start collector/ecosystem.config.cjs && pm2 save`
@@ -404,6 +407,9 @@ public.price_history
   - 2026-07-15 auto-refresh verification：scheduler selected missing AAPL；TT device challenge was treated as unavailable and the worker fell back to IB delayed market data without retrying login；AAPL completed 78 actual contracts、94.87% completeness，production option coverage increased 8/67 → 9/67，then continued with AIQ。
 - 2026-07-14 生产 API 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"` 返回 HTTP 200，`source=ib_internal`、`count=3`、`freshness=fresh`、`is_stale=false`。
 - 2026-07-14 生产 status 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/status/data"` 返回 `expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
+- 2026-07-15 Polygon migration/runtime：Railway 已创建 `price_history_30m`。日线 67/67、26815 rows、每 symbol 349-401 rows、range 2024-12-05 → 2026-07-15；30M 67/67、39135 rows、每 symbol 319-736 rows、range 2026-06-10 08:00Z → 2026-07-14 23:30Z；duplicate keys 均为 0。
+- 日线 source 审计：所有 symbols 都有 `polygon_licensed` history；每个 symbol 仍保留 1 条日期更新的旧 `ib_internal` row。不得为了 source 纯度删除更近 bar；scheduled dependency 已切到 Polygon。
+- PM2 deployment：`quantrift-options-collector` online；`quantrift-options-prices` stopped one-shot + cron active，非敏感 env 验证为 `provider=polygon`、`symbols=watchlist`、`delay=16`、`key=True`；随后 `pm2 save` 成功。
 
 系统 schema，例如 `pg_catalog` 和 `information_schema`，不属于业务数据，不应删除。
 

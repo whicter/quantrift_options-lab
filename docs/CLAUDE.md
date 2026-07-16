@@ -40,6 +40,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `option_oi_delta_snapshots` powers `/api/unusual/:symbol`, `/api/scan` unusual filters and Analyze Tab3 unusual activity.
 - `ib_internal` and `tt_internal` are internal/transitional data sources, not public licensed product sources.
+- Scheduled price history uses Polygon aggregates and writes both `price_history` (daily) and `price_history_30m`; IB price remains an explicit fallback only.
 
 ## Code Conventions
 - Use the Edit tool directly — never Python/Bash to modify files

@@ -29,6 +29,7 @@ module.exports = {
         HEALTH_MAX_SNAPSHOT_AGE_MINUTES: '180',
         HEALTH_MIN_COMPLETENESS_PCT: '75',
         HEALTH_ALERT_COOLDOWN_MINUTES: '60',
+        POLYGON_STOCK_REQUEST_DELAY: '16',
       },
     },
     {
@@ -39,7 +40,12 @@ module.exports = {
       autorestart: false,
       cron_restart: '35 13 * * 1-5',
       env: {
-        IB_MARKET_DATA_TYPE: '3',
+        PRICE_PROVIDER: 'polygon',
+        SYMBOLS: 'watchlist',
+        PRICE_HISTORY_LIMIT: '400',
+        PRICE_30M_LOOKBACK_DAYS: '35',
+        POLYGON_STOCK_REQUEST_DELAY: '16',
+        POLYGON_PRICE_RATE_LIMIT_BACKOFF: '60',
       },
     },
   ],
