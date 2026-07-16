@@ -68,9 +68,9 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Mac Studio heartbeat
-2. Production auth/subscription/paywall
-3. Remaining V1 polish and external/manual blockers
+1. Production auth/subscription/paywall（需要产品方案与身份/支付凭据）
+2. Remaining V1 polish
+3. External/manual blockers
 
 Universe/on-demand is complete: `symbol_universe` replaced the watchlist-only scanner boundary; `/api/analyze/:symbol` registers unknown tickers, reports independent price/metrics/options/GEX coverage, and queues only missing products. Scanner materialization reads the registry. COST runtime expanded the registry from 77 to 78 and produced Polygon price, 54 contracts and fresh GEX; its TT metrics manual-login failure is exposed as a blocker without a retry loop. Market cap/sector/optionable filters are wired but their registry values remain unpopulated.
 
@@ -79,6 +79,8 @@ Market/weekly is complete: `/api/market/regime` combines SPY/QQQ daily, regular-
 P2.1 product home is complete: `/` renders Quantrift with an actual scanner visual, live Market Regime strip, and direct Scan/Analyze/Weekly actions. The brand nav returns home and `/learn` remains separate. Frontend tests/build/lint passed; automated browser screenshot remains blocked by the browser plugin initialization error.
 
 P2.2 scanner alerts are complete: subscription API supports email/web push, consent, normalized rules and token unsubscribe; `scanner_alert_deliveries` is an idempotent outbox; PM2 evaluates after each scanner materialization. Runtime migration/API/dry-run passed. SMTP/VAPID secrets are not configured, so real external receipt remains an explicit manual deployment check and current readiness correctly reports blocked/null.
+
+P2.3 heartbeat is complete in code and persistence: Mac daemon reports through a bearer-authenticated endpoint; Railway status includes expected-but-never-seen nodes; monitor incidents transition active/resolved with cooldown and blocked webhook state. Server 39 tests and collector 78 tests passed. Railway migration and full local-against-Railway state-machine smoke passed. Production shared token/URL and webhook still require operator configuration.
 
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 

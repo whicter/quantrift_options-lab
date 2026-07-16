@@ -61,7 +61,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 
 ## Next Task
 - Execution order is defined in `docs/task.md` under `实施优先级（执行顺序）`.
-- Phase 3D-6 through P2.2 scanner alerts are complete. Immediate next section: Mac Studio heartbeat.
+- Phase 3D-6 through P2.3 heartbeat are complete. Remaining P3 commercialization requires an approved auth/billing design and credentials; audit non-external tasks before stopping.
+- Heartbeat expected nodes must include machines that have never reported. Missing URL/token disables only heartbeat, not the collector loop; missing webhook delivery is `blocked`, not `sent`.
 - Scanner alert evaluation runs only after scanner materialization. Preserve outbox uniqueness and `blocked` channel state; never send provider requests from notification evaluation.
 - VAPID private key stays in collector secrets. API/browser may receive only `WEB_PUSH_VAPID_PUBLIC_KEY`.
 - `/` is the Quantrift product entry. Preserve direct Scan/Analyze/Weekly workflows and live Market Regime; `/learn` is no longer the default redirect.

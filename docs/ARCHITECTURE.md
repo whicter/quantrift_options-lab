@@ -1630,3 +1630,23 @@ token -> DELETE /api/alerts/subscriptions/:token -> inactive
 Rules are conjunctive: optional symbols, minimum IV Rank, Gamma regime and unusual-only. Missing required row fields fail closed. The evaluator never invokes a provider and links the user back to the real symbol analysis. Email addresses and push endpoints are never returned by create/list responses. No SMTP/VAPID configuration yields `blocked`, not `sent`; external delivery failure never blocks scanner materialization.
 
 Runtime on 2026-07-15: additive migration succeeded; no-subscription evaluator returned zero counts; a temporary email subscription was created then token-unsubscribed; public VAPID key returned null; PM2 completed materialization and evaluator with zero errors. Real inbox/browser delivery remains an explicit secret-dependent deployment check.
+
+## 32. Collector Heartbeat
+
+Mac Studio collector health is separated from market-data completeness. `run_collector_daemon.py` emits one authenticated heartbeat on a bounded cadence; it does not include provider credentials or invoke a provider.
+
+```text
+Mac Studio daemon -> POST /api/heartbeat -> collector_heartbeats
+                                             |
+Railway monitor <- expected node registry ----+
+       | stale/missing
+       v
+collector_heartbeat_alerts -> webhook sent | blocked | failed
+       | heartbeat returns
+       v
+resolved
+```
+
+`HEARTBEAT_EXPECTED_NODES` ensures a machine that has never reported is still visible as `missing`; querying only existing heartbeat rows would silently omit the most important failure. `GET /api/heartbeat/status` returns `online`, `offline`, or `missing` with age and a global `ok/degraded` state. Bearer tokens use timing-safe comparison. The monitor records active/resolved incidents and notification cooldown independently from the heartbeat row.
+
+The daemon is disabled-safe when URL or token is absent, so rollout cannot stop option collection. Deployment completion still requires the same generated token in Railway and Mac Studio and, for external receipt, `ALERT_WEBHOOK_URL`. Additive heartbeat tables may remain during rollback; disabling `HEARTBEAT_MONITOR_ENABLED` and removing heartbeat env values restores the previous runtime behavior.

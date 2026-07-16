@@ -1179,3 +1179,9 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 The Scan page can persist the current minimum IV Rank, Gamma regime and unusual-only state as an email or browser-push rule. Browser push uses `public/sw.js`; the client obtains only the VAPID public key. The private key remains with the collector delivery process.
 
 Each latest materialized row is tested against active rules. A unique delivery outbox row is inserted before sending, so process restart cannot resend the same symbol from the same scanner batch. Delivery states are `pending`, `sent`, `blocked`, `failed`; missing channel configuration is blocked. Unsubscribe uses a random token rather than an email address or push endpoint.
+
+### Collector Heartbeat
+
+`send_heartbeat.py` reports the Mac Studio daemon identity and runtime metadata to `POST /api/heartbeat`. `GET /api/heartbeat/status` is the operator-facing read model: expected nodes appear even before their first report, with `missing`, `offline`, or `online` state and heartbeat age.
+
+The Railway monitor persists an incident in `collector_heartbeat_alerts` when a report is absent or older than the configured threshold. Repeated notification follows a cooldown; recovery resolves the same incident. URL/token absence disables only heartbeat transmission, never the collector loop.

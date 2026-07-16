@@ -10,6 +10,7 @@ import schedule_option_refresh
 import check_collector_health
 import derive_volatility
 import evaluate_scanner_alerts
+import send_heartbeat
 
 
 POLL_SECONDS = max(int(os.getenv('COLLECTOR_POLL_SECONDS', '60')), 5)
@@ -20,6 +21,7 @@ HEALTH_CHECK_ENABLED = os.getenv('COLLECTOR_HEALTH_CHECK_ENABLED', 'true').strip
 HEALTH_CHECK_SECONDS = max(int(os.getenv('COLLECTOR_HEALTH_CHECK_SECONDS', '300')), POLL_SECONDS)
 DERIVED_VOLATILITY_ENABLED = os.getenv('DERIVED_VOLATILITY_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 DERIVED_VOLATILITY_SECONDS = max(int(os.getenv('DERIVED_VOLATILITY_SECONDS', '3600')), POLL_SECONDS)
+HEARTBEAT_SECONDS = max(int(os.getenv('HEARTBEAT_SECONDS', '60')), POLL_SECONDS)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +38,7 @@ def run() -> None:
     next_option_refresh_at = 0.0
     next_health_check_at = 0.0
     next_derived_volatility_at = 0.0
+    next_heartbeat_at = 0.0
     while True:
         started_at = time.monotonic()
         if AUTO_OPTION_REFRESH and started_at >= next_option_refresh_at:
@@ -71,6 +74,13 @@ def run() -> None:
             except Exception:
                 log.exception('derived volatility cycle failed')
             next_derived_volatility_at = started_at + DERIVED_VOLATILITY_SECONDS
+
+        if started_at >= next_heartbeat_at:
+            try:
+                send_heartbeat.run()
+            except Exception:
+                log.exception('collector heartbeat failed')
+            next_heartbeat_at = started_at + HEARTBEAT_SECONDS
 
         elapsed = time.monotonic() - started_at
         time.sleep(max(POLL_SECONDS - elapsed, 1))

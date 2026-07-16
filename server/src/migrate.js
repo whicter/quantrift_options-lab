@@ -291,6 +291,25 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS scanner_alert_deliveries_status
       ON scanner_alert_deliveries (status, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS collector_heartbeats (
+      node_id       TEXT        PRIMARY KEY,
+      status        TEXT        NOT NULL DEFAULT 'online',
+      payload       JSONB       NOT NULL DEFAULT '{}',
+      last_seen_at  TIMESTAMPTZ NOT NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS collector_heartbeat_alerts (
+      node_id          TEXT        PRIMARY KEY,
+      status           TEXT        NOT NULL CHECK (status IN ('active', 'resolved')),
+      first_seen_at    TIMESTAMPTZ NOT NULL,
+      last_seen_at     TIMESTAMPTZ NOT NULL,
+      last_notified_at TIMESTAMPTZ,
+      resolved_at      TIMESTAMPTZ,
+      payload          JSONB       NOT NULL DEFAULT '{}'
+    );
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

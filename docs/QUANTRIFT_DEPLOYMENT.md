@@ -1414,3 +1414,28 @@ pm2 save
 Email requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`. Web Push requires one VAPID pair: public key in Railway `WEB_PUSH_VAPID_PUBLIC_KEY`; private key and `WEB_PUSH_VAPID_SUBJECT` in Mac Studio `collector/.env`. Never put the private key in Vercel or Git.
 
 Smoke checks: `GET /api/alerts/vapid-public-key`; create a consented test subscription; run `collector/venv311/bin/python evaluate_scanner_alerts.py`; inspect `scanner_alert_deliveries`; unsubscribe through its token. Without secrets, expected status is `blocked`. With secrets, require a real inbox/browser receipt before calling external delivery verified. Rollback disables subscriptions and reverts P2.2; additive tables may remain.
+
+## Mac Studio Heartbeat
+
+Generate one random shared secret and configure it in both Railway (`HEARTBEAT_TOKEN`) and the Mac Studio `collector/.env`. Mac Studio also needs:
+
+```bash
+HEARTBEAT_URL=https://quantriftoptions-lab-production.up.railway.app/api/heartbeat
+HEARTBEAT_NODE_ID=mac-studio
+HEARTBEAT_SECONDS=60
+```
+
+Railway settings:
+
+```bash
+HEARTBEAT_EXPECTED_NODES=mac-studio
+HEARTBEAT_MAX_AGE_SECONDS=180
+HEARTBEAT_MONITOR_SECONDS=60
+HEARTBEAT_ALERT_COOLDOWN_SECONDS=3600
+HEARTBEAT_MONITOR_ENABLED=true
+ALERT_WEBHOOK_URL=
+```
+
+After Railway deploy, restart `quantrift-options-collector --update-env`, then verify `GET /api/heartbeat/status` changes from `missing/degraded` to `online/ok`. Stop the daemon for longer than 180 seconds and confirm an active row in `collector_heartbeat_alerts`; restart it and confirm `resolved`. Without `ALERT_WEBHOOK_URL`, persistence is verified but channel status is `blocked`. Rollback sets `HEARTBEAT_MONITOR_ENABLED=false` and removes Mac heartbeat URL/token; tables are additive and can remain.
+
+2026-07-15 evidence: migration passed; local API against Railway PostgreSQL confirmed missing, HTTP 401, accepted and online states. A controlled stale report created an active blocked incident, and a new report resolved it. Mac Studio PM2 collector was restarted and remained online. Shared production token and webhook are intentionally not invented by code and remain deployment prerequisites.

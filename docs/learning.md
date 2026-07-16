@@ -515,3 +515,12 @@ V1 公式：
 - **规则字段缺失应 fail closed**：用户要求 `min_iv_rank=50` 而 row 没有 IV Rank 时不能命中。
 - **退订不应暴露 destination**：随机 token 足够完成当前匿名阶段的撤销；用户 auth 上线后再把 subscription 归属绑定到账户。
 - **通知 evaluator 不能调用 provider**：只消费 materialized scanner batch，避免用户数量放大外部请求成本。
+
+## Heartbeat Lessons (2026-07-15)
+
+- **不能只查询已经存在的 heartbeat rows**：机器从未成功启动时数据库没有 row，这正是最需要告警的状态。监控必须从 expected-node registry 与 observed rows 做并集。
+- **进程在线不等于数据健康**：heartbeat 证明 Mac daemon 可达；option coverage、snapshot freshness 和 provider failures 仍由 collector health 独立判断。
+- **上报与告警必须解耦**：Mac 只发送小型状态包；Railway 决定 timeout、cooldown、active/resolved lifecycle，避免断线机器负责宣告自己断线。
+- **缺通知 secret 应记录 blocked**：数据库 incident 仍是有效证据，但不能把未发送 webhook 写成 sent。
+- **运维功能必须 disabled-safe**：URL/token 未配置时 heartbeat 返回 disabled，collector 主循环继续工作；这样分阶段部署不会中断数据采集。
+- **验收要走完整状态机**：测试 missing、错误 token、online、受控 stale、active incident、恢复、resolved，而不只是确认 POST 返回 200。

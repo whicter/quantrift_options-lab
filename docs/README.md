@@ -122,6 +122,6 @@ Open http://localhost:5173
 - [x] V2: Market Regime and fully real-data Weekly Recap
 - [x] V2: Quantrift responsive product home
 - [x] V2: Scanner email/web-push subscription and delivery pipeline
-- [ ] V2: Options scanner push notifications
+- [x] V2: Mac Studio collector heartbeat, cloud freshness status and offline incident lifecycle
 - [ ] V3: User auth + subscription tiers
 - [ ] V3: Portfolio tracking + Greeks aggregation
