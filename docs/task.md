@@ -277,7 +277,7 @@
 - [ ] Probability cone on payoff chart (shaded distribution band)
 - [x] Export payoff chart as PNG（`PayoffChart` 导出当前 canvas 为命名 PNG；`canvasExport` 单元测试覆盖 PNG mime、下载文件名和缺失 canvas）
 - [ ] Mobile-responsive layout (stack panels vertically)
-- [ ] Payoff chart: show multiple DTE snapshots (not just current + expiry)
+- [x] Payoff chart: show multiple DTE snapshots (not just current + expiry)（自动生成 75% / 50% / 25% 剩余 DTE 曲线；跨期结构按每条 leg 的实际剩余时间定价）
 - [ ] Add 10 more strategies (exotic, FX, index-specific)
 - [ ] 策略 notes 进一步标准化（确保所有策略 iv/dte/tp/sl 字段有具体数字）
 

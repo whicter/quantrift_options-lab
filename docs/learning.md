@@ -643,3 +643,4 @@ V1 公式：
 
 - **导出必须使用当前 canvas 像素**：Payoff 图导出直接复用已按 devicePixelRatio 绘制的 canvas，因此 PNG 与当前可见的策略、参数和主题一致，不重算或截取页面。
 - **导出行为应可脱离 DOM 测试**：`canvasExport` 将 PNG data URL 和浏览器下载拆开，单元测试覆盖 MIME、文件名与空 canvas 的 fail-fast 行为。
+- **多 DTE 曲线必须按每条腿递减**：Calendar / Diagonal 的近月腿可能先到期，不能把所有腿粗暴设成同一个剩余 DTE。Payoff 图以最远腿为时间轴，逐腿扣除 elapsed days；到期腿转 intrinsic value。

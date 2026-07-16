@@ -3,15 +3,17 @@ import useStrategyStore from '../store/useStrategyStore';
 import { bsPrice } from '../lib/blackscholes';
 import { getChartColors } from '../lib/theme';
 import { downloadCanvasPng } from '../lib/canvasExport';
+import { createPayoffSnapshots, optionValueAtDays } from '../lib/payoffSnapshots';
 
 const COLORS = {
   expiry: '#10d984',
   scenario: '#3b82f6',
   bep: '#f5a623',
+  snapshots: ['#818cf8', '#a78bfa', '#c084fc'],
 };
 
 function drawChart(canvas, data) {
-  const { prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL } = data;
+  const { prices, expiryPL, scenarioPL, snapshotPL, beps, spot, minPL, maxPL } = data;
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
   const H = canvas.offsetHeight;
@@ -111,6 +113,21 @@ function drawChart(canvas, data) {
     ctx.globalAlpha = 1;
   }
 
+  snapshotPL.forEach(({ values, color }) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([2, 4]);
+    ctx.globalAlpha = 0.78;
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = xMap(prices[i]), y = yMap(v);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  });
+
   // Expiry P/L line (solid green) with fill
   // Fill above/below zero
   const path = new Path2D();
@@ -163,8 +180,8 @@ export default function PayoffChart() {
   const canvasRef = useRef(null);
   const { strategy, legs, spot, ivShift, rate, div, range, contracts } = useStrategyStore();
 
-  const { prices, expiryPL, scenarioPL, beps, minPL, maxPL } = useMemo(() => {
-    if (!legs.length) return { prices: [], expiryPL: [], scenarioPL: [], beps: [], minPL: -100, maxPL: 100 };
+  const { prices, expiryPL, scenarioPL, snapshotPL, snapshots, beps, minPL, maxPL } = useMemo(() => {
+    if (!legs.length) return { prices: [], expiryPL: [], scenarioPL: [], snapshotPL: [], snapshots: [], beps: [], minPL: -100, maxPL: 100 };
 
     const r = rate / 100;
     const q = div / 100;
@@ -202,6 +219,30 @@ export default function PayoffChart() {
       return (val - netPremium) * contracts;
     });
 
+    const maxDte = Math.max(...legs.map((leg) => leg.dte));
+    const snapshots = createPayoffSnapshots(maxDte);
+    const snapshotPL = snapshots.map((snapshot, index) => ({
+      ...snapshot,
+      color: COLORS.snapshots[index % COLORS.snapshots.length],
+      values: prices.map((S) => {
+        const elapsedDays = maxDte - snapshot.days;
+        const val = legs.reduce((total, leg) => {
+          const remainingDays = Math.max(0, leg.dte - elapsedDays);
+          const price = remainingDays > 0
+            ? bsPrice(S, leg.K, remainingDays / 365, r, q, leg.iv, leg.type)
+            : 0;
+          return total + leg.dir * leg.qty * optionValueAtDays({
+            spot: S,
+            strike: leg.K,
+            type: leg.type,
+            days: remainingDays,
+            price,
+          });
+        }, 0);
+        return (val - netPremium) * contracts;
+      }),
+    }));
+
     // Find breakevens
     const beps = [];
     for (let i = 1; i < expiryPL.length; i++) {
@@ -210,9 +251,9 @@ export default function PayoffChart() {
       }
     }
 
-    const allPL = [...expiryPL, ...scenarioPL];
+    const allPL = [...expiryPL, ...scenarioPL, ...snapshotPL.flatMap((snapshot) => snapshot.values)];
     return {
-      prices, expiryPL, scenarioPL, beps,
+      prices, expiryPL, scenarioPL, snapshotPL, snapshots, beps,
       minPL: Math.min(...allPL),
       maxPL: Math.max(...allPL),
     };
@@ -222,12 +263,12 @@ export default function PayoffChart() {
     const canvas = canvasRef.current;
     if (!canvas || !prices.length) return;
     const obs = new ResizeObserver(() => {
-      drawChart(canvas, { prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL });
+      drawChart(canvas, { prices, expiryPL, scenarioPL, snapshotPL, beps, spot, minPL, maxPL });
     });
     obs.observe(canvas.parentElement);
-    drawChart(canvas, { prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL });
+    drawChart(canvas, { prices, expiryPL, scenarioPL, snapshotPL, beps, spot, minPL, maxPL });
     return () => obs.disconnect();
-  }, [prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL]);
+  }, [prices, expiryPL, scenarioPL, snapshotPL, beps, spot, minPL, maxPL]);
 
   return (
     <div className="section-card">
@@ -256,6 +297,12 @@ export default function PayoffChart() {
           <svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke="#3b82f6" strokeWidth="2" strokeDasharray="5,3"/></svg>
           <span>当前情景 Scenario</span>
         </div>
+        {snapshots.map((snapshot, index) => (
+          <div className="legend-item" key={snapshot.days}>
+            <svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke={COLORS.snapshots[index % COLORS.snapshots.length]} strokeWidth="1.5" strokeDasharray="2,4"/></svg>
+            <span>{snapshot.label}</span>
+          </div>
+        ))}
         <div className="legend-item">
           <svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke="#f5a623" strokeWidth="1.5" strokeDasharray="3,4"/></svg>
           <span>盈亏平衡 BEP</span>
