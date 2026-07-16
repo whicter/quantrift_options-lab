@@ -275,7 +275,7 @@
 - [ ] Strategy comparison mode (side by side, 2 strategies)
 - [ ] IV Rank badge per strategy in sidebar (Low/Med/High indicator)
 - [ ] Probability cone on payoff chart (shaded distribution band)
-- [ ] Export payoff chart as PNG
+- [x] Export payoff chart as PNG（`PayoffChart` 导出当前 canvas 为命名 PNG；`canvasExport` 单元测试覆盖 PNG mime、下载文件名和缺失 canvas）
 - [ ] Mobile-responsive layout (stack panels vertically)
 - [ ] Payoff chart: show multiple DTE snapshots (not just current + expiry)
 - [ ] Add 10 more strategies (exotic, FX, index-specific)

@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo } from 'react';
 import useStrategyStore from '../store/useStrategyStore';
 import { bsPrice } from '../lib/blackscholes';
 import { getChartColors } from '../lib/theme';
+import { downloadCanvasPng } from '../lib/canvasExport';
 
 const COLORS = {
   expiry: '#10d984',
@@ -160,7 +161,7 @@ function drawChart(canvas, data) {
 
 export default function PayoffChart() {
   const canvasRef = useRef(null);
-  const { legs, spot, ivShift, rate, div, range, contracts } = useStrategyStore();
+  const { strategy, legs, spot, ivShift, rate, div, range, contracts } = useStrategyStore();
 
   const { prices, expiryPL, scenarioPL, beps, minPL, maxPL } = useMemo(() => {
     if (!legs.length) return { prices: [], expiryPL: [], scenarioPL: [], beps: [], minPL: -100, maxPL: 100 };
@@ -235,6 +236,13 @@ export default function PayoffChart() {
           <div className="section-label">Payoff</div>
           <div className="section-title">主损益图</div>
         </div>
+        <button
+          className="payoff-export"
+          type="button"
+          onClick={() => downloadCanvasPng(canvasRef.current, `${strategy.id || 'strategy'}-payoff.png`)}
+        >
+          导出 PNG
+        </button>
       </div>
       <div className="payoff-canvas-wrap">
         <canvas ref={canvasRef} className="payoff-chart" />

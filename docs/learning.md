@@ -638,3 +638,8 @@ V1 公式：
 - **分数和 freshness 是两件事**：AAPL 真实重放得到 84，但 30M 比日线落后一天，所以状态仍是 stale，UI 不把它写成当前确认。
 - **历史门槛要覆盖每个 timeframe**：60 daily、12 weekly、26 intraday 任一不足都返回 missing，不用零分补齐权重。
 - **分析 API 仍只读数据库**：`/api/sr` 增加第二个 bounded SQL query，不在用户请求时拉 provider。
+
+## Strategy Library Export (2026-07-16)
+
+- **导出必须使用当前 canvas 像素**：Payoff 图导出直接复用已按 devicePixelRatio 绘制的 canvas，因此 PNG 与当前可见的策略、参数和主题一致，不重算或截取页面。
+- **导出行为应可脱离 DOM 测试**：`canvasExport` 将 PNG data URL 和浏览器下载拆开，单元测试覆盖 MIME、文件名与空 canvas 的 fail-fast 行为。
