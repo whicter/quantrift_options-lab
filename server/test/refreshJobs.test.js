@@ -8,7 +8,7 @@ const {
 } = require('../src/lib/refreshJobs');
 
 test('default option-chain refresh provider is executable by the worker', () => {
-  assert.equal(DEFAULT_OPTIONS_REFRESH_PROVIDER, 'tt_internal');
+  assert.equal(DEFAULT_OPTIONS_REFRESH_PROVIDER, 'polygon_licensed');
   assert.equal(SUPPORTED_OPTIONS_REFRESH_PROVIDERS.has(DEFAULT_OPTIONS_REFRESH_PROVIDER), true);
 });
 

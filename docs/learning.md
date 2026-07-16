@@ -365,7 +365,7 @@ V1 公式：
 ### 5. provider job 的默认值必须是 worker 真正支持的 provider
 
 - 旧错误：API enqueue 使用占位 provider 名称，job 能写入 PostgreSQL，却永远不能被 worker 消费。
-- 修复：server 和 collector 共用支持集合；测试确认默认 `tt_internal` 可执行，`licensed_options_provider` 不会被假装执行。
+- 修复：server 和 collector 的支持集合都包含 `polygon_licensed`；API enqueue 默认也是 `polygon_licensed`。跨边界测试禁止默认值再次漂回 TT 或占位 provider。
 - 额外保护：malformed ticker（包括中文输入法组合产生的 `SS'TS'T'XSTX`）在入队前拒绝；`__SCAN__` 只允许 scanner materialize。
 
 ### 6. Tastytrade 认证不能在每次请求时重新申请 session
@@ -428,3 +428,10 @@ V1 公式：
 - 错误修复：把真实 key 直接写入 `ecosystem.config.cjs`。这会让凭据进入 Git 历史、文档和所有 clone。
 - 正确修复：从 PM2 `env` 中完全移除该变量，让 collector 工作目录的 `.env` 提供它；云端使用平台 secret store。不要打印 key，也不要在测试 fixture 中使用真实 key。
 - 运行验证：配置语法检查、repository secret scan、provider 使用脱敏 health check。已经进入 Git 历史的 key 必须由账户持有人 rotate。
+
+### 11. 测试必须覆盖 server enqueue 到 collector worker 的跨边界契约
+
+- Phase 3D-6 补测试时发现：worker 已支持 Polygon，但 API 仍默认 enqueue `tt_internal`；两个模块各自都能运行，整体行为却已经漂移。
+- 回归要求：server 默认 provider 必须属于 server supported set，也必须出现在 worker supported set；placeholder provider 必须被拒绝。
+- GEX 最低测试矩阵：Call 正/Put 负 exposure、walls 位于 spot 正确一侧、gamma flip 插值和 nearest-zero fallback、PCR denominator=0、confidence high/medium/low。
+- API 最低测试矩阵：seeded snapshot 返回完整字段；missing enqueue 后返回 missing；stale 返回旧数据并只异步 enqueue，不允许请求路径调用 provider。

@@ -13,8 +13,9 @@ class RefreshProviderContractTest(unittest.TestCase):
     def test_api_default_provider_is_supported_by_worker(self):
         worker_source = WORKER_SOURCE.read_text()
         server_source = SERVER_REFRESH_SOURCE.read_text()
-        self.assertIn("process.env.OPTIONS_REFRESH_PROVIDER || 'tt_internal'", server_source)
-        self.assertIn("SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal'}", worker_source)
+        self.assertIn("process.env.OPTIONS_REFRESH_PROVIDER || 'polygon_licensed'", server_source)
+        self.assertIn("'polygon_licensed'", worker_source)
+        self.assertIn("'polygon_licensed'", server_source)
 
     def test_placeholder_provider_is_not_supported_by_worker(self):
         source = WORKER_SOURCE.read_text()

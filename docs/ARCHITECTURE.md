@@ -1456,6 +1456,8 @@ Known current monitoring state:
 
 Provider credential invariant：API key 只存在于 `collector/.env` 或部署平台 secret store。PM2 ecosystem config、源码、测试和文档不得包含 key；也不得显式注入空字符串覆盖 dotenv。
 
+Cross-boundary verification invariant：`server/src/lib/refreshJobs.js` 的 default/supported provider 必须与 `collector/run_refresh_worker.py` 一致。Phase 3D-6 tests 覆盖 GEX sign/walls/flip/PCR/confidence，以及 `/api/gex` fresh/missing/stale snapshot-first 行为。
+
 ---
 
 ## 25. 数据源覆盖与 Polygon 迁移分析

@@ -569,12 +569,17 @@
   - Frontend behavior：扫描器新增 Gamma 环境、Wall 距离、Local Gamma、OI、Volume、IV+GEX 排序控件；结果列显示 GEX 状态、总 GEX、最近 wall 距离
   - Verification deferred per instruction
 
-**Phase 3D-6 — Verification（部分移至 backlog）**
-- [ ] Unit tests（backlog）：GEX sign calculation、wall selection、gamma flip interpolation/nearest-zero fallback、PCR division-by-zero、confidence downgrade
-- [ ] Integration tests（backlog）：
+**✅ Phase 3D-6 — Verification（2026-07-15 完成）**
+- ✅ Unit tests：GEX sign calculation、wall selection、gamma flip interpolation/nearest-zero fallback、PCR division-by-zero、confidence downgrade
+- ✅ Integration tests：
   - seeded option snapshot → `/api/gex/:symbol` 返回正确字段
   - missing snapshot → `freshness=missing`
   - stale snapshot → stale response without synchronous provider call
+- Verification evidence：
+  - `collector/venv311/bin/python -m unittest discover -s tests -p 'test_*.py'` → 43 passed
+  - `cd server && npm test` → 7 passed
+  - API integration 使用 mocked PostgreSQL + refresh queue；fresh 不 enqueue，missing/stale 只 enqueue `option_chain_snapshot`，没有 provider call
+  - 回归测试发现并修复 API enqueue 默认仍为 `tt_internal` 的漂移；`server/src/lib/refreshJobs.js` 现默认 `polygon_licensed`，并与 worker supported providers 对齐
 - [x] Integration / UI smoke：Polygon licensed provider 完整验证（见 Phase 3I）
 - [x] Disclosure：API 返回 `source=polygon_licensed`，区分 IB internal 研究路径
 
@@ -691,7 +696,7 @@
   - duplicate `价格` status column removed; raw price freshness is internal state and not useful as a scanner column
   - strategy column shows a concrete action summary, e.g. Bear Call Spread = sell lower-strike call and buy higher-strike call
   - missing GEX/Wall/OI/contract values display as user-facing status instead of raw `missing`; contract data displays `待采集` when no latest option contract snapshot exists
-  - automatic option-chain refresh jobs default to `tt_internal` during the transition, so queued symbol refreshes can be consumed by the current worker
+  - automatic option-chain refresh jobs default to `polygon_licensed`，并由跨 server/collector contract tests 保证 worker 可执行
 - [x] Refresh provider regression tests：
   - Server `npm test` asserts the default option-chain refresh provider is executable by the worker and does not silently fall back to a placeholder provider.
   - Collector unittest asserts worker-supported option providers include `tt_internal` and exclude `licensed_options_provider`.

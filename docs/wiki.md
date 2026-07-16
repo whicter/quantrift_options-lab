@@ -763,6 +763,14 @@ Interpretation rule：
 
 Credential invariant：`POLYGON_API_KEY` 只存在于 `collector/.env` 或部署 secret store。PM2 config、源码、测试与文档不得包含真实 key，也不得注入空字符串覆盖 dotenv。
 
+Phase 3D-6 verification contract：
+- GEX formula tests assert positive Call exposure and negative Put exposure.
+- Wall tests enforce Call Wall at/above spot and Put Wall at/below spot.
+- Gamma Flip tests cover sign-change interpolation and nearest-zero fallback.
+- PCR denominator zero returns `null`, not infinity or a fabricated value.
+- `/api/gex/:symbol` fresh/missing/stale tests verify snapshot-first behavior; missing/stale only enqueue refresh jobs.
+- API refresh default is `polygon_licensed` and must remain executable by the collector worker.
+
 Phase 3D-7 licensed provider evaluation：
 
 | Provider candidate | Why it fits | Open questions | Current decision |

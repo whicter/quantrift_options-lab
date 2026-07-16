@@ -1,7 +1,7 @@
 const pool = require('../db');
 
-const DEFAULT_OPTIONS_REFRESH_PROVIDER = process.env.OPTIONS_REFRESH_PROVIDER || 'tt_internal';
-const SUPPORTED_OPTIONS_REFRESH_PROVIDERS = new Set(['ib_internal', 'tt_internal']);
+const DEFAULT_OPTIONS_REFRESH_PROVIDER = process.env.OPTIONS_REFRESH_PROVIDER || 'polygon_licensed';
+const SUPPORTED_OPTIONS_REFRESH_PROVIDERS = new Set(['ib_internal', 'tt_internal', 'polygon_licensed']);
 const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 function isMissingTableError(err) {
