@@ -74,7 +74,19 @@ function PortfolioData() {
       setError('持仓数据暂不可用');
     }
   }, [getToken]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    getToken()
+      .then(async nextToken => ({ nextToken, nextData: await getPortfolio(nextToken) }))
+      .then(({ nextToken, nextData }) => {
+        if (!active) return;
+        setToken(nextToken);
+        setData(nextData);
+        setError('');
+      })
+      .catch(() => { if (active) setError('持仓数据暂不可用'); });
+    return () => { active = false; };
+  }, [getToken]);
   const close = async id => { await closePosition(token, id); await load(); };
   if (error) return <p className="account-status error">{error}</p>;
   if (!data) return <p className="account-status">正在加载持仓...</p>;

@@ -232,3 +232,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Portfolio valuation reads collector-persisted option snapshots through the API. Collectors do not own positions and must not fabricate missing marks for portfolio consumers.
 - Billing and entitlements stay in the API database boundary. Collectors never receive Clerk/Stripe credentials and continue materializing data independently of subscriber count.
 - The P3 account/portfolio/billing schema is applied in shared Railway PostgreSQL; this does not change collector scheduling or grant collectors access to product identities.
+- Frontend lint cleanup has no collector runtime impact; collector verification remains the Python test suite plus PM2/runtime evidence.

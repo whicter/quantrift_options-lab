@@ -1213,3 +1213,7 @@ Stripe Checkout creates recurring Pro subscriptions; Customer Portal owns cancel
 `stripe_webhook_events.event_id` makes replay idempotent. The event audit row and subscription update share one PostgreSQL transaction. Active and trialing map to Pro; past-due, unpaid, canceled and incomplete states fail closed to Free. Concurrent checkout requests lock the user's subscription row before creating a Stripe customer so one local user cannot accidentally acquire multiple billing customers.
 
 `AUTH_ENFORCEMENT_ENABLED` is the deployment switch. While false, existing product access remains unchanged. After Clerk and Stripe runtime acceptance, enabling it requires a valid Clerk bearer token plus the route entitlement; health, heartbeat and the signed billing webhook remain outside the paid gate.
+
+### Frontend Verification
+
+The repository-wide frontend baseline is ESLint clean, 21 unit tests passing and a successful production build. React one-time loaders must avoid stale closure suppression: Analyze uses `useEffectEvent`, while Portfolio keeps an unmount guard around asynchronous account data. The service worker references browser globals through `self` so the same file remains lintable without inventing runtime shims.

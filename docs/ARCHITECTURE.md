@@ -1734,3 +1734,9 @@ Account -> Stripe Checkout -> signed webhook -> stripe_webhook_events (unique ev
 Webhook raw body is mounted before `express.json()`. Event insertion and subscription projection share one database transaction; duplicate event IDs rollback without applying state twice. Active/trialing subscriptions receive Pro entitlements. Past-due, canceled and incomplete states fall back to Free access while retaining Stripe identifiers for portal/resubscription.
 
 `AUTH_ENFORCEMENT_ENABLED=false` is the rollout gate. When enabled, Clerk identity and local entitlement are required for paid APIs. The frontend installs one Clerk token provider for all API requests, including scanner and alert calls. Status/health/heartbeat and billing webhook remain outside paid gates. Production enforcement must stay off until Clerk keys, Stripe test-mode lifecycle and rollback are verified; the additive schema is already applied.
+
+## 39. Frontend Verification Baseline
+
+The full frontend tree passes ESLint, 21 unit tests and the Vite production build. Service worker calls use the explicit `self` global; one-time Analyze URL loading uses React `useEffectEvent` to avoid stale closure dependencies; Portfolio's initial asynchronous load updates state only from promise callbacks with an unmount guard. Strategy calculations, API contracts and data-source selection are unchanged.
+
+The build still reports a non-failing bundle-size warning for the main JavaScript chunk. Code splitting is a performance follow-up, not a runtime correctness failure.

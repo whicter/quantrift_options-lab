@@ -1,5 +1,5 @@
 self.addEventListener('push', event => {
-  let payload = {};
+  let payload;
   try { payload = event.data?.json() || {}; } catch { payload = { body: event.data?.text() || '' }; }
   event.waitUntil(self.registration.showNotification(payload.title || 'Quantrift scanner', {
     body: payload.body || '新的 scanner 条件已命中',
@@ -10,5 +10,5 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(clients.openWindow(event.notification.data?.url || '/scan'));
+  event.waitUntil(self.clients.openWindow(event.notification.data?.url || '/scan'));
 });

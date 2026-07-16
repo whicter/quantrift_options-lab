@@ -79,6 +79,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Clerk owns authentication only; local users/subscriptions own entitlements. Railway P3 schema is applied; keep auth enforcement disabled until frontend/backend keys and billing runtime tests pass.
 - Portfolio routes must bind user ownership in SQL and value only actual matching persisted contracts. Any missing leg quote makes position and aggregate pricing incomplete; never substitute entry price.
 - Stripe redirects never grant entitlement. Accept plan changes only from verified raw-body webhooks with event-id idempotency. Keep enforcement false until Clerk/Stripe runtime acceptance passes.
+- Preserve the clean frontend baseline: run full ESLint, unit tests and production build after frontend changes; disclose the Vite chunk-size warning separately from correctness failures.
 - Preserve the durable scanner alert outbox and unique subscription/batch/symbol key. Missing SMTP/VAPID is `blocked`, never `sent`.
 - Keep VAPID private material in collector secrets; server/frontend use only the public key.
 - `/` owns the Quantrift product entry with live Market Regime and direct core workflows. Keep `/learn` as a separate education route.

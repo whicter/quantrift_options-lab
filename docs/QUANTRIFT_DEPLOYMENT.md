@@ -1520,3 +1520,7 @@ AUTH_ENFORCEMENT_ENABLED=false
 Configure Stripe webhook endpoint `https://quantriftoptions-lab-production.up.railway.app/api/billing/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Run a test-mode checkout and verify one idempotency row per event, Pro activation, Customer Portal return, cancellation downgrade and replay safety.
 
 Only after signed-in scanner/Analyze/alerts/portfolio requests all carry Clerk bearer tokens should enforcement become true. Rollback is one variable change to false; do not edit subscription rows manually. Current evidence is server 56 tests, frontend 21 tests, production build and applied Railway schema. Real Stripe lifecycle is blocked on the three Stripe values.
+
+## Frontend Verification Baseline
+
+Before deployment, run `cd frontend && npm run lint && npm test && npm run build`. On 2026-07-15 this completed with ESLint 0 errors/0 warnings, 21/21 tests and a successful Vite build. The only remaining build output is the non-failing main-chunk size warning. Rollback is the frontend verification commit; no schema, secret or collector change is involved.

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
@@ -364,7 +364,9 @@ export default function Analyze() {
   const [loading, setLoading] = useState(false);
   const [dataStatus, setDataStatus] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
+  const initialSymbol = useRef(searchParams.get('symbol'));
   const activeTab = parseInt(searchParams.get('tab') || '0');
+  const analyzeInitialSymbol = useEffectEvent(handleAnalyze);
 
   function syncSearchParams(next, options = {}) {
     const normalized = new URLSearchParams(next);
@@ -376,14 +378,6 @@ export default function Analyze() {
     const sym = searchParams.get('symbol');
     syncSearchParams(sym ? { symbol: sym, tab: t } : { tab: t });
   };
-
-  useEffect(() => {
-    const sym = searchParams.get('symbol');
-    if (sym) {
-      handleAnalyze(sym);
-    }
-    getDataStatus().then(setDataStatus).catch(() => {});
-  }, []);
 
   async function handleAnalyze(forcedSymbol) {
     const rawSymbol = typeof forcedSymbol === 'string' ? forcedSymbol : input;
@@ -449,6 +443,11 @@ export default function Analyze() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (initialSymbol.current) analyzeInitialSymbol(initialSymbol.current);
+    getDataStatus().then(setDataStatus).catch(() => {});
+  }, []);
 
   return (
     <div className="az-page">

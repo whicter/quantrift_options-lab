@@ -471,7 +471,7 @@ V1 公式：
 - **策略名不是产品输出**：每个 candidate 必须携带实际 legs、near/far expiry、sell bid、buy ask、credit/debit、max loss 或明确 undefined risk、breakeven 和 opportunity score。
 - **跨期结构要测试腿方向**：Calendar/Diagonal 固定 near short、far long；只测试“返回 Calendar”无法发现 expiry 反向的灾难性错误。
 - **裸卖风险必须是产品状态**：Short Strangle/Short Put/Short Call 不因用户选择“策略不限”而静默出现；必须显式开启 advanced-risk gate。
-- **全量 lint 与改动 lint 分开报告**：本 section files lint 通过；仓库仍有 21 个既有 lint errors，不能冒充本次引入，也不能在独立风险 commit 中顺手清理。
+- **全量 lint 与改动 lint 分开报告**：早期 section 只证明 changed-file lint；遗留错误后来由独立 P2.4 commit 清零，不能倒写成早期 section 当时已经通过。
 
 ## Analyze Data Product Lessons (2026-07-15)
 
@@ -577,3 +577,10 @@ V1 公式：
 - **payment identifiers 不是前端数据**：Account API 不返回 Stripe customer/subscription IDs，Portal 由受保护后端创建。
 - **customer 创建也需要幂等边界**：同一用户并发点击升级时，先锁定本地 subscription row，再检查或创建 Stripe customer；仅靠 `UPDATE ... WHERE stripe_customer_id IS NULL` 会留下多余 customer。
 - **回滚优先 feature flag**：billing schema/event audit 保留，关闭 enforcement 即可恢复公开访问，不手工改账单状态。
+
+## Frontend Verification Lessons (2026-07-15)
+
+- **一次性 effect 也不能隐藏 stale closure**：Analyze 用 `useEffectEvent` 读取最新 handler，同时只消费初始 URL symbol。
+- **异步初始化要有 unmount guard**：Portfolio 在 token 和数据 promise 完成后再更新 state，组件卸载后不写回。
+- **service worker globals 要显式**：使用 `self.clients`，既符合 worker runtime，也避免依赖浏览器隐式全局。
+- **lint、tests、build 各证明不同事情**：本节三项均通过；Vite chunk-size warning 仍是性能信息，不标成 correctness failure。
