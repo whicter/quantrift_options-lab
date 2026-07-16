@@ -5,7 +5,7 @@ function AuthControls() {
   return (
     <div className="nav-auth">
       <SignedOut><SignInButton mode="modal"><button type="button" className="nav-account-btn">登录</button></SignInButton></SignedOut>
-      <SignedIn><Link className="nav-account-link" to="/account">账户</Link><UserButton /></SignedIn>
+      <SignedIn><Link className="nav-account-link" to="/portfolio">持仓</Link><Link className="nav-account-link" to="/account">账户</Link><UserButton /></SignedIn>
     </div>
   );
 }

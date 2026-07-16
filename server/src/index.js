@@ -18,6 +18,7 @@ const { router: heartbeatRouter } = require('./routes/heartbeat');
 const { startHeartbeatMonitor } = require('./lib/heartbeatMonitor');
 const { buildAuthMiddleware } = require('./lib/auth');
 const { router: accountRouter } = require('./routes/account');
+const { router: portfolioRouter } = require('./routes/portfolio');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -62,6 +63,7 @@ app.use('/api/weekly', weeklyRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/heartbeat', heartbeatRouter);
 app.use('/api/account', accountRouter);
+app.use('/api/portfolio', portfolioRouter);
 
 startHeartbeatMonitor();
 

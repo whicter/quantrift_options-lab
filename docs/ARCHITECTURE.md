@@ -1701,3 +1701,21 @@ Clerk session JWT -> Express clerkMiddleware -> clerk_user_id
 `users.clerk_user_id` is the stable external identity key. First authenticated account access idempotently creates a local user and Free subscription. The public plan catalog exposes only product entitlements, never Clerk or Stripe secrets. The frontend mounts `ClerkProvider` only when `VITE_CLERK_PUBLISHABLE_KEY` exists, so a partial deployment does not initialize a broken auth SDK.
 
 Current rollout keeps existing product routes unchanged until entitlement enforcement and Stripe lifecycle are complete. Clerk keys, production sign-in and Railway schema application remain deployment prerequisites. The migration attempt was blocked by the Codex execution usage limit and is not claimed applied.
+
+## 37. Portfolio Ownership and Valuation
+
+`positions` belongs to one local user and contains one or more immutable opening legs. Closing a position changes lifecycle state; it does not delete its audit record. Every CRUD query binds both position ID and authenticated user ID.
+
+```text
+Clerk user -> users -> positions -> position_legs
+                                  |
+                                  v
+latest actual matching option contract snapshot
+                                  |
+                                  v
+signed mark value + P/L + Delta/Gamma/Theta/Vega
+```
+
+Contract matching uses symbol + expiry + strike + right against the newest persisted snapshot with a usable mark/bid/ask/last. It never constructs a contract or calls a provider in the request path. Contract multiplier is 100; long legs are positive exposure and short legs negative. Position quantity and per-leg quantity are both applied.
+
+If any leg lacks a current quote, that position and the aggregate summary are `pricing_complete=false`; UI displays `待报价` instead of partial P/L/Greeks. Entry values remain recorded but are never substituted as current marks. Railway schema application and signed-in runtime verification remain blocked by the same external auth/migration prerequisites.

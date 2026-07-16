@@ -229,3 +229,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Cloud metrics cron artifacts are `Dockerfile.metrics` and `railway.metrics.json`. Configure Railway to use `/collector/railway.metrics.json`; inject DB/TT variables in the service and never copy `.env`. The weekday 22:30 UTC job runs `collect.py` once and exits.
 - IB Gateway cloud evaluation artifacts live in `ops/ib-gateway/`. The candidate is fixed-egress VPS only, with paper/read-only defaults, secret-file password and loopback API ports; a 72-hour soak and manual 2FA precede any collector move.
 - Product identity is separate from collectors: Clerk sessions map to PostgreSQL `users`/`subscriptions`; collectors never receive Clerk or Stripe credentials.
+- Portfolio valuation reads collector-persisted option snapshots through the API. Collectors do not own positions and must not fabricate missing marks for portfolio consumers.

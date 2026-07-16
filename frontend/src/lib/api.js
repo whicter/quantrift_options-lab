@@ -140,6 +140,28 @@ export function getAccount(token) {
   return getAuthenticatedJson('/api/account/me', token);
 }
 
+export function getPortfolio(token) {
+  return getAuthenticatedJson('/api/portfolio', token);
+}
+
+export async function createPosition(token, payload) {
+  const response = await fetch(`${API_BASE}/api/portfolio`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  return response.json();
+}
+
+export async function closePosition(token, id) {
+  const response = await fetch(`${API_BASE}/api/portfolio/${encodeURIComponent(id)}`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  return response.json();
+}
+
 export async function createAlertSubscription(payload) {
   const response = await fetch(`${API_BASE}/api/alerts/subscriptions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),

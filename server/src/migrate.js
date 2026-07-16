@@ -332,6 +332,39 @@ async function migrate() {
       updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS positions (
+      id             BIGSERIAL   PRIMARY KEY,
+      user_id        BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      symbol         TEXT        NOT NULL,
+      strategy_name  TEXT        NOT NULL,
+      status         TEXT        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+      quantity       INTEGER     NOT NULL DEFAULT 1 CHECK (quantity > 0),
+      opened_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      closed_at      TIMESTAMPTZ,
+      notes          TEXT,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS positions_user_status
+      ON positions (user_id, status, opened_at DESC);
+
+    CREATE TABLE IF NOT EXISTS position_legs (
+      id               BIGSERIAL    PRIMARY KEY,
+      position_id      BIGINT       NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+      expiry           DATE         NOT NULL,
+      strike           NUMERIC(14,4) NOT NULL CHECK (strike > 0),
+      option_right     TEXT         NOT NULL CHECK (option_right IN ('C', 'P')),
+      side             TEXT         NOT NULL CHECK (side IN ('long', 'short')),
+      quantity         INTEGER      NOT NULL DEFAULT 1 CHECK (quantity > 0),
+      entry_price      NUMERIC(14,4) NOT NULL CHECK (entry_price >= 0),
+      contract_symbol  TEXT,
+      created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS position_legs_position
+      ON position_legs (position_id);
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

@@ -1498,3 +1498,9 @@ AUTH_ENFORCEMENT_ENABLED=false
 Vercel variable: `VITE_CLERK_PUBLISHABLE_KEY`. Apply the additive migration before enabling frontend auth, deploy both sides, sign in, and verify `GET /api/account/me` creates one `users` row and one Free `subscriptions` row. Keep enforcement false until Stripe/entitlement gates are verified.
 
 Code verification: server 43 tests, frontend 19 tests and production build passed. The 2026-07-15 Railway migration command was rejected because the Codex execution usage limit was reached; the schema is committed in code but database application and real Clerk sign-in are not verified.
+
+## Portfolio Rollout
+
+The same additive migration creates `positions` and `position_legs`. After Clerk sign-in is verified, create a bounded test spread in `/portfolio`, confirm ownership in PostgreSQL, and verify marks come from an actual matching `option_contract_snapshots` row. Then close it and confirm status/`closed_at` change without deletion.
+
+Acceptance requires one fully priced spread with P/L and aggregate Greeks, plus one intentionally unmatched leg that displays `待报价`. Verify a second Clerk user cannot list or close the first user's position. Current evidence is server 46 tests, frontend 21 tests and production build; production database/runtime evidence is pending migration and Clerk keys.

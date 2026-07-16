@@ -1201,3 +1201,7 @@ The evaluated target is a fixed-egress VPS, not a public Railway service. Gatewa
 ### Account and Entitlements
 
 Clerk verifies browser sessions; local `users` and `subscriptions` rows own product access. `/api/account/me` performs an idempotent user/free-plan upsert and returns entitlements. Frontend auth components are conditional on the Clerk publishable key. Product enforcement remains off until billing lifecycle and production credentials are present.
+
+### Portfolio
+
+`/portfolio` records real multi-leg option positions and reads the latest matching persisted contract quote for valuation. The API applies long/short sign, 100 multiplier, position quantity and leg quantity to P/L and Greeks. Missing quotes remain unpriced; the summary never presents a partial portfolio number as complete. Close preserves the record and updates lifecycle state.

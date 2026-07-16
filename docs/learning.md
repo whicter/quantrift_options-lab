@@ -557,3 +557,12 @@ V1 公式：
 - **authorized parties 必须显式配置**：只验证 token 签名而不限制来源会扩大跨站 token 风险。
 - **部分部署必须可控**：没有 publishable key 时前端不挂 ClerkProvider；没有后端 keys 时 protected API fail closed。
 - **建表代码不等于 migration applied**：本次 Railway migration 被 usage limit 阻止，因此只能记录 deployment-ready，不能声称 production schema 已完成。
+
+## Portfolio Lessons (2026-07-15)
+
+- **持仓 ownership 必须进 SQL predicate**：前端隐藏按钮不是授权；list/update 都要绑定 user_id。
+- **entry price 不能当 current mark**：没有匹配报价时 P/L 必须 unavailable，否则静止的假估值会误导用户。
+- **组合 Greeks 要保留方向和 multiplier**：long/short sign、leg quantity、position quantity、100 contract multiplier 缺一不可。
+- **部分报价不能生成完整 summary**：即使三条腿有价格、第四条缺失，组合 P/L/Greeks 仍应标记待报价。
+- **请求路径只读快照**：Portfolio 不同步请求 provider；身份匹配使用真实 symbol/expiry/strike/right，不构造不存在的合约。
+- **close 不是 delete**：保留 opening legs 和时间字段，才能支持后续历史 P/L、复盘和审计。

@@ -7,6 +7,7 @@ import Scan from './pages/Scan';
 import Weekly from './pages/Weekly';
 import Home from './pages/Home';
 import Account from './pages/Account';
+import Portfolio from './pages/Portfolio';
 
 const THEME_KEY = 'options-lab-theme';
 
@@ -36,6 +37,7 @@ export default function App({ authConfigured = false }) {
           <Route path="/weekly/:symbol" element={<Weekly />} />
           <Route path="/weekly" element={<Weekly />} />
           <Route path="/account" element={<Account authConfigured={authConfigured} />} />
+          <Route path="/portfolio" element={<Portfolio authConfigured={authConfigured} />} />
         </Routes>
       </div>
     </BrowserRouter>
