@@ -99,15 +99,9 @@ const DIR_COLOR = (score) =>
 
 const SORTABLE_COLUMNS = [
   { key: 'symbol', label: '标的', title: '股票或 ETF 代码' },
-  { key: 'price', label: '现价', title: '标的最新收盘价 / 最新缓存价格' },
-  { key: 'ivRank', label: 'IV Rank', title: '当前 IV 在过去一年隐含波动率区间中的位置。越高代表期权相对越贵。' },
-  { key: 'iv30', label: 'IV30 / HV30', title: 'IV30 是 30 天隐含波动率，HV30 是 30 天历史波动率。' },
+  { key: 'ivRank', label: '波动', title: 'IV Rank：当前 IV 在过去一年隐含波动率区间中的位置。下方同时显示 IV30 / HV30。' },
   { key: 'direction', label: '方向', title: '由 price history 派生的趋势标签。' },
-  { key: 'community', label: '社区热度', title: 'Reddit 过去 24 小时提及帖数与互动加权热度；未采集时不参与机会分。' },
-  { key: 'gex', label: 'GEX', title: 'Gamma Exposure。missing/未采集表示当前没有该标的 GEX 快照。' },
-  { key: 'wall', label: 'Wall', title: '离最近 Call Wall / Put Wall 的距离。没有 GEX 快照时为空。' },
-  { key: 'doi', label: 'ΔOI', title: 'Open Interest 变化。missing/未采集表示没有连续 OI 快照。' },
-  { key: 'contract', label: '机会质量', title: '最佳候选单的到期日、实际报价流动性和 Return on Risk。' },
+  { key: 'gex', label: '期权定位', title: 'GEX、最近 Wall 与 OI 异动。GEX 未采集时不会据此作结论。' },
   { key: 'strategy', label: '候选单', title: '使用真实 bid/ask 合约组成具体策略 legs；Calendar / Diagonal 可以跨到期日。' },
   { key: 'score', label: '机会分', title: '根据 DTE、Delta、bid/ask spread、OI、Volume 和收益风险综合计算。' },
   { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
@@ -883,47 +877,28 @@ export default function Scan() {
                     onClick={() => handleRowClick(d.symbol)}
                     title="点击查看详细分析"
                   >
-                    <span className="scan-symbol">{d.symbol}</span>
-                    <span>{d.price == null ? '--' : `$${d.price}`}</span>
-                    <span><IVRBar value={d.ivRank} /></span>
-                    <span>
-                      <span style={{ color: 'var(--red)' }}>{d.iv30}%</span>
-                      <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>/</span>
-                      <span style={{ color: 'var(--text-dim)' }}>{d.hv30}%</span>
+                    <span className="scan-identity">
+                      <strong className="scan-symbol">{d.symbol}</strong>
+                      <small>{d.price == null ? '现价 --' : `$${d.price}`}</small>
                     </span>
-                    <span style={{ color: DIR_COLOR(d.direction.score) }} title={d.direction.change5d == null ? '' : `5日 ${d.direction.change5d.toFixed(1)}%`}>
+                    <span className="scan-volatility">
+                      <IVRBar value={d.ivRank} />
+                      <small><em>{d.iv30}%</em> / {d.hv30}%</small>
+                    </span>
+                    <span className="scan-direction" style={{ color: DIR_COLOR(d.direction.score) }} title={d.direction.change5d == null ? '' : `5日 ${d.direction.change5d.toFixed(1)}%`}>
                       {d.direction.label}
                     </span>
-                    <span className={`scan-community ${d.community.status}`} title={d.community.status === 'missing' ? 'Reddit OAuth 数据尚未采集' : `${d.community.windowHours}小时：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}`}>
-                      <strong>{communityHeatLabel(d.community)}</strong>
-                      {d.community.status !== 'missing' && <small>{d.community.mentions} 帖</small>}
-                    </span>
-                    <span>
+                    <span className="scan-positioning" title={d.community.status === 'missing' ? '社区热度尚未采集' : `${d.community.windowHours}小时：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}`}>
                       <span className={`scan-gex-pill ${d.gex.regime}`}>
                         {d.gex.status === 'fresh' ? d.gex.regime : missingLabel(d.gex.status)}
                       </span>
-                      <span className="scan-gex-value">{compactMoney(d.gex.total)}</span>
+                      <small>{compactMoney(d.gex.total)} · {d.gex.nearestWall ? `${d.gex.nearestWall.side} ${d.gex.nearestWall.pct.toFixed(1)}%` : 'Wall --'}</small>
+                      <small>{d.unusual.status === 'confirmed' ? `ΔOI ${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}` : `ΔOI ${missingLabel(d.unusual.status)}`} · 社区 {communityHeatLabel(d.community)}</small>
                     </span>
-                    <span className="scan-wall-cell">
-                      {d.gex.nearestWall
-                        ? `${d.gex.nearestWall.side} ${d.gex.nearestWall.pct.toFixed(1)}%`
-                        : '--'}
-                    </span>
-                    <span className="scan-wall-cell">
-                      {d.unusual.status === 'confirmed'
-                        ? `${d.unusual.count} / ${d.unusual.maxDelta ?? '--'}`
-                        : missingLabel(d.unusual.status)}
-                    </span>
-                    <span className="scan-contract-cell" title={d.concreteSetup.legLabels.join('\n')}>
-                      <strong>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE</strong>
-                      <span>{d.dataMeta.quoteFreshness === 'stale' ? '延迟报价' : '最新报价'} · {d.dataMeta.quoteSource || '--'}</span>
-                      <span>OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</span>
-                      <span>{economicsSummary(d.concreteSetup)}</span>
-                    </span>
-                    <span className={`scan-strategy ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
+                    <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>
-                      <small>{d.concreteSetup.structure}</small>
-                      <small>{d.concreteSetup.pricing}</small>
+                      <small>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE · OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</small>
+                      <small>{d.concreteSetup.structure} · {d.concreteSetup.pricing} · {economicsSummary(d.concreteSetup)}</small>
                     </span>
                     <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险综合评分">
                       {d.concreteSetup.score}
