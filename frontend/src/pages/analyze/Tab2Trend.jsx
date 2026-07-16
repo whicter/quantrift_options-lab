@@ -193,6 +193,61 @@ function VolumeProfile({ profile, spot }) {
   );
 }
 
+function ObvCanvas({ series }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || series.length < 2) return undefined;
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const W = canvas.parentElement.getBoundingClientRect().width;
+      const H = 90;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const theme = getChartColors();
+      const PAD = { top: 10, right: 12, bottom: 16, left: 12 };
+      const values = series.map(point => Number(point.value));
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min || 1;
+      const sx = index => PAD.left + (index / (values.length - 1)) * (W - PAD.left - PAD.right);
+      const sy = value => PAD.top + (H - PAD.top - PAD.bottom) - ((value - min) / range) * (H - PAD.top - PAD.bottom);
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
+      ctx.beginPath();
+      values.forEach((value, index) => index === 0 ? ctx.moveTo(sx(index), sy(value)) : ctx.lineTo(sx(index), sy(value)));
+      ctx.strokeStyle = values.at(-1) >= values[0] ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)';
+      ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText('OBV', PAD.left, H - 3);
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas.parentElement);
+    return () => observer.disconnect();
+  }, [series]);
+  return <canvas ref={ref} style={{ display: 'block' }} />;
+}
+
+function ObvPanel({ obv }) {
+  if (!obv?.series?.length) return null;
+  const label = obv.trend === 'inflow' ? '资金流入' : obv.trend === 'outflow' ? '资金流出' : '资金平衡';
+  const tone = obv.trend === 'inflow' ? 'green' : obv.trend === 'outflow' ? 'red' : 'yellow';
+  return (
+    <div className="az-card az-obv-card">
+      <div className="az-trend-header">
+        <div>
+          <div className="az-card-title">OBV · On-Balance Volume</div>
+          <div className="az-data-note">上涨日累加成交量、下跌日扣减成交量；用于观察价格方向是否有量能确认。</div>
+        </div>
+        <span className={`az-mini-badge ${tone}`}>{label}</span>
+      </div>
+      <ObvCanvas series={obv.series} />
+    </div>
+  );
+}
+
 export default function Tab2Trend({ data }) {
   const { trend, pcr, direction } = data;
   const composite = data.compositeMomentum;
@@ -242,6 +297,7 @@ export default function Tab2Trend({ data }) {
       </div>
 
       <VolumeProfile profile={volumeProfile} spot={data.price} />
+      <ObvPanel obv={data.obv} />
 
       {/* Output badges */}
       <div className="az-output-badges">

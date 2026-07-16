@@ -7,7 +7,7 @@ const queryResults = [];
 const pool = { async query() { return queryResults.shift(); } };
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: pool };
 delete require.cache[routePath];
-const { deriveCompositeMomentum, deriveFocusScore, deriveSupportResistance, sendSupportResistance } = require(routePath);
+const { deriveCompositeMomentum, deriveFocusScore, deriveObv, deriveSupportResistance, sendSupportResistance } = require(routePath);
 
 function responseRecorder() {
   return {
@@ -73,6 +73,18 @@ test('focus score discloses readiness and components', () => {
   assert.ok(Number.isFinite(focus.components.rsi14));
 });
 
+test('OBV tracks daily volume direction without fabricating missing input', () => {
+  assert.equal(deriveObv(bars(1)).status, 'missing');
+  const result = deriveObv([
+    { date: '2026-01-02', close: 100, volume: 100 },
+    { date: '2026-01-03', close: 102, volume: 200 },
+    { date: '2026-01-04', close: 101, volume: 300 },
+  ]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.series.map(point => point.value), [0, 200, -100]);
+  assert.equal(result.trend, 'outflow');
+});
+
 test('composite momentum weights fresh 30m, daily and weekly real bars', () => {
   const daily = validDailyBars();
   const marketDate = daily.at(-1).date.toISOString().slice(0, 10);
@@ -103,6 +115,7 @@ test('route returns missing instead of fabricated levels for short history', asy
   assert.equal(res.body.status, 'missing');
   assert.deepEqual(res.body.support, []);
   assert.deepEqual(res.body.resistance, []);
+  assert.equal(res.body.obv.status, 'ready');
 });
 
 test('route serializes PostgreSQL Date values as ISO dates', async () => {
@@ -112,4 +125,5 @@ test('route serializes PostgreSQL Date values as ISO dates', async () => {
   const res = responseRecorder();
   await sendSupportResistance({ params: { symbol: 'TEST' } }, res);
   assert.match(res.body.latest_date, /^2026-\d{2}-\d{2}$/);
+  assert.equal(res.body.obv.status, 'ready');
 });

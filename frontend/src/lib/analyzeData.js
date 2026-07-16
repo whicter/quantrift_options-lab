@@ -126,6 +126,12 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats, volume
       barCount: supportResistance.bar_count,
     } : null,
     focusScore: srReady && supportResistance.focus?.ready ? supportResistance.focus : null,
+    obv: srReady && supportResistance.obv?.status === 'ready' ? {
+      latest: toNumber(supportResistance.obv.latest),
+      change20d: toNumber(supportResistance.obv.change_20d),
+      trend: supportResistance.obv.trend,
+      series: supportResistance.obv.series || [],
+    } : null,
     compositeMomentum: srReady && supportResistance.momentum ? supportResistance.momentum : null,
     volumeProfile: volumeProfile?.status === 'ready' ? {
       source: volumeProfile.source,

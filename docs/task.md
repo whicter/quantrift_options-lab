@@ -978,9 +978,11 @@ P2.6 verification：Railway 只读重放 AAPL 250 daily + 200 regular-session 30
   - Analyze Tab2 显示横向 volume bars、成交量、相对现价距离；无至少两根有 volume 的 bar 或无价格区间时明确返回 `missing`，不显示模拟节点
   - 可与 S/R zones 并列用于确认成交密集价位，但不把 volume node 冒充为 S/R 或期权 Wall
   - 验证：server 69/69、frontend 40/40、full ESLint、Vite production build passed
-- [ ] **OBV（On-Balance Volume）**：从 `price_history` 日线计算累计量价关系
-  - `GET /api/sr/:symbol` 已有，可在此端点扩展 OBV 字段
-  - 前端：Tab2 趋势图下方小图
+- [x] **OBV（On-Balance Volume）**（2026-07-16）：从 `price_history` 日线计算累计量价关系
+  - `GET /api/sr/:symbol` 的 `obv` 字段返回每日累计序列、最新值、20 日变化和 `inflow` / `outflow` / `flat`
+  - 公式：上涨日加 volume，下跌日减 volume，收平不变；至少需两根有真实 volume 的日线，否则 `missing`
+  - 前端：Analyze Tab2 趋势图下方独立小图；不与价格轴混用
+  - 验证：server 70/70、frontend 40/40、full ESLint、Vite production build passed
 - [ ] **MFI（Money Flow Index）**：OHLCV + volume 14日窗口，0-100 超买超卖
   - 与 RSI 配合：RSI 方向 + MFI 资金流入/流出确认
   - 前端：Tab1 指标卡，与 Focus Score 并列

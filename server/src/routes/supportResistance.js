@@ -218,6 +218,37 @@ function deriveFocusScore(bars) {
   };
 }
 
+function deriveObv(bars) {
+  const validBars = (bars || []).map(bar => ({
+    date: toDateString(bar.date),
+    close: Number(bar.close),
+    volume: Number(bar.volume),
+  })).filter(bar => bar.date && Number.isFinite(bar.close) && Number.isFinite(bar.volume) && bar.volume > 0);
+  if (validBars.length < 2) {
+    return { status: 'missing', reason: 'requires_2_daily_bars_with_volume', bar_count: validBars.length, series: [], latest: null, trend: null };
+  }
+
+  let value = 0;
+  const series = validBars.map((bar, index) => {
+    if (index > 0) {
+      const priorClose = validBars[index - 1].close;
+      if (bar.close > priorClose) value += bar.volume;
+      else if (bar.close < priorClose) value -= bar.volume;
+    }
+    return { date: bar.date, value };
+  });
+  const comparison = series[Math.max(0, series.length - 21)].value;
+  const latest = series.at(-1).value;
+  return {
+    status: 'ready',
+    bar_count: validBars.length,
+    latest,
+    change_20d: latest - comparison,
+    trend: latest > comparison ? 'inflow' : latest < comparison ? 'outflow' : 'flat',
+    series,
+  };
+}
+
 async function sendSupportResistance(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
@@ -249,7 +280,7 @@ async function sendSupportResistance(req, res) {
     const momentum = deriveCompositeMomentum(rows, intradayResult.rows);
     const derived = deriveSupportResistance(rows);
     if (!derived) {
-      return res.json({ symbol, status: 'missing', bar_count: rows.length, support: [], resistance: [], focus: deriveFocusScore([]), momentum });
+      return res.json({ symbol, status: 'missing', bar_count: rows.length, support: [], resistance: [], focus: deriveFocusScore([]), obv: deriveObv(rows), momentum });
     }
     const latest = rows[rows.length - 1];
     return res.json({
@@ -264,6 +295,7 @@ async function sendSupportResistance(req, res) {
       resistance: derived.resistances,
       method: { pivot_window: 2, cluster_tolerance_pct: 1 },
       focus: deriveFocusScore(derived.bars),
+      obv: deriveObv(derived.bars),
       momentum,
     });
   } catch (err) {
@@ -274,4 +306,4 @@ async function sendSupportResistance(req, res) {
 
 router.get('/:symbol', sendSupportResistance);
 
-module.exports = { router, sendSupportResistance, deriveSupportResistance, deriveFocusScore, deriveCompositeMomentum };
+module.exports = { router, sendSupportResistance, deriveSupportResistance, deriveFocusScore, deriveObv, deriveCompositeMomentum };
