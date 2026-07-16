@@ -496,7 +496,7 @@ export default function Scan() {
 
       <ScannerAlerts minIvr={minIvr} gammaRegime={gammaRegime} unusualOnly={unusualOnly} />
 
-      <div className="scan-body">
+      <div className={`scan-body${results === null ? ' scan-body-idle' : ''}`}>
         {/* 过滤面板 */}
         <div className="scan-filters">
           <div className="scan-filter-section">
@@ -844,9 +844,12 @@ export default function Scan() {
         <div className="scan-results">
           {error && <div className="az-error">{error}</div>}
           {results === null ? (
-            <div className="scan-empty">
-              <div className="scan-empty-icon">⬆</div>
-              <div>设置过滤条件后点击「立即扫描」</div>
+            <div className="scan-empty scan-empty-idle">
+              <div className="scan-empty-icon">+</div>
+              <div>
+                <strong>尚未开始扫描</strong>
+                <span>选择机会类型或调整参数后，点击「立即扫描」</span>
+              </div>
             </div>
           ) : results.length === 0 ? (
             <div className="scan-empty">

@@ -1134,6 +1134,8 @@ Boundary:
 
 ### Scanner Candidate Enumeration
 
+Before a user runs the first scan, `/scan` keeps its instruction state compact beside the filter panel. It must not reserve the full result-table width and height with a centered empty placeholder; the wide result surface is used only for returned candidates or an actual zero-result state.
+
 当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
 
 - `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。
