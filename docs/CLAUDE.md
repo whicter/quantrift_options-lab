@@ -35,6 +35,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Stale/missing data enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` is the execution boundary.
 - `/api/status/cache` reports job backlog, failures, scanner age, empty snapshots and provider budget.
 - Scanner rows must represent complete actionable candidates from actual same-expiry quotes. DTE ranges are diagnostics only; fixed placeholder POP values are forbidden.
+- The Scanner browser must receive final candidate DTOs only. Candidate enumeration, scoring and economics belong to `server/src/domain/scanner/candidateEngine.cjs`; never return the complete `option_contracts` array from normal `/api/scan`.
+- Production frontend builds explicitly disable source maps and verification must confirm no `.map` artifact.
 - `不限` enumerates all qualifying setups across supported strategies and may return multiple rows for one symbol.
 - Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `option_oi_delta_snapshots` powers `/api/unusual/:symbol`, `/api/scan` unusual filters and Analyze Tab3 unusual activity.

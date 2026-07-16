@@ -61,7 +61,7 @@ Open http://localhost:5173
 - IV analysis: IV Rank, IV30 vs HV30, term structure
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
-- Scanner: filter by opportunity/preset, then enumerate 13 actual-contract structures; Calendar/Diagonal support cross-expiry legs and advanced naked-risk structures require explicit opt-in
+- Scanner: browser submits opportunity/preset filters; the backend enumerates and scores 13 actual-contract structures, then returns final candidate DTOs only. Calendar/Diagonal support cross-expiry legs and advanced naked-risk structures require explicit opt-in
 - Data coverage status API: `/api/status/data`
 - Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
@@ -109,6 +109,8 @@ Open http://localhost:5173
 - IB contract discovery persists only contracts actually returned by IB with a valid `conId` and `localSymbol`; the collector never constructs synthetic expiry/strike/right combinations.
 - Stale or partial GEX remains visible when the snapshot contains the required computed fields. The UI labels its age/quality; only missing required fields suppress GEX/Wall analysis.
 - Scanner `不限` applies no hidden preset and enumerates every qualifying setup across supported strategies in the current 1-90 DTE ingestion window, including multiple rows per symbol. It rejects incomplete or non-positive-credit structures and displays exact legs plus executable-side pricing.
+- Scanner candidate generation, pricing and scoring run in `server/src/domain/scanner/candidateEngine.cjs`. Normal `/api/scan` responses never contain the complete `option_contracts` chain; they contain only display-ready candidate legs and economics.
+- Production Vite builds explicitly disable source maps (`build.sourcemap=false`); 2026-07-16 build verification found no `.map` artifact.
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)

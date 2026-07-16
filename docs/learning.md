@@ -484,6 +484,8 @@ V1 公式：
 - **报价必须带自己的 provenance/freshness**：不能把 GEX source 或 scanner materialization time 当作 legs 的报价时间。API 增加 `quote_source/quote_snapshot_ts/quote_freshness`。
 - **DTE 也受 UTC 午夜影响**：SQL 中 `expiry - CURRENT_DATE` 在美东晚间会提前减一天。scanner 与 ATM pipeline 都统一到 `America/New_York` market date。
 - **策略名不是产品输出**：每个 candidate 必须携带实际 legs、near/far expiry、sell bid、buy ask、credit/debit、max loss 或明确 undefined risk、breakeven 和 opportunity score。
+- **候选算法不能作为前端实现细节**：`scanOpportunity.js` 曾把完整 raw chain、策略枚举、评分权重与经济性计算发送到浏览器。自 2026-07-16 起，这些逻辑由 `server/src/domain/scanner/candidateEngine.cjs` 执行；正常 `/api/scan` 仅返回 display-ready candidate DTO，不返回 `option_contracts`。这既减少 payload，也建立产品算法边界。
+- **source map 必须显式关闭并验证产物**：只依赖 Vite 默认行为不足以构成发布策略。生产配置显式为 `build.sourcemap=false`，验证必须检查实际 `dist` 没有 `.map` 文件。
 - **跨期结构要测试腿方向**：Calendar/Diagonal 固定 near short、far long；只测试“返回 Calendar”无法发现 expiry 反向的灾难性错误。
 - **裸卖风险必须是产品状态**：Short Strangle/Short Put/Short Call 不因用户选择“策略不限”而静默出现；必须显式开启 advanced-risk gate。
 - **全量 lint 与改动 lint 分开报告**：早期 section 只证明 changed-file lint；遗留错误后来由独立 P2.4 commit 清零，不能倒写成早期 section 当时已经通过。

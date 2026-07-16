@@ -1369,9 +1369,9 @@ Acceptance must establish 67-symbol HV/ATM coverage, ATM DTE 30–45, source pro
 ## Scanner Quote Fallback Operations
 
 - Configure `SCANNER_QUOTE_STALE_MINUTES=1440` for the current delayed quote transition. Lower it when quote collection cadence improves.
-- `/api/scan` must return `quote_source`, `quote_snapshot_ts`, and `quote_freshness` beside `option_contracts`.
+- `/api/scan` must return `quote_source`, `quote_snapshot_ts`, and `quote_freshness` beside the final `concrete_setup` candidate DTO; raw `option_contracts` remain internal.
 - Acceptance distinguishes latest positioning coverage from latest usable bid/ask coverage. A successful GEX snapshot is not evidence of candidate-pricing readiness.
-- Runtime smoke command：start the API against Railway, request `/api/scan?minIvr=0&maxIvr=100&limit=2`, and verify `quoted_contract_count > 0`, non-empty `option_contracts`, New York DTE, and quote provenance.
+- Runtime smoke command：start the API against Railway, request `/api/scan?minIvr=0&maxIvr=100&limit=2`, and verify `quoted_contract_count > 0`, non-empty `concrete_setup`, New York DTE, quote provenance, and absence of `option_contracts`.
 - Rollback is the scanner section commit; no migration is required.
 
 ## Universe and On-Demand Operations
@@ -1540,6 +1540,21 @@ Only after signed-in scanner/Analyze/alerts/portfolio requests all carry Clerk b
 ## Frontend Verification Baseline
 
 Before deployment, run `cd frontend && npm run lint && npm test && npm run build`. On 2026-07-15 this completed with ESLint 0 errors/0 warnings, 21/21 tests and a successful Vite build. The only remaining build output is the non-failing main-chunk size warning. Rollback is the frontend verification commit; no schema, secret or collector change is involved.
+
+## V3A Immediate Core Deployment (2026-07-16)
+
+Deploy Railway API and Vercel frontend together from commit `9fd90e9`. This is an API-contract change: `/api/scan` now returns final candidate rows with `concrete_setup`; it no longer returns the full `option_contracts` array. No migration, collector restart or secret change is required.
+
+Verification:
+
+```bash
+cd server && npm test
+cd ../frontend && npm test && npm run build
+test -z "$(find dist -type f -name '*.map' -print -quit)"
+curl -fsS "https://quantriftoptions-lab-production.up.railway.app/api/scan?minIvr=40&maxIvr=100&limit=5"
+```
+
+Confirm the production response has candidate rows with `concrete_setup` and no `option_contracts` property. Rollback is reverting `9fd90e9` in both deployments; this commit has no schema or collector state to reverse.
 
 ## OI Density Rollout
 

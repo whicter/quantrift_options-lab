@@ -30,6 +30,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - `/api/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
 - Scanner user output is an actionable candidate, not snapshot inventory: use actual same-expiry contracts, executable-side pricing and explicit risk; never display a DTE range or fixed POP as a recommendation.
 - Scanner `不限` means all qualifying setups across supported strategies, not one inferred strategy per symbol. Multiple rows per symbol are expected.
+- Scanner candidate enumeration, score and economics run only in `server/src/domain/scanner/candidateEngine.cjs`. Normal `/api/scan` responses contain candidate DTOs, never complete `option_contracts`; do not reintroduce frontend chain traversal.
+- Production Vite builds must keep `build.sourcemap=false`; verify the generated `frontend/dist` contains no `.map` files.
 - Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` serves confirmed/baseline OI delta state.
 - Public options data still requires a licensed provider adapter; `ib_internal` and `tt_internal` are internal/transitional only.

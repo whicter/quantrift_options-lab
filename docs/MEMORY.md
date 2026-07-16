@@ -39,6 +39,7 @@
 - `docs/ARCHITECTURE.md` 是架构主文档。
 - Phase 3C 已完成：snapshot cache、freshness contract、scanner materialization、refresh queue、worker、provider budget、cache monitoring。
 - `/api/scan` 只读 `scanner_results_snapshots`，不在用户请求时全 watchlist 重算。
+- 2026-07-16 V3A immediate core complete: `/api/scan` builds final candidates in `server/src/domain/scanner/candidateEngine.cjs`, removes raw `option_contracts` before responding, and `frontend/src/lib/scanOpportunity.js` is deleted. Frontend sends filters/strategy choice and renders `concrete_setup` DTO only. Server tests 82/82, frontend tests 36/36, Vite build passed with no source maps.
 - `collector/materialize_scan.py` 生成 scanner cache。
 - `collector/materialize_oi_delta.py` 生成 OI delta / unusual activity cache。
 - `collector/run_refresh_worker.py` 消费 `provider_fetch_jobs`。

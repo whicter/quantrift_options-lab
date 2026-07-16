@@ -365,7 +365,7 @@
   - Mid IV：small defined-risk directional spread
 
 **功能**
-- ✅ 用 live 链数据填充推荐策略的 legs（`scanOpportunity.js` 使用真实同到期 bid/ask contracts，输出 expiry/DTE/legs/credit/debit/max loss/breakeven/RoR）
+- ✅ 用 live 链数据填充推荐策略的 legs（后端 `candidateEngine.cjs` 使用真实同到期 bid/ask contracts，输出 expiry/DTE/legs/credit/debit/max loss/breakeven/RoR）
 - ✅ Options scanner: IV Rank / spread width / liquidity / DTE / Greeks 阈值（server contract filters + frontend presets/advanced filters 已实现；无完整可执行 legs 时 fail closed）
 - ✅ Push notifications pipeline：Scan 可按当前 IV Rank/Gamma/异动条件创建 email 或 browser push subscription；token 退订；collector 每次 materialize 后评估；delivery 表按 subscription+batch+symbol 去重
   - ✅ 无 SMTP/VAPID 时 delivery 明确 `blocked`，不假装 sent
@@ -768,8 +768,8 @@
   - Add explicit recommendation candidates for naked sell put / naked sell call only behind a risk-defined suitability gate; default beginner flow should prefer defined-risk put spread / call spread.
   - Add butterfly candidates for pinning / low realized move / price-near-body scenarios after contract-level chain selection is available.
 - ✅ Scanner concrete setup display：
-  - `/api/scan` returns latest quoted option contracts for each symbol from the cached snapshot.
-  - Frontend attempts to build concrete legs for `Bear Call Spread`, `Bull Put Spread`, `Iron Condor`, and `Long Straddle`.
+  - Historical implementation initially returned latest quoted option contracts for each symbol and built concrete legs in the frontend.
+  - Current implementation (V3A immediate core, 2026-07-16) builds concrete legs in the backend candidate engine and returns only `concrete_setup` DTOs.
   - Scanner strategy column now shows legs, DTE, credit/debit estimate, max-loss / breakeven where available.
   - If the current snapshot cannot form the strategy, the row says the contract snapshot is insufficient instead of showing only a strategy name.
 - ✅ **Phase 3H-1 — Actionable scanner candidate selector (`SCAN-ACTIONABILITY-001`, 2026-07-15)**
@@ -779,13 +779,13 @@
   - Current behavior：用户只能看到库存跨度或策略名称，无法知道哪一笔订单值得研究；算法可能因排序选择 2 DTE。
   - Expected behavior：只输出可由同 expiry 真实 bid/ask contracts 组成、通过流动性与经济性门槛的候选单。
   - Worst consequence：把库存元数据误认为推荐期限，或展示无法成交、负 credit、风险收益不合理的结构。
-  - Initial implementation：`frontend/src/lib/scanOpportunity.js` 枚举 actual contracts；最初默认 21-60 DTE，随后由 Phase 3H-2 修正为“不限不施加隐藏 preset”；credit spread 要求 `short bid - long ask > 0`；Iron Condor 两侧必须同 expiry；按 DTE fit、short Delta、bid/ask spread、OI、volume、RoR/economics 计算 0-100 机会分，并要求至少 50 分。
+  - Initial implementation：前端 `scanOpportunity.js` 曾枚举 actual contracts；最初默认 21-60 DTE，随后由 Phase 3H-2 修正为“不限不施加隐藏 preset”。V3A immediate core 已将同一算法迁到 `server/src/domain/scanner/candidateEngine.cjs` 并删除前端文件；credit spread 要求 `short bid - long ask > 0`；Iron Condor 两侧必须同 expiry；按 DTE fit、short Delta、bid/ask spread、OI、volume、RoR/economics 计算 0-100 机会分，并要求至少 50 分。
   - UI：`合约` 改为 `机会质量`，`推荐策略` 改为 `候选单`，删除规则占位 `POP`，改为 `机会分`；显示 expiry/DTE、具体 legs、净 credit/debit、max loss、breakeven、RoR、最低 OI 与平均 spread。
   - Changed business behavior：改变 scanner 研究候选输出与排序/过滤，不修改任何自动交易、下单或持仓逻辑。
-  - Tests：`frontend/src/lib/scanOpportunity.test.js` 覆盖忽略 2 DTE、拒绝负 credit、短线允许 2 DTE、Iron Condor 同 expiry。
+  - Tests：`server/test/candidateEngine.test.js` 覆盖忽略 2 DTE、拒绝负 credit、短线允许 2 DTE、Iron Condor 同 expiry、跨期结构与高级风险 gate；`server/test/scanRoute.test.js` 断言响应不含 `option_contracts`。
   - Runtime evidence：用 2026-07-15 production `/api/scan` 63 rows 离线运行 selector，得到 3 个完整候选：GOOGL 30 DTE Iron Condor、CIBR 37 DTE Bull Put Spread、IBB 37 DTE Long Straddle；其余 rows 因无法组成完整且达标的真实 legs 被排除。
-  - Done：实现范围完成；frontend tests/build/targeted lint 通过；未改变 collector、server API 或数据库 schema。
-  - Rollback：恢复 `frontend/src/pages/Scan.jsx` 旧表格映射，删除 `frontend/src/lib/scanOpportunity.js` 与对应测试。
+  - Done：初始前端实现完成，后续由 V3A immediate core 迁移为后端 API 契约；未改变 collector 或数据库 schema。
+  - Rollback：回滚 V3A commit `9fd90e9` 可恢复此前 API/前端实现；不需要数据回滚。
 - ✅ **Phase 3H-2 — `不限` 枚举全部达标候选（2026-07-15）**
   - Confirmed bug：Phase 3H-1 仍先按 IV/trend 为每个 symbol 指定一个策略，再只返回该策略的最佳 setup；这不符合“不限”。
   - Behavior：`不限` 对 `Iron Condor`、`Bull Put Spread`、`Bear Call Spread`、`Long Straddle` 枚举全部达标组合；同一 symbol 可以出现多行。策略 chips 只显示当前真正支持自动选腿的结构，多选后作为显式过滤。
@@ -1243,7 +1243,7 @@ Deployment readiness：
 ### ✅ Scanner 策略扩展（P1.1，2026-07-15 完成）
 
 - ✅ 当前已支持：Iron Condor, Bull Put Spread, Bear Call Spread, Long Straddle（+ Bull Call Spread / Short Strangle fallback label）
-- ✅ 已加入枚举（`scanOpportunity.js`）：
+- ✅ 已加入后端枚举（`server/src/domain/scanner/candidateEngine.cjs`）：
   - **Short Strangle**：无 Delta 约束时选 far OTM call + far OTM put（同 expiry）；high IV 环境
   - **Iron Butterfly**：body 在 ATM，wings 对称；low move 预期 + 高 IV
   - **Diagonal Spread**：不同 expiry；long far-date leg + short near-date leg；需跨 expiry 报价
@@ -1393,18 +1393,18 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - 暂缓范围：认证、限流、数据库角色、审计和更完整的商业化安全边界可在高度商业化前按 `V3A-5` 到 `V3A-8` 分阶段完成。
   - 完成标准：普通 scanner response 只返回最终 candidate DTO；前端不再包含候选枚举、评分权重和完整策略经济性算法；浏览器拿不到完整 raw option contract chain。
   - 交付：`server/src/domain/scanner/candidateEngine.cjs` 负责真实合约枚举、策略腿、经济性与排序；`frontend/src/lib/scanOpportunity.js` 已删除；`/api/scan` 只返回候选行的 `concrete_setup`，不返回 `option_contracts`。
-  - 验证：2026-07-16 `server npm test` 82/82 通过；`frontend npm test` 47/47 通过；`frontend npm run build` 通过且 `frontend/dist` 无 `.map` 文件。
+  - 验证：2026-07-16 `server npm test` 82/82 通过；`frontend npm test` 36/36 通过；`frontend npm run build` 通过且 `frontend/dist` 无 `.map` 文件。
 
 ### 当前已确认的问题
 
 - [x] Scanner 候选生成仍在前端暴露：
-  - 当前证据：`frontend/src/pages/Scan.jsx` 调用 `frontend/src/lib/scanOpportunity.js`。
-  - 当前问题：策略列表、DTE/Delta/spread/OI/Volume 默认参数、评分权重、候选枚举、经济性筛选都随前端 bundle 发送给用户浏览器。
-  - 风险：核心 product logic 可被复制；前端 bundle/minify 不能作为保护边界。
+  - Historical evidence：`frontend/src/pages/Scan.jsx` 曾调用 `frontend/src/lib/scanOpportunity.js`。
+  - 已修复：算法已迁到 `server/src/domain/scanner/candidateEngine.cjs`，前端模块已删除。
+  - 结果：策略枚举、评分权重和经济性筛选不再随前端 bundle 发送。
 - [x] `/api/scan` 仍向浏览器返回过多原始合约数据：
-  - 当前证据：`server/src/routes/scan.js` 聚合并返回 `option_contracts`。
-  - 当前问题：普通 scanner 用户不需要完整 option contract snapshot；他们需要具体候选单、legs、收益风险、解释和数据新鲜度。
-  - 风险：原始链数据和内部筛选空间暴露；也增加前端性能与 UI 复杂度。
+  - Historical evidence：`server/src/routes/scan.js` 曾聚合并返回 `option_contracts`。
+  - 已修复：route 内部使用该数据生成候选后，在 response 前删除完整链。
+  - 结果：普通 scanner 用户只收到具体候选单、legs、收益风险、解释和数据新鲜度。
 - [ ] Analyze 页部分解释/推荐逻辑仍在前端：
   - 当前证据：`frontend/src/lib/analyzeData.js` 与页面组件承载部分 narrative / recommendation 拼接。
   - 当前问题：用户看到的是产品结论，但结论生成逻辑不应放在浏览器端。
@@ -1667,11 +1667,11 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-11 Rollout Plan
 
-- [ ] Step 1：后端实现 candidate engine，与前端当前 `scanOpportunity.js` shadow compare。
+- [x] Step 1：后端实现 candidate engine；以迁移后的同一回归测试集验证行为一致。未新增独立 shadow compare job。
 - [ ] Step 2：写入 `scanner_candidate_snapshots`，但 `/api/scan` 暂不切流。
-- [ ] Step 3：增加 API contract tests，确保 candidate DTO 完整且不返回 raw chain。
-- [ ] Step 4：前端 Scanner 改读 backend candidate DTO。
-- [ ] Step 5：删除前端 candidate enumeration/scoring 依赖。
+- [x] Step 3：增加 API contract tests，确保 candidate DTO 完整且不返回 raw chain。
+- [x] Step 4：前端 Scanner 改读 backend candidate DTO。
+- [x] Step 5：删除前端 candidate enumeration/scoring 依赖。
 - [ ] Step 6：Analyze recommendation/narrative 迁移到 backend DTO。
 - [ ] Step 7：internal status/admin endpoint 拆分。
 - [ ] Step 8：production auth fail-closed gate。
@@ -1680,30 +1680,16 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-12 Verification Requirements
 
-- [ ] Unit tests：
-  - strategy rule mapping；
-  - DTE/Delta/spread/OI/Volume gates；
-  - same-expiry validation；
-  - credit/debit economics；
-  - scoring order；
-  - duplicate candidate elimination；
-  - fail-closed missing legs。
-- [ ] API tests：
-  - scanner returns candidate DTO；
-  - scanner does not return `option_contracts`；
-  - stale batch returns old real candidates with stale flag；
-  - missing batch enqueues materialization；
-  - auth/entitlement gates paid endpoints。
+- [x] Unit tests（immediate core scope）：`server/test/candidateEngine.test.js` covers DTE/Delta/spread/OI/Volume gates、same-expiry validation、credit/debit economics、scoring order and fail-closed missing legs. Candidate dedupe persistence remains V3A-2 work.
+- [x] API tests（immediate core scope）：scanner returns candidate DTO and never returns `option_contracts`.
+- [ ] API tests still required for stale batch behavior, missing-batch materialization and auth/entitlement paid gates.
 - [ ] Frontend tests：
   - scanner renders backend DTO；
   - sorting works after repeated clicks；
   - no raw source names in normal UI；
   - stale/queued/missing UX stays user-friendly。
-- [ ] Build/security tests：
-  - no source maps in production artifact；
-  - no frontend import of candidate scoring engine；
-  - no secrets in bundle；
-  - route entitlement matrix passes。
+- [x] Build/security tests（immediate core scope）：no source maps in production artifact；no frontend import of candidate scoring engine。
+- [ ] Build/security tests still required: no secrets in bundle；route entitlement matrix passes。
 - [ ] Runtime evidence：
   - command；
   - git commit；

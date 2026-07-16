@@ -2,6 +2,12 @@
 
 ## Architecture
 
+### Scanner Candidate Boundary (V3A immediate core)
+
+`/api/scan` is a product-result endpoint. It reads the latest stored scanner/quote inputs, runs `server/src/domain/scanner/candidateEngine.cjs` inside the API process, and returns candidate DTOs with concrete legs, expiry/DTE, economics, quality and score. It does not return the complete `option_contracts` snapshot to the browser.
+
+The Scanner UI may send selected strategy types and advanced filters, then render `concrete_setup`; it does not enumerate contracts, calculate credit/debit, or own scoring weights. The former frontend `scanOpportunity.js` module was removed. Vite production builds use `build.sourcemap=false` and must be checked for absent `.map` artifacts.
+
 ### Monorepo 结构
 
 ```

@@ -157,13 +157,22 @@ Scanner candidate selection path：
 ```text
 scanner_results_snapshots + latest actual quoted option contracts
   -> symbol context and filters (IV / trend / GEX)
-  -> enumerate every supported same-expiry real-contract setup
+  -> server candidate engine enumerates every supported real-contract setup
   -> hard eligibility (DTE / Delta / spread / OI / volume / positive credit)
   -> score (DTE fit / Delta / spread / OI / volume / economics)
-  -> actionable rows with exact legs, risk and breakeven
+  -> final candidate DTO with exact legs, risk and breakeven
+  -> browser renders DTO only
 ```
 
 The default `不限` selector applies no hidden preset: it enumerates qualifying setups across the current 1-90 DTE ingestion window, including multiple rows for one symbol when strategy, expiry or strikes differ. Presets explicitly narrow DTE/Delta/liquidity. Inventory metadata such as `min_dte=2, max_dte=65` must never be presented as the recommended contract. The selector fails closed when it cannot construct a complete setup from actual same-expiry quotes; it does not synthesize contracts or show a strategy label without legs.
+
+### Scanner Product Boundary (V3A immediate core, 2026-07-16)
+
+`server/src/domain/scanner/candidateEngine.cjs` owns candidate enumeration, strategy-leg construction, executable-side economics, eligibility gates and score ordering. `frontend/src/lib/scanOpportunity.js` was removed: the frontend may submit selected strategy types and advanced filters, but it does not traverse raw chains or carry scoring weights.
+
+`/api/scan` may query the latest usable quoted snapshot internally, but its normal response removes `option_contracts`. Each response row exposes scanner summary fields plus a `concrete_setup` DTO containing only the candidate strategy, display legs, expiry/DTE, economics, score and quality summary. This is a product/API boundary, not a collector or schema change. The legacy raw chain endpoint remains a separate diagnostic surface and must not be used by the Scanner page.
+
+Vite production configuration explicitly sets `build.sourcemap=false`. Verification for commit `9fd90e9`: server tests 82/82, frontend tests 36/36, production build passed, and no `.map` file existed in `frontend/dist`.
 
 API response 应统一携带数据状态：
 
