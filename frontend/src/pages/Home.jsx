@@ -21,7 +21,7 @@ export default function Home() {
           <h1>Quantrift</h1>
           <p>从全市场扫描到具体期权结构，把价格趋势与期权仓位变成可核验的研究路径。</p>
           <div className="home-actions">
-            <Link className="home-primary" to="/analyze">分析标的</Link>
+            <Link className="home-primary" to="/analyze?symbol=SPY">分析标的</Link>
             <Link className="home-secondary" to="/scan">打开扫描器</Link>
           </div>
         </div>

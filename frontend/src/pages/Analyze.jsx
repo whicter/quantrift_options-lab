@@ -377,13 +377,13 @@ function IVGauge({ value }) {
 
 export default function Analyze() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [input, setInput] = useState(() => normalizeTickerInput(searchParams.get('symbol') || ''));
+  const initialSymbol = useRef(normalizeTickerInput(searchParams.get('symbol') || 'SPY'));
+  const [input, setInput] = useState(() => normalizeTickerInput(searchParams.get('symbol') || 'SPY'));
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [dataStatus, setDataStatus] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
-  const initialSymbol = useRef(searchParams.get('symbol'));
   const activeTab = parseInt(searchParams.get('tab') || '0');
   const analyzeInitialSymbol = useEffectEvent(handleAnalyze);
 
@@ -465,7 +465,7 @@ export default function Analyze() {
   }
 
   useEffect(() => {
-    if (initialSymbol.current) analyzeInitialSymbol(initialSymbol.current);
+    analyzeInitialSymbol(initialSymbol.current);
     getDataStatus().then(setDataStatus).catch(() => {});
   }, []);
 

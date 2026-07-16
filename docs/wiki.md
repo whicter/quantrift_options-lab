@@ -1184,7 +1184,7 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 
 `Home.jsx` is the first product signal. It uses the scanner interface as the hero visual, reads the real Market Regime endpoint for context, and exposes direct actions for the three core workflows. It does not duplicate feature documentation or hide the actual app behind a signup screen. `/learn` stays available as a distinct education workspace.
 
-The hero's highlighted first action is `分析标的` (`/analyze`); `打开扫描器` (`/scan`) is the secondary action. The workflow grid follows the same priority: Analyze, Scan, then Weekly.
+The hero's highlighted first action is `分析标的` (`/analyze?symbol=SPY`); `打开扫描器` (`/scan`) is the secondary action. The workflow grid follows the same priority: Analyze, Scan, then Weekly. A direct `/analyze` visit also defaults to SPY.
 
 ### Analyze 与 Scanner 的真实数据边界
 
