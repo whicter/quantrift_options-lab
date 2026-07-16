@@ -1119,6 +1119,17 @@ Boundary:
 
 选择 30–45 DTE 是为了建立稳定的标准期限 IV 序列，不代表该 expiry 就是 scanner 推荐合约。Scanner 的实际候选 expiry/legs 由策略枚举独立决定。
 
+### Scanner Candidate Enumeration
+
+当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
+
+- `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。
+- Named presets 只改变 DTE、absolute Delta、spread、OI、volume 阈值。
+- Sell side 使用 bid，buy side 使用 ask；这比用 mid 更保守，也可重放。
+- Short Strangle 与裸卖单腿不是定义风险，默认不参与；用户必须开启高级风险。
+- Quote freshness 与 GEX freshness 分开显示。新的 Polygon OI/Greeks snapshot 不保证含 bid/ask。
+- `机会分` 用于排序，不替代结构完整性门控；低分、缺腿、错 expiry、非正 credit 的结构先被删除。
+
 Implemented files：
 - `collector/materialize_oi_delta.py`
 - `server/src/routes/unusual.js`

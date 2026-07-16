@@ -1548,3 +1548,18 @@ metrics API + scanner materializer (per-field provenance)
 - `USE_DERIVED_VOLATILITY=false` 是字段消费 rollback；原始表和派生表均保留，回滚不需要删数据。
 
 2026-07-15 runtime：历史回填 24,738 HV rows；最新 watchlist HV 67/67、ATM IV 67/67、ATM DTE 30–43；IV Rank 0/67 ready（每 symbol 1–2 market-day observations）。Tastytrade HV 对比 median absolute difference 为 14.97pp/8.39pp/6.40pp（30/60/90），因此 TT 数值不能作为同公式 `<1%` parity oracle。
+
+## 27. Scanner Positioning and Quote Planes
+
+同一 symbol 的“最新 positioning snapshot”和“最新 usable quote snapshot”不是同一个概念：
+
+```text
+latest positioning snapshot -> IV / Greeks / OI -> GEX, walls, PCR
+latest snapshot with bid/ask -> actual legs -> credit/debit/risk candidate enumeration
+```
+
+`/api/scan` 分别选择两者。Polygon snapshot 即使更新、但 bid/ask 为空，也不得遮住较早且仍在允许 freshness window 内的 IB/TT quoted snapshot。API 返回 `quote_source`、`quote_snapshot_ts`、`quote_freshness`；默认 `SCANNER_QUOTE_STALE_MINUTES=1440` 适配当前 delayed/daily 过渡链。
+
+Candidate engine 支持 13 种结构。所有 sell legs 用 bid、buy legs 用 ask；Calendar/Diagonal 必须 near short + far long；Iron Butterfly 必须同 expiry、同 ATM body、对称 wings；Jade Lizard 必须 credit >= call width。Short Strangle/Short Put/Short Call 只能在显式 advanced-risk gate 后枚举。DTE 统一按 New York market date。
+
+2026-07-15 runtime：latest arbitrary snapshots 0 symbols 有 quote，但 latest usable quote snapshots 恢复 55 symbols（54 IB、1 TT）。前 20 scanner rows 产生 667 个默认定义风险 candidates，覆盖 10 种策略。

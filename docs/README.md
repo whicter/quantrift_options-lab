@@ -60,7 +60,7 @@ Open http://localhost:5173
 - IV analysis: IV Rank, IV30 vs HV30, term structure
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
-- Scanner: filter by opportunity/preset, then rank complete same-expiry contract setups; click row → detailed analysis
+- Scanner: filter by opportunity/preset, then enumerate 13 actual-contract structures; Calendar/Diagonal support cross-expiry legs and advanced naked-risk structures require explicit opt-in
 - Data coverage status API: `/api/status/data`
 - Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
@@ -89,6 +89,7 @@ Open http://localhost:5173
 - Scanner results should be precomputed/cached, not full-market recalculated on every user request
 - Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
 - Scanner materialized rows include IV, latest price, GEX/walls, OI/volume, OI delta, price-history trend, and earnings date
+- Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
 - Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
 - Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
 - Analyze now computes direction score from price history using MA20/50/200, RSI and MACD, then combines IV Rank, GEX and trend context into a strategy matrix recommendation.

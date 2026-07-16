@@ -1347,3 +1347,11 @@ Runtime env：`DERIVED_VOLATILITY_ENABLED=true`、`DERIVED_VOLATILITY_SECONDS=36
 Acceptance must establish 67-symbol HV/ATM coverage, ATM DTE 30–45, source provenance, and rank readiness separately. Do not treat `iv_rank_ready=0` as a collector failure before 252 independent market days exist. Rollback is `USE_DERIVED_VOLATILITY=false`, followed by scanner rematerialization and API restart.
 
 2026-07-15 evidence：Railway migration succeeded；17-symbol Polygon supplement wrote 17 snapshots/0 failures；derived run wrote 67 latest HV + 67 ATM observations；scanner has 67 Polygon HV sources, 67 Polygon IV sources, 67 Tastytrade cold-start rank sources, and 0 premature derived ranks. PM2 collector was restored online and saved.
+
+## Scanner Quote Fallback Operations
+
+- Configure `SCANNER_QUOTE_STALE_MINUTES=1440` for the current delayed quote transition. Lower it when quote collection cadence improves.
+- `/api/scan` must return `quote_source`, `quote_snapshot_ts`, and `quote_freshness` beside `option_contracts`.
+- Acceptance distinguishes latest positioning coverage from latest usable bid/ask coverage. A successful GEX snapshot is not evidence of candidate-pricing readiness.
+- Runtime smoke command：start the API against Railway, request `/api/scan?minIvr=0&maxIvr=100&limit=2`, and verify `quoted_contract_count > 0`, non-empty `option_contracts`, New York DTE, and quote provenance.
+- Rollback is the scanner section commit; no migration is required.

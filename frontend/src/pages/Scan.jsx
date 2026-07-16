@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDataStatus, getScan } from '../lib/api';
-import { ACTIONABLE_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
+import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -105,7 +105,7 @@ const SORTABLE_COLUMNS = [
   { key: 'wall', label: 'Wall', title: '离最近 Call Wall / Put Wall 的距离。没有 GEX 快照时为空。' },
   { key: 'doi', label: 'ΔOI', title: 'Open Interest 变化。missing/未采集表示没有连续 OI 快照。' },
   { key: 'contract', label: '机会质量', title: '最佳候选单的到期日、实际报价流动性和 Return on Risk。' },
-  { key: 'strategy', label: '候选单', title: '使用同到期真实 bid/ask 合约组成的具体策略 legs。' },
+  { key: 'strategy', label: '候选单', title: '使用真实 bid/ask 合约组成具体策略 legs；Calendar / Diagonal 可以跨到期日。' },
   { key: 'score', label: '机会分', title: '根据 DTE、Delta、bid/ask spread、OI、Volume 和收益风险综合计算。' },
   { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
 ];
@@ -137,8 +137,22 @@ function strategyAction(strategy) {
   if (strategy === 'Iron Condor') return '同时做 Bear Call Spread + Bull Put Spread，押注区间震荡。';
   if (strategy === 'Long Straddle') return '买入同一到期 ATM Call + Put，押注大幅波动。';
   if (strategy === 'Short Strangle') return '卖出 OTM Call + OTM Put，押注区间内震荡。';
-  if (strategy === 'Bull Call Spread') return '买入较低行权价 Call，卖出更高行权价 Call，做多且限制成本。';
+  if (strategy === 'Iron Butterfly') return '卖出同一 ATM Call + Put，并买入对称 wings 限定风险。';
+  if (strategy === 'Calendar Spread') return '卖出近月并买入同 strike 远月期权，交易时间价值差。';
+  if (strategy === 'Diagonal Spread') return '卖出近月 OTM 腿并买入更靠近现价的远月腿。';
+  if (strategy === 'Long Call') return '买入 OTM Call，最大亏损为 debit。';
+  if (strategy === 'Long Put') return '买入 OTM Put，最大亏损为 debit。';
+  if (strategy === 'Jade Lizard') return '卖出 OTM Put + Bear Call Spread；credit 覆盖 call width 时无上行风险。';
+  if (strategy === 'Short Put') return '卖出 OTM Put；需要承担较大的下行及保证金风险。';
+  if (strategy === 'Short Call') return '卖出 OTM Call；上行风险无上限。';
   return '点击进入分析页查看结构。';
+}
+
+function economicsSummary(setup) {
+  if (setup.returnOnRisk != null) return `RoR ${(setup.returnOnRisk * 100).toFixed(1)}%`;
+  if (setup.debit != null) return `Debit $${Math.round(setup.debit * 100).toLocaleString('en-US')}`;
+  if (setup.credit != null) return `Credit $${Math.round(setup.credit * 100).toLocaleString('en-US')} · 风险未限定`;
+  return '--';
 }
 
 function missingLabel(value) {
@@ -242,6 +256,9 @@ function toScanRow(row, concreteSetup) {
       priceSource: row.price_source,
       priceDate: row.price_date ? String(row.price_date).slice(0, 10) : null,
       priceStatus: row.price_status || 'missing',
+      quoteSource: row.quote_source,
+      quoteSnapshotTs: row.quote_snapshot_ts,
+      quoteFreshness: row.quote_freshness || 'missing',
     },
   };
 }
@@ -282,6 +299,7 @@ export default function Scan() {
   const [unusualOnly, setUnusualOnly] = useState(false);
   const [sort, setSort] = useState('ivr');
   const [selectedStrategies, setSelectedStrategies] = useState([]);
+  const [allowUndefinedRisk, setAllowUndefinedRisk] = useState(false);
   const [results, setResults] = useState(null);
   const [tableSort, setTableSort] = useState({ key: 'score', direction: 'desc' });
   const [loading, setLoading] = useState(false);
@@ -380,6 +398,7 @@ export default function Scan() {
         maxSpreadPct,
         minContractOi,
         minContractVolume,
+        allowUndefinedRisk,
       };
       const strategies = selectedStrategies.length ? selectedStrategies : ACTIONABLE_STRATEGIES;
       const liveRows = rows.flatMap(row => (
@@ -691,12 +710,22 @@ export default function Scan() {
 
           <div className="scan-filter-section">
             <div className="scan-filter-label">策略类型（可多选）</div>
+            <div className="scan-filter-help">默认只枚举定义风险结构。Short Strangle / Short Put / Short Call 需要显式开启高级风险。</div>
+            <label className="scan-check-row">
+              <input
+                type="checkbox"
+                checked={allowUndefinedRisk}
+                onChange={event => setAllowUndefinedRisk(event.target.checked)}
+              />
+              <span>启用高级裸卖风险策略</span>
+            </label>
             <div className="scan-strategy-chips">
               {STRATEGY_OPTIONS.map(s => (
                 <button
                   key={s}
-                  className={`scan-chip ${selectedStrategies.includes(s) ? 'active' : ''}`}
+                  className={`scan-chip ${selectedStrategies.includes(s) ? 'active' : ''} ${ADVANCED_RISK_STRATEGIES.includes(s) ? 'advanced' : ''}`}
                   onClick={() => toggleStrategy(s)}
+                  title={ADVANCED_RISK_STRATEGIES.includes(s) ? '需要启用高级裸卖风险策略' : strategyAction(s)}
                 >
                   {s}
                 </button>
@@ -734,7 +763,7 @@ export default function Scan() {
           ) : (
             <>
               <div className="scan-results-header">
-                找到 <strong>{results.length}</strong> 个可执行候选单
+                找到 <strong>{results.length}</strong> 个真实报价候选单
               </div>
               <div className="scan-table">
                 <div className="scan-table-head">
@@ -787,8 +816,9 @@ export default function Scan() {
                     </span>
                     <span className="scan-contract-cell" title={d.concreteSetup.legLabels.join('\n')}>
                       <strong>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE</strong>
+                      <span>{d.dataMeta.quoteFreshness === 'stale' ? '延迟报价' : '最新报价'} · {d.dataMeta.quoteSource || '--'}</span>
                       <span>OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</span>
-                      <span>{d.concreteSetup.returnOnRisk == null ? `Debit $${Math.round(d.concreteSetup.debit * 100).toLocaleString('en-US')}` : `RoR ${(d.concreteSetup.returnOnRisk * 100).toFixed(1)}%`}</span>
+                      <span>{economicsSummary(d.concreteSetup)}</span>
                     </span>
                     <span className={`scan-strategy ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>

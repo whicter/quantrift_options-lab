@@ -20,7 +20,18 @@ export const ACTIONABLE_STRATEGIES = [
   'Bull Put Spread',
   'Bear Call Spread',
   'Long Straddle',
+  'Short Strangle',
+  'Iron Butterfly',
+  'Calendar Spread',
+  'Diagonal Spread',
+  'Long Call',
+  'Long Put',
+  'Jade Lizard',
+  'Short Put',
+  'Short Call',
 ];
+
+export const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
 
 function contractMid(contract) {
   if (contract.bid == null || contract.ask == null) return null;
@@ -97,6 +108,7 @@ function selectionRules(overrides = {}) {
     maxSpreadPct: num(overrides.maxSpreadPct) ?? 25,
     minContractOi: num(overrides.minContractOi) ?? 10,
     minContractVolume: num(overrides.minContractVolume) ?? 0,
+    allowUndefinedRisk: overrides.allowUndefinedRisk === true,
   };
 }
 
@@ -138,6 +150,30 @@ function candidateQuality(legs) {
     avgSpreadPct: spreads.length ? spreads.reduce((sum, value) => sum + value, 0) / spreads.length : Infinity,
     minOpenInterest: Math.min(...legs.map(leg => leg.openInterest)),
     totalVolume: legs.reduce((sum, leg) => sum + leg.volume, 0),
+  };
+}
+
+function candidateEconomics({ credit = null, debit = null, maxLoss = null, returnOnRisk = null }) {
+  if (credit != null && maxLoss != null) {
+    return `Credit ${formatContractDollars(credit)} · Max loss ${formatContractDollars(maxLoss)} · RoR ${(returnOnRisk * 100).toFixed(1)}%`;
+  }
+  if (credit != null) return `Credit ${formatContractDollars(credit)} · Risk undefined`;
+  return `Debit ${formatContractDollars(debit)} · Max loss ${formatContractDollars(maxLoss)}`;
+}
+
+function formatLeg(leg) {
+  const price = leg.action === 'SELL' ? leg.bid : leg.ask;
+  return `${leg.action === 'SELL' ? 'Sell' : 'Buy'} ${leg.expiry.slice(5)} ${leg.strike}${leg.right} @ ${formatMoney(price)}`;
+}
+
+function finishCandidate(strategy, candidate, structure, extraPricing = '') {
+  return {
+    ...candidate,
+    strategy,
+    summary: `到期 ${candidate.expiry} · ${candidate.dte} DTE`,
+    structure,
+    pricing: `${candidateEconomics(candidate)}${extraPricing}`,
+    legLabels: candidate.legs.map(formatLeg),
   };
 }
 
@@ -302,6 +338,215 @@ function allStraddleSetups(contracts, spot, rules) {
   });
 }
 
+function allSingleLegSetups(strategy, contracts, spot, rules) {
+  const right = strategy.endsWith('Call') ? 'C' : 'P';
+  const isShort = strategy.startsWith('Short');
+  if (isShort && !rules.allowUndefinedRisk) return [];
+
+  return contracts
+    .filter(contract => contract.right === right && contractEligible(contract, rules))
+    .filter(contract => (right === 'C' ? contract.strike >= spot : contract.strike <= spot))
+    .map(contract => {
+      const premium = isShort ? contract.bid : contract.ask;
+      if (premium <= 0) return null;
+      const credit = isShort ? premium : null;
+      const debit = isShort ? null : premium;
+      const maxLoss = isShort
+        ? (right === 'P' ? Math.max(0, contract.strike - credit) : null)
+        : debit;
+      const returnOnRisk = credit != null && maxLoss ? credit / maxLoss : null;
+      const candidate = {
+        status: 'ready',
+        expiry: contract.expiry,
+        dte: contract.dte,
+        credit,
+        debit,
+        maxLoss,
+        returnOnRisk,
+        breakevens: [right === 'C' ? contract.strike + premium : contract.strike - premium],
+        shortDelta: isShort ? Math.abs(contract.delta) : null,
+        riskType: isShort ? 'advanced' : 'defined',
+        ...candidateQuality([contract]),
+        legs: [{ action: isShort ? 'SELL' : 'BUY', ...contract }],
+      };
+      candidate.score = scoreCandidate(candidate, rules);
+      return finishCandidate(
+        strategy,
+        candidate,
+        `${isShort ? 'Sell' : 'Buy'} ${contract.strike}${right}`,
+        ` · BE ${formatMoney(candidate.breakevens[0])}`,
+      );
+    })
+    .filter(Boolean);
+}
+
+function allShortStrangleSetups(contracts, spot, rules) {
+  if (!rules.allowUndefinedRisk) return [];
+  const candidates = [];
+  for (const group of groupedByExpiry(contracts)) {
+    const calls = group.filter(contract => contract.right === 'C' && contract.strike > spot && contractEligible(contract, rules));
+    const puts = group.filter(contract => contract.right === 'P' && contract.strike < spot && contractEligible(contract, rules));
+    for (const call of calls) {
+      for (const put of puts) {
+        const credit = call.bid + put.bid;
+        if (credit <= 0) continue;
+        const candidate = {
+          status: 'ready', expiry: call.expiry, dte: call.dte,
+          credit, debit: null, maxLoss: null, returnOnRisk: null,
+          breakevens: [put.strike - credit, call.strike + credit],
+          shortDelta: (Math.abs(call.delta) + Math.abs(put.delta)) / 2,
+          riskType: 'undefined',
+          ...candidateQuality([put, call]),
+          legs: [{ action: 'SELL', ...put }, { action: 'SELL', ...call }],
+        };
+        candidate.score = scoreCandidate(candidate, rules);
+        candidates.push(finishCandidate(
+          'Short Strangle', candidate,
+          `Sell ${put.strike}P + ${call.strike}C`,
+          ` · BE ${formatMoney(candidate.breakevens[0])}/${formatMoney(candidate.breakevens[1])}`,
+        ));
+      }
+    }
+  }
+  return candidates;
+}
+
+function allIronButterflySetups(contracts, spot, rules) {
+  const candidates = [];
+  for (const group of groupedByExpiry(contracts)) {
+    const calls = group.filter(contract => contract.right === 'C');
+    const puts = group.filter(contract => contract.right === 'P');
+    const bodies = calls
+      .filter(call => puts.some(put => put.strike === call.strike))
+      .sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
+    for (const bodyCall of bodies) {
+      const bodyPut = puts.find(put => put.strike === bodyCall.strike);
+      if (!contractEligible(bodyCall, rules, { requireDelta: false }) || !contractEligible(bodyPut, rules, { requireDelta: false })) continue;
+      for (const longCall of calls.filter(call => call.strike > bodyCall.strike)) {
+        const width = longCall.strike - bodyCall.strike;
+        const longPut = puts.find(put => put.strike === bodyCall.strike - width);
+        if (!longPut) continue;
+        if (!contractEligible(longCall, rules, { requireDelta: false }) || !contractEligible(longPut, rules, { requireDelta: false })) continue;
+        const credit = bodyCall.bid + bodyPut.bid - longCall.ask - longPut.ask;
+        const maxLoss = width - credit;
+        if (credit <= 0 || maxLoss <= 0) continue;
+        const legs = [
+          { action: 'BUY', ...longPut }, { action: 'SELL', ...bodyPut },
+          { action: 'SELL', ...bodyCall }, { action: 'BUY', ...longCall },
+        ];
+        const candidate = {
+          status: 'ready', expiry: bodyCall.expiry, dte: bodyCall.dte,
+          credit, debit: null, maxLoss, returnOnRisk: credit / maxLoss,
+          breakevens: [bodyCall.strike - credit, bodyCall.strike + credit],
+          shortDelta: (Math.abs(bodyCall.delta) + Math.abs(bodyPut.delta)) / 2,
+          riskType: 'defined', ...candidateQuality(legs), legs,
+        };
+        candidate.score = scoreCandidate(candidate, rules) - Math.min(20, Math.round(Math.abs(bodyCall.strike - spot) / spot * 100 * 4));
+        candidates.push(finishCandidate(
+          'Iron Butterfly', candidate,
+          `${longPut.strike}/${bodyCall.strike}/${longCall.strike} Iron Fly`,
+          ` · BE ${formatMoney(candidate.breakevens[0])}/${formatMoney(candidate.breakevens[1])}`,
+        ));
+      }
+    }
+  }
+  return candidates;
+}
+
+function allCalendarSetups(contracts, spot, rules) {
+  const candidates = [];
+  for (const right of ['C', 'P']) {
+    const side = contracts.filter(contract => contract.right === right && contractEligible(contract, rules, { requireDelta: false }));
+    for (const near of side) {
+      for (const far of side) {
+        if (far.dte <= near.dte || far.strike !== near.strike) continue;
+        if (Math.abs(near.strike - spot) / spot > 0.1) continue;
+        const debit = far.ask - near.bid;
+        if (debit <= 0) continue;
+        const legs = [{ action: 'SELL', ...near }, { action: 'BUY', ...far }];
+        const candidate = {
+          status: 'ready', expiry: near.expiry, dte: near.dte,
+          farExpiry: far.expiry, farDte: far.dte,
+          credit: null, debit, maxLoss: debit, returnOnRisk: null,
+          breakevens: [], shortDelta: null, riskType: 'defined',
+          ...candidateQuality(legs), legs,
+        };
+        candidate.score = scoreCandidate(candidate, rules);
+        candidates.push(finishCandidate(
+          'Calendar Spread', candidate,
+          `Sell ${near.expiry.slice(5)} / Buy ${far.expiry.slice(5)} ${near.strike}${right}`,
+        ));
+      }
+    }
+  }
+  return candidates;
+}
+
+function allDiagonalSetups(contracts, spot, rules) {
+  const candidates = [];
+  for (const right of ['C', 'P']) {
+    const side = contracts.filter(contract => contract.right === right && contractEligible(contract, rules, { requireDelta: false }));
+    for (const near of side) {
+      const nearIsOtm = right === 'C' ? near.strike > spot : near.strike < spot;
+      if (!nearIsOtm) continue;
+      for (const far of side) {
+        if (far.dte <= near.dte || far.strike === near.strike) continue;
+        const farCloserToSpot = Math.abs(far.strike - spot) < Math.abs(near.strike - spot);
+        if (!farCloserToSpot) continue;
+        const debit = far.ask - near.bid;
+        if (debit <= 0) continue;
+        const legs = [{ action: 'SELL', ...near }, { action: 'BUY', ...far }];
+        const width = Math.abs(near.strike - far.strike);
+        const maxLoss = debit;
+        const candidate = {
+          status: 'ready', expiry: near.expiry, dte: near.dte,
+          farExpiry: far.expiry, farDte: far.dte,
+          credit: null, debit, maxLoss, returnOnRisk: null,
+          breakevens: [], shortDelta: Math.abs(near.delta), riskType: 'defined',
+          ...candidateQuality(legs), legs,
+        };
+        candidate.score = scoreCandidate(candidate, rules) + Math.min(8, Math.round(width / spot * 100));
+        candidates.push(finishCandidate(
+          'Diagonal Spread', candidate,
+          `Sell ${near.expiry.slice(5)} ${near.strike}${right} / Buy ${far.expiry.slice(5)} ${far.strike}${right}`,
+        ));
+      }
+    }
+  }
+  return candidates;
+}
+
+function allJadeLizardSetups(contracts, spot, callWall, putWall, rules) {
+  const puts = contracts.filter(contract => contract.right === 'P' && contract.strike < spot && contractEligible(contract, rules));
+  const callSpreads = verticalCandidates({ side: 'C', contracts, spot, wall: callWall, rules });
+  const candidates = [];
+  for (const shortPut of puts) {
+    for (const callSpread of callSpreads) {
+      if (shortPut.expiry !== callSpread.expiry) continue;
+      const callWidth = Math.abs(callSpread.legs[1].strike - callSpread.legs[0].strike);
+      const credit = shortPut.bid + callSpread.credit;
+      if (credit < callWidth) continue;
+      const maxLoss = shortPut.strike - credit;
+      if (maxLoss <= 0) continue;
+      const legs = [{ action: 'SELL', ...shortPut }, ...callSpread.legs];
+      const candidate = {
+        status: 'ready', expiry: shortPut.expiry, dte: shortPut.dte,
+        credit, debit: null, maxLoss, returnOnRisk: credit / maxLoss,
+        breakevens: [shortPut.strike - credit],
+        shortDelta: (Math.abs(shortPut.delta) + callSpread.shortDelta) / 2,
+        riskType: 'defined-upside', ...candidateQuality(legs), legs,
+      };
+      candidate.score = scoreCandidate(candidate, rules);
+      candidates.push(finishCandidate(
+        'Jade Lizard', candidate,
+        `Sell ${shortPut.strike}P + ${callSpread.legs[0].strike}/${callSpread.legs[1].strike}C`,
+        ` · Downside BE ${formatMoney(candidate.breakevens[0])}`,
+      ));
+    }
+  }
+  return candidates;
+}
+
 function missingSetup(rules, candidate = null) {
   return {
     status: 'missing',
@@ -326,6 +571,15 @@ export function buildActionableSetups(rawContracts, row, overrides = {}, strateg
   if (requested.has('Bull Put Spread')) candidates.push(...allVerticalSetups('Bull Put Spread', contracts, spot, callWall, putWall, rules));
   if (requested.has('Iron Condor')) candidates.push(...allIronCondorSetups(contracts, spot, callWall, putWall, rules));
   if (requested.has('Long Straddle')) candidates.push(...allStraddleSetups(contracts, spot, rules));
+  if (requested.has('Short Strangle')) candidates.push(...allShortStrangleSetups(contracts, spot, rules));
+  if (requested.has('Iron Butterfly')) candidates.push(...allIronButterflySetups(contracts, spot, rules));
+  if (requested.has('Calendar Spread')) candidates.push(...allCalendarSetups(contracts, spot, rules));
+  if (requested.has('Diagonal Spread')) candidates.push(...allDiagonalSetups(contracts, spot, rules));
+  if (requested.has('Long Call')) candidates.push(...allSingleLegSetups('Long Call', contracts, spot, rules));
+  if (requested.has('Long Put')) candidates.push(...allSingleLegSetups('Long Put', contracts, spot, rules));
+  if (requested.has('Jade Lizard')) candidates.push(...allJadeLizardSetups(contracts, spot, callWall, putWall, rules));
+  if (requested.has('Short Put')) candidates.push(...allSingleLegSetups('Short Put', contracts, spot, rules));
+  if (requested.has('Short Call')) candidates.push(...allSingleLegSetups('Short Call', contracts, spot, rules));
 
   return candidates
     .filter(candidate => candidate.score >= MIN_ACTIONABLE_SCORE)

@@ -462,3 +462,13 @@ V1 公式：
 - **第三方指标不是公式 parity oracle**：同一 Polygon close 序列按明确公式计算的 HV 与 Tastytrade median difference 为 14.97pp/8.39pp/6.40pp。供应商可能使用不同价格、窗口、加权或年化口径；正确验证是固定输入的数学测试、来源隔离和 deterministic replay。
 - **SQL 参数类型应显式绑定**：scanner 新增 feature flag 后，位置参数曾把 stale numeric threshold 绑定为 boolean。用单行 `settings` CTE 固定布尔参数，并以 Railway 实库 materialization 作为回归验证。
 - **readiness 必须 fail closed**：当前每 symbol 只有 1–2 个 ATM market-day observations，0/67 满 252。系统继续使用明确标注的 Tastytrade cold-start rank，不能用短历史的 min/max 伪造 52-week IV Rank。
+
+## Scanner Strategy Lessons (2026-07-15)
+
+- **“最新 snapshot”不是单一排序问题**：Polygon 最新快照有 Greeks/OI 但 0 bid/ask；直接 `DISTINCT ON symbol ORDER BY snapshot_ts DESC` 让 55 个已有真实报价的标的全部变成空 scanner。Positioning 和 quote 必须各自选择最新可用 snapshot。
+- **报价必须带自己的 provenance/freshness**：不能把 GEX source 或 scanner materialization time 当作 legs 的报价时间。API 增加 `quote_source/quote_snapshot_ts/quote_freshness`。
+- **DTE 也受 UTC 午夜影响**：SQL 中 `expiry - CURRENT_DATE` 在美东晚间会提前减一天。scanner 与 ATM pipeline 都统一到 `America/New_York` market date。
+- **策略名不是产品输出**：每个 candidate 必须携带实际 legs、near/far expiry、sell bid、buy ask、credit/debit、max loss 或明确 undefined risk、breakeven 和 opportunity score。
+- **跨期结构要测试腿方向**：Calendar/Diagonal 固定 near short、far long；只测试“返回 Calendar”无法发现 expiry 反向的灾难性错误。
+- **裸卖风险必须是产品状态**：Short Strangle/Short Put/Short Call 不因用户选择“策略不限”而静默出现；必须显式开启 advanced-risk gate。
+- **全量 lint 与改动 lint 分开报告**：本 section files lint 通过；仓库仍有 21 个既有 lint errors，不能冒充本次引入，也不能在独立风险 commit 中顺手清理。

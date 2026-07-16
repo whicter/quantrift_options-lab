@@ -891,6 +891,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .scan-chip:hover { border-color: var(--blue); color: var(--blue); }
 .scan-chip.active { border-color: var(--blue); background: var(--blue-dim); color: var(--blue); font-weight: 600; }
+.scan-chip.advanced { border-style: dashed; }
 
 .scan-watchlist { display: flex; flex-wrap: wrap; gap: 4px; }
 .scan-wl-tag {

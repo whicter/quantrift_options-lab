@@ -82,3 +82,90 @@ test('unrestricted selector returns every qualifying strategy and setup instead 
   assert.ok(strategies.has('Bear Call Spread'));
   assert.ok(strategies.has('Iron Condor'));
 });
+
+test('long call and long put use ask-side debit and expose finite max loss', () => {
+  const contracts = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 1.9, ask: 2.0, delta: 0.20 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 1.7, ask: 1.8, delta: -0.20 }),
+  ];
+
+  const calls = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Long Call']);
+  const puts = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Long Put']);
+
+  assert.equal(calls[0].debit, 2.0);
+  assert.equal(calls[0].maxLoss, 2.0);
+  assert.equal(calls[0].legs[0].action, 'BUY');
+  assert.equal(puts[0].debit, 1.8);
+  assert.equal(puts[0].breakevens[0], 88.2);
+});
+
+test('undefined-risk short strategies require the explicit advanced gate', () => {
+  const contracts = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 2.0, ask: 2.1, delta: -0.20 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.20 }),
+  ];
+
+  assert.equal(buildActionableSetups(contracts, { price_close: 100 }, {}, ['Short Strangle']).length, 0);
+  const enabled = buildActionableSetups(
+    contracts,
+    { price_close: 100 },
+    { allowUndefinedRisk: true },
+    ['Short Strangle', 'Short Put', 'Short Call'],
+  );
+
+  assert.ok(enabled.some(setup => setup.strategy === 'Short Strangle' && setup.maxLoss === null));
+  assert.ok(enabled.some(setup => setup.strategy === 'Short Put' && setup.maxLoss === 88));
+  assert.ok(enabled.some(setup => setup.strategy === 'Short Call' && setup.maxLoss === null));
+  assert.ok(enabled.every(setup => setup.legs.every(leg => leg.action === 'SELL')));
+});
+
+test('iron butterfly uses one ATM body and symmetric real wings', () => {
+  const contracts = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 0.5, ask: 0.6, delta: -0.10 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 100, right: 'P', bid: 5.0, ask: 5.1, delta: -0.50 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 100, right: 'C', bid: 5.0, ask: 5.1, delta: 0.50 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 0.5, ask: 0.6, delta: 0.10 }),
+  ];
+
+  const results = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Iron Butterfly']);
+
+  assert.ok(results.length > 0);
+  assert.deepEqual(results[0].legs.map(leg => [leg.action, leg.right, leg.strike]), [
+    ['BUY', 'P', 90], ['SELL', 'P', 100], ['SELL', 'C', 100], ['BUY', 'C', 110],
+  ]);
+  assert.ok(results[0].credit > 0);
+  assert.ok(results[0].maxLoss > 0);
+});
+
+test('calendar and diagonal enforce near short and farther long expiries', () => {
+  const contracts = [
+    contract({ expiry: '2026-08-14', dte: 30, strike: 100, right: 'C', bid: 3.0, ask: 3.1, delta: 0.50 }),
+    contract({ expiry: '2026-08-14', dte: 30, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.20 }),
+    contract({ expiry: '2026-09-13', dte: 60, strike: 100, right: 'C', bid: 5.0, ask: 5.1, delta: 0.50 }),
+  ];
+
+  const calendar = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Calendar Spread'])[0];
+  const diagonal = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Diagonal Spread'])[0];
+
+  assert.equal(calendar.legs[0].action, 'SELL');
+  assert.equal(calendar.legs[0].strike, calendar.legs[1].strike);
+  assert.ok(calendar.legs[1].dte > calendar.legs[0].dte);
+  assert.equal(diagonal.legs[0].strike, 110);
+  assert.equal(diagonal.legs[1].strike, 100);
+  assert.ok(diagonal.legs[1].dte > diagonal.legs[0].dte);
+});
+
+test('jade lizard only emits when total credit removes upside call-spread risk', () => {
+  const contracts = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 5.0, ask: 5.1, delta: -0.20 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.20 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 115, right: 'C', bid: 0.8, ask: 0.9, delta: 0.10 }),
+  ];
+
+  const results = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Jade Lizard']);
+
+  assert.ok(results.length > 0);
+  assert.equal(results[0].legs.length, 3);
+  assert.ok(results[0].credit >= 5);
+  assert.equal(results[0].riskType, 'defined-upside');
+});

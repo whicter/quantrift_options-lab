@@ -13,6 +13,7 @@ const { enqueueRefreshJob } = require('../lib/refreshJobs');
 
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
 const SCANNER_CACHE_SECONDS = parseInt(process.env.SCANNER_CACHE_SECONDS ?? 60, 10);
+const SCANNER_QUOTE_STALE_MINUTES = parseInt(process.env.SCANNER_QUOTE_STALE_MINUTES ?? 1440, 10);
 const DEFAULT_SCAN_KEY = process.env.SCAN_KEY || 'watchlist_v1';
 
 function optionalFloat(value) {
@@ -31,7 +32,7 @@ function isMissingTableError(err) {
   return err?.code === '42P01';
 }
 
-router.get('/', async (req, res) => {
+async function sendScan(req, res) {
   const minIvr = parseFloat(req.query.minIvr ?? 0);
   const maxIvr = parseFloat(req.query.maxIvr ?? 100);
   const minIvHv = parseFloat(req.query.minIvHv ?? -999);
@@ -127,20 +128,36 @@ router.get('/', async (req, res) => {
          FROM option_chain_snapshots
          ORDER BY symbol, snapshot_ts DESC
        ),
+       latest_quote_chain AS (
+         SELECT DISTINCT ON (s.symbol)
+           s.symbol, s.id AS snapshot_id, s.source AS quote_source,
+           s.snapshot_ts AS quote_snapshot_ts
+         FROM option_chain_snapshots s
+         WHERE EXISTS (
+           SELECT 1
+           FROM option_contract_snapshots quoted
+           WHERE quoted.snapshot_id = s.id
+             AND quoted.bid IS NOT NULL
+             AND quoted.ask IS NOT NULL
+             AND quoted.ask > 0
+             AND quoted.ask >= quoted.bid
+         )
+         ORDER BY s.symbol, s.snapshot_ts DESC
+       ),
        contract_quality AS (
          SELECT
            c.symbol,
            COUNT(*)::int AS contract_count,
            COUNT(*) FILTER (WHERE c.delta IS NOT NULL AND c.gamma IS NOT NULL AND c.theta IS NOT NULL AND c.vega IS NOT NULL)::int AS greeks_contract_count,
            COUNT(*) FILTER (WHERE c.bid IS NOT NULL AND c.ask IS NOT NULL AND c.ask > 0)::int AS quoted_contract_count,
-           MIN((c.expiry::date - CURRENT_DATE))::int AS min_dte,
-           MAX((c.expiry::date - CURRENT_DATE))::int AS max_dte,
+           MIN((c.expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date))::int AS min_dte,
+           MAX((c.expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date))::int AS max_dte,
            MIN(ABS(c.delta)) AS min_abs_delta,
            MAX(ABS(c.delta)) AS max_abs_delta,
            AVG(((c.ask - c.bid) / NULLIF(((c.ask + c.bid) / 2.0), 0)) * 100)
              FILTER (WHERE c.bid IS NOT NULL AND c.ask IS NOT NULL AND c.ask > c.bid) AS avg_spread_pct
          FROM option_contract_snapshots c
-         JOIN latest_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
+         JOIN latest_quote_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
          GROUP BY c.symbol
        ),
        contract_samples AS (
@@ -149,7 +166,7 @@ router.get('/', async (req, res) => {
            jsonb_agg(
              jsonb_build_object(
                'expiry', c.expiry,
-               'dte', (c.expiry::date - CURRENT_DATE)::int,
+               'dte', (c.expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date)::int,
                'strike', c.strike,
                'right', c.option_right,
                'bid', c.bid,
@@ -164,7 +181,7 @@ router.get('/', async (req, res) => {
              ORDER BY c.expiry ASC, c.strike ASC, c.option_right ASC
            ) AS option_contracts
          FROM option_contract_snapshots c
-         JOIN latest_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
+         JOIN latest_quote_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
          WHERE c.bid IS NOT NULL
            AND c.ask IS NOT NULL
          GROUP BY c.symbol
@@ -186,6 +203,12 @@ router.get('/', async (req, res) => {
          unusual_oi_count, max_oi_delta, max_volume_oi_ratio, unusual_status,
          cq.contract_count, cq.greeks_contract_count, cq.quoted_contract_count,
          cq.min_dte, cq.max_dte, cq.min_abs_delta, cq.max_abs_delta, cq.avg_spread_pct,
+         lqc.quote_source, lqc.quote_snapshot_ts,
+         CASE
+           WHEN lqc.quote_snapshot_ts IS NULL THEN 'missing'
+           WHEN EXTRACT(EPOCH FROM (NOW() - lqc.quote_snapshot_ts)) / 60.0 > $27 THEN 'stale'
+           ELSE 'fresh'
+         END AS quote_freshness,
          COALESCE(cs.option_contracts, '[]'::jsonb) AS option_contracts,
          snapshot_ts,
          CASE
@@ -202,6 +225,7 @@ router.get('/', async (req, res) => {
        FROM latest_rows
        LEFT JOIN contract_quality cq ON cq.symbol = latest_rows.symbol
        LEFT JOIN contract_samples cs ON cs.symbol = latest_rows.symbol
+       LEFT JOIN latest_quote_chain lqc ON lqc.symbol = latest_rows.symbol
        WHERE iv_rank >= $2
          AND iv_rank <= $3
          AND COALESCE(iv_hv_diff, -999) >= $4
@@ -220,11 +244,11 @@ router.get('/', async (req, res) => {
              AND $24::numeric IS NULL AND $25::bigint IS NULL AND $26::bigint IS NULL)
            OR EXISTS (
              SELECT 1
-             FROM latest_chain lc
+             FROM latest_quote_chain lc
              JOIN option_contract_snapshots c ON c.snapshot_id = lc.snapshot_id AND c.symbol = lc.symbol
              WHERE lc.symbol = latest_rows.symbol
-               AND ($20::int IS NULL OR (c.expiry::date - CURRENT_DATE) >= $20)
-               AND ($21::int IS NULL OR (c.expiry::date - CURRENT_DATE) <= $21)
+               AND ($20::int IS NULL OR (c.expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date) >= $20)
+               AND ($21::int IS NULL OR (c.expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date) <= $21)
                AND ($22::numeric IS NULL OR ABS(c.delta) >= $22)
                AND ($23::numeric IS NULL OR ABS(c.delta) <= $23)
                AND (
@@ -280,6 +304,7 @@ router.get('/', async (req, res) => {
         maxSpreadPct,
         minContractOi,
         minContractVolume,
+        SCANNER_QUOTE_STALE_MINUTES,
       ]
     );
 
@@ -303,6 +328,9 @@ router.get('/', async (req, res) => {
     console.error('GET /api/scan error:', err.message);
     res.status(500).json({ error: 'database error' });
   }
-});
+}
+
+router.get('/', sendScan);
 
 module.exports = router;
+module.exports.sendScan = sendScan;

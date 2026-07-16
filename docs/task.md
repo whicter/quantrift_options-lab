@@ -908,7 +908,7 @@
 | P0.2 | Collector coverage/failure alert | coverage、failure、age、completeness 阈值可配置并有 operator alert + tests | SMTP/通知凭据仅影响真实发送验证 |
 | P0.3 | Polygon price history | 日线与 30M adapter、schema、collector、PM2 调度、67 symbols runtime verification | 使用现有 Polygon key；若 rotate 后未提供新 key 才阻塞 |
 | P0.4 | 自算 HV / ATM IV / IV Rank | ✅ 2026-07-15 完成：派生脚本、历史门槛、对比报告、来源切换与 fail-closed readiness | 252 个独立交易日尚未积累，因此 IV Rank 暂继续使用 TT 冷启动值 |
-| P1.1 | Scanner 策略扩展 | 所列策略按真实合约枚举、风险门控、测试和 UI 输出 | 无 |
+| P1.1 | Scanner 策略扩展 | ✅ 2026-07-15 完成：13 种结构按真实合约枚举、quote snapshot 分层、风险门控、测试和 UI 输出 | 无 |
 | P1.2 | Analyze 数据产品 | S/R、Focus Score、VRP、Gamma Flip、Local Gamma、chain stats 接入 | 无 |
 | P1.3 | Universe / on-demand | broader universe、filters、unknown symbol enqueue/wait UI、materialized invariant | universe 数据来源不足时记录具体字段阻塞 |
 | P1.4 | Market/weekly signals | regime header、30M breakout、Weekly GEX/Max Pain 实数接入 | 依赖 P0.3 30M 数据 |
@@ -1007,10 +1007,10 @@
 
 ---
 
-### Scanner 策略扩展（Phase 3H 遗留）
+### ✅ Scanner 策略扩展（P1.1，2026-07-15 完成）
 
 - [x] 当前已支持：Iron Condor, Bull Put Spread, Bear Call Spread, Long Straddle（+ Bull Call Spread / Short Strangle fallback label）
-- [ ] 待加入枚举（`scanOpportunity.js`）：
+- [x] 已加入枚举（`scanOpportunity.js`）：
   - **Short Strangle**：无 Delta 约束时选 far OTM call + far OTM put（同 expiry）；high IV 环境
   - **Iron Butterfly**：body 在 ATM，wings 对称；low move 预期 + 高 IV
   - **Diagonal Spread**：不同 expiry；long far-date leg + short near-date leg；需跨 expiry 报价
@@ -1018,6 +1018,18 @@
   - **Calendar Spread**：跨 expiry 卖近买远；IV term structure skewed
   - **Jade Lizard**：Short Put + Short Call Spread；无上方风险；需三腿同 expiry
   - 裸卖方（Short Put/Short Call）：需风险资质门控；默认流程不推荐，高级模式开放
+
+实现与验证证据：
+- `ACTIONABLE_STRATEGIES` 共 13 种：原 4 种 + Short Strangle / Iron Butterfly / Calendar / Diagonal / Long Call / Long Put / Jade Lizard / Short Put / Short Call
+- Short Strangle、Short Put、Short Call 默认不枚举；UI 必须显式开启“高级裸卖风险策略”
+- Calendar/Diagonal 强制 near expiry short + farther expiry long；Iron Butterfly 强制同 expiry/同 ATM body/对称真实 wings；Jade Lizard 仅当总 credit 覆盖 call width 才输出
+- pricing 使用 sell bid / buy ask；缺 quote、负 credit、错 expiry、缺腿或风险计算失败时不输出
+- `/api/scan` 将 latest positioning snapshot 与 latest usable quote snapshot 分离，避免无 bid/ask 的新 Polygon snapshot 遮住已有 IB/TT quotes；返回 `quote_source/quote_snapshot_ts/quote_freshness`
+- scanner DTE 使用 `America/New_York` market date，不使用 UTC `CURRENT_DATE`
+- Railway runtime：最新任意 snapshot quoted coverage 0；latest usable quote coverage 55 symbols（IB 54 + TT 1）；修复后前 20 scanner rows 中 18 有 quotes，默认策略枚举 667 candidates，覆盖 10 种非裸卖结构
+- Tests：frontend 17 passed、server 13 passed；changed frontend files lint 0；frontend build passed
+- Known verification gap：仓库全量 lint 仍有 21 个既有 errors，均不在本 section 修改文件；Browser plugin 初始化报 `Cannot redefine property: process`，因此本 section 未取得自动 screenshot，未宣称 visual browser tested
+- Rollback：回滚本 section commit；无 schema 迁移
 - [ ] **Vol Risk Premium UI 补全**：
   - 后端 `iv_hv_diff`（IV30 - HV30）已采集，`signal_score` 已用，但前端未显示
   - Analyze Tab1 增加独立的 "Vol Risk Premium" 指标卡（IV-HV diff = 卖方溢价来源）

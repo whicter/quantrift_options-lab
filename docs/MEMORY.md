@@ -68,8 +68,8 @@
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
-1. Scanner strategy expansion with actual contracts and executable-side pricing
-2. Analyze/universe/market-weekly product completion
+1. Analyze data product completion
+2. Universe/on-demand and market-weekly product completion
 3. Landing/notifications, then production auth/subscription/paywall
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。
@@ -78,3 +78,5 @@ Polygon price history 已实现：`collect_prices.py` 同轮写 `price_history` 
 Runtime 已验证 67/67 双 timeframe coverage；shared Stocks limiter 为 16 秒并跨 option/price PM2 进程协调。下一 section 直接从 349+ 日线 rows 自算 HV30/60/90，并对 ATM IV/IV Rank 做 history readiness gate。
 
 Derived volatility 已完成：`volatility_history` 隔离 Polygon HV/ATM IV；API/scanner 输出字段级 provenance。Railway runtime 为 HV 67/67、ATM IV 67/67、ATM DTE 30–43；IV Rank 需要 252 个独立美东交易日，当前 1–2 observations/symbol、0/67 ready，因此仍使用 Tastytrade cold-start rank。一次 UTC 午夜 bug 曾把 30 DTE 算成 29 DTE，现统一使用 `America/New_York` market date 并有回归测试。
+
+Scanner strategy expansion 已完成：13 种真实合约结构；sell 使用 bid、buy 使用 ask；Calendar/Diagonal 跨期规则和 Iron Fly/Jade Lizard 结构门控有测试。`/api/scan` 分离 latest positioning 与 latest quoted snapshot，恢复 55-symbol quote coverage；高级 Short Strangle/Short Put/Short Call 默认关闭。
