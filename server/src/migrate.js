@@ -310,6 +310,28 @@ async function migrate() {
       payload          JSONB       NOT NULL DEFAULT '{}'
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id                  BIGSERIAL   PRIMARY KEY,
+      clerk_user_id       TEXT        NOT NULL UNIQUE,
+      email               TEXT,
+      display_name        TEXT,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id                       BIGSERIAL   PRIMARY KEY,
+      user_id                  BIGINT      NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      plan                     TEXT        NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
+      status                   TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'trialing', 'past_due', 'canceled', 'incomplete')),
+      stripe_customer_id       TEXT        UNIQUE,
+      stripe_subscription_id   TEXT        UNIQUE,
+      current_period_end       TIMESTAMPTZ,
+      cancel_at_period_end     BOOLEAN     NOT NULL DEFAULT FALSE,
+      created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

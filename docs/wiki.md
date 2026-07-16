@@ -1197,3 +1197,7 @@ The cloud metrics service is a separate one-shot deployment defined by `collecto
 ### IB Gateway Cloud Boundary
 
 The evaluated target is a fixed-egress VPS, not a public Railway service. Gateway and a read-only collector share localhost/private networking; raw API ports are never internet-facing. `ops/ib-gateway/` contains the paper/read-only template and soak checklist. Mac Studio remains active until the candidate survives reconnect/reboot and data-parity checks.
+
+### Account and Entitlements
+
+Clerk verifies browser sessions; local `users` and `subscriptions` rows own product access. `/api/account/me` performs an idempotent user/free-plan upsert and returns entitlements. Frontend auth components are conditional on the Clerk publishable key. Product enforcement remains off until billing lifecycle and production credentials are present.

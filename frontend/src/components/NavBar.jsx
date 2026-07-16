@@ -1,6 +1,16 @@
 import { Link, NavLink } from 'react-router-dom';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
 
-export default function NavBar({ theme, onThemeChange }) {
+function AuthControls() {
+  return (
+    <div className="nav-auth">
+      <SignedOut><SignInButton mode="modal"><button type="button" className="nav-account-btn">登录</button></SignInButton></SignedOut>
+      <SignedIn><Link className="nav-account-link" to="/account">账户</Link><UserButton /></SignedIn>
+    </div>
+  );
+}
+
+export default function NavBar({ theme, onThemeChange, authConfigured = false }) {
   return (
     <nav className="navbar">
       <Link className="navbar-brand" to="/">Quantrift</Link>
@@ -18,6 +28,7 @@ export default function NavBar({ theme, onThemeChange }) {
           周复盘
         </NavLink>
       </div>
+      {authConfigured ? <AuthControls /> : null}
       <div className="theme-toggle" role="group" aria-label="Theme mode">
         <button
           type="button"

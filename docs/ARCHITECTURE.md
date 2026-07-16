@@ -1687,3 +1687,17 @@ Decision: IB Gateway is not a cron workload and should not expose its unauthenti
 `ops/ib-gateway/docker-compose.yml` pins `ghcr.io/gnzsnz/ib-gateway:10.45.1f`, defaults to paper/read-only, reads the password from a Docker secret, persists Gateway settings and binds 4001/4002 to loopback only. The upstream image combines Gateway, IBC, Xvfb and local TCP relay; its own security guidance warns that the IB API socket is unencrypted and unauthenticated when exposed beyond localhost ([upstream repository](https://github.com/gnzsnz/ib-gateway-docker)).
 
 Migration gate is a 72-hour paper/read-only soak covering initial 2FA, nightly restart, VPS reboot, reconnect, stale-data behavior and client-ID isolation. Mac Studio remains rollback until cloud coverage/freshness parity is proven. Actual VPS purchase, fixed IP and IBKR login/2FA are external operations, not repository work.
+
+## 36. Identity and Account Boundary
+
+Clerk owns session issuance and verification; PostgreSQL owns product identity, plan and entitlement state. The Express middleware is mounted before body/CORS middleware and validates authorized parties when keys are configured. Protected handlers return JSON 401 instead of redirecting.
+
+```text
+Clerk session JWT -> Express clerkMiddleware -> clerk_user_id
+                                            -> users
+                                            -> subscriptions -> entitlements
+```
+
+`users.clerk_user_id` is the stable external identity key. First authenticated account access idempotently creates a local user and Free subscription. The public plan catalog exposes only product entitlements, never Clerk or Stripe secrets. The frontend mounts `ClerkProvider` only when `VITE_CLERK_PUBLISHABLE_KEY` exists, so a partial deployment does not initialize a broken auth SDK.
+
+Current rollout keeps existing product routes unchanged until entitlement enforcement and Stripe lifecycle are complete. Clerk keys, production sign-in and Railway schema application remain deployment prerequisites. The migration attempt was blocked by the Codex execution usage limit and is not claimed applied.

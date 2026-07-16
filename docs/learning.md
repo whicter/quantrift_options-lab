@@ -549,3 +549,11 @@ V1 公式：
 - **先 paper/read-only 再谈迁移**：数据采集迁移不应顺带开启下单权限。
 - **镜像必须 pin 版本**：`stable`/`latest` 自动漂移会让 Gateway/IBC 变化绕过回归验证。
 - **真正验收是 soak test**：容器能启动不证明 2FA、重连、clientId、stale-data 和夜间重启可靠。
+
+## Clerk Auth Lessons (2026-07-15)
+
+- **外部身份与产品账户要分层**：Clerk user ID 是认证 identity；plan、entitlements、positions 属于本地业务数据库。
+- **API 鉴权不应 redirect**：浏览器 API route 返回 JSON 401/503，登录跳转由前端负责。
+- **authorized parties 必须显式配置**：只验证 token 签名而不限制来源会扩大跨站 token 风险。
+- **部分部署必须可控**：没有 publishable key 时前端不挂 ClerkProvider；没有后端 keys 时 protected API fail closed。
+- **建表代码不等于 migration applied**：本次 Railway migration 被 usage limit 阻止，因此只能记录 deployment-ready，不能声称 production schema 已完成。

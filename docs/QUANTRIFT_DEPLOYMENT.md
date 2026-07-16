@@ -1483,3 +1483,18 @@ Acceptance requires:
 6. 72 hours of coverage/freshness parity before moving the read-only collector.
 
 Never switch this template to live/write access as part of a data migration. That is a separate deployment and business-behavior approval. `docker compose config --no-interpolate` and 85 collector tests pass; no VPS/2FA runtime is claimed.
+
+## Clerk Account Rollout
+
+Railway variables:
+
+```text
+CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+CLERK_AUTHORIZED_PARTIES=https://www.quantrift.io
+AUTH_ENFORCEMENT_ENABLED=false
+```
+
+Vercel variable: `VITE_CLERK_PUBLISHABLE_KEY`. Apply the additive migration before enabling frontend auth, deploy both sides, sign in, and verify `GET /api/account/me` creates one `users` row and one Free `subscriptions` row. Keep enforcement false until Stripe/entitlement gates are verified.
+
+Code verification: server 43 tests, frontend 19 tests and production build passed. The 2026-07-15 Railway migration command was rejected because the Codex execution usage limit was reached; the schema is committed in code but database application and real Clerk sign-in are not verified.

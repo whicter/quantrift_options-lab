@@ -66,6 +66,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - A ready derived IV Rank must stop Tastytrade work in scheduled, queued, and on-demand paths. Never manufacture or duplicate market dates to satisfy the 252-observation gate.
 - The Railway metrics cron is one-shot `collect.py`, not the Mac daemon. Preserve `/collector/railway.metrics.json`, UTC schedule, `NEVER` restart and secret-free image.
 - IB Gateway cloud candidates must use fixed egress, paper/read-only first, pinned image and loopback/private API. Never expose ports 4001/4002 publicly or combine data migration with live write access.
+- Clerk owns authentication only; local users/subscriptions own entitlements. Keep auth enforcement disabled until Railway migration, frontend/backend keys and billing tests all pass.
 - Scanner alert evaluation runs only after scanner materialization. Preserve outbox uniqueness and `blocked` channel state; never send provider requests from notification evaluation.
 - VAPID private key stays in collector secrets. API/browser may receive only `WEB_PUSH_VAPID_PUBLIC_KEY`.
 - `/` is the Quantrift product entry. Preserve direct Scan/Analyze/Weekly workflows and live Market Regime; `/learn` is no longer the default redirect.

@@ -16,6 +16,8 @@ const { router: weeklyRouter } = require('./routes/weekly');
 const { router: alertsRouter } = require('./routes/alerts');
 const { router: heartbeatRouter } = require('./routes/heartbeat');
 const { startHeartbeatMonitor } = require('./lib/heartbeatMonitor');
+const { buildAuthMiddleware } = require('./lib/auth');
+const { router: accountRouter } = require('./routes/account');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +39,7 @@ function buildCorsOrigin() {
   };
 }
 
+app.use(buildAuthMiddleware());
 app.use(cors({
   origin: buildCorsOrigin(),
 }));
@@ -58,6 +61,7 @@ app.use('/api/market', marketRouter);
 app.use('/api/weekly', weeklyRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/heartbeat', heartbeatRouter);
+app.use('/api/account', accountRouter);
 
 startHeartbeatMonitor();
 

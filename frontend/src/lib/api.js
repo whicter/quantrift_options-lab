@@ -8,6 +8,12 @@ async function getJson(path) {
   return response.json();
 }
 
+async function getAuthenticatedJson(path, token) {
+  const response = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  return response.json();
+}
+
 export function getMetrics(symbols) {
   const query = symbols.map(symbol => symbol.toUpperCase()).join(',');
   return getJson(`/api/metrics?symbols=${encodeURIComponent(query)}`);
@@ -128,6 +134,10 @@ export function getWeekly(symbol) {
 
 export function getVapidPublicKey() {
   return getJson('/api/alerts/vapid-public-key');
+}
+
+export function getAccount(token) {
+  return getAuthenticatedJson('/api/account/me', token);
 }
 
 export async function createAlertSubscription(payload) {
