@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { getDataStatus, getWeekly } from '../lib/api';
+import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Sec1Tone from './weekly/Sec1Tone';
 import Sec2Gamma from './weekly/Sec2Gamma';
 import Sec3Pinning from './weekly/Sec3Pinning';
@@ -14,6 +15,8 @@ const SECTIONS = [
   { id: 3, num: '04', label: '仓位变化' },
   { id: 4, num: '05', label: '下周分叉' },
 ];
+
+const COMMON_SYMBOLS = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMZN', 'META', 'MSFT'];
 
 function toViewModel(result) {
   return {
@@ -37,29 +40,38 @@ function toViewModel(result) {
 
 export default function Weekly() {
   const { symbol } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [quickLinks, setQuickLinks] = useState(['AAPL', 'SPY', 'QQQ']);
+  const [quickLinks, setQuickLinks] = useState(COMMON_SYMBOLS);
+  const selectedSymbol = normalizeTickerInput(symbol || 'SPY');
+  const [symbolInput, setSymbolInput] = useState(selectedSymbol);
   const activeSection = Math.max(0, Math.min(4, Number(searchParams.get('sec') || 0)));
   const setSection = section => setSearchParams({ sec: section });
+
+  function selectSymbol(value) {
+    const nextSymbol = sanitizeTickerForSubmit(value);
+    if (!nextSymbol) return;
+    setSymbolInput(nextSymbol);
+    navigate(`/weekly/${nextSymbol}?sec=0`);
+  }
 
   useEffect(() => {
     getDataStatus().then(status => {
       const symbols = status.universe?.symbols || status.expected_symbols;
-      if (symbols?.length) setQuickLinks(symbols.slice(0, 12));
+      if (symbols?.length) setQuickLinks([...new Set([...COMMON_SYMBOLS, ...symbols])].slice(0, 12));
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!symbol) return;
     let cancelled = false;
-    getWeekly(symbol)
+    getWeekly(selectedSymbol)
       .then(result => {
         if (cancelled) return;
         if (result.status !== 'ready') {
           setData(null);
-          setError(`${symbol.toUpperCase()} 至少需要 6 根真实日线才能生成周复盘。`);
+          setError(`${selectedSymbol} 至少需要 6 根真实日线才能生成周复盘。`);
           return;
         }
         setData(toViewModel(result));
@@ -68,24 +80,10 @@ export default function Weekly() {
       .catch(() => {
         if (cancelled) return;
         setData(null);
-        setError(`无法读取 ${symbol.toUpperCase()} 的真实周复盘数据。`);
+        setError(`无法读取 ${selectedSymbol} 的真实周复盘数据。`);
       });
     return () => { cancelled = true; };
-  }, [symbol]);
-
-  if (!symbol) {
-    return (
-      <div className="az-page">
-        <div className="az-header">
-          <div className="az-title">一周深度复盘</div>
-          <div className="az-subtitle">选择标的，读取真实周 K、Gamma、Max Pain 与 ΔOI</div>
-        </div>
-        <div className="wk-quick-links">
-          {quickLinks.map(item => <Link key={item} to={`/weekly/${item}`} className="wk-quick-link">{item}</Link>)}
-        </div>
-      </div>
-    );
-  }
+  }, [selectedSymbol]);
 
   return (
     <div className="az-page">
@@ -94,10 +92,21 @@ export default function Weekly() {
           <div className="wk-page-title">一周深度复盘</div>
           {data && <div className="wk-page-meta">{data.symbol} · {data.week}</div>}
         </div>
-        <div className="wk-sym-links">
-          {quickLinks.map(item => (
-            <Link key={item} to={`/weekly/${item}?sec=0`} className={`wk-sym-link ${symbol.toUpperCase() === item ? 'active' : ''}`}>{item}</Link>
-          ))}
+        <div className="wk-symbol-controls">
+          <form className="wk-symbol-search" onSubmit={event => { event.preventDefault(); selectSymbol(symbolInput); }}>
+            <input
+              value={symbolInput}
+              onChange={event => setSymbolInput(normalizeTickerInput(event.target.value))}
+              placeholder="输入代码"
+              aria-label="输入复盘标的"
+            />
+            <button type="submit">查看</button>
+          </form>
+          <div className="wk-sym-links">
+            {quickLinks.map(item => (
+              <Link key={item} to={`/weekly/${item}?sec=0`} onClick={() => setSymbolInput(item)} className={`wk-sym-link ${selectedSymbol === item ? 'active' : ''}`}>{item}</Link>
+            ))}
+          </div>
         </div>
       </div>
       {error && <div className="az-error">{error}</div>}

@@ -232,6 +232,9 @@ body {
 .az-btn:hover { opacity: 0.85; }
 .az-btn:disabled { opacity: 0.5; cursor: default; }
 .az-error { color: var(--red); font-size: 13px; margin-bottom: 12px; }
+.az-collecting { display: flex; flex-direction: column; gap: 4px; max-width: 620px; margin: 0 0 14px; padding: 13px 15px; color: var(--text); background: var(--blue-dim); border: 1px solid var(--blue); border-radius: 6px; }
+.az-collecting strong { color: var(--blue); font-size: 13px; }
+.az-collecting span { color: var(--text-dim); font-size: 13px; }
 
 .az-symbol-row {
   display: flex;
@@ -1468,7 +1471,12 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .wk-page-title { font-size: 20px; font-weight: 700; color: var(--text); }
 .wk-page-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-.wk-sym-links { display: flex; gap: 6px; }
+.wk-symbol-controls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
+.wk-sym-links { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.wk-symbol-search { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.wk-symbol-search input { width: 94px; height: 30px; padding: 0 8px; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; font: inherit; font-weight: 700; text-transform: uppercase; }
+.wk-symbol-search input:focus { outline: none; border-color: var(--blue); }
+.wk-symbol-search button { height: 30px; padding: 0 9px; color: #fff; background: var(--blue); border: 1px solid var(--blue); border-radius: 5px; font: inherit; font-weight: 700; cursor: pointer; }
 .wk-sym-link {
   padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
   color: var(--text-dim); border: 1px solid var(--border); text-decoration: none;

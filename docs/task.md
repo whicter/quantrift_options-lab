@@ -39,7 +39,7 @@
 
 ## ✅ Done (Phase 2 — /weekly Weekly Recap UI)
 - ✅ /weekly 路由 + /weekly/:symbol 参数路由（App.jsx + NavBar）
-- ✅ Weekly.jsx：5段导航（?sec=0-4）、符号切换链接、prev/next 按钮、进度计数
+- ✅ Weekly.jsx：5段导航（?sec=0-4）、prev/next 按钮、进度计数；`/weekly` 默认加载 SPY，顶部保留常用标的快捷入口并支持输入任意有效标的代码。
 - ✅ Weekly 真实数据：`/api/weekly/:symbol` 返回 rolling 5-session OHLC、每日实际 GEX history、Max Pain、ΔOI 与条件剧本；`weeklyMock.js` 已删除
 - ✅ Sec1 本周定调：K线图 Canvas（5根OHLC）+ CME Gauge Canvas（半圆弧仪表盘）、定调文字
 - ✅ Sec2 Gamma迁徙：星期选择器、GEX 日内图 Canvas（随天切换）、Call/Put Wall 迁移表
@@ -1145,7 +1145,7 @@ P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additiv
 - 现有 `provider_fetch_jobs` 队列已支持按需 enqueue
 - 当前 `/api/gex/:symbol` 对未采集标的返回 `freshness=missing`
 - ✅ API 对未知标的注册 persistent universe，并 enqueue metrics/price/options/GEX/scanner bundle；返回 product-level ready/queued/blocked
-- ✅ 前端显示数据采集状态、已有 partial products 与 non-retryable blocker；PostgreSQL snapshot 是缓存层。按需 refresh worker 每 60 秒取队列，产品提示采用通常 `~1-3min`，不向用户暴露 `price / metrics / options / gex` 内部字段名。
+- ✅ 前端显示数据采集状态、已有 partial products 与 non-retryable blocker；PostgreSQL snapshot 是缓存层。按需 refresh worker 每 60 秒取队列，产品提示采用通常 `~1-3min`，不向用户暴露 `price / metrics / options / gex` 内部字段名；queued 状态每 5 秒检查一次，任一数据产品写入后自动重新分析。
 - 无需为此修改数据库 schema
 
 ---

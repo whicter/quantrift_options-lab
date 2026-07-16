@@ -449,7 +449,7 @@ Host mac-studio
 /learn         → V1 教育工具（现有 options-lab 所有组件）
 /analyze       → V2 标的分析 + 策略推荐（4-tab：今日概览/日内变化/数据解读/信号追踪）
 /scan          → V2 扫描器（批量筛选）
-/weekly        → 周复盘入口（无标的时显示快捷链接）
+/weekly        → 周复盘入口（默认加载 SPY；常用标的快捷入口和代码输入）
 /weekly/:symbol → 周复盘详情（5-section：本周定调/Gamma迁徙/交割偏离/仓位变化/下周分叉）
 /api/status/data → 数据覆盖状态：watchlist 覆盖率、missing/stale symbols、source counts、latest_date
 /portfolio     → V3 持仓追踪
@@ -1173,7 +1173,7 @@ Runtime evidence：
 
 The scanner is no longer bounded by the visible 67-symbol watchlist. `symbol_universe` persists all known symbols and on-demand registrations. `sync_universe.py` imports the legacy watchlist plus symbols already known to price, IV and option tables; `materialize_scan.py` reads active/scannable registry rows.
 
-`GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. The refresh worker polls every 60 seconds; the user-facing pending state says that data is being prepared and normally completes in `~1-3min`, without exposing internal coverage field names. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
+`GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. The refresh worker polls every 60 seconds; the user-facing pending state says that data is being prepared and normally completes in `~1-3min`, without exposing internal coverage field names. While queued, Analyze checks status every five seconds and automatically reruns analysis when a product becomes available. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
 
 Universe filter semantics:
 - price and underlying share/dollar volume use latest persisted OHLCV;
@@ -1195,6 +1195,8 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 - 交割偏离：latest actual Max Pain versus latest close;
 - 仓位变化：daily aggregate ΔOI and unusual count, never described as dollar flow;
 - 下周分叉：expected-side Wall first, then real pivot S/R; absent evidence leaves a direction missing.
+
+`/weekly` defaults to SPY so the recap opens directly into research. The header keeps common liquid symbols as quick links and accepts any valid ticker for a direct recap request.
 
 ### Product Home
 

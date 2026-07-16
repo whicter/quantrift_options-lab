@@ -379,9 +379,19 @@ export default function Analyze() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [dataStatus, setDataStatus] = useState(null);
+  const [onDemandStatus, setOnDemandStatus] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
   const activeTab = parseInt(searchParams.get('tab') || '0');
   const analyzeInitialSymbol = useEffectEvent(handleAnalyze);
+  const pollQueuedAnalysis = useEffectEvent(async (symbol) => {
+    try {
+      const nextStatus = await getAnalyzeStatus(symbol);
+      setOnDemandStatus(nextStatus);
+      if (nextStatus?.status !== 'queued') handleAnalyze(symbol);
+    } catch {
+      // Keep the current queued state visible and retry on the next interval.
+    }
+  });
 
   function syncSearchParams(next, options = {}) {
     const normalized = new URLSearchParams(next);
@@ -418,6 +428,7 @@ export default function Analyze() {
         getVolumeProfile(sym).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
+      setOnDemandStatus(onDemandStatus);
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
@@ -465,6 +476,12 @@ export default function Analyze() {
     getDataStatus().then(setDataStatus).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (onDemandStatus?.status !== 'queued' || !onDemandStatus.symbol) return undefined;
+    const interval = window.setInterval(() => pollQueuedAnalysis(onDemandStatus.symbol), 5000);
+    return () => window.clearInterval(interval);
+  }, [onDemandStatus?.status, onDemandStatus?.symbol]);
+
   return (
     <div className="az-page">
       <div className="az-header">
@@ -495,7 +512,12 @@ export default function Analyze() {
         </button>
       </div>
 
-      {error && <div className="az-error">{error}</div>}
+      {onDemandStatus?.status === 'queued' && !result ? (
+        <div className="az-collecting" role="status">
+          <strong>正在准备 {onDemandStatus.symbol} 的分析</strong>
+          <span>价格与期权数据写入后会自动刷新，通常 {onDemandStatus.estimated_wait || '~1-3min'}。</span>
+        </div>
+      ) : error && <div className="az-error">{error}</div>}
 
       {result && (
         <>
