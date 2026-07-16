@@ -4,6 +4,7 @@ import { getDataStatus, getMarketRegime, getScan } from '../lib/api';
 import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
 import ScannerAlerts from '../components/ScannerAlerts';
 import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
+import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -118,16 +119,6 @@ function num(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function compactMoney(value) {
-  const n = num(value);
-  if (n == null) return '--';
-  const abs = Math.abs(n);
-  if (abs >= 1e9) return `${n < 0 ? '-' : ''}$${(abs / 1e9).toFixed(1)}B`;
-  if (abs >= 1e6) return `${n < 0 ? '-' : ''}$${(abs / 1e6).toFixed(0)}M`;
-  if (abs >= 1e3) return `${n < 0 ? '-' : ''}$${(abs / 1e3).toFixed(0)}K`;
-  return `${n < 0 ? '-' : ''}$${abs.toFixed(0)}`;
-}
-
 function strategyAction(strategy) {
   if (strategy === 'Bear Call Spread') return '卖出较低行权价 Call，买入更高行权价 Call，收取 credit。';
   if (strategy === 'Bull Put Spread') return '卖出较高行权价 Put，买入更低行权价 Put，收取 credit。';
@@ -150,10 +141,6 @@ function economicsSummary(setup) {
   if (setup.debit != null) return `Debit $${Math.round(setup.debit * 100).toLocaleString('en-US')}`;
   if (setup.credit != null) return `Credit $${Math.round(setup.credit * 100).toLocaleString('en-US')} · 风险未限定`;
   return '--';
-}
-
-function missingLabel(value) {
-  return value === 'missing' ? '未采集' : value;
 }
 
 function oiDeltaSummary(unusual) {
@@ -900,9 +887,10 @@ export default function Scan() {
                     </span>
                     <span className="scan-positioning" title={d.community.status === 'missing' ? '社区热度尚未采集' : `${d.community.windowHours}小时：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}`}>
                       <span className={`scan-gex-pill ${d.gex.regime}`}>
-                        {d.gex.status === 'fresh' ? d.gex.regime : missingLabel(d.gex.status)}
+                        {gammaRegimeLabel(d.gex.regime)}
                       </span>
-                      <small>{compactMoney(d.gex.total)} · {d.gex.nearestWall ? `${d.gex.nearestWall.side} ${d.gex.nearestWall.pct.toFixed(1)}%` : 'Wall --'}</small>
+                      <small>{gammaSummary(d.gex)}</small>
+                      <small>{wallSummary(d.gex, d.price)}</small>
                       <small>{oiDeltaSummary(d.unusual)} · 社区 {communityHeatLabel(d.community)}</small>
                     </span>
                     <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>

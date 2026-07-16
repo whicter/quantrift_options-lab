@@ -518,6 +518,7 @@ V1 公式：
 - **突破信号必须校验跨 timeframe 日期**：daily 已到 7/15、30M 仍停在 7/14 时，即便价格和量能满足公式也只能返回 stale，不能确认 breakout。
 - **OI 变化不是资金流**：`SUM(oi_delta)` 的单位是合约，不是美元，也不能判断 opening buy/sell。Weekly 将“Smart Money”改为“仓位变化”。
 - **OI 不是每轮报价都会变**：同一交易日内反复保存的 option snapshot 常有完全相同的 OI。ΔOI 必须拿最新快照与同一 provider 的前一纽约交易日快照比较；把今天 10:00 与今天 13:00 相减得到的 `0` 不是有效的仓位结论。没有前一交易日基线时，UI 应显示 `待下一交易日`，不能显示 `0 / 0`。
+- **Wall 与 GEX 必须用现价语言表达**：`Call 4.5%` 没有说明 Wall 在哪里。应该显示为 `上方 Call Wall $价位（+距离）` 或 `下方 Put Wall $价位（-距离）`。`净 GEX` 是把 Call Gamma 计正、Put Gamma 计负后的模型汇总，不是资金流；负 Gamma 表示波动可能放大，正 Gamma 表示波动可能收敛，且要同时显示快照是否延迟。
 - **Wall 需要方向有效性**：Call Wall 在现价下方不能作为向上突破，Put Wall 在现价上方不能作为向下跌破。先检查相对 spot 的方向，再 fallback 到真实 S/R。
 - **历史快照少就显示少**：AAPL 当前只有一个可用 GEX market day。Gamma migration 显示一日，不复制成 Mon–Fri 假历史。
 - **滚动五交易日比硬编码 Mon–Fri 更稳健**：节假日、周中运行和缺失交易日不会导致填充不存在的 candle。

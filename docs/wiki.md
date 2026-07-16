@@ -1140,6 +1140,8 @@ The returned candidate grid groups its data into seven decision cells: symbol/pr
 
 `ΔOI` is a daily position comparison, not an intraday quote change. The materializer selects the latest usable option snapshot and compares it with the newest prior New York market-date snapshot from the same provider. Repeated same-day snapshots cannot become the baseline. When no previous trading-day baseline exists, Scanner shows `ΔOI 待下一交易日`; it must not display `0 / 0`.
 
+Scanner positioning copy is price-relative: `上方 Call Wall $220 (+4.8%)` means the nearest Call Wall strike is 220, 4.8% above the current spot. `下方 Put Wall` is analogous. `净 GEX -$1.1B` is the model's aggregated net gamma exposure (Calls positive, Puts negative), not a cash flow or PnL number. Negative Gamma is labelled as a context where moves can amplify; positive Gamma is labelled as a context where moves can be dampened. GEX freshness remains visible.
+
 当前支持 13 种结构：Iron Condor、Bull Put Spread、Bear Call Spread、Long Straddle、Short Strangle、Iron Butterfly、Calendar Spread、Diagonal Spread、Long Call、Long Put、Jade Lizard、Short Put、Short Call。
 
 - `不限` 是对当前 quote snapshot 的全部达标组合进行枚举，同一 symbol 可有多个 expiry/strategy/strike candidate。
