@@ -317,10 +317,11 @@
 - [ ] Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job（纯 REST API，无需本地网关，可直接云端跑）
   - [x] 独立 one-shot image/config：`collector/Dockerfile.metrics` + `collector/railway.metrics.json`
   - [x] 固定 UTC 盘后 schedule：`30 22 * * 1-5`；`restartPolicyType=NEVER`，进程完成后退出
-  - [x] Secret contract：仅需 `DATABASE_URL`、`TT_REMEMBER_TOKEN`、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv
-  - [x] Verification：collector `unittest discover -s tests -v` 104/104 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed
+  - [x] Secret contract：`DATABASE_URL`、初始 `TT_REMEMBER_TOKEN`、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv。TT 成功 session exchange 返回 successor token 时，collector 仅持久化该返回值；不会自行 rotate、不会在 401/403 后重试登录。
+  - [x] Token-state durability：`TT_REMEMBER_TOKEN_STATE_PATH` 可指向持久文件。Railway 需挂载 `/data` volume 并设为 `/data/tastytrade-remember-token`；首跑使用 service variable seed，后续 cron 从 volume 读取并原子替换 provider 返回的 successor。
+  - [x] Verification：collector `unittest discover -s tests -v` 107/107 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed
   - [x] Railway 独立 service：`quantrift-metrics-cron` 已创建，config path 为 `/collector/railway.metrics.json`，DB/TT variables 已注入，Git deployment active（2026-07-16）
-  - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols，但 TT session renewal 返回 `401 invalid_credentials`；本机当前 remember token 的独立无写入探针亦返回 `403`。完成条件是人工 `python auth.py --login` 取得新 token、更新 Railway `TT_REMEMBER_TOKEN` 后手动 run 成功并验证新增/更新 `iv_history` rows。
+  - [ ] 首个成功 cloud run：2026-07-16 手动 run 已确认容器连通 PostgreSQL、加载 67 个 symbols。旧认证实现丢弃了一次成功 exchange 返回的 successor token，导致后续运行 401；修复和 107 个测试已完成。完成条件：人工 `python auth.py --login` 取得新的 seed、在 Railway 配置 `/data` persistent volume 与 `TT_REMEMBER_TOKEN_STATE_PATH=/data/tastytrade-remember-token`、更新 Railway `TT_REMEMBER_TOKEN`、手动 run 成功并验证新增/更新 `iv_history` rows。
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS）并完成断电恢复演练
   - [x] macOS 自动恢复已验证：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`；市电恢复后系统会自动重启。
   - [x] PM2 开机恢复已验证：LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`；`~/.pm2/dump.pm2` 包含 `quantrift-options-collector`、`quantrift-options-prices`、`quantrift-reddit-trends`、`quantrift-universe-metadata`、`quantrift-unusual-whales-flow`。

@@ -54,7 +54,7 @@
 - `server/src/migrate.js` — 建表脚本，Railway 上跑一次
 - `server/src/routes/scan.js` — scanner cache API，只读 `scanner_results_snapshots`
 - `server/src/routes/status.js` — `/api/status/data`, `/api/status/options`, `/api/status/cache`
-- `collector/auth.py` — Tastytrade 认证，`--login` 手动登录，自动续 remember-token
+- `collector/auth.py` — Tastytrade 认证，`--login` 手动登录；仅在成功 session exchange 返回 successor 时原子持久化 remember-token
 - `collector/collect.py` — 每日 4:30pm ET 采集 IV → PostgreSQL
 - `collector/collect_options.py` — bounded option-chain snapshots
 - `collector/compute_gex.py` — GEX / Wall / Gamma Flip compute
@@ -64,7 +64,7 @@
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
-- remember-token 存于 Mac Studio `collector/.env`（首次需 `python auth.py --login`）
+- remember-token 存于 Mac Studio `collector/.env`（首次需 `python auth.py --login`）；Railway Cron 用 `/data` volume 和 `TT_REMEMBER_TOKEN_STATE_PATH=/data/tastytrade-remember-token` 保存 provider 返回的 successor，不能只依赖短生命周期容器变量
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）

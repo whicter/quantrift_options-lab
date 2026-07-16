@@ -13,6 +13,7 @@ import sys
 import json
 import smtplib
 import argparse
+import tempfile
 import requests
 from email.mime.text import MIMEText
 from dotenv import load_dotenv, set_key
@@ -66,7 +67,8 @@ def send_alert_email(subject, body):
 def renew_session(remember_token):
     """
     Exchange remember-token for a new session-token.
-    Returns session_token or raises on failure.
+    Returns the session token and any provider-supplied replacement
+    remember token, or raises on failure.
     """
     login = os.getenv('TT_LOGIN')
     resp = requests.post(
@@ -78,29 +80,79 @@ def renew_session(remember_token):
 
     if resp.status_code == 201:
         data = resp.json()['data']
-        return data['session-token']
+        return data['session-token'], data.get('remember-token')
 
     # 401 means remember-token expired → need manual re-login
     raise ValueError(f'remember-token renewal failed: {resp.status_code} {resp.text}')
 
 
+def _remember_token_state_path():
+    """Optional durable state path for stateless runtimes such as Railway Cron."""
+    return os.getenv('TT_REMEMBER_TOKEN_STATE_PATH', '').strip()
+
+
+def _load_remember_token():
+    state_path = _remember_token_state_path()
+    if state_path:
+        try:
+            with open(state_path, encoding='utf-8') as state_file:
+                token = state_file.read().strip()
+            if token:
+                return token
+        except FileNotFoundError:
+            pass
+    return os.getenv('TT_REMEMBER_TOKEN')
+
+
+def _persist_replacement_remember_token(previous_token, replacement_token):
+    """Persist only a token returned by a successful provider renewal."""
+    if not replacement_token or replacement_token == previous_token:
+        return False
+
+    state_path = _remember_token_state_path()
+    if state_path:
+        state_dir = os.path.dirname(state_path) or '.'
+        os.makedirs(state_dir, mode=0o700, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix='.tt-token-', dir=state_dir, text=True)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as state_file:
+                state_file.write(replacement_token)
+                state_file.write('\n')
+            os.replace(temp_path, state_path)
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
+            raise
+    else:
+        set_key(ENV_FILE, 'TT_REMEMBER_TOKEN', replacement_token)
+
+    os.environ['TT_REMEMBER_TOKEN'] = replacement_token
+    return True
+
+
 def get_session_token():
     """
     Returns a valid session-token.
-    Uses remember-token to create one session-token per process run.
-    Does not rotate or overwrite TT_REMEMBER_TOKEN during normal collector runs.
+    Uses remember-token to create one session-token per process run. If the
+    successful TT response includes a successor remember-token, persist that
+    exact successor before accepting the new session.
     """
     global _SESSION_TOKEN_CACHE
     if _SESSION_TOKEN_CACHE:
         return _SESSION_TOKEN_CACHE
 
-    remember_token = os.getenv('TT_REMEMBER_TOKEN')
+    remember_token = _load_remember_token()
     if not remember_token:
         print('[AUTH] No TT_REMEMBER_TOKEN in .env — run `python auth.py --login` first.')
         sys.exit(1)
 
     try:
-        session_token = renew_session(remember_token)
+        session_token, replacement_token = renew_session(remember_token)
+        if _persist_replacement_remember_token(remember_token, replacement_token):
+            print('[AUTH] Provider-supplied remember-token successor persisted.')
         _SESSION_TOKEN_CACHE = session_token
         print('[AUTH] Session token renewed.')
         return session_token
@@ -206,7 +258,7 @@ def _complete_otp(login, password, challenge_token, otp):
 def _save_tokens(data):
     session_token  = data['session-token']
     remember_token = data.get('remember-token', '')
-    set_key(ENV_FILE, 'TT_REMEMBER_TOKEN', remember_token)
+    _persist_replacement_remember_token(None, remember_token)
     print(f'\n[AUTH] Login successful!')
     print(f'  session-token : {session_token[:20]}...')
     print(f'  remember-token: {remember_token[:20]}...')
