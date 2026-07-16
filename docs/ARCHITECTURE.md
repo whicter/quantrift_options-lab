@@ -1740,3 +1740,11 @@ Webhook raw body is mounted before `express.json()`. Event insertion and subscri
 The full frontend tree passes ESLint, 21 unit tests and the Vite production build. Service worker calls use the explicit `self` global; one-time Analyze URL loading uses React `useEffectEvent` to avoid stale closure dependencies; Portfolio's initial asynchronous load updates state only from promise callbacks with an unmount guard. Strategy calculations, API contracts and data-source selection are unchanged.
 
 The build still reports a non-failing bundle-size warning for the main JavaScript chunk. Code splitting is a performance follow-up, not a runtime correctness failure.
+
+## 40. OI Density Product
+
+`GET /api/chain/stats/:symbol` treats IV analytics and OI density as independent products. It selects the newest nonexpired snapshot containing IV for skew/term structure and separately selects the newest snapshot containing open interest. A newer OI-only snapshot therefore cannot erase valid IV analytics, and a newer IV-only snapshot cannot erase valid positioning.
+
+OI rows are aggregated across all nonexpired expiries by strike into `call_oi`, `put_oi`, and `total_oi`. The response carries OI-specific source, timestamp, freshness, expiry count and contract count. Analyze Tab4 renders stacked Put/Call density bars and fails closed with an unavailable state when no real OI exists; GEX is never substituted for OI.
+
+The request path reads persisted snapshots only and performs no provider call. PLTR runtime smoke against Railway returned 7 expiries, 84 contracts, 11 strike points and total OI 307,713 from `polygon_licensed`.

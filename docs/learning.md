@@ -584,3 +584,10 @@ V1 公式：
 - **异步初始化要有 unmount guard**：Portfolio 在 token 和数据 promise 完成后再更新 state，组件卸载后不写回。
 - **service worker globals 要显式**：使用 `self.clients`，既符合 worker runtime，也避免依赖浏览器隐式全局。
 - **lint、tests、build 各证明不同事情**：本节三项均通过；Vite chunk-size warning 仍是性能信息，不标成 correctness failure。
+
+## OI Density Lessons (2026-07-15)
+
+- **OI 不是 GEX**：界面标题写 OI 时只能消费真实 `open_interest`，不能把 signed gamma exposure 当作持仓密度。
+- **不同数据产品要独立选 snapshot**：最新 IV snapshot 和最新 OI snapshot 可能不是同一条；共享一个选择条件会让一种数据遮住另一种。
+- **跨 expiry 聚合必须公开口径**：本产品按所有未到期 expiry 聚合到 strike，并返回 expiry/contract counts，用户不会误以为这是单一期权到期日。
+- **真实 smoke 要报告数量级**：PLTR 返回 7 expiries、84 contracts、11 strikes、total OI 307,713，证明 UI 输入不是 mock 或空数组。

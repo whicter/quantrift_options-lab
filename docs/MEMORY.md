@@ -96,6 +96,8 @@ Stripe billing is implemented: Checkout/Portal, signed raw webhook, transactiona
 
 Frontend verification debt is cleared in an independent section: full ESLint passes with 0 errors/0 warnings, frontend tests are 21/21, and the Vite production build succeeds. Remaining chunk-size output is a non-failing performance warning.
 
+Analyze Tab4 now uses real OI density rather than GEX: `/api/chain/stats` independently selects IV and OI snapshots, aggregates nonexpired Call/Put OI by strike, and returns OI-specific provenance. Server 58 and frontend 21 tests, full lint and build pass. Railway-backed PLTR smoke returned fresh Polygon OI across 7 expiries/84 contracts/11 strikes.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

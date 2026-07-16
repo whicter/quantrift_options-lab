@@ -133,6 +133,16 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats) {
       termStructure: chainStats.term_structure || [],
       skew: chainStats.skew || { expiry: null, points: [] },
       ivContractCount: chainStats.iv_contract_count || 0,
+      oiDensity: chainStats.oi_density?.status === 'ready' ? {
+        source: chainStats.oi_density.source,
+        snapshotTs: chainStats.oi_density.snapshot_ts,
+        freshness: chainStats.oi_density.freshness,
+        aggregation: chainStats.oi_density.aggregation,
+        expiryCount: chainStats.oi_density.expiry_count || 0,
+        contractCount: chainStats.oi_density.contract_count || 0,
+        totalOpenInterest: chainStats.oi_density.total_open_interest || 0,
+        points: chainStats.oi_density.points || [],
+      } : null,
     } : null,
   };
 }

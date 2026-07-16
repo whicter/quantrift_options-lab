@@ -1524,3 +1524,9 @@ Only after signed-in scanner/Analyze/alerts/portfolio requests all carry Clerk b
 ## Frontend Verification Baseline
 
 Before deployment, run `cd frontend && npm run lint && npm test && npm run build`. On 2026-07-15 this completed with ESLint 0 errors/0 warnings, 21/21 tests and a successful Vite build. The only remaining build output is the non-failing main-chunk size warning. Rollback is the frontend verification commit; no schema, secret or collector change is involved.
+
+## OI Density Rollout
+
+Deploy the Node API and frontend; no migration or collector restart is required. Verify `/api/chain/stats/PLTR` returns `oi_density.status=ready`, OI-specific source/freshness, nonempty points and `aggregation=all_nonexpired_expiries`. Then verify Analyze Tab4 labels the chart `OI by Strike`, shows Put/Call legend and never displays GEX values as OI.
+
+2026-07-15 pre-deploy evidence: server 58/58, frontend 21/21, full ESLint and Vite build passed. Local API against Railway data returned fresh Polygon PLTR OI with 7 expiries, 84 contracts, 11 strikes and total OI 307,713. Rollback is the OI-density commit; endpoint additions are backward compatible.

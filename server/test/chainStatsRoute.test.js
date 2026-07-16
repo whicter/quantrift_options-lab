@@ -12,7 +12,7 @@ require.cache[optionsPath] = {
   exports: { sendChainSnapshot() {} },
 };
 delete require.cache[chainPath];
-const { deriveChainStats, sendChainStats } = require(chainPath);
+const { deriveChainStats, deriveOiDensity, sendChainStats } = require(chainPath);
 
 function responseRecorder() {
   return {
@@ -47,8 +47,19 @@ test('serializes PostgreSQL Date expiries as sortable ISO dates', () => {
   assert.equal(result.term_structure[1].expiry, '2026-09-18');
 });
 
+test('aggregates real call and put open interest across nonexpired expiries by strike', () => {
+  const result = deriveOiDensity(snapshot, contracts);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.expiry_count, 2);
+  assert.equal(result.points[0].strike, 100);
+  assert.equal(result.points[0].call_oi, 190);
+  assert.equal(result.points[0].put_oi, 215);
+  assert.equal(result.points[0].total_oi, 405);
+  assert.equal(result.total_open_interest, 485);
+});
+
 test('route returns explicit missing when no IV snapshot exists', async () => {
-  queryResults.push({ rows: [] });
+  queryResults.push({ rows: [] }, { rows: [] });
   const res = responseRecorder();
   await sendChainStats({ params: { symbol: 'MISS' } }, res);
   assert.equal(res.body.status, 'missing');
@@ -56,10 +67,21 @@ test('route returns explicit missing when no IV snapshot exists', async () => {
 });
 
 test('route returns source and derived arrays', async () => {
-  queryResults.push({ rows: [snapshot] }, { rows: contracts });
+  queryResults.push({ rows: [snapshot] }, { rows: [snapshot] }, { rows: contracts }, { rows: contracts });
   const res = responseRecorder();
   await sendChainStats({ params: { symbol: 'AAPL' } }, res);
   assert.equal(res.body.status, 'ready');
   assert.equal(res.body.source, 'ib_internal');
   assert.equal(res.body.term_structure.length, 2);
+  assert.equal(res.body.oi_density.status, 'ready');
+  assert.equal(res.body.oi_density.points[0].total_oi, 405);
+});
+
+test('route returns OI density when latest usable OI snapshot has no IV', async () => {
+  queryResults.push({ rows: [] }, { rows: [snapshot] }, { rows: contracts });
+  const res = responseRecorder();
+  await sendChainStats({ params: { symbol: 'AAPL' } }, res);
+  assert.equal(res.body.status, 'ready');
+  assert.equal(res.body.iv_contract_count, 0);
+  assert.equal(res.body.oi_density.status, 'ready');
 });

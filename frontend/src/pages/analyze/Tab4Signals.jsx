@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 
-function ChipRuler({ gexByStrike, putWall, callWall, price }) {
+function ChipRuler({ oiByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -34,13 +34,13 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
       ctx.fillStyle = 'rgba(59,130,246,0.04)';
       ctx.fillRect(PAD.left, sy(callWall), cW, sy(putWall) - sy(callWall));
 
-      // OI density bars — sorted high→low, contiguous fill
-      const sorted = [...gexByStrike].sort((a, b) => b.strike - a.strike);
+      // OI density bars — call and put OI aggregated across nonexpired expiries.
+      const sorted = [...oiByStrike].sort((a, b) => b.strike - a.strike);
       const visible = sorted.filter(d => {
         const y = sy(d.strike);
         return y >= PAD.top && y <= H - PAD.bottom;
       });
-      const maxGex = Math.max(...visible.map(d => Math.abs(d.gex))) || 1;
+      const maxOi = Math.max(...visible.map(d => Number(d.total_oi || 0))) || 1;
 
       // Clip all bar drawing to chart area — prevents any overflow
       ctx.save();
@@ -55,22 +55,20 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
         const barTop = yAbove;
         const barH = Math.max(1, yBelow - yAbove - 0.5);
 
-        const ratio = Math.abs(d.gex) / maxGex;
+        const totalOi = Number(d.total_oi || 0);
+        const callOi = Number(d.call_oi || 0);
+        const putOi = Number(d.put_oi || 0);
+        const ratio = totalOi / maxOi;
         const bLen = Math.max(2, ratio * cW * 0.85);
-
-        const grad = ctx.createLinearGradient(PAD.left, 0, PAD.left + bLen, 0);
-        if (d.gex >= 0) {
-          grad.addColorStop(0, `rgba(34,197,94,${0.18 + ratio * 0.5})`);
-          grad.addColorStop(1, 'rgba(34,197,94,0.04)');
-        } else {
-          grad.addColorStop(0, `rgba(239,68,68,${0.18 + ratio * 0.5})`);
-          grad.addColorStop(1, 'rgba(239,68,68,0.04)');
-        }
-        ctx.fillStyle = grad;
-        ctx.fillRect(PAD.left, barTop, bLen, barH);
+        const putLen = totalOi > 0 ? bLen * putOi / totalOi : 0;
+        const callLen = totalOi > 0 ? bLen * callOi / totalOi : 0;
+        ctx.fillStyle = `rgba(34,197,94,${0.18 + ratio * 0.5})`;
+        ctx.fillRect(PAD.left, barTop, putLen, barH);
+        ctx.fillStyle = `rgba(239,68,68,${0.18 + ratio * 0.5})`;
+        ctx.fillRect(PAD.left + putLen, barTop, callLen, barH);
 
         // Left accent line
-        ctx.fillStyle = d.gex >= 0
+        ctx.fillStyle = putOi >= callOi
           ? `rgba(34,197,94,${0.55 + ratio * 0.45})`
           : `rgba(239,68,68,${0.55 + ratio * 0.45})`;
         ctx.fillRect(PAD.left, barTop, 3, barH);
@@ -133,13 +131,15 @@ function ChipRuler({ gexByStrike, putWall, callWall, price }) {
     const el = canvasRef.current?.parentElement;
     if (el) obs.observe(el);
     return () => obs.disconnect();
-  }, [gexByStrike, putWall, callWall, price]);
+  }, [oiByStrike, putWall, callWall, price]);
 
   return <canvas ref={canvasRef} style={{ display: 'block' }} />;
 }
 
 export default function Tab4Signals({ data }) {
-  const { gexByStrike, putWall, callWall, price, scenarios, supportResistance } = data;
+  const { putWall, callWall, price, scenarios, supportResistance, chainStats } = data;
+  const oiDensity = chainStats?.oiDensity;
+  const oiByStrike = oiDensity?.points || [];
   const pctToCall = ((callWall / price - 1) * 100).toFixed(2);
   const pctToPut = ((price / putWall - 1) * 100).toFixed(2);
   const dToCall = (callWall - price).toFixed(2);
@@ -170,8 +170,16 @@ export default function Tab4Signals({ data }) {
       )}
       <div className="az-signals-layout">
         <div className="az-chip-ruler-wrap az-card">
-          <div className="az-card-title">主力筹码标尺</div>
-          <ChipRuler gexByStrike={gexByStrike} putWall={putWall} callWall={callWall} price={price} />
+          <div className="az-card-title">主力持仓密度 · OI by Strike</div>
+          {oiByStrike.length ? (
+            <>
+              <div className="az-oi-density-meta">
+                <span><i className="put" />Put OI</span><span><i className="call" />Call OI</span>
+                <span>{oiDensity.expiryCount} 个到期日 · {oiDensity.freshness === 'fresh' ? '新鲜' : '延迟'} · {oiDensity.source}</span>
+              </div>
+              <ChipRuler oiByStrike={oiByStrike} putWall={putWall} callWall={callWall} price={price} />
+            </>
+          ) : <div className="az-chart-unavailable">真实 OI snapshot 暂不可用</div>}
         </div>
 
         <div className="az-signals-info">

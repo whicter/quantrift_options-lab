@@ -132,10 +132,17 @@ test('derived analysis only attaches ready real-data products', () => {
     term_structure: [{ expiry: '2026-08-21', atm_iv: 0.4 }],
     skew: { expiry: '2026-08-21', points: [{ strike: 135, put_iv: 0.42 }] },
     iv_contract_count: 20,
+    oi_density: {
+      status: 'ready', source: 'polygon_licensed', snapshot_ts: '2026-07-15T16:00:00Z', freshness: 'fresh',
+      aggregation: 'all_nonexpired_expiries', expiry_count: 3, contract_count: 40, total_open_interest: 12000,
+      points: [{ strike: 135, call_oi: 5000, put_oi: 7000, total_oi: 12000 }],
+    },
   });
   assert.equal(result.focusScore.score, 68);
   assert.equal(result.supportResistance.support[0].price, 130);
   assert.equal(result.chainStats.ivContractCount, 20);
+  assert.equal(result.chainStats.oiDensity.points[0].put_oi, 7000);
+  assert.equal(result.chainStats.oiDensity.expiryCount, 3);
 });
 
 test('missing derived data remains null instead of using mock values', () => {

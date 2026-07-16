@@ -1217,3 +1217,9 @@ Stripe Checkout creates recurring Pro subscriptions; Customer Portal owns cancel
 ### Frontend Verification
 
 The repository-wide frontend baseline is ESLint clean, 21 unit tests passing and a successful production build. React one-time loaders must avoid stale closure suppression: Analyze uses `useEffectEvent`, while Portfolio keeps an unmount guard around asynchronous account data. The service worker references browser globals through `self` so the same file remains lintable without inventing runtime shims.
+
+### OI Density by Strike
+
+Open interest (OI) is the number of open contracts, while GEX estimates gamma exposure. They are related positioning views but are not interchangeable. Tab4 uses actual `option_contract_snapshots.open_interest`, aggregates all nonexpired expiries at each strike, and stacks Put OI and Call OI in different colors.
+
+The API chooses IV and OI snapshots independently and exposes OI-specific freshness/source. This matters when one provider snapshot has Greeks/IV but no OI, or another has OI but no IV. Missing OI produces an unavailable chart rather than a GEX fallback.

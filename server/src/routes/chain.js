@@ -61,13 +61,44 @@ function deriveChainStats(snapshot, contracts) {
   };
 }
 
+function deriveOiDensity(snapshot, contracts) {
+  const points = new Map();
+  const expiries = new Set();
+  contracts.forEach(row => {
+    const strike = Number(row.strike);
+    const openInterest = Number(row.open_interest);
+    const right = row.option_right;
+    if (!Number.isFinite(strike) || !Number.isFinite(openInterest) || openInterest < 0 || !['C', 'P'].includes(right)) return;
+    expiries.add(toDateString(row.expiry));
+    const point = points.get(strike) || { strike, call_oi: 0, put_oi: 0, total_oi: 0 };
+    if (right === 'C') point.call_oi += openInterest;
+    if (right === 'P') point.put_oi += openInterest;
+    point.total_oi += openInterest;
+    points.set(strike, point);
+  });
+  const densityPoints = [...points.values()].sort((a, b) => a.strike - b.strike);
+  const age = ageMinutes(snapshot?.snapshot_ts);
+  return {
+    status: densityPoints.length ? 'ready' : 'missing',
+    source: snapshot?.source || null,
+    snapshot_ts: snapshot?.snapshot_ts || null,
+    age_minutes: age,
+    freshness: age != null && age <= 180 ? 'fresh' : 'stale',
+    aggregation: 'all_nonexpired_expiries',
+    expiry_count: expiries.size,
+    contract_count: contracts.length,
+    total_open_interest: densityPoints.reduce((sum, point) => sum + point.total_oi, 0),
+    points: densityPoints,
+  };
+}
+
 async function sendChainStats(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
-    const snapshotResult = await pool.query(
+    const ivSnapshotResult = await pool.query(
       `SELECT s.*
        FROM option_chain_snapshots s
        WHERE s.symbol = $1
@@ -79,29 +110,60 @@ async function sendChainStats(req, res) {
        LIMIT 1`,
       [symbol]
     );
-    const snapshot = snapshotResult.rows[0];
-    if (!snapshot) return res.json({ symbol, status: 'missing', term_structure: [], skew: { expiry: null, points: [] } });
+    const oiSnapshotResult = await pool.query(
+      `SELECT s.*
+       FROM option_chain_snapshots s
+       WHERE s.symbol = $1
+         AND EXISTS (
+           SELECT 1 FROM option_contract_snapshots c
+           WHERE c.snapshot_id = s.id AND c.open_interest IS NOT NULL
+         )
+       ORDER BY s.snapshot_ts DESC
+       LIMIT 1`,
+      [symbol]
+    );
+    const snapshot = ivSnapshotResult.rows[0];
+    const oiSnapshot = oiSnapshotResult.rows[0];
+    if (!snapshot && !oiSnapshot) {
+      return res.json({
+        symbol, status: 'missing', term_structure: [], skew: { expiry: null, points: [] },
+        oi_density: { status: 'missing', points: [] },
+      });
+    }
 
-    const contractsResult = await pool.query(
+    const contractsResult = snapshot ? await pool.query(
       `SELECT expiry, strike, option_right, iv, delta, open_interest
        FROM option_contract_snapshots
        WHERE snapshot_id = $1
          AND expiry >= (NOW() AT TIME ZONE 'America/New_York')::date
          AND iv IS NOT NULL AND iv > 0
-       ORDER BY expiry ASC, strike ASC, option_right ASC`,
+      ORDER BY expiry ASC, strike ASC, option_right ASC`,
       [snapshot.id]
-    );
-    const stats = deriveChainStats(snapshot, contractsResult.rows);
-    const age = ageMinutes(snapshot.snapshot_ts);
+    ) : { rows: [] };
+    const oiContractsResult = oiSnapshot ? await pool.query(
+      `SELECT expiry, strike, option_right, open_interest
+       FROM option_contract_snapshots
+       WHERE snapshot_id = $1
+         AND expiry >= (NOW() AT TIME ZONE 'America/New_York')::date
+         AND open_interest IS NOT NULL
+       ORDER BY expiry ASC, strike ASC, option_right ASC`,
+      [oiSnapshot.id]
+    ) : { rows: [] };
+    const stats = snapshot ? deriveChainStats(snapshot, contractsResult.rows) : {
+      term_structure: [], skew: { expiry: null, points: [] }, iv_contract_count: 0,
+    };
+    const oiDensity = oiSnapshot ? deriveOiDensity(oiSnapshot, oiContractsResult.rows) : { status: 'missing', points: [] };
+    const age = ageMinutes(snapshot?.snapshot_ts || oiSnapshot?.snapshot_ts);
     return res.json({
       symbol,
-      status: stats.iv_contract_count ? 'ready' : 'missing',
-      source: snapshot.source,
-      snapshot_ts: snapshot.snapshot_ts,
+      status: stats.iv_contract_count || oiDensity.status === 'ready' ? 'ready' : 'missing',
+      source: snapshot?.source || oiSnapshot?.source,
+      snapshot_ts: snapshot?.snapshot_ts || oiSnapshot?.snapshot_ts,
       age_minutes: age,
       freshness: age != null && age <= 180 ? 'fresh' : 'stale',
-      underlying_price: snapshot.underlying_price,
+      underlying_price: snapshot?.underlying_price || oiSnapshot?.underlying_price,
       ...stats,
+      oi_density: oiDensity,
     });
   } catch (err) {
     console.error('GET /api/chain/stats/:symbol error:', err.message);
@@ -116,3 +178,4 @@ router.get('/:symbol', (req, res) => sendChainSnapshot(req, res, { includeContra
 module.exports = router;
 module.exports.sendChainStats = sendChainStats;
 module.exports.deriveChainStats = deriveChainStats;
+module.exports.deriveOiDensity = deriveOiDensity;

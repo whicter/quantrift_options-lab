@@ -233,3 +233,4 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Billing and entitlements stay in the API database boundary. Collectors never receive Clerk/Stripe credentials and continue materializing data independently of subscriber count.
 - The P3 account/portfolio/billing schema is applied in shared Railway PostgreSQL; this does not change collector scheduling or grant collectors access to product identities.
 - Frontend lint cleanup has no collector runtime impact; collector verification remains the Python test suite plus PM2/runtime evidence.
+- Analyze OI density consumes persisted `open_interest` across nonexpired expiries. Collectors must preserve null OI as missing and must not derive it from GEX or quote volume.
