@@ -53,7 +53,11 @@ test('scanner selects the latest usable quote snapshot separately from positioni
     quote_source: 'ib_internal',
     quote_snapshot_ts: '2026-07-15T20:00:00.000Z',
     quote_freshness: 'stale',
-    option_contracts: [{ expiry: '2026-08-21', bid: 1, ask: 1.1 }],
+    price_close: 100,
+    option_contracts: [
+      { expiry: '2026-08-21', dte: 36, strike: 110, right: 'C', bid: 2, ask: 2.1, delta: 0.2, openInterest: 500, volume: 50 },
+      { expiry: '2026-08-21', dte: 36, strike: 115, right: 'C', bid: 0.8, ask: 0.9, delta: 0.1, openInterest: 500, volume: 50 },
+    ],
     freshness: 'fresh',
     is_stale: false,
   }] });
@@ -64,6 +68,11 @@ test('scanner selects the latest usable quote snapshot separately from positioni
   assert.equal(res.statusCode, 200);
   assert.equal(res.body[0].quote_source, 'ib_internal');
   assert.equal(res.body[0].quote_freshness, 'stale');
+  assert.equal(res.body[0].concrete_setup.strategy, 'Bear Call Spread');
+  assert.equal('option_contracts' in res.body[0], false);
+  assert.deepEqual(Object.keys(res.body[0].concrete_setup.legs[0]).sort(), [
+    'action', 'ask', 'bid', 'delta', 'dte', 'expiry', 'right', 'strike',
+  ]);
   assert.match(queries[0].sql, /latest_quote_chain AS/);
   assert.match(queries[0].sql, /latest_community_batch AS/);
   assert.match(queries[0].sql, /latest_rows\.source AS source/);

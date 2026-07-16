@@ -1388,18 +1388,20 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### Immediate Priority（现在就应先做）
 
-- [ ] **V3A immediate core**：把 `frontend/src/lib/scanOpportunity.js` 的推荐算法迁到后端，并让 `/api/scan` 停止返回完整合约链。
+- [x] **V3A immediate core**：已把 `frontend/src/lib/scanOpportunity.js` 的推荐算法迁到后端，并让 `/api/scan` 停止返回完整合约链。
   - 先做范围：`V3A-1 Backend Scanner Candidate Engine` + `V3A-3 Remove Raw Option Chain From Normal Scanner API`。
   - 暂缓范围：认证、限流、数据库角色、审计和更完整的商业化安全边界可在高度商业化前按 `V3A-5` 到 `V3A-8` 分阶段完成。
   - 完成标准：普通 scanner response 只返回最终 candidate DTO；前端不再包含候选枚举、评分权重和完整策略经济性算法；浏览器拿不到完整 raw option contract chain。
+  - 交付：`server/src/domain/scanner/candidateEngine.cjs` 负责真实合约枚举、策略腿、经济性与排序；`frontend/src/lib/scanOpportunity.js` 已删除；`/api/scan` 只返回候选行的 `concrete_setup`，不返回 `option_contracts`。
+  - 验证：2026-07-16 `server npm test` 82/82 通过；`frontend npm test` 47/47 通过；`frontend npm run build` 通过且 `frontend/dist` 无 `.map` 文件。
 
 ### 当前已确认的问题
 
-- [ ] Scanner 候选生成仍在前端暴露：
+- [x] Scanner 候选生成仍在前端暴露：
   - 当前证据：`frontend/src/pages/Scan.jsx` 调用 `frontend/src/lib/scanOpportunity.js`。
   - 当前问题：策略列表、DTE/Delta/spread/OI/Volume 默认参数、评分权重、候选枚举、经济性筛选都随前端 bundle 发送给用户浏览器。
   - 风险：核心 product logic 可被复制；前端 bundle/minify 不能作为保护边界。
-- [ ] `/api/scan` 仍向浏览器返回过多原始合约数据：
+- [x] `/api/scan` 仍向浏览器返回过多原始合约数据：
   - 当前证据：`server/src/routes/scan.js` 聚合并返回 `option_contracts`。
   - 当前问题：普通 scanner 用户不需要完整 option contract snapshot；他们需要具体候选单、legs、收益风险、解释和数据新鲜度。
   - 风险：原始链数据和内部筛选空间暴露；也增加前端性能与 UI 复杂度。
@@ -1418,19 +1420,20 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - [ ] API memory cache 是单实例缓存：
   - 当前证据：`server/src/lib/cache.js` 使用进程内 `Map`。
   - 当前问题：商业化后多实例部署、rate limit、stale-while-refresh、provider budget accounting 需要共享状态。
-- [ ] Vite sourcemap 与前端 bundle 保护需要显式配置：
+- [x] Vite sourcemap 与前端 bundle 保护需要显式配置：
   - 当前证据：`frontend/vite.config.js` 未显式声明 production sourcemap policy。
   - 当前问题：商业化前应明确 `build.sourcemap=false` 并在 CI 中验证。
 
 ### V3A-1 Backend Scanner Candidate Engine
 
-- [ ] 新增后端 domain modules：
-  - `server/src/domain/scanner/candidateEngine.js`
+- [x] 新增后端 candidate engine：
+  - `server/src/domain/scanner/candidateEngine.cjs`
+  - 说明：当前先用一个受测模块完成 immediate core；`candidateRules`、`candidateScoring`、`candidateEconomics`、`candidateDto` 的内部拆分作为后续可维护性重构，不阻塞浏览器隔离。
   - `server/src/domain/scanner/candidateRules.js`
   - `server/src/domain/scanner/candidateScoring.js`
   - `server/src/domain/scanner/candidateEconomics.js`
   - `server/src/domain/scanner/candidateDto.js`
-- [ ] 从 `frontend/src/lib/scanOpportunity.js` 迁移以下逻辑到后端：
+- [x] 从 `frontend/src/lib/scanOpportunity.js` 迁移以下逻辑到后端：
   - supported strategy list；
   - preset → DTE/Delta/spread/OI/Volume/liquidity/risk 参数映射；
   - actual contract enumeration；
@@ -1448,7 +1451,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - selected sort state；
   - row navigation；
   - UI-only formatting。
-- [ ] 前端不再包含：
+- [x] 前端不再包含：
   - hidden default strategy thresholds；
   - scoring weights；
   - candidate enumeration；
@@ -1505,13 +1508,13 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-3 Remove Raw Option Chain From Normal Scanner API
 
-- [ ] 普通 scanner API 不返回 `option_contracts`。
+- [x] 普通 scanner API 不返回 `option_contracts`。
 - [ ] 新增 internal/admin chain endpoint 或给现有 chain endpoint 加权限：
   - 用于 debug、coverage、data quality inspection。
   - 需要 admin/service token 或 authenticated entitlement。
-- [ ] 前端 scanner row 只渲染 backend candidate DTO。
-- [ ] 删除或停用前端对 `row.option_contracts` 的依赖。
-- [ ] 测试必须覆盖：
+- [x] 前端 scanner row 只渲染 backend candidate DTO。
+- [x] 删除或停用前端对 `row.option_contracts` 的依赖。
+- [x] 测试必须覆盖：
   - `/api/scan` response body 不包含 `option_contracts`。
   - candidate legs 均来自真实 persisted contract snapshot。
   - 不存在实际合约时不生成策略。
@@ -1621,7 +1624,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-9 Frontend Production Hardening
 
-- [ ] `frontend/vite.config.js` production build explicitly sets `build.sourcemap=false`。
+- [x] `frontend/vite.config.js` production build explicitly sets `build.sourcemap=false`。
 - [ ] CI/build verification checks no `.map` files in production artifact。
 - [ ] Remove unused mock modules from production import graph：
   - `frontend/src/data/weeklyMock.js` 已删除；继续检查其他 mock imports。

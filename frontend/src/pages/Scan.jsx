@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDataStatus, getMarketRegime, getScan } from '../lib/api';
-import { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups } from '../lib/scanOpportunity';
 import ScannerAlerts from '../components/ScannerAlerts';
 import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
 import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
 import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
 import { dedupeScannerRows, nextScannerSort, scanCandidateId, sortScannerRows } from '../lib/scannerResults';
 
-const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
+const STRATEGY_OPTIONS = [
+  'Iron Condor', 'Bull Put Spread', 'Bear Call Spread', 'Long Straddle',
+  'Short Strangle', 'Iron Butterfly', 'Calendar Spread', 'Diagonal Spread',
+  'Long Call', 'Long Put', 'Jade Lizard', 'Short Put', 'Short Call',
+];
+const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
 
 const STRATEGY_PARAMETER_PRESETS = {
   none: {
@@ -379,25 +383,13 @@ export default function Scan() {
         earningsMode,
         earningsDays: 14,
         unusualOnly,
+        allowUndefinedRisk,
+        strategies: selectedStrategies,
         sort,
         limit: 100,
         ...overrides,
       });
-      const selectionOverrides = {
-        dteMin,
-        dteMax,
-        deltaMin,
-        deltaMax,
-        maxSpreadPct,
-        minContractOi,
-        minContractVolume,
-        allowUndefinedRisk,
-      };
-      const strategies = selectedStrategies.length ? selectedStrategies : ACTIONABLE_STRATEGIES;
-      const liveRows = rows.flatMap(row => (
-        buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies)
-          .map(setup => toScanRow(row, setup))
-      ));
+      const liveRows = rows.map(row => toScanRow(row, row.concrete_setup));
       setResults(dedupeScannerRows(liveRows));
     } catch {
       setResults([]);

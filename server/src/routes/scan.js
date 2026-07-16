@@ -10,6 +10,7 @@ const router = express.Router();
 const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
+const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
 const SCANNER_CACHE_SECONDS = parseInt(process.env.SCANNER_CACHE_SECONDS ?? 60, 10);
@@ -31,6 +32,47 @@ function optionalInt(value) {
 
 function isMissingTableError(err) {
   return err?.code === '42P01';
+}
+
+function requestedStrategies(value) {
+  if (value === undefined || value === null || value === '') return ACTIONABLE_STRATEGIES;
+  const requested = String(value).split(',').map(item => item.trim()).filter(Boolean);
+  if (!requested.length || requested.some(item => !ACTIONABLE_STRATEGIES.includes(item))) return null;
+  return [...new Set(requested)];
+}
+
+function toCandidateDto(candidate) {
+  return {
+    strategy: candidate.strategy,
+    summary: candidate.summary,
+    structure: candidate.structure,
+    pricing: candidate.pricing,
+    legLabels: candidate.legLabels,
+    expiry: candidate.expiry,
+    dte: candidate.dte,
+    farExpiry: candidate.farExpiry ?? null,
+    farDte: candidate.farDte ?? null,
+    score: candidate.score,
+    credit: candidate.credit,
+    debit: candidate.debit,
+    maxLoss: candidate.maxLoss,
+    returnOnRisk: candidate.returnOnRisk,
+    breakevens: candidate.breakevens,
+    riskType: candidate.riskType ?? 'defined',
+    minOpenInterest: candidate.minOpenInterest,
+    totalVolume: candidate.totalVolume,
+    avgSpreadPct: candidate.avgSpreadPct,
+    legs: candidate.legs.map(leg => ({
+      action: leg.action,
+      expiry: leg.expiry,
+      dte: leg.dte,
+      strike: leg.strike,
+      right: leg.right,
+      bid: leg.bid,
+      ask: leg.ask,
+      delta: leg.delta,
+    })),
+  };
 }
 
 async function sendScan(req, res) {
@@ -67,8 +109,10 @@ async function sendScan(req, res) {
   const earningsMode = String(req.query.earningsMode ?? 'all').toLowerCase();
   const earningsDays = optionalInt(req.query.earningsDays ?? 14);
   const unusualOnly = String(req.query.unusualOnly ?? 'false').toLowerCase() === 'true';
+  const allowUndefinedRisk = String(req.query.allowUndefinedRisk ?? 'false').toLowerCase() === 'true';
   const sort = String(req.query.sort ?? 'ivr').toLowerCase();
   const scanKey = String(req.query.scanKey ?? DEFAULT_SCAN_KEY).trim() || DEFAULT_SCAN_KEY;
+  const strategies = requestedStrategies(req.query.strategies);
 
   const validRegimes = new Set(['all', 'positive', 'negative', 'neutral']);
   const validWalls = new Set(['all', 'call', 'put', 'either']);
@@ -93,6 +137,7 @@ async function sendScan(req, res) {
     || Number.isNaN(earningsDays)
     || !validRegimes.has(gammaRegime) || !validWalls.has(wall) || !validSorts.has(sort)
     || !validOptionable.has(optionable) || !validEarningsModes.has(earningsMode)
+    || !strategies
   ) {
     return res.status(400).json({ error: 'invalid query params' });
   }
@@ -130,6 +175,8 @@ async function sendScan(req, res) {
     earningsMode,
     earningsDays,
     unusualOnly,
+    allowUndefinedRisk,
+    strategies,
     sort,
     scanKey,
     limit,
@@ -404,7 +451,23 @@ async function sendScan(req, res) {
       }
     }
 
-    res.json(setCache(key, rows, SCANNER_CACHE_SECONDS));
+    const selectionOverrides = {
+      dteMin,
+      dteMax,
+      deltaMin,
+      deltaMax,
+      maxSpreadPct,
+      minContractOi,
+      minContractVolume,
+      allowUndefinedRisk,
+    };
+    const candidates = rows.flatMap(row => {
+      const setups = buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies);
+      const { option_contracts: _rawContracts, ...scannerSummary } = row;
+      return setups.map(concreteSetup => ({ ...scannerSummary, concrete_setup: toCandidateDto(concreteSetup) }));
+    });
+
+    res.json(setCache(key, candidates, SCANNER_CACHE_SECONDS));
   } catch (err) {
     if (isMissingTableError(err)) return res.json([]);
     console.error('GET /api/scan error:', err.message);

@@ -15,7 +15,7 @@ function formatContractDollars(value) {
 }
 
 const MIN_ACTIONABLE_SCORE = 50;
-export const ACTIONABLE_STRATEGIES = [
+const ACTIONABLE_STRATEGIES = [
   'Iron Condor',
   'Bull Put Spread',
   'Bear Call Spread',
@@ -31,7 +31,7 @@ export const ACTIONABLE_STRATEGIES = [
   'Short Call',
 ];
 
-export const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
+const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
 
 function contractMid(contract) {
   if (contract.bid == null || contract.ask == null) return null;
@@ -44,7 +44,7 @@ function spreadPct(contract) {
   return ((contract.ask - contract.bid) / mid) * 100;
 }
 
-export function normalizeContracts(rawContracts) {
+function normalizeContracts(rawContracts) {
   if (!Array.isArray(rawContracts)) return [];
   return rawContracts
     .map(contract => ({
@@ -557,7 +557,7 @@ function missingSetup(rules, candidate = null) {
   };
 }
 
-export function buildActionableSetups(rawContracts, row, overrides = {}, strategies = ACTIONABLE_STRATEGIES) {
+function buildActionableSetups(rawContracts, row, overrides = {}, strategies = ACTIONABLE_STRATEGIES) {
   const contracts = normalizeContracts(rawContracts);
   const spot = num(row.price_close);
   if (!contracts.length || spot == null || spot <= 0) return [];
@@ -586,7 +586,7 @@ export function buildActionableSetups(rawContracts, row, overrides = {}, strateg
     .sort((a, b) => b.score - a.score || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0));
 }
 
-export function buildActionableSetup(strategy, rawContracts, row, overrides = {}) {
+function buildActionableSetup(strategy, rawContracts, row, overrides = {}) {
   const contracts = normalizeContracts(rawContracts);
   if (!contracts.length) {
     return { status: 'missing', summary: '没有可报价合约', reason: '期权链待采集或 bid/ask 不完整' };
@@ -600,3 +600,5 @@ export function buildActionableSetup(strategy, rawContracts, row, overrides = {}
   const candidate = bestCandidate(allCandidates);
   return candidate || missingSetup(rules);
 }
+
+module.exports = { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups, buildActionableSetup };

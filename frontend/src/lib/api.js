@@ -66,6 +66,8 @@ export function getScan({
   earningsMode = 'all',
   earningsDays = 14,
   unusualOnly = false,
+  allowUndefinedRisk = false,
+  strategies = [],
   sort = 'ivr',
   limit = 50,
 } = {}) {
@@ -76,9 +78,11 @@ export function getScan({
     gammaRegime,
     wall,
     unusualOnly: String(unusualOnly),
+    allowUndefinedRisk: String(allowUndefinedRisk),
     sort,
     limit: String(limit),
   };
+  if (strategies.length) params.strategies = strategies.join(',');
   if (nearWallPct !== '') params.nearWallPct = String(nearWallPct);
   if (minLocalGamma !== '') params.minLocalGamma = String(minLocalGamma);
   if (minTotalOi !== '') params.minTotalOi = String(minTotalOi);

@@ -1,6 +1,6 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { buildActionableSetup, buildActionableSetups } from './scanOpportunity.js';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { buildActionableSetup, buildActionableSetups } = require('../src/domain/scanner/candidateEngine.cjs');
 
 function contract({ expiry, dte, strike, right, bid, ask, delta, oi = 500, volume = 50 }) {
   return { expiry, dte, strike, right, bid, ask, delta, openInterest: oi, volume };
