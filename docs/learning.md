@@ -242,7 +242,7 @@
 缺失数据逻辑：
 - 有价格但无 metrics：进入 price-only fallback，只展示真实价格趋势，不生成期权策略结论。
 - 无价格也无 metrics：根据 `/api/status` 判断 symbol 是否在 watchlist。
-- API 全部失败但本地有 mock symbol：只作为本地示例结构，并显示 API 不可用提示。
+- API 全部失败：不显示分析结构；页面只显示 API unavailable。生产 Analyze 没有 mock fallback。
 
 当前已接入 analyze UI 的真实数据：
 - `/api/gex/:symbol`
@@ -352,8 +352,14 @@ V1 公式：
 
 - 旧错误：Analyze 先初始化 `mockAnalysis`，真实 GEX stale 或请求失败后仍保留 mock Call Wall、Put Wall、scenarios 和 recommendation。
 - 后果：PLTR 页面曾显示与现价完全不相称的 `$595 / $575`，用户无法判断数据是否真实。
-- 修复：typed symbol 不允许 API 失败时回退到本地 mock；missing/unusable GEX 清空 Wall、strikes、scenarios 和策略腿；stale/partial 且字段完整则显示实际数据并加质量提示。
-- 测试：frontend regression tests 覆盖 fresh、stale、missing、low-confidence 四种状态。
+- 修复：2026-07-16 删除 `frontend/src/data/mockAnalysis.js`，并以 `createRealAnalysis` 创建所有-null 的 production base。typed symbol 不允许 API 失败时回退到本地 mock；missing/unusable GEX 清空 Wall、strikes、scenarios 和策略腿；stale/partial 且字段完整才显示实际数据并加质量提示。
+- 测试：frontend regression test 断言 Analyze 不得 import/use `mockAnalysis`；数据转换 tests 覆盖 fresh、stale、missing、low-confidence 四种状态。
+
+### 3.1 scanner SQL 的列名必须始终限定来源
+
+- 2026-07-16 事故：`GET /api/scan` 的 CTE 同时包含 `latest_rows.source` 与 `latest_community_batch.source`，final `SELECT source` 未限定，PostgreSQL 报 `column reference "source" is ambiguous` 并返回 HTTP 500。
+- 修复：选择列改为 `latest_rows.source AS source`。
+- 防回归：scanner route test 对实际 SQL 字符串断言该 qualification；部署后必须以生产 `/api/scan` HTTP 200 + 非空 rows 做 smoke，mocked pool test 不能证明 PostgreSQL 能解析 SQL。
 
 ### 4. collector 默认 universe 错误会造成“只有 PLTR 有数据”
 

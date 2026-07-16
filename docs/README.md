@@ -66,7 +66,7 @@ Open http://localhost:5173
 - Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 - Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
-- Analyze never creates example price history or synthetic option legs when real inputs are missing
+- Analyze has no mock-data import or fallback: it builds its page model from real price, metrics and GEX responses only; a missing field remains unavailable rather than inheriting a sample value
 - Persistent scanner universe: known database symbols plus on-demand Analyze registrations feed the materialized scanner; `/api/analyze/:symbol` reports field coverage and queues only missing data products
 - Universe filters: price, share/dollar volume, earnings, market cap, sector/category and optionable status are live when the field is populated; nullable reference fields fail closed when a selected filter requires them
 - Market Regime: `/api/market/regime` combines SPY/QQQ daily momentum, regular-session 30M breakout, IV Rank and GEX; stale intraday bars cannot confirm a breakout

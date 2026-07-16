@@ -41,6 +41,7 @@ Options Lab 的目标产品能力包括 Call Wall、Put Wall、Global GEX、Loca
 这些指标依赖 option chain、open interest、volume、Greeks、IV 和 underlying price。生产系统应采用以下原则：
 
 - 用户请求只读取 Railway API 返回的已采集/预计算快照。
+- 前端 production model 不含 sample/mock seed：price、IV、GEX、Walls、结论和策略腿均只能来自各自真实 API response；字段缺失显示 unavailable。
 - 普通用户输入 `AAPL` 时，不应同步触发本地 Mac Studio 或 IB Gateway 拉取 option chain。
 - 当前过渡链使用 IB Gateway 与 Tastytrade adapter；IB 默认接受 delayed market data。
 - GEX 计算、API response 和前端 UI 不应绑定具体 provider；应通过 provider adapter 和数据库快照隔离数据源。

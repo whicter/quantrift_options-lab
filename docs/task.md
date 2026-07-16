@@ -573,6 +573,11 @@
   - IV Rank 区域显示 unavailable，不生成策略腿推荐
 - ✅ UI safety fix：
   - Tab4 `Call Wall == Put Wall` 时不再出现 0-span canvas range
+- ✅ **2026-07-16 real-data integrity repair**
+  - 删除 `frontend/src/data/mockAnalysis.js`，`Analyze.jsx` 不再以 sample symbol 为页面基础对象。
+  - 真实 price / metrics / GEX 各自独立注入；任一字段未返回时保持 `null` 或明确 unavailable，不可遗留样例价格、Wall、结论或策略腿。
+  - `/api/scan` final query 将 `latest_rows.source` 显式限定，避免与 community snapshot 的 `source` 列冲突导致 PostgreSQL HTTP 500。
+  - 回归：frontend 检查 Analyze 无 mock import/use；server scanner SQL 检查 source qualification。
 - ✅ Verification：
   - Frontend build：`npm run build`
   - Production API prepared：PLTR `snapshot_id=7`、`/api/gex/PLTR` returned `freshness=fresh`、`confidence=high`

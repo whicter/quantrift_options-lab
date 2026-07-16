@@ -1,6 +1,5 @@
 import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
 import { getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getUnusual, getVolumeProfile } from '../lib/api';
 import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
@@ -20,20 +19,25 @@ const TABS = [
 
 function applyMetrics(data, metrics) {
   if (!data || !metrics) return data;
-  const iv30 = metrics.iv30 == null ? data.iv30 : Number(metrics.iv30) * 100;
-  const hv30 = metrics.hv30 == null ? data.hv30 : Number(metrics.hv30) * 100;
-  const hv60 = metrics.hv60 == null ? data.hv60 : Number(metrics.hv60) * 100;
-  const ivHvDiff = metrics.iv_hv_diff == null ? data.ivHvDiff : Number(metrics.iv_hv_diff) * 100;
+  const asPercent = (value, fallback) => {
+    if (value == null) return fallback;
+    const number = Number(value) * 100;
+    return Number.isFinite(number) ? Number(number.toFixed(1)) : fallback;
+  };
+  const iv30 = asPercent(metrics.iv30, data.iv30);
+  const hv30 = asPercent(metrics.hv30, data.hv30);
+  const hv60 = asPercent(metrics.hv60, data.hv60);
+  const ivHvDiff = asPercent(metrics.iv_hv_diff, data.ivHvDiff);
   const earningsDate = metrics.earnings_date ? String(metrics.earnings_date).slice(0, 10) : data.earnings?.date;
 
   return {
     ...data,
     ivRank: metrics.iv_rank == null ? data.ivRank : Math.round(Number(metrics.iv_rank)),
     ivPercentile: metrics.iv_percentile == null ? data.ivPercentile : Math.round(Number(metrics.iv_percentile)),
-    iv30: Number(iv30.toFixed(1)),
-    hv30: Number(hv30.toFixed(1)),
-    hv60: Number(hv60.toFixed(1)),
-    ivHvDiff: Number(ivHvDiff.toFixed(1)),
+    iv30,
+    hv30,
+    hv60,
+    ivHvDiff,
     dataMeta: {
       date: metrics.date ? String(metrics.date).slice(0, 10) : null,
       source: metrics.source,
@@ -42,6 +46,58 @@ function applyMetrics(data, metrics) {
       ...data.earnings,
       date: earningsDate,
     },
+  };
+}
+
+// This is the only analysis seed used in production. Every displayed market
+// value is subsequently supplied by a real API response or remains null.
+function createRealAnalysis(symbol, priceData) {
+  const priceHistory = normalizePriceHistory(priceData);
+  const latest = priceHistory.at(-1);
+  const rvol = calcRVol(priceHistory);
+
+  return {
+    symbol,
+    price: latest ? Number(latest.close.toFixed(2)) : null,
+    priceHistory,
+    priceMeta: latest ? {
+      source: priceData?.source,
+      latestDate: String(priceData?.latest_date || latest.date).slice(0, 10),
+      count: priceData?.count,
+      freshness: priceData?.freshness,
+      isStale: Boolean(priceData?.is_stale),
+    } : null,
+    dataMeta: null,
+    ivRank: null,
+    ivPercentile: null,
+    iv30: null,
+    hv30: null,
+    hv60: null,
+    ivHvDiff: null,
+    earnings: { date: null, daysAway: null, warning: false },
+    sector: [],
+    trend: {
+      regime: '历史不足',
+      momentum: '历史不足',
+      signal: '等待数据',
+      score: 0,
+      rvol: rvol == null ? null : Number(rvol.toFixed(2)),
+      indicators: null,
+    },
+    direction: { score: 0, label: '真实数据', signals: [] },
+    gexTotal: null,
+    gexByStrike: [],
+    putWall: null,
+    callWall: null,
+    pcr: null,
+    pcrVol: null,
+    maxPain: null,
+    gammaFlip: null,
+    localGamma: null,
+    gammaRegime: null,
+    scenarios: null,
+    conclusion: '等待真实期权快照。',
+    recommendation: null,
   };
 }
 
@@ -66,31 +122,6 @@ function calcRVol(bars) {
   const avg = prior.reduce((sum, bar) => sum + bar.volume, 0) / prior.length;
   if (!avg) return null;
   return latest.volume / avg;
-}
-
-function applyPriceHistory(data, priceData) {
-  const priceHistory = normalizePriceHistory(priceData);
-  if (priceHistory.length === 0) return data;
-
-  const latest = priceHistory[priceHistory.length - 1];
-  const rvol = calcRVol(priceHistory);
-
-  return {
-    ...data,
-    price: Number(latest.close.toFixed(2)),
-    priceHistory,
-    priceMeta: {
-      source: priceData.source,
-      latestDate: String(priceData.latest_date || latest.date).slice(0, 10),
-      count: priceData.count,
-      freshness: priceData.freshness,
-      isStale: Boolean(priceData.is_stale),
-    },
-    trend: {
-      ...data.trend,
-      rvol: rvol == null ? data.trend.rvol : Number(rvol.toFixed(2)),
-    },
-  };
 }
 
 function applyUnusual(data, unusualData) {
@@ -224,9 +255,8 @@ function macd(values) {
 }
 
 function buildPriceOnlyAnalysis(symbol, priceData) {
-  const mock = getMockAnalysis(symbol) || getMockAnalysis('SPY');
   const priceHistory = normalizePriceHistory(priceData);
-  const data = applyPriceHistory({ ...mock, symbol }, priceData);
+  const data = createRealAnalysis(symbol, priceData);
 
   return {
     ...data,
@@ -251,20 +281,8 @@ function buildPriceOnlyAnalysis(symbol, priceData) {
 }
 
 function buildGexOnlyAnalysis(symbol, priceData, gexData) {
-  const mock = getMockAnalysis(symbol) || getMockAnalysis('SPY');
   const priceHistory = normalizePriceHistory(priceData);
-  const base = applyPriceHistory({
-    ...mock,
-    symbol,
-    ivRank: null,
-    ivPercentile: null,
-    iv30: null,
-    hv30: null,
-    hv60: null,
-    ivHvDiff: null,
-    dataMeta: null,
-    recommendation: null,
-  }, priceData);
+  const base = createRealAnalysis(symbol, priceData);
 
   return {
     ...applyGex(base, gexData),
@@ -425,8 +443,7 @@ export default function Analyze() {
         return;
       }
 
-      const mock = getMockAnalysis(sym) || getMockAnalysis('SPY');
-      const withPrice = applyPriceHistory(applyMetrics({ ...mock, symbol: sym }, metrics), priceData);
+      const withPrice = applyMetrics(createRealAnalysis(sym, priceData), metrics);
       const dataWithSignals = applyUnusual(applyGex({
         ...withPrice,
         trend: deriveTrendFromPriceHistory(withPrice.priceHistory, withPrice.trend),

@@ -66,6 +66,8 @@ test('scanner selects the latest usable quote snapshot separately from positioni
   assert.equal(res.body[0].quote_freshness, 'stale');
   assert.match(queries[0].sql, /latest_quote_chain AS/);
   assert.match(queries[0].sql, /latest_community_batch AS/);
+  assert.match(queries[0].sql, /latest_rows\.source AS source/);
+  assert.doesNotMatch(queries[0].sql, /iv_hv_diff, earnings_date, source,/);
   assert.match(queries[0].sql, /community_mention_count/);
   assert.match(queries[0].sql, /COALESCE\(mention_count, 0\)/);
   assert.match(queries[0].sql, /latest_community_batch community_batch ON TRUE/);

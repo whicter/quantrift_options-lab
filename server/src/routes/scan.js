@@ -231,7 +231,7 @@ async function sendScan(req, res) {
        SELECT
          latest_rows.symbol,
          metric_date AS date,
-         iv30, hv30, iv_rank, iv_percentile, iv_hv_diff, earnings_date, source,
+         iv30, hv30, iv_rank, iv_percentile, iv_hv_diff, earnings_date, latest_rows.source AS source,
          atm_iv, atm_expiry, atm_strike, iv_source, hv_source,
          iv_rank_source, iv_rank_ready, iv_observation_count,
          price_close, price_date, price_source, price_status,
