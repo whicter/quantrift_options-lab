@@ -48,6 +48,18 @@ test('fully covered symbol returns ready without duplicate jobs', async () => {
   assert.equal(refreshCalls.length, 0);
 });
 
+test('derived IV Rank readiness satisfies metrics without a Tastytrade job', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_derived_metrics: true, has_options: true, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false,
+  }] });
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'AAPL' } }, res);
+  assert.equal(res.body.status, 'ready');
+  assert.equal(res.body.coverage.metrics_source, 'derived');
+  assert.equal(refreshCalls.some(call => call.jobType === 'symbol_metrics_snapshot'), false);
+});
+
 test('recent non-retryable metrics failure is exposed without enqueue loop', async () => {
   queryResults.push({ rows: [] }, { rows: [{
     has_price: true, has_metrics: false, has_options: true, has_gex: true,

@@ -1185,3 +1185,7 @@ Each latest materialized row is tested against active rules. A unique delivery o
 `send_heartbeat.py` reports the Mac Studio daemon identity and runtime metadata to `POST /api/heartbeat`. `GET /api/heartbeat/status` is the operator-facing read model: expected nodes appear even before their first report, with `missing`, `offline`, or `online` state and heartbeat age.
 
 The Railway monitor persists an incident in `collector_heartbeat_alerts` when a report is absent or older than the configured threshold. Repeated notification follows a cooldown; recovery resolves the same incident. URL/token absence disables only heartbeat transmission, never the collector loop.
+
+### IV Rank Automatic Cutover
+
+`volatility_history.iv_rank_ready` owns the transition from cold-start provider rank to self-derived rank. Readiness is checked per symbol. API/scanner consumption prefers derived data, while scheduled collection, queued refresh and Analyze orchestration all skip Tastytrade for ready symbols. Until readiness, the provider value remains available with explicit provenance.

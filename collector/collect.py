@@ -42,6 +42,23 @@ DB_URL   = os.getenv('DATABASE_URL')
 TT_BATCH = 50
 
 
+def filter_symbols_requiring_tastytrade(conn, symbols: list[str]) -> list[str]:
+    """Stop provider IV Rank collection once a symbol has a ready derived rank."""
+    if not symbols:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT symbol
+            FROM volatility_history
+            WHERE symbol = ANY(%s) AND iv_rank_ready = TRUE
+            """,
+            (symbols,),
+        )
+        ready = {row[0] for row in cur.fetchall()}
+    return [symbol for symbol in symbols if symbol not in ready]
+
+
 def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
     """
     Fetch /market-metrics for up to TT_BATCH symbols.
@@ -160,12 +177,19 @@ def run():
     watchlist = load_watchlist()
     log.info(f'Loaded {len(watchlist)} symbols from {WATCHLIST_PATH.name}')
 
-    # Auth
-    session_token = get_session_token()
-
     # DB connection
     conn = psycopg2.connect(DB_URL)
     log.info('DB connected')
+
+    watchlist = filter_symbols_requiring_tastytrade(conn, watchlist)
+    if not watchlist:
+        conn.close()
+        log.info('All symbols have derived IV Rank readiness; Tastytrade metrics collection skipped')
+        return
+    log.info('Tastytrade still required for %d symbols without derived IV Rank readiness', len(watchlist))
+
+    # Auth only after readiness filtering, so a fully derived universe makes no TT request.
+    session_token = get_session_token()
 
     total_written = 0
     errors = []

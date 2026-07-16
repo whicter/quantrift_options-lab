@@ -1650,3 +1650,17 @@ resolved
 `HEARTBEAT_EXPECTED_NODES` ensures a machine that has never reported is still visible as `missing`; querying only existing heartbeat rows would silently omit the most important failure. `GET /api/heartbeat/status` returns `online`, `offline`, or `missing` with age and a global `ok/degraded` state. Bearer tokens use timing-safe comparison. The monitor records active/resolved incidents and notification cooldown independently from the heartbeat row.
 
 The daemon is disabled-safe when URL or token is absent, so rollout cannot stop option collection. Deployment completion still requires the same generated token in Railway and Mac Studio and, for external receipt, `ALERT_WEBHOOK_URL`. Additive heartbeat tables may remain during rollback; disabling `HEARTBEAT_MONITOR_ENABLED` and removing heartbeat env values restores the previous runtime behavior.
+
+## 33. Derived IV Rank Provider Cutoff
+
+Derived rank readiness is a per-symbol state, not a global launch date. Once `volatility_history.iv_rank_ready=true`, all three request paths stop asking Tastytrade for that symbol:
+
+```text
+scheduled collect.py -> filter ready symbols before TT authentication
+refresh worker       -> return already_ready before provider budget/auth
+Analyze orchestration -> derived readiness satisfies metrics coverage
+```
+
+Before readiness, existing Tastytrade observations remain the cold-start fallback. The consumer plane already selects a ready derived rank ahead of the provider value. The new producer-plane gate prevents unnecessary auth and provider requests after cutover. A symbol cannot become ready from repeated same-day rows because the volatility pipeline keys observations by New York market date and requires 252 independent observations.
+
+Current Railway runtime is 0/67 ready, so 67 symbols correctly remain eligible for cold-start metrics. The implementation is complete; production transition awaits actual market-day accumulation. Rollback removes the producer gates while leaving derived consumer preference unchanged.

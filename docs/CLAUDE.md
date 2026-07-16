@@ -73,6 +73,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Follow `docs/task.md` section `实施优先级（执行顺序）`.
 - Phase 3D-6 through P2.3 heartbeat are complete. Remaining P3 commercialization requires an approved auth/billing design and credentials; audit non-external tasks before stopping.
 - Heartbeat expected nodes must include machines that have never reported. Missing URL/token disables only heartbeat, not the collector loop; missing webhook delivery is `blocked`, not `sent`.
+- A ready derived IV Rank must stop Tastytrade work in scheduled, queued, and on-demand paths. Never manufacture or duplicate market dates to satisfy the 252-observation gate.
 - Preserve the durable scanner alert outbox and unique subscription/batch/symbol key. Missing SMTP/VAPID is `blocked`, never `sent`.
 - Keep VAPID private material in collector secrets; server/frontend use only the public key.
 - `/` owns the Quantrift product entry with live Market Regime and direct core workflows. Keep `/learn` as a separate education route.

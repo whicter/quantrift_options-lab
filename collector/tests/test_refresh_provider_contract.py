@@ -63,6 +63,35 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertIn('except SystemExit as exc', source)
         self.assertIn('tastytrade metrics auth unavailable', source)
 
+    def test_ready_derived_rank_skips_tastytrade_metrics_request(self):
+        import run_refresh_worker
+
+        class Cursor:
+            def execute(self, *_args):
+                pass
+
+            def fetchone(self):
+                return (True,)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+        cursor = Cursor()
+        conn = SimpleNamespace(cursor=lambda: cursor)
+        with patch.object(run_refresh_worker.collect, 'get_session_token') as get_token, \
+             patch.object(run_refresh_worker, 'reserve_budget') as reserve:
+            summary = run_refresh_worker.run_symbol_metrics_snapshot(
+                conn, {'symbol': 'AAPL', 'provider': 'tastytrade'},
+            )
+
+        self.assertEqual(summary['status'], 'already_ready')
+        self.assertEqual(summary['source'], 'derived')
+        get_token.assert_not_called()
+        reserve.assert_not_called()
+
     def test_auth_failures_are_non_retryable_and_block_provider_for_run(self):
         import run_refresh_worker
 

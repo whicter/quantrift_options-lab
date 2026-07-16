@@ -23,7 +23,11 @@ async function sendAnalyzeStatus(req, res) {
     const { rows } = await pool.query(
       `SELECT
          EXISTS (SELECT 1 FROM price_history WHERE symbol = $1) AS has_price,
-         EXISTS (SELECT 1 FROM iv_history WHERE symbol = $1) AS has_metrics,
+         (
+           EXISTS (SELECT 1 FROM iv_history WHERE symbol = $1)
+           OR EXISTS (SELECT 1 FROM volatility_history WHERE symbol = $1 AND iv_rank_ready = TRUE)
+         ) AS has_metrics,
+         EXISTS (SELECT 1 FROM volatility_history WHERE symbol = $1 AND iv_rank_ready = TRUE) AS has_derived_metrics,
          EXISTS (SELECT 1 FROM option_chain_snapshots WHERE symbol = $1 AND contract_count > 0) AS has_options,
          EXISTS (SELECT 1 FROM gex_snapshots WHERE symbol = $1) AS has_gex,
          (SELECT COUNT(*)::int FROM provider_fetch_jobs WHERE symbol = $1 AND status IN ('queued', 'running')) AS active_jobs,
@@ -69,6 +73,7 @@ async function sendAnalyzeStatus(req, res) {
       coverage: {
         price: coverage.has_price,
         metrics: coverage.has_metrics,
+        metrics_source: coverage.has_derived_metrics ? 'derived' : coverage.has_metrics ? 'provider' : null,
         options: coverage.has_options,
         gex: coverage.has_gex,
       },

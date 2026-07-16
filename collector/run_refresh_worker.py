@@ -364,6 +364,13 @@ def is_provider_unavailable(exc: Exception) -> bool:
 
 def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     symbol = job['symbol']
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM volatility_history WHERE symbol=%s AND iv_rank_ready=TRUE)",
+            (symbol,),
+        )
+        if cur.fetchone()[0]:
+            return {'symbol': symbol, 'source': 'derived', 'status': 'already_ready'}
     provider_name = job['provider'] if job['provider'] != 'metrics_provider' else 'tastytrade'
     reserve_budget(conn, provider_name, job['job_type'])
 

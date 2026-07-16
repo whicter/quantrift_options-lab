@@ -524,3 +524,11 @@ V1 公式：
 - **缺通知 secret 应记录 blocked**：数据库 incident 仍是有效证据，但不能把未发送 webhook 写成 sent。
 - **运维功能必须 disabled-safe**：URL/token 未配置时 heartbeat 返回 disabled，collector 主循环继续工作；这样分阶段部署不会中断数据采集。
 - **验收要走完整状态机**：测试 missing、错误 token、online、受控 stale、active incident、恢复、resolved，而不只是确认 POST 返回 200。
+
+## Derived Provider Cutoff Lessons (2026-07-15)
+
+- **读取 derived 不等于停止采集 provider**：consumer preference 与 producer scheduling 是两个控制面，必须同时实现。
+- **在认证前过滤**：如果先登录 TT 再发现全部 symbol 已 ready，仍会产生无意义认证流量和设备 challenge 风险。
+- **切换应按 symbol 而非全局日期**：新加入的 symbol 仍需要冷启动，历史较长的 symbol 可以先独立停止 provider rank。
+- **队列中旧 job 也要短路**：只修 scheduler 不能阻止已排队或按需创建的 metrics job。
+- **时间门槛不是代码 TODO**：252 个独立市场日尚未自然积累属于运行状态；测试可用确定性序列验证逻辑，但生产不能伪造 observations。

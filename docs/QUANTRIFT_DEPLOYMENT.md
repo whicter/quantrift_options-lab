@@ -1439,3 +1439,17 @@ ALERT_WEBHOOK_URL=
 After Railway deploy, restart `quantrift-options-collector --update-env`, then verify `GET /api/heartbeat/status` changes from `missing/degraded` to `online/ok`. Stop the daemon for longer than 180 seconds and confirm an active row in `collector_heartbeat_alerts`; restart it and confirm `resolved`. Without `ALERT_WEBHOOK_URL`, persistence is verified but channel status is `blocked`. Rollback sets `HEARTBEAT_MONITOR_ENABLED=false` and removes Mac heartbeat URL/token; tables are additive and can remain.
 
 2026-07-15 evidence: migration passed; local API against Railway PostgreSQL confirmed missing, HTTP 401, accepted and online states. A controlled stale report created an active blocked incident, and a new report resolved it. Mac Studio PM2 collector was restarted and remained online. Shared production token and webhook are intentionally not invented by code and remain deployment prerequisites.
+
+## Derived IV Rank Cutover
+
+No manual switch is required at 252 observations. Keep `USE_DERIVED_VOLATILITY=true` and `IV_RANK_MIN_OBSERVATIONS=252`. The scheduled metrics collector filters ready symbols before TT authentication; queued symbol metrics jobs also short-circuit as `already_ready`; Analyze treats ready derived rank as metrics coverage.
+
+Operational check:
+
+```sql
+SELECT COUNT(DISTINCT symbol)
+FROM volatility_history
+WHERE iv_rank_ready = TRUE;
+```
+
+2026-07-15 runtime result is 0/67 ready, therefore TT cold-start collection remains expected. Never lower the threshold or duplicate market dates to force readiness. Rollback can set `USE_DERIVED_VOLATILITY=false`, but doing so intentionally resumes provider rank consumption.

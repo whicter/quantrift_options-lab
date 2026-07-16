@@ -82,6 +82,8 @@ P2.2 scanner alerts are complete: subscription API supports email/web push, cons
 
 P2.3 heartbeat is complete in code and persistence: Mac daemon reports through a bearer-authenticated endpoint; Railway status includes expected-but-never-seen nodes; monitor incidents transition active/resolved with cooldown and blocked webhook state. Server 39 tests and collector 78 tests passed. Railway migration and full local-against-Railway state-machine smoke passed. Production shared token/URL and webhook still require operator configuration.
 
+Derived IV Rank cutover is complete in all control planes: ready symbols are filtered before scheduled TT authentication, skipped by queued metrics jobs, and treated as covered by Analyze. Server 40 and collector 81 tests pass. Railway remains 0/67 ready, so current TT eligibility is expected until 252 independent market dates accumulate.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。
