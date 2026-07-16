@@ -234,8 +234,8 @@ Each chart:
   POST /sessions {"login": "...", "remember-token": "..."}
   → 正常返回新 session-token，且可能附带 provider-supplied successor remember-token
   → collector 在 PostgreSQL `provider_auth_state` transaction lock 内持久化 successor；若响应没有 successor 则提交当前 token，绝不自行生成或任意 rotate token
-  → 如果数据库 token 返回 401/403 且配置的 bootstrap token 不同，仅用该 bootstrap token 额外恢复一次；成功才改写数据库 row
-  → 相同 token、网络错误和密码登录绝不重试；恢复失败才停止并走设备验证/手动登录流程
+  → bootstrap token 只在数据库没有 row 时使用；已有 database token 返回 401/403 时不再尝试环境 token
+  → 网络错误和密码登录绝不自动重试；失败停止并走设备验证/手动登录流程。日志仅记录 token fingerprint 与 consumer
 
 remember-token 过期时：
   → 脚本记录错误并提醒 → 手动重新登录一次；不能把 401/403 当作无限重试登录
@@ -1202,7 +1202,7 @@ The Railway monitor persists an incident in `collector_heartbeat_alerts` when a 
 
 The cloud metrics service is the separate Railway service `quantrift-metrics-cron`, defined by `collector/railway.metrics.json`. It runs only `collect.py` after the US close and exits. It shares PostgreSQL but does not run IB, scanner materialization, provider refresh jobs or the Mac heartbeat. Derived-ready symbols are filtered before TT authentication. Its Docker build context is repo root, so Dockerfile references and `COPY` sources must be rooted at `collector/...`.
 
-2026-07-16 runtime incident and correction: the service reached PostgreSQL and loaded 67 symbols, but its stored Railway token returned 401. Railway was initially missing `TT_LOGIN`; this is now an explicit credential-contract field and code fails before an HTTP request when it is absent. After adding it and deploying, the database token and configured seed both returned `401 invalid_credentials`, so the collector stopped without changing state. The collector uses `provider_auth_state` as durable state only across processes sharing the same `DATABASE_URL`; a local manual login does not seed Railway if it points at another database. Railway uses its `TT_REMEMBER_TOKEN` to bootstrap an empty Railway row. If an existing database token receives explicit 401/403 and differs from that configured seed, the collector attempts the seed once, then commits the successor only on success. Railway needs no Volume and does not receive successor values through environment variables. Execution-log and database verification remain required before marking the migration operational.
+2026-07-16 runtime incident and correction: the service reached PostgreSQL and loaded 67 symbols, but its stored Railway token returned 401. Railway was initially missing `TT_LOGIN`; this is now an explicit credential-contract field and code fails before an HTTP request when it is absent. A Railway token was also persisted with literal wrapping quotes; removing them did not restore the invalid database state. The collector uses `provider_auth_state` as durable state only across processes sharing the same `DATABASE_URL`; a local manual login does not seed Railway if it points at another database. Railway uses `TT_REMEMBER_TOKEN` only to bootstrap an empty row. An existing database token receives exactly one exchange attempt; on 401/403 it does not use the environment seed as a second request. Logs identify the request with an irreversible fingerprint and `railway-metrics-cron` consumer. Railway needs no Volume and does not receive successor values through environment variables.
 
 ### IB Gateway Cloud Boundary
 

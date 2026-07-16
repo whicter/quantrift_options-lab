@@ -64,7 +64,7 @@
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
-- remember-token 的持久状态在 PostgreSQL `provider_auth_state`（2026-07-16 additive migration 已执行）。只有绑定同一 `DATABASE_URL` 的本机和 Railway Cron 才共享该行；若 Railway 自己的行为空，则从其 `TT_REMEMBER_TOKEN` bootstrap。随后在 transaction advisory lock 下读取并提交 successor。`collector/.env` 仅保存本机登录副本；不需要 `/data` Volume
+- remember-token 的持久状态在 PostgreSQL `provider_auth_state`（2026-07-16 additive migration 已执行）。只有绑定同一 `DATABASE_URL` 的本机和 Railway Cron 才共享该行；仅空行从 `TT_REMEMBER_TOKEN` bootstrap，随后在 transaction advisory lock 下读取并提交 successor。已存在 row 的 401/403 只产生一次请求，不会自动尝试环境 token。日志标记 non-secret fingerprint 与 consumer；`collector/.env` 仅保存本机登录副本；不需要 `/data` Volume。
 - `/market-metrics?symbols=X,Y` → iv_rank(0-1), implied-volatility-30-day(%), hv-30-day(%)
 
 ## 待完成（优先级排序）
@@ -84,7 +84,7 @@ P2.3 heartbeat is complete in code and persistence: Mac daemon reports through a
 
 Derived IV Rank cutover is complete in all control planes: ready symbols are filtered before scheduled TT authentication, skipped by queued metrics jobs, and treated as covered by Analyze. Server 40 and collector 81 tests pass. Railway remains 0/67 ready, so current TT eligibility is expected until 252 independent market dates accumulate.
 
-Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`: one-shot image/config runs weekdays at 22:30 UTC and exits. Its credential contract is `TT_LOGIN` plus `TT_REMEMBER_TOKEN`; missing login fails before an HTTP request. The 2026-07-16 run connected to PostgreSQL and loaded 67 symbols. Railway was initially missing `TT_LOGIN`; after it was added and deployed, TT explicitly rejected both the stored Railway token and configured seed with `401 invalid_credentials`. The collector stopped after that bounded recovery and did not alter database state. Cloud-run completion remains unconfirmed until a valid existing credential pair produces an execution log and the resulting `iv_history`/`provider_auth_state.updated_at` are verified.
+Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`: one-shot image/config runs weekdays at 22:30 UTC and exits. Its credential contract is `TT_LOGIN` plus `TT_REMEMBER_TOKEN`; missing login fails before an HTTP request. The 2026-07-16 run connected to PostgreSQL and loaded 67 symbols. Railway had initially persisted literal token quotes; correcting that did not make the already stored database token valid. The collector now stops after one 401 and leaves state unchanged; cloud-run completion remains unconfirmed until a verified existing seed is written to the shared row and a run updates `iv_history`/`provider_auth_state.updated_at`.
 
 Mac Studio power recovery is partially complete: `pmset -g custom` verified AC Power `autorestart 1` on 2026-07-16, and LaunchAgent `pm2.congrenhan` has `RunAtLoad=true` with `pm2 resurrect`; its saved list contains all five Quantrift collector apps. UPS procurement and a controlled full recovery test for PM2, IB Gateway, collector health, jobs and snapshots remain physical operations.
 

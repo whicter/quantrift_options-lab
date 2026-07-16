@@ -13,6 +13,7 @@ import sys
 import json
 import smtplib
 import argparse
+import hashlib
 import requests
 import psycopg2
 from email.mime.text import MIMEText
@@ -44,6 +45,23 @@ def _headers(session_token=None):
     if session_token:
         h['Authorization'] = session_token
     return h
+
+
+def _remember_token_from_env():
+    """Read a Railway/local seed defensively without persisting quote characters."""
+    token = os.getenv('TT_REMEMBER_TOKEN', '').strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in ('"', "'"):
+        return token[1:-1]
+    return token
+
+
+def _token_fingerprint(token):
+    """Return a short non-reversible identifier suitable for operational logs."""
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]
+
+
+def _auth_consumer():
+    return os.getenv('COLLECTOR_AUTH_CONSUMER', 'collector').strip() or 'collector'
 
 
 def send_alert_email(subject, body):
@@ -107,7 +125,7 @@ def _acquire_remember_token_state():
     """Lock the shared provider state for one renewal, or fall back to local .env."""
     database_url = _database_url()
     if not database_url:
-        return None, os.getenv('TT_REMEMBER_TOKEN', '').strip()
+        return None, _remember_token_from_env()
 
     try:
         conn = psycopg2.connect(database_url)
@@ -118,7 +136,7 @@ def _acquire_remember_token_state():
                 (AUTH_STATE_PROVIDER,),
             )
             row = cur.fetchone()
-        return conn, (row[0] if row else os.getenv('TT_REMEMBER_TOKEN', '').strip())
+        return conn, (row[0] if row else _remember_token_from_env())
     except psycopg2.Error as exc:
         raise TokenStateError('PostgreSQL provider authentication state is unavailable.') from exc
 
@@ -175,19 +193,11 @@ def get_session_token():
         conn, remember_token = _acquire_remember_token_state()
         if not remember_token:
             raise TokenStateError('No TT_REMEMBER_TOKEN seed is available; run `python auth.py --login` first.')
-        try:
-            session_token, replacement_token = renew_session(remember_token)
-        except RememberTokenRejected:
-            # A Railway deployment may retain an older database token while its
-            # TT_REMEMBER_TOKEN variable has been replaced with a fresh seed.
-            # Use that seed only for this explicit credential rejection, never
-            # for transient failures and never when it is the same token.
-            bootstrap_token = os.getenv('TT_REMEMBER_TOKEN', '').strip()
-            if not conn or not bootstrap_token or bootstrap_token == remember_token:
-                raise
-            print('[AUTH] Database remember token rejected; trying configured recovery seed once.')
-            session_token, replacement_token = renew_session(bootstrap_token)
-            remember_token = bootstrap_token
+        print(
+            '[AUTH] Exchanging remember-token '
+            f'fingerprint={_token_fingerprint(remember_token)} consumer={_auth_consumer()}.'
+        )
+        session_token, replacement_token = renew_session(remember_token)
         persisted_token = replacement_token or remember_token
         if conn:
             _store_database_remember_token(conn, persisted_token)

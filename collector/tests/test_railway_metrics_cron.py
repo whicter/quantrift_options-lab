@@ -21,6 +21,7 @@ class RailwayMetricsCronTest(unittest.TestCase):
         self.assertIn('COPY collector/requirements.txt ./', dockerfile)
         self.assertIn('COPY collector/ ./', dockerfile)
         self.assertIn('CMD ["python", "collect.py"]', dockerfile)
+        self.assertIn('COLLECTOR_AUTH_CONSUMER=railway-metrics-cron', dockerfile)
         self.assertNotIn('run_collector_daemon.py', dockerfile)
         dockerignore = (COLLECTOR_DIR / '.dockerignore').read_text()
         self.assertIn('.env', dockerignore)
