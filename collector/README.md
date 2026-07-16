@@ -235,3 +235,6 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - Frontend lint cleanup has no collector runtime impact; collector verification remains the Python test suite plus PM2/runtime evidence.
 - Analyze OI density consumes persisted `open_interest` across nonexpired expiries. Collectors must preserve null OI as missing and must not derive it from GEX or quote volume.
 - `collect_reddit_trends.py` is a credential-gated 30-minute PM2 one-shot. It stores universe-bounded mention/engagement snapshots; with `REDDIT_TRENDS_ENABLED=false` it exits successfully without network access. Community heat never enters option candidate scoring.
+# Unusual Whales flow (credential-gated)
+
+`collect_unusual_whales.py` consumes the account WebSocket JSON stream and persists official option-flow and TRF events. Required when enabled: `DATABASE_URL`, `UW_WS_URL`, `UW_API_TOKEN`; set the exact account subscription message in `UW_WS_SUBSCRIBE_JSON`. Without `UW_FLOW_ENABLED=true`, direct execution exits successfully while the PM2 configuration holds one low-frequency idle process until it is enabled and restarted. Do not guess the connection URL or subscription envelope.

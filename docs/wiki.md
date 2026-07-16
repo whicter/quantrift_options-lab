@@ -1229,3 +1229,11 @@ The API chooses IV and OI snapshots independently and exposes OI-specific freshn
 Community heat is a separate context signal, not an options recommendation input. It counts unique Reddit posts mentioning a known universe symbol during the configured window and applies a logarithmically bounded engagement weight from upvotes/comments. It does not change IV Rank, GEX, candidate construction, POP or opportunity score.
 
 Only symbols in `symbol_universe` are retained. Ambiguous English tokens require `$TICKER`, reducing false positives such as ordinary uses of “AI” or “IT”. Scanner displays the latest batch as missing/stale/fresh and remains fully usable when Reddit collection is disabled.
+
+### Sweep 与 Dark Pool 如何解读
+
+`Sweep` 是一个期权订单为追求快速成交而跨多个报价/交易场所执行的事件标签。它说明执行方式和当时的主动性，不单独证明最终方向。Quantrift 同时显示 contract、premium、ask/bid-side premium、OI，以及 provider 明确给出的 `all_opening_trades`；只有该 flag 为 true 才写 opening confirmed。
+
+`Dark Pool` 在本数据层严格指 consolidated stock tape 中 `market_center=L/2` 的 TRF/off-lit print。页面显示成交股数、价格和 notional。TRF 打印可能晚于实际成交上带，因此使用 `trf_executed_at` 优先排序；它也不是天然的支撑、阻力或机构买卖方向。
+
+状态语义：`active` 表示 provider 新鲜且窗口内有事件，`quiet` 表示 provider 新鲜但该 ticker 无事件，`stale` 表示 stream heartbeat 过旧/报错，`missing` 表示从未形成 provider heartbeat。Sweep/TRF 是独立上下文，不进入策略构造或机会评分。

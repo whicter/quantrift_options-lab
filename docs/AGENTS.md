@@ -72,6 +72,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Preserve the clean frontend baseline: run full ESLint, unit tests and production build after frontend changes; disclose the Vite chunk-size warning separately from correctness failures.
 - Never label GEX as OI. IV and OI analytics select their latest usable snapshots independently; Tab4 OI density must use persisted open interest and disclose cross-expiry aggregation.
 - Reddit community heat is optional context and must never change options opportunity scoring. Preserve universe intersection, cashtag handling for ambiguous tokens, bounded OAuth/rate retries and disabled-safe behavior without credentials.
+- External flow is context only. Accept dark pool only from TRF market center `L`/`2`; preserve provider event idempotency and stream-level freshness. Never infer institutional direction or opening status when the provider flag is absent.
 - Scanner alert evaluation runs only after scanner materialization. Preserve outbox uniqueness and `blocked` channel state; never send provider requests from notification evaluation.
 - VAPID private key stays in collector secrets. API/browser may receive only `WEB_PUSH_VAPID_PUBLIC_KEY`.
 - `/` is the Quantrift product entry. Preserve direct Scan/Analyze/Weekly workflows and live Market Regime; `/learn` is no longer the default redirect.

@@ -653,7 +653,16 @@
   - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows.
   - Local API verified：`/api/unusual/PLTR?limit=5` returned confirmed rows with `oi_delta=0`, `status=quiet`.
   - Local API verified：`/api/status/cache` returned `oi_delta.row_count=10`, `status_counts.confirmed=10`.
-- [ ] （付费扩展）Unusual Whales API：真实 sweep / dark pool 数据，$50/月
+- [x] Unusual Whales sweep / dark-pool 数据层（2026-07-15 代码完成）
+  - [x] WebSocket JSON adapter 使用账户下发的 URL/token/subscription payload；缺配置 disabled-safe，不猜测 broker 参数
+  - [x] 官方 `FlowAlert` 字段归一化为 option flow；仅 `TradeReport.market_center=L/2` 归一化为 TRF dark-pool event
+  - [x] `external_flow_events` 幂等持久化与 `external_flow_provider_state` provider freshness 状态
+  - [x] `GET /api/flow/:symbol` 返回 24h flow/sweep/dark-pool 汇总、事件明细及 missing/quiet/active/stale
+  - [x] Analyze 数据解读页显示真实事件；没有新鲜 provider heartbeat 时不展示推断值
+  - [x] Railway additive migration completed；只读确认两张表存在且初始 `event_count=0`
+  - [x] Mac Studio PM2 process registered/saved；disabled 状态连续 online、restart count=0、日志明确 idle
+  - [x] Tests/build：collector 95、server 62、frontend 25、full ESLint、Vite build
+  - [ ] 提供 `UW_WS_URL`、`UW_API_TOKEN`、账户要求的 `UW_WS_SUBSCRIBE_JSON` 后完成真实 stream/database/UI 验收
 
 **Phase 3F — Scanner UX/Data Completion**
 - [x] Scanner direction：materialized trend fields from `price_history` replace `待接入趋势`.
@@ -932,7 +941,7 @@
 | P2.4 | Frontend verification debt | ✅ 2026-07-15 完成：全量 ESLint 0 errors/0 warnings、frontend 21/21、production build | 无 |
 | P2.5 | Reddit community trends | ✅ 2026-07-15 代码/表/API/UI/PM2 完成；缺凭据时 disabled-safe | Reddit OAuth app credentials 与访问 approval |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
-| External | 硬件与采购 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 必须人工采购、登录或提供 API key |
+| External | 硬件与账户验收 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 数据层代码已完成；真实运行必须人工采购、登录或提供 API key |
 
 P1.4 verification：server 31/31 tests、frontend 19/19 tests、affected frontend lint 0 errors、Vite production build passed。Railway runtime 返回 Market `Mixed 51`，SPY/QQQ 30M 因 7/14 对 7/15 daily 正确标记 stale；AAPL Weekly 返回 5 candles、1 个已有 GEX day、Max Pain 310、1 个 ΔOI day。Browser plugin 初始化报 `Cannot redefine property: process`，因此未取得自动 screenshot，未宣称 visual verification。
 

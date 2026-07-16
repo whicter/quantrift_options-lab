@@ -100,6 +100,8 @@ Analyze Tab4 now uses real OI density rather than GEX: `/api/chain/stats` indepe
 
 Reddit community trends are deployment-ready: OAuth provider, bounded auth/rate handling, universe-safe extraction, normalized Railway tables, Scanner heat column and saved 30-minute PM2 cron are complete. Empty-table runtime preserves scanner results and reports missing. Collector 90, server 58, frontend 23, lint and build pass. Real snapshot remains blocked only on Reddit OAuth credentials/access; the job is currently disabled-safe.
 
+Unusual Whales sweep/TRF data layer is code-complete: account-configured WebSocket JSON transport, official FlowAlert/TradeReport normalization, idempotent event/state tables, `/api/flow/:symbol`, Analyze UI and disabled-safe PM2 process. Railway migration is applied and both empty tables are confirmed. PM2 registration is saved and disabled runtime remains online/idle with restart count 0. Fresh stream + no ticker event is quiet; absent heartbeat is missing; only `market_center=L/2` is dark pool. Collector 95, server 62, frontend 25, lint and build pass. Real stream acceptance requires `UW_WS_URL`, `UW_API_TOKEN`, and the account subscription envelope.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

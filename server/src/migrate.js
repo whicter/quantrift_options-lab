@@ -401,6 +401,47 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS community_symbol_trends_symbol_snapshot
       ON community_symbol_trends (symbol, snapshot_id DESC);
 
+    CREATE TABLE IF NOT EXISTS external_flow_events (
+      id                  BIGSERIAL   PRIMARY KEY,
+      source              TEXT        NOT NULL,
+      provider_event_id   TEXT        NOT NULL,
+      symbol              TEXT        NOT NULL,
+      event_type          TEXT        NOT NULL CHECK (event_type IN ('option_flow', 'dark_pool')),
+      executed_at         TIMESTAMPTZ NOT NULL,
+      contract_symbol     TEXT,
+      expiry              DATE,
+      option_right        TEXT        CHECK (option_right IN ('C', 'P')),
+      strike              NUMERIC(14,4),
+      underlying_price    NUMERIC(14,4),
+      price               NUMERIC(14,4),
+      size                BIGINT,
+      premium             NUMERIC(20,4),
+      open_interest       BIGINT,
+      volume              BIGINT,
+      ask_side_premium    NUMERIC(20,4),
+      bid_side_premium    NUMERIC(20,4),
+      has_sweep           BOOLEAN     NOT NULL DEFAULT FALSE,
+      all_opening_trades  BOOLEAN     NOT NULL DEFAULT FALSE,
+      market_center       TEXT,
+      raw_metadata        JSONB       NOT NULL DEFAULT '{}',
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (source, provider_event_id, event_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS external_flow_events_symbol_time
+      ON external_flow_events (symbol, executed_at DESC);
+    CREATE INDEX IF NOT EXISTS external_flow_events_type_time
+      ON external_flow_events (event_type, executed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS external_flow_provider_state (
+      source              TEXT PRIMARY KEY,
+      status              TEXT        NOT NULL,
+      last_connected_at   TIMESTAMPTZ,
+      last_message_at     TIMESTAMPTZ,
+      last_error          TEXT,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS provider_fetch_jobs (
       id              BIGSERIAL PRIMARY KEY,
       symbol          TEXT        NOT NULL,

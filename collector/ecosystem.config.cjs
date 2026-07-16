@@ -65,5 +65,18 @@ module.exports = {
         REDDIT_MAX_PAGES: '3',
       },
     },
+    {
+      name: 'quantrift-unusual-whales-flow',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_unusual_whales.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: true,
+      restart_delay: 5000,
+      env: {
+        UW_PM2_IDLE_WHEN_DISABLED: 'true',
+        UW_RECONNECT_SECONDS: '5',
+        UW_WS_TIMEOUT_SECONDS: '30',
+      },
+    },
   ],
 };

@@ -1270,6 +1270,20 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-unusual-at { color: var(--text-muted); }
 .az-unusual-date { color: var(--text-dim); min-width: 82px; }
 .az-unusual-vol { color: var(--text-muted); margin-left: auto; }
+.az-flow-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-muted); font-size: 11px; }
+.az-flow-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.az-flow-summary span { border: 1px solid var(--border); border-radius: 5px; padding: 8px; color: var(--text-muted); font-size: 11px; }
+.az-flow-summary strong { display: block; margin-top: 3px; color: var(--text); font-size: 14px; }
+.az-flow-list { display: flex; flex-direction: column; gap: 5px; }
+.az-flow-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) 90px auto; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 5px; background: var(--bg-hover); font-size: 11px; }
+.az-flow-row strong { color: var(--blue); }
+.az-flow-row span:nth-child(3) { text-align: right; font-weight: 700; }
+.az-flow-row small { color: var(--green); }
+@media (max-width: 720px) {
+  .az-flow-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .az-flow-row { grid-template-columns: 52px minmax(0, 1fr) 76px; }
+  .az-flow-row small { grid-column: 2 / -1; }
+}
 .az-options-conclusion {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 6px; padding: 12px 14px;

@@ -1547,3 +1547,21 @@ REDDIT_WINDOW_HOURS=24
 Apply `node server/src/migrate.js`, then `pm2 restart quantrift-reddit-trends --update-env && pm2 save`. Acceptance requires one `community_trend_snapshots` row, symbol rows limited to `symbol_universe`, and `/api/scan` returning a fresh community field/visible sortable heat column. Disable rollback with `REDDIT_TRENDS_ENABLED=false`; existing snapshots may remain.
 
 2026-07-15 evidence: additive migration completed and both tables were read-only confirmed; empty-table Scanner smoke returned the original candidate plus `community_freshness=missing`; PM2 job is saved and logs `Reddit trends disabled`. Collector 90, server 58 and frontend 23 tests, full lint and build pass. Real Reddit response is not claimed without credentials/access. Official access references: https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki and https://support.reddithelp.com/hc/en-us/articles/14945211791892-Developer-Platform-Accessing-Reddit-Data.
+
+## Unusual Whales Flow Rollout
+
+The WebSocket transport requires the connection values issued for the account. Store them only in the Mac Studio collector secret environment:
+
+```text
+UW_FLOW_ENABLED=true
+UW_WS_URL=wss://<account-issued-endpoint>
+UW_API_TOKEN=<secret>
+UW_WS_SUBSCRIBE_JSON={"topics":["flow-alerts","all-trade-report"]}
+UW_USER_AGENT=Quantrift/1.0
+```
+
+The subscription JSON above is illustrative; use the exact account-issued envelope. Apply `node server/src/migrate.js`, then `pm2 startOrRestart collector/ecosystem.config.cjs --only quantrift-unusual-whales-flow --update-env && pm2 save`. Verify `external_flow_provider_state.last_message_at` advances, duplicate event count is zero, and `/api/flow/AAPL` distinguishes active/quiet from stale/missing. Confirm one official sweep and one `market_center=L/2` TRF print in Analyze. Rollback with `UW_FLOW_ENABLED=false`; persisted events remain auditable.
+
+With flow disabled, PM2 should show one stable online process whose log says `PM2 worker idle`; it must not accumulate restart count. After enabling the secrets, restart the named process so it leaves idle mode and connects.
+
+Code evidence: collector 95 tests, server 62 tests, frontend 25 tests, full ESLint and Vite build pass. Railway additive migration completed; read-only verification found both tables with `event_count=0`, and the API/UI missing contract is verified without fabricated events. Mac Studio PM2 registration is saved; disabled runtime stayed online with restart count 0 and an explicit idle log. Real stream/database/UI acceptance remains pending the three account connection values. Official schemas: https://api.unusualwhales.com/docs/kafka/types/FlowAlert and https://api.unusualwhales.com/docs/kafka/types/TradeReport.

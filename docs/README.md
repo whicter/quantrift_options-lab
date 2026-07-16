@@ -132,5 +132,6 @@ Open http://localhost:5173
 - [x] Frontend verification baseline: full ESLint clean, 21 tests and production build
 - [x] Analyze Tab4: real Call/Put OI density by strike with independent snapshot freshness
 - [x] Reddit community-trend pipeline: OAuth provider, persisted snapshots, Scanner heat column and disabled-safe PM2 cron (credentials pending)
-- [ ] V3: User auth + subscription tiers
-- [ ] V3: Portfolio tracking + Greeks aggregation
+- [x] Unusual Whales flow pipeline: idempotent sweep/TRF events, provider heartbeat, Analyze UI and disabled-safe WebSocket worker (account stream parameters pending)
+- [x] V3 code: Clerk auth + subscription tiers (runtime keys pending)
+- [x] V3: Portfolio tracking + Greeks aggregation

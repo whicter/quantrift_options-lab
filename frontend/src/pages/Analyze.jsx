@@ -2,8 +2,9 @@ import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMockAnalysis } from '../data/mockAnalysis';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getAnalyzeStatus, getChainStats, getDataStatus, getGex, getMetrics, getPrices, getSupportResistance, getUnusual } from '../lib/api';
+import { getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getUnusual } from '../lib/api';
 import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
+import { applyExternalFlow } from '../lib/externalFlow';
 import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
@@ -390,7 +391,7 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats] = await Promise.all([
+      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData] = await Promise.all([
         getAnalyzeStatus(sym).catch(() => null),
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
@@ -399,20 +400,21 @@ export default function Analyze() {
         getUnusual(sym, 20).catch(() => null),
         getSupportResistance(sym).catch(() => null),
         getChainStats(sym).catch(() => null),
+        getExternalFlow(sym, 30).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
 
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult({ ...applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats), onDemandStatus });
+          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats), flowData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
         }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
-          setResult({ ...applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats), onDemandStatus });
+          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats), flowData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: 1 }, { replace: true });
           setError('');
         } else {
@@ -428,12 +430,12 @@ export default function Analyze() {
         ...withPrice,
         trend: deriveTrendFromPriceHistory(withPrice.priceHistory, withPrice.trend),
       }, gexData), unusualData);
-      const data = applyDerivedAnalysis({
+      const data = applyExternalFlow(applyDerivedAnalysis({
         ...dataWithSignals,
         // Analyze only displays executable legs after a real contract candidate is attached.
         recommendation: null,
         onDemandStatus,
-      }, supportResistance, chainStats);
+      }, supportResistance, chainStats), flowData);
       setResult(data);
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {

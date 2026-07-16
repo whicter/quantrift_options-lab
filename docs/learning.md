@@ -601,3 +601,12 @@ V1 公式：
 - **401 与 429 的恢复不同**：401 只刷新一次 app token；429 尊重 bounded `Retry-After`，不并发重试或循环登录。
 - **credential-gated job 要 disabled-safe**：无 key 的 PM2 cron 正常退出并写 disabled 日志，不制造 failure alert。
 - **migration 与真实 provider 验收分开**：表、API missing contract 和 UI 都能先验证；没有 OAuth access 时不伪造 Reddit row。
+
+## External Flow Lessons (2026-07-15)
+
+- **quiet 与 missing 必须由 stream heartbeat 区分**：某个 ticker 没有 sweep 不代表 collector 断线；只有 provider 本身近期有消息，才能把零事件写成 quiet。
+- **dark pool 不能靠大额成交猜测**：只接受官方 TradeReport 的 TRF market center `L`/`2`，lit venue 的大单不得改标签。
+- **事件流持久化必须幂等**：用 provider event ID + event type 去重，重连和 72 小时回放不能制造重复资金流。
+- **连接参数不能从文档字段臆造**：消息 schema 公开不等于 broker URL、认证和 subscribe envelope 相同；这些由账户配置注入。
+- **opening flag 只能原样表达**：`all_opening_trades=true` 可以显示 confirmed；false 表示未知，不能推断开仓/平仓或机构方向。
+- **PM2 disabled worker 不应重启循环**：当前 PM2 未按预期尊重 `stop_exit_codes`，因此配置用一个每小时 sleep 的 idle process 保持稳定；启用后重启进程，真实连接异常由进程内 bounded reconnect 处理。

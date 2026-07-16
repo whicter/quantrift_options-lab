@@ -122,6 +122,10 @@ export function getUnusual(symbol, limit = 20) {
   return getJson(`/api/unusual/${encodeURIComponent(symbol.toUpperCase())}?limit=${limit}`);
 }
 
+export function getExternalFlow(symbol, limit = 30) {
+  return getJson(`/api/flow/${encodeURIComponent(symbol.toUpperCase())}?limit=${limit}`);
+}
+
 export function getSupportResistance(symbol) {
   return getJson(`/api/sr/${encodeURIComponent(symbol.toUpperCase())}`);
 }

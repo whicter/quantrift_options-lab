@@ -107,8 +107,15 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
   return <canvas ref={canvasRef} style={{ display: 'block' }} />;
 }
 
+function money(value) {
+  const number = Number(value || 0);
+  if (Math.abs(number) >= 1e6) return `$${(number / 1e6).toFixed(2)}M`;
+  if (Math.abs(number) >= 1e3) return `$${(number / 1e3).toFixed(1)}K`;
+  return `$${number.toFixed(0)}`;
+}
+
 export default function Tab3Options({ data }) {
-  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, conclusion, chainStats } = data;
+  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, externalFlow, conclusion, chainStats } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`
@@ -217,6 +224,37 @@ export default function Tab3Options({ data }) {
         ) : (
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>暂无异常大单</div>
         )}
+      </div>
+
+      <div className="az-card">
+        <div className="az-card-title">Sweep / Dark Pool · 实时资金流</div>
+        <div className="az-flow-meta">
+          <span className={`az-mini-badge ${externalFlow?.freshness === 'fresh' ? 'green' : 'yellow'}`}>
+            {externalFlow?.status === 'active' ? '有事件' : externalFlow?.status === 'quiet' ? '当前安静' : externalFlow?.status === 'stale' ? '数据延迟' : '待接入'}
+          </span>
+          {externalFlow?.providerLastMessageAt && <span>provider {String(externalFlow.providerLastMessageAt).slice(0, 16).replace('T', ' ')}</span>}
+        </div>
+        {externalFlow?.freshness === 'fresh' ? (
+          <>
+            <div className="az-flow-summary">
+              <span>Option Flow <strong>{externalFlow.summary.optionFlowCount}</strong></span>
+              <span>Sweep <strong>{externalFlow.summary.sweepCount}</strong></span>
+              <span>期权权利金 <strong>{money(externalFlow.summary.optionPremium)}</strong></span>
+              <span>Dark Pool <strong>{money(externalFlow.summary.darkPoolNotional)}</strong></span>
+            </div>
+            <div className="az-flow-list">
+              {externalFlow.items.slice(0, 10).map(item => (
+                <div className="az-flow-row" key={`${item.type}-${item.id}`}>
+                  <strong>{item.type === 'dark_pool' ? 'DARK' : item.hasSweep ? 'SWEEP' : 'FLOW'}</strong>
+                  <span>{item.type === 'dark_pool' ? `${item.size.toLocaleString()} 股 @ $${item.price?.toFixed(2) ?? '--'}` : `${item.right || '--'} $${item.strike ?? '--'} · ${item.expiry || '--'}`}</span>
+                  <span>{money(item.premium)}</span>
+                  {item.allOpeningTrades && <small>opening confirmed</small>}
+                </div>
+              ))}
+              {externalFlow.items.length === 0 && <div className="az-empty-copy">过去 {externalFlow.windowHours || 24} 小时该标的没有匹配事件。</div>}
+            </div>
+          </>
+        ) : <div className="az-empty-copy">外部资金流尚未形成可用的新鲜数据，不展示推断值。</div>}
       </div>
 
       {/* Conclusion */}

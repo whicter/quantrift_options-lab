@@ -810,6 +810,7 @@ collector/ecosystem.config.cjs
 | Price history | Tab2 趋势图、RVol | `GET /api/prices/:symbol` |
 | GEX snapshot | Tab1 Call Wall / Put Wall / GEX 图 | `GET /api/gex/:symbol` |
 | Unusual OI | Tab3 期权大单异动 | `GET /api/unusual/:symbol` |
+| Sweep / Dark Pool | Tab3 实时资金流 | `GET /api/flow/:symbol` |
 
 ### 10.2 写路径（采集 → 数据库）
 
@@ -1764,3 +1765,26 @@ The provider obtains one application token, caches it for its bounded lifetime, 
 Ticker extraction intersects `symbol_universe`; ambiguous ordinary words such as `AI`, `IT`, and `ON` require an explicit cashtag. A post contributes at most one mention per symbol. The 24-hour score combines post count with logarithmically bounded upvotes/comments, stores at most three sample titles and does not affect the options opportunity score.
 
 Scanner joins the latest community batch at request time and exposes `missing`, `stale`, or `fresh` provenance. A completed batch with no mention for a symbol returns fresh zero heat; only an absent batch is missing. This keeps scanner materialization independent from Reddit availability. The wide result grid scrolls horizontally below 900px while filters stack above it. Railway schema and a missing-data runtime smoke are complete; real collection requires Reddit OAuth credentials/access.
+
+## 42. External Sweep / Dark-Pool Flow
+
+```text
+Unusual Whales WebSocket JSON
+  flow-alerts (FlowAlert) -----------> option_flow
+  all-trade-report (TradeReport) ----> dark_pool only when market_center=L/2
+                |
+                v
+  collect_unusual_whales.py
+                |
+                +--> external_flow_events (idempotent event log)
+                +--> external_flow_provider_state (stream heartbeat/error)
+                |
+                v
+  GET /api/flow/:symbol --> Analyze Tab3
+```
+
+Transport parameters are account supplied through `UW_WS_URL`, `UW_API_TOKEN`, and optional `UW_WS_SUBSCRIBE_JSON`; the repository does not hardcode an assumed broker URL or subscription envelope. The collector uses the official message field names after WebSocket JSON decoding. Option contracts are parsed from OSI only to expose expiry/right/strike; malformed identity or missing execution time is rejected.
+
+When disabled, direct execution exits cleanly; the PM2 profile sets `UW_PM2_IDLE_WHEN_DISABLED=true` so one process sleeps at low frequency instead of entering an autorestart loop. Enabling requires updating secrets and restarting that named process.
+
+Freshness belongs to the provider stream, not to each ticker. A fresh stream with no event for a symbol is `quiet`; no provider heartbeat is `missing`; an old/error stream is `stale`. This prevents “no event” from being confused with “collector not running.” Events never alter GEX, IV Rank, recommendation legs, POP, or scanner opportunity score.
