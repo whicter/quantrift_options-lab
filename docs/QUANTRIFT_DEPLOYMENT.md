@@ -1565,3 +1565,9 @@ The subscription JSON above is illustrative; use the exact account-issued envelo
 With flow disabled, PM2 should show one stable online process whose log says `PM2 worker idle`; it must not accumulate restart count. After enabling the secrets, restart the named process so it leaves idle mode and connects.
 
 Code evidence: collector 95 tests, server 62 tests, frontend 25 tests, full ESLint and Vite build pass. Railway additive migration completed; read-only verification found both tables with `event_count=0`, and the API/UI missing contract is verified without fabricated events. Mac Studio PM2 registration is saved; disabled runtime stayed online with restart count 0 and an explicit idle log. Real stream/database/UI acceptance remains pending the three account connection values. Official schemas: https://api.unusualwhales.com/docs/kafka/types/FlowAlert and https://api.unusualwhales.com/docs/kafka/types/TradeReport.
+
+## Composite Momentum Rollout
+
+No migration or collector restart is required. Deploy the Node API and frontend, then call `/api/sr/AAPL`. Verify `momentum.weights` is `30m=0.3`, `1d=0.4`, `1w=0.3`, all three component scores are present, and the latest daily/intraday New York market dates agree before treating status as ready.
+
+2026-07-15 Railway read-only replay used 250 AAPL daily rows and 200 regular-session 30M rows. It returned composite 84 (`30M=50`, `1D=100`, `1W=95`) and correctly marked stale because daily was 2026-07-15 while intraday was 2026-07-14. Collector 95, server 65, frontend 25, full ESLint and production build pass. Rollback is the composite-momentum commit; `/api/sr` additions are backward compatible and have no schema changes.

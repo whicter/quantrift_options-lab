@@ -1235,6 +1235,13 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 }
 .az-aux-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
 .az-aux-val { font-size: 15px; font-weight: 700; }
+.az-momentum-card { min-width: 0; }
+.az-momentum-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.az-momentum-cell { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 3px 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-hover); }
+.az-momentum-cell span { color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.az-momentum-cell strong { color: var(--text); font-size: 18px; }
+.az-momentum-cell small { grid-column: 1 / -1; color: var(--text-dim); font-size: 10px; }
+@media (max-width: 540px) { .az-momentum-grid { grid-template-columns: 1fr; } }
 .c-green { color: var(--green); }
 .c-red { color: var(--red); }
 .c-yellow { color: var(--yellow); }

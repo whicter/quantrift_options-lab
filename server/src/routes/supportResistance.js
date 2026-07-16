@@ -39,6 +39,98 @@ function calculateRsi(values, period = 14) {
   return 100 - (100 / (1 + gains / losses));
 }
 
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function boundedContribution(value, multiplier, limit) {
+  return Math.max(-limit, Math.min(limit, value * multiplier));
+}
+
+function newYorkDateFor(value) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(value));
+}
+
+function weekKey(dateValue) {
+  const date = new Date(`${toDateString(dateValue)}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - day + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function deriveCompositeMomentum(dailyRows, intradayRows) {
+  const daily = dailyRows.map(row => ({
+    date: toDateString(row.date), close: Number(row.close),
+  })).filter(row => row.date && Number.isFinite(row.close));
+  const intraday = intradayRows.map(row => ({
+    barTs: row.bar_ts, close: Number(row.close),
+  })).filter(row => row.barTs && Number.isFinite(row.close));
+  const missing = reason => ({ status: 'missing', score: null, label: '数据不足', reason, weights: { '30m': 0.30, '1d': 0.40, '1w': 0.30 } });
+  if (daily.length < 60) return missing('requires_60_daily_bars');
+  if (intraday.length < 26) return missing('requires_26_regular_session_30m_bars');
+
+  const dailyCloses = daily.map(row => row.close);
+  const latestDaily = dailyCloses.at(-1);
+  const dailyChange5 = ((latestDaily / dailyCloses.at(-6)) - 1) * 100;
+  const dailyChange20 = ((latestDaily / dailyCloses.at(-21)) - 1) * 100;
+  const dailyMa20 = movingAverage(dailyCloses, 20);
+  const dailyMa50 = movingAverage(dailyCloses, 50);
+  const dailyScore = clampScore(
+    50 + (latestDaily >= dailyMa20 ? 15 : -15) + (latestDaily >= dailyMa50 ? 10 : -10)
+    + boundedContribution(dailyChange5, 3, 15) + boundedContribution(dailyChange20, 1.5, 15)
+  );
+
+  const intradayCloses = intraday.map(row => row.close);
+  const latestIntraday = intradayCloses.at(-1);
+  const intradayChange5 = ((latestIntraday / intradayCloses.at(-6)) - 1) * 100;
+  const intradayChange26 = ((latestIntraday / intradayCloses.at(-26)) - 1) * 100;
+  const intradayMa13 = movingAverage(intradayCloses, 13);
+  const intradayScore = clampScore(
+    50 + (latestIntraday >= intradayMa13 ? 15 : -15)
+    + boundedContribution(intradayChange5, 20, 20) + boundedContribution(intradayChange26, 10, 15)
+  );
+
+  const weekly = [];
+  daily.forEach(row => {
+    const key = weekKey(row.date);
+    if (!key) return;
+    if (weekly.at(-1)?.week === key) weekly[weekly.length - 1] = { week: key, close: row.close };
+    else weekly.push({ week: key, close: row.close });
+  });
+  if (weekly.length < 12) return missing('requires_12_weekly_bars');
+  const weeklyCloses = weekly.map(row => row.close);
+  const latestWeekly = weeklyCloses.at(-1);
+  const weeklyChange4 = ((latestWeekly / weeklyCloses.at(-5)) - 1) * 100;
+  const weeklyMa4 = movingAverage(weeklyCloses, 4);
+  const weeklyMa12 = movingAverage(weeklyCloses, 12);
+  const weeklyScore = clampScore(
+    50 + (latestWeekly >= weeklyMa4 ? 15 : -15) + (latestWeekly >= weeklyMa12 ? 10 : -10)
+    + boundedContribution(weeklyChange4, 2, 20)
+  );
+
+  const dailyMarketDate = daily.at(-1).date;
+  const intradayMarketDate = newYorkDateFor(intraday.at(-1).barTs);
+  const stale = intradayMarketDate !== dailyMarketDate;
+  const score = clampScore(intradayScore * 0.30 + dailyScore * 0.40 + weeklyScore * 0.30);
+  return {
+    status: stale ? 'stale' : 'ready',
+    score,
+    label: score >= 70 ? '多周期强势' : score >= 55 ? '多周期偏强' : score >= 45 ? '多周期中性' : score >= 30 ? '多周期偏弱' : '多周期弱势',
+    reason: stale ? 'intraday_market_date_lags_daily' : null,
+    weights: { '30m': 0.30, '1d': 0.40, '1w': 0.30 },
+    latest_daily_date: dailyMarketDate,
+    latest_intraday_market_date: intradayMarketDate,
+    timeframes: {
+      '30m': { score: intradayScore, change_5bar_pct: intradayChange5, change_26bar_pct: intradayChange26, ma13: intradayMa13 },
+      '1d': { score: dailyScore, change_5d_pct: dailyChange5, change_20d_pct: dailyChange20, ma20: dailyMa20, ma50: dailyMa50 },
+      '1w': { score: weeklyScore, change_4w_pct: weeklyChange4, ma4: weeklyMa4, ma12: weeklyMa12, observations: weekly.length },
+    },
+  };
+}
+
 function clusterLevels(levels, tolerancePct = 0.01) {
   const clusters = [];
   [...levels].sort((a, b) => a.price - b.price).forEach(level => {
@@ -132,8 +224,8 @@ async function sendSupportResistance(req, res) {
   if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
-    const { rows } = await pool.query(
-      `SELECT date, high, low, close, volume, source, created_at
+    const [dailyResult, intradayResult] = await Promise.all([
+      pool.query(`SELECT date, high, low, close, volume, source, created_at
        FROM (
          SELECT date, high, low, close, volume, source, created_at
          FROM price_history
@@ -142,11 +234,22 @@ async function sendSupportResistance(req, res) {
          LIMIT 250
        ) recent
        ORDER BY date ASC`,
-      [symbol]
-    );
+      [symbol]),
+      pool.query(`SELECT bar_ts, close, source FROM (
+        SELECT bar_ts, close, source
+        FROM price_history_30m
+        WHERE symbol = $1
+          AND (bar_ts AT TIME ZONE 'America/New_York')::time >= TIME '09:30'
+          AND (bar_ts AT TIME ZONE 'America/New_York')::time < TIME '16:00'
+        ORDER BY bar_ts DESC
+        LIMIT 200
+      ) recent ORDER BY bar_ts ASC`, [symbol]),
+    ]);
+    const rows = dailyResult.rows;
+    const momentum = deriveCompositeMomentum(rows, intradayResult.rows);
     const derived = deriveSupportResistance(rows);
     if (!derived) {
-      return res.json({ symbol, status: 'missing', bar_count: rows.length, support: [], resistance: [], focus: deriveFocusScore([]) });
+      return res.json({ symbol, status: 'missing', bar_count: rows.length, support: [], resistance: [], focus: deriveFocusScore([]), momentum });
     }
     const latest = rows[rows.length - 1];
     return res.json({
@@ -161,6 +264,7 @@ async function sendSupportResistance(req, res) {
       resistance: derived.resistances,
       method: { pivot_window: 2, cluster_tolerance_pct: 1 },
       focus: deriveFocusScore(derived.bars),
+      momentum,
     });
   } catch (err) {
     console.error('GET /api/sr/:symbol error:', err.message);
@@ -170,4 +274,4 @@ async function sendSupportResistance(req, res) {
 
 router.get('/:symbol', sendSupportResistance);
 
-module.exports = { router, sendSupportResistance, deriveSupportResistance, deriveFocusScore };
+module.exports = { router, sendSupportResistance, deriveSupportResistance, deriveFocusScore, deriveCompositeMomentum };

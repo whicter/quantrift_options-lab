@@ -126,6 +126,7 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats) {
       barCount: supportResistance.bar_count,
     } : null,
     focusScore: srReady && supportResistance.focus?.ready ? supportResistance.focus : null,
+    compositeMomentum: srReady && supportResistance.momentum ? supportResistance.momentum : null,
     chainStats: chainReady ? {
       source: chainStats.source,
       snapshotTs: chainStats.snapshot_ts,

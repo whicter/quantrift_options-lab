@@ -102,6 +102,8 @@ Reddit community trends are deployment-ready: OAuth provider, bounded auth/rate 
 
 Unusual Whales sweep/TRF data layer is code-complete: account-configured WebSocket JSON transport, official FlowAlert/TradeReport normalization, idempotent event/state tables, `/api/flow/:symbol`, Analyze UI and disabled-safe PM2 process. Railway migration is applied and both empty tables are confirmed. PM2 registration is saved and disabled runtime remains online/idle with restart count 0. Fresh stream + no ticker event is quiet; absent heartbeat is missing; only `market_center=L/2` is dark pool. Collector 95, server 62, frontend 25, lint and build pass. Real stream acceptance requires `UW_WS_URL`, `UW_API_TOKEN`, and the account subscription envelope.
 
+Composite Momentum is complete in `/api/sr/:symbol` and Analyze Tab2: regular-session 30M, daily and weekly-aggregated closes produce disclosed 30/40/30 weighted components. Missing timeframe history fails closed; lagging 30M marks the result stale. Railway AAPL replay used 250 daily/200 intraday rows and returned 84 with a correct 7/15 vs 7/14 stale gate.
+
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 
 Collector health alert 已完成：`check_collector_health.py` 每 300 秒检查 coverage/failures/age/completeness，`collector_health_alerts` 持久化 fingerprint/cooldown/resolution，通知支持 webhook/SMTP/log fallback。

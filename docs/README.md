@@ -133,5 +133,6 @@ Open http://localhost:5173
 - [x] Analyze Tab4: real Call/Put OI density by strike with independent snapshot freshness
 - [x] Reddit community-trend pipeline: OAuth provider, persisted snapshots, Scanner heat column and disabled-safe PM2 cron (credentials pending)
 - [x] Unusual Whales flow pipeline: idempotent sweep/TRF events, provider heartbeat, Analyze UI and disabled-safe WebSocket worker (account stream parameters pending)
+- [x] Composite Momentum: real 30M/1D/weekly-derived 1W scores with 30/40/30 weights and stale intraday gating
 - [x] V3 code: Clerk auth + subscription tiers (runtime keys pending)
 - [x] V3: Portfolio tracking + Greeks aggregation

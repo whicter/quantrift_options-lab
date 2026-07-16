@@ -811,6 +811,7 @@ collector/ecosystem.config.cjs
 | GEX snapshot | Tab1 Call Wall / Put Wall / GEX 图 | `GET /api/gex/:symbol` |
 | Unusual OI | Tab3 期权大单异动 | `GET /api/unusual/:symbol` |
 | Sweep / Dark Pool | Tab3 实时资金流 | `GET /api/flow/:symbol` |
+| Composite Momentum | Tab2 多周期动量 | `GET /api/sr/:symbol` (`momentum`) |
 
 ### 10.2 写路径（采集 → 数据库）
 
@@ -1788,3 +1789,15 @@ Transport parameters are account supplied through `UW_WS_URL`, `UW_API_TOKEN`, a
 When disabled, direct execution exits cleanly; the PM2 profile sets `UW_PM2_IDLE_WHEN_DISABLED=true` so one process sleeps at low frequency instead of entering an autorestart loop. Enabling requires updating secrets and restarting that named process.
 
 Freshness belongs to the provider stream, not to each ticker. A fresh stream with no event for a symbol is `quiet`; no provider heartbeat is `missing`; an old/error stream is `stale`. This prevents “no event” from being confused with “collector not running.” Events never alter GEX, IV Rank, recommendation legs, POP, or scanner opportunity score.
+
+## 43. Composite Momentum
+
+`GET /api/sr/:symbol` reads up to 250 daily bars and 200 regular-session 30M bars from PostgreSQL. It performs no provider request. Daily bars are also grouped by calendar week using the last available close, producing a real 1W series.
+
+```text
+30M score (30%): MA13 + 5-bar return + 26-bar return
+1D score  (40%): MA20/MA50 + 5-day return + 20-day return
+1W score  (30%): weekly MA4/MA12 + 4-week return
+```
+
+Readiness requires 60 daily bars, 12 weekly observations, and 26 regular-session 30M bars. The component and composite scores are bounded to 0–100. If the latest 30M New York market date differs from the latest daily date, the computed values remain visible for diagnosis but status is `stale`; UI explicitly says it is not current multi-timeframe confirmation.

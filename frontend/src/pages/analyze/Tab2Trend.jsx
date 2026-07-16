@@ -157,6 +157,7 @@ function TrendCanvas({ prices, dates, kf, spread, levels }) {
 
 export default function Tab2Trend({ data }) {
   const { trend, pcr, direction } = data;
+  const composite = data.compositeMomentum;
   const priceOnly = data.partialData?.type === 'price_only';
   const realHistory = Array.isArray(data.priceHistory) && data.priceHistory.length >= 5 ? data.priceHistory : null;
   const stale = Boolean(data.priceMeta?.isStale || data.priceMeta?.freshness === 'stale');
@@ -213,6 +214,33 @@ export default function Tab2Trend({ data }) {
             <div className={`az-badge ${fn(value)}`}>{value}</div>
           </div>
         ))}
+      </div>
+
+      <div className="az-card az-momentum-card">
+        <div className="az-trend-header">
+          <div className="az-card-title">Composite Momentum · 多周期动量</div>
+          <span className={`az-mini-badge ${composite?.status === 'ready' ? (composite.score >= 55 ? 'green' : composite.score < 45 ? 'red' : 'yellow') : 'yellow'}`}>
+            {composite?.status === 'ready' ? `${composite.score} · ${composite.label}` : composite?.status === 'stale' ? 'Stale · 30M落后' : '历史不足'}
+          </span>
+        </div>
+        {composite?.timeframes ? (
+          <div className="az-momentum-grid">
+            {[
+              ['30M', composite.timeframes['30m'], '30%'],
+              ['1D', composite.timeframes['1d'], '40%'],
+              ['1W', composite.timeframes['1w'], '30%'],
+            ].map(([label, timeframe, weight]) => (
+              <div className="az-momentum-cell" key={label}>
+                <span>{label}</span>
+                <strong>{timeframe.score}</strong>
+                <small>权重 {weight}</small>
+              </div>
+            ))}
+          </div>
+        ) : <div className="az-empty-copy">需要至少 60 根日线、12 个周线观察与 26 根 regular-session 30M bars。</div>}
+        {composite?.status === 'stale' && (
+          <div className="az-data-note">日线 {composite.latest_daily_date} · 30M {composite.latest_intraday_market_date}，不作为当前多周期确认。</div>
+        )}
       </div>
 
       {/* Aux 3-grid */}

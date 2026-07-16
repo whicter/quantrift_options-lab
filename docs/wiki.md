@@ -1237,3 +1237,13 @@ Only symbols in `symbol_universe` are retained. Ambiguous English tokens require
 `Dark Pool` 在本数据层严格指 consolidated stock tape 中 `market_center=L/2` 的 TRF/off-lit print。页面显示成交股数、价格和 notional。TRF 打印可能晚于实际成交上带，因此使用 `trf_executed_at` 优先排序；它也不是天然的支撑、阻力或机构买卖方向。
 
 状态语义：`active` 表示 provider 新鲜且窗口内有事件，`quiet` 表示 provider 新鲜但该 ticker 无事件，`stale` 表示 stream heartbeat 过旧/报错，`missing` 表示从未形成 provider heartbeat。Sweep/TRF 是独立上下文，不进入策略构造或机会评分。
+
+### Composite Momentum（多周期动量）
+
+Composite Momentum 回答“短线、日线和周线是否同向”，不是新的交易策略。Quantrift 将 30M、1D、1W 分别压缩为 0–100 分，再按 30% / 40% / 30% 合成。日线权重最高，因为它比 30M 噪音低，又比周线更能反映当前交易窗口。
+
+- `30M`：最近 26 根 regular-session bars，观察 MA13、5-bar 与 26-bar return。
+- `1D`：至少 60 根日线，观察 MA20/50、5 日与 20 日 return。
+- `1W`：日线按周聚合，至少 12 周，观察 MA4/12 与 4 周 return。
+
+分数高表示三个周期整体偏强，低表示整体偏弱；它不等同于“立刻买入/卖出”。若 30M 日期落后最新日线，状态为 stale，即使分数很高也不能作为当前多周期确认。

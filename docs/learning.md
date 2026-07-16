@@ -610,3 +610,11 @@ V1 公式：
 - **连接参数不能从文档字段臆造**：消息 schema 公开不等于 broker URL、认证和 subscribe envelope 相同；这些由账户配置注入。
 - **opening flag 只能原样表达**：`all_opening_trades=true` 可以显示 confirmed；false 表示未知，不能推断开仓/平仓或机构方向。
 - **PM2 disabled worker 不应重启循环**：当前 PM2 未按预期尊重 `stop_exit_codes`，因此配置用一个每小时 sleep 的 idle process 保持稳定；启用后重启进程，真实连接异常由进程内 bounded reconnect 处理。
+
+## Composite Momentum Lessons (2026-07-15)
+
+- **多周期分数必须公开权重**：只给 84 分无法复核；API 同时返回 30M/1D/1W components 和 30/40/30 weights。
+- **1W 应从真实日线聚合**：不能把“20 日变化”改名为周线；按 calendar week 取最后 close 后再计算 MA4/12。
+- **分数和 freshness 是两件事**：AAPL 真实重放得到 84，但 30M 比日线落后一天，所以状态仍是 stale，UI 不把它写成当前确认。
+- **历史门槛要覆盖每个 timeframe**：60 daily、12 weekly、26 intraday 任一不足都返回 missing，不用零分补齐权重。
+- **分析 API 仍只读数据库**：`/api/sr` 增加第二个 bounded SQL query，不在用户请求时拉 provider。

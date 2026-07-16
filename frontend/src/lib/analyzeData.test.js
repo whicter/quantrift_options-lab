@@ -124,6 +124,10 @@ test('derived analysis only attaches ready real-data products', () => {
     support: [{ price: 130, touches: 3 }],
     resistance: [{ price: 140, touches: 2 }],
     focus: { ready: true, score: 68, label: '偏强' },
+    momentum: {
+      status: 'ready', score: 72, label: '多周期强势', weights: { '30m': 0.3, '1d': 0.4, '1w': 0.3 },
+      timeframes: { '30m': { score: 70 }, '1d': { score: 75 }, '1w': { score: 70 } },
+    },
   }, {
     status: 'ready',
     source: 'ib_internal',
@@ -139,6 +143,7 @@ test('derived analysis only attaches ready real-data products', () => {
     },
   });
   assert.equal(result.focusScore.score, 68);
+  assert.equal(result.compositeMomentum.score, 72);
   assert.equal(result.supportResistance.support[0].price, 130);
   assert.equal(result.chainStats.ivContractCount, 20);
   assert.equal(result.chainStats.oiDensity.points[0].put_oi, 7000);
@@ -149,5 +154,6 @@ test('missing derived data remains null instead of using mock values', () => {
   const result = applyDerivedAnalysis(mockSeed, { status: 'missing' }, { status: 'missing' });
   assert.equal(result.supportResistance, null);
   assert.equal(result.focusScore, null);
+  assert.equal(result.compositeMomentum, null);
   assert.equal(result.chainStats, null);
 });

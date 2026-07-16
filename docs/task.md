@@ -906,7 +906,8 @@
 - 核心能力：多时框动量评分（30M/1D/1W）、综合 momentum score、"Uptrend"/"30min Breakout"信号矩阵
 - 数据源：无期权数据，纯股票技术面
 - 我们的差异化优势：GEX/PCR/Unusual OI/具体期权腿推荐 是 AlphaStock Pro 完全没有的；多时框动量评分我们可以用 `price_history` 复刻
-- 待补充：composite momentum score（30M/1D/1W 加权）、Focus Score
+- [x] Composite Momentum：真实 regular-session 30M / 1D / weekly-aggregated 1W 按 30% / 40% / 30% 加权；任一历史不足 missing，30M market date 落后日线时 stale，不作为当前多周期确认（2026-07-15）
+- [x] Focus Score：MA20/50/200、RSI14、5日动量与 RVol 已实现
 
 **Newshock.net（PRESSURE/S/R system）**
 - 核心能力：每日更新支撑/阻力区间（S/R zones），从 OHLCV pivot 计算；Focus Score = MA 位置 + 量能参与度
@@ -940,10 +941,13 @@
 | P2.3 | Heartbeat | ✅ 2026-07-15 完成：Mac Studio daemon 上报、Railway status API、missing/offline incident、cooldown 与 resolved lifecycle | Railway/Mac 共享 token 和 webhook secret 尚需人工配置；当前 daemon disabled-safe |
 | P2.4 | Frontend verification debt | ✅ 2026-07-15 完成：全量 ESLint 0 errors/0 warnings、frontend 21/21、production build | 无 |
 | P2.5 | Reddit community trends | ✅ 2026-07-15 代码/表/API/UI/PM2 完成；缺凭据时 disabled-safe | Reddit OAuth app credentials 与访问 approval |
+| P2.6 | Composite momentum | ✅ 2026-07-15 完成：30M/1D/1W score、freshness gate、Analyze UI | 无 |
 | P3 | 商业化 | auth、subscriptions、positions、portfolio、Stripe | Clerk/NextAuth/Stripe key 与产品方案需人工提供/确认 |
 | External | 硬件与账户验收 | UPS、IB cloud/VPS、Unusual Whales、Reddit API | 数据层代码已完成；真实运行必须人工采购、登录或提供 API key |
 
 P1.4 verification：server 31/31 tests、frontend 19/19 tests、affected frontend lint 0 errors、Vite production build passed。Railway runtime 返回 Market `Mixed 51`，SPY/QQQ 30M 因 7/14 对 7/15 daily 正确标记 stale；AAPL Weekly 返回 5 candles、1 个已有 GEX day、Max Pain 310、1 个 ΔOI day。Browser plugin 初始化报 `Cannot redefine property: process`，因此未取得自动 screenshot，未宣称 visual verification。
+
+P2.6 verification：Railway 只读重放 AAPL 250 daily + 200 regular-session 30M rows，输出 composite=84、30M=50、1D=100、1W=95；daily 2026-07-15 对 intraday 2026-07-14，因此按设计返回 `stale`。Collector 95/95、server 65/65、frontend 25/25、full ESLint 和 Vite production build passed。
 
 执行边界：`task.md` 中已经被后续 section 实现但仍保留 `[ ]` 的旧条目，先用代码和测试证据校准为完成；硬件采购和第三方账户操作不得伪装为代码完成。
 
