@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scanCandidateId, sortScannerRows } from './scannerResults.js';
+import { dedupeScannerRows, nextScannerSort, scanCandidateId, sortScannerRows } from './scannerResults.js';
 
 function row(symbol, ivRank) {
   return {
@@ -35,4 +35,23 @@ test('candidate keys include each leg expiry for cross-expiry structures', () =>
   const first = { strategy: 'Diagonal Spread', legs: [{ expiry: '2026-07-17', action: 'SELL', right: 'C', strike: 220 }, { expiry: '2026-08-21', action: 'BUY', right: 'C', strike: 210 }] };
   const second = { strategy: 'Diagonal Spread', legs: [{ expiry: '2026-07-17', action: 'SELL', right: 'C', strike: 220 }, { expiry: '2026-09-18', action: 'BUY', right: 'C', strike: 210 }] };
   assert.notEqual(scanCandidateId('AMZN', first), scanCandidateId('AMZN', second));
+});
+
+test('deduplicates identical candidates before React renders and sorts them repeatedly', () => {
+  const rows = [
+    { ...row('PLTR', 64), id: 'PLTR:one' },
+    { ...row('IREN', 70), id: 'IREN:one' },
+    { ...row('PLTR', 64), id: 'PLTR:one' },
+  ];
+  const uniqueRows = dedupeScannerRows(rows);
+  assert.deepEqual(uniqueRows.map(item => item.id), ['PLTR:one', 'IREN:one']);
+
+  let sort = { key: 'score', direction: 'desc' };
+  sort = nextScannerSort(sort, 'symbol');
+  assert.deepEqual(sort, { key: 'symbol', direction: 'desc' });
+  sort = nextScannerSort(sort, 'symbol');
+  assert.deepEqual(sort, { key: 'symbol', direction: 'asc' });
+  sort = nextScannerSort(sort, 'symbol');
+  assert.deepEqual(sort, { key: 'symbol', direction: 'desc' });
+  assert.deepEqual(sortScannerRows(uniqueRows, sort).map(item => item.symbol), ['PLTR', 'IREN']);
 });

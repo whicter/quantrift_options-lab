@@ -6,7 +6,7 @@ import ScannerAlerts from '../components/ScannerAlerts';
 import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
 import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
 import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
-import { scanCandidateId, sortScannerRows } from '../lib/scannerResults';
+import { dedupeScannerRows, nextScannerSort, scanCandidateId, sortScannerRows } from '../lib/scannerResults';
 
 const STRATEGY_OPTIONS = ACTIONABLE_STRATEGIES;
 
@@ -398,7 +398,7 @@ export default function Scan() {
         buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies)
           .map(setup => toScanRow(row, setup))
       ));
-      setResults(liveRows);
+      setResults(dedupeScannerRows(liveRows));
     } catch {
       setResults([]);
       setError('真实 scanner API 暂时不可用。');
@@ -416,10 +416,7 @@ export default function Scan() {
   const displayedResults = results ? sortScannerRows(results, tableSort) : null;
 
   function toggleTableSort(key) {
-    setTableSort(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
-    }));
+    setTableSort(prev => nextScannerSort(prev, key));
   }
 
   return (
@@ -826,13 +823,16 @@ export default function Scan() {
               <div className="scan-results-header">
                 找到 <strong>{results.length}</strong> 个真实报价候选单
               </div>
-              <div className="scan-table">
+              <div className="scan-table" key={`${tableSort.key}:${tableSort.direction}`}>
                 <div className="scan-table-head">
                   {SORTABLE_COLUMNS.map(col => (
                     <button
                       key={col.key}
                       className="scan-sort-head"
-                      onClick={() => toggleTableSort(col.key)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleTableSort(col.key);
+                      }}
                       title={col.title}
                       type="button"
                     >

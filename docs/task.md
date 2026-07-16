@@ -695,7 +695,7 @@
 - ✅ Opportunity type controls：selecting High-IV income, near Wall, or unusual positioning now has a persistent selected state and immediately reruns Scanner with the preset's explicit filters; it is no longer a silent form-state change.
 - ✅ Scanner toggle alignment：Unusual OI and advanced-risk checkboxes use an explicit 16px control column with adjacent label text; browser input sizing cannot push the label across the filter panel.
 - ✅ Scanner filter scrolling：the desktop sticky filter panel has its own viewport-bounded vertical scroll, so advanced controls and the scan action remain reachable after long result lists render.
-- ✅ Scanner table sorting：cross-expiry candidates now have unique React keys containing every leg's expiry and contract identifier; sorting uses a tested pure comparator, so sorted rows cannot retain stale DOM positions from key collisions.
+- ✅ Scanner table sorting：cross-expiry candidates now have unique React keys containing every leg's expiry and contract identifier; exact duplicate candidates are removed before rendering, repeated header clicks use a tested sort-state transition, and the sorted list is remounted per sort state so rows cannot retain stale DOM positions.
 - ✅ Verification：
   - Migration completed against Railway PostgreSQL after adding trend columns.
   - `venv311/bin/python materialize_scan.py` refreshed 67 scanner rows with trend fields.

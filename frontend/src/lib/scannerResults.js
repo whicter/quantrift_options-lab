@@ -15,6 +15,19 @@ export function scanCandidateId(symbol, setup) {
   return `${symbol}:${setup.strategy}:${legs}`;
 }
 
+export function dedupeScannerRows(rows) {
+  const uniqueRows = new Map();
+  rows.forEach(row => {
+    if (!uniqueRows.has(row.id)) uniqueRows.set(row.id, row);
+  });
+  return [...uniqueRows.values()];
+}
+
+export function nextScannerSort(currentSort, key) {
+  if (currentSort.key !== key) return { key, direction: 'desc' };
+  return { key, direction: currentSort.direction === 'desc' ? 'asc' : 'desc' };
+}
+
 export function scannerSortValue(row, key) {
   if (key === 'symbol') return row.symbol;
   if (key === 'price') return number(row.price) ?? -Infinity;
