@@ -299,6 +299,8 @@ GEX compute job：
 - 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
 - GEX 只有在 gamma + OI completeness 达标后才计算。
 - GEX API 必须返回 `raw_metrics.unit`、`raw_metrics.formula`、`raw_metrics.positioning_model` 和 `raw_metrics.positioning_assumption`，页面需要把 GEX 标记为模型估算。
+- GEX 不能只以数值字段在不同产品间传播。Analyze、Scan 与 Weekly 的 GEX DTO 都必须带同一份 `gex_metadata`：模型版本/单位/代理假设、快照时间与数据状态、合约覆盖范围、计算参数。这样每个展示点都能追溯到具体快照，而旧 Scanner 行缺少 metadata 时必须显示 `partial`，不能用当前默认配置猜测历史模型。
+- Gamma Flip 重算必须使用 option-chain snapshot 的估值日期，而不是 job 运行当天。否则同一历史链会因剩余 DTE 改变得到不同曲线，不能复现或比较。
 - 当前模型版本为 `gex-v2-1pct-positioning-proxy`；不同模型版本的 GEX 数值不能直接做历史比较。
 - 部署重算：`GEX_RECOMPUTE_ALL=true GEX_SYMBOLS=<symbols> venv311/bin/python compute_gex.py`，随后重新 materialize scanner rows。
 - scanner 已可读取 latest GEX snapshot 做 Gamma regime / Wall proximity / Local Gamma / OI / Volume / Volume-to-OI filters。

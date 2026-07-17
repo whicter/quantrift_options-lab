@@ -11,6 +11,7 @@ const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
+const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
 
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
 const SCANNER_CACHE_SECONDS = parseInt(process.env.SCANNER_CACHE_SECONDS ?? 60, 10);
@@ -292,6 +293,7 @@ async function sendScan(req, res) {
          trend_score, trend_label, trend_signal, trend_change_5d,
          trend_rsi14, trend_ma20, trend_ma50, trend_ma200,
          unusual_oi_count, max_oi_delta, max_volume_oi_ratio, unusual_status,
+         payload,
          community_batch.snapshot_ts AS community_snapshot_ts,
          community_batch.source AS community_source,
          community_batch.window_hours AS community_window_hours,
@@ -463,8 +465,26 @@ async function sendScan(req, res) {
     };
     const candidates = rows.flatMap(row => {
       const setups = buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies);
-      const { option_contracts: _rawContracts, ...scannerSummary } = row;
-      return setups.map(concreteSetup => ({ ...scannerSummary, concrete_setup: toCandidateDto(concreteSetup) }));
+      const { option_contracts: _rawContracts, payload, ...scannerSummary } = row;
+      const gexModel = payload?.gex_model || {};
+      const gexMetadata = buildGexMetadata({
+        ...row,
+        raw_metrics: gexModel.raw_metrics,
+        contract_count: gexModel.contract_count,
+        completeness_pct: gexModel.completeness_pct,
+        missing_greeks_ratio: gexModel.missing_greeks_ratio,
+        missing_oi_ratio: gexModel.missing_oi_ratio,
+      }, {
+        freshness: row.gex_status,
+        age_minutes: row.gex_snapshot_ts
+          ? Math.floor((Date.now() - new Date(row.gex_snapshot_ts).getTime()) / 60000)
+          : null,
+      }, { refreshStatus: row.refresh_status });
+      return setups.map(concreteSetup => ({
+        ...scannerSummary,
+        gex_metadata: gexMetadata,
+        concrete_setup: toCandidateDto(concreteSetup),
+      }));
     });
 
     res.json(setCache(key, candidates, SCANNER_CACHE_SECONDS));

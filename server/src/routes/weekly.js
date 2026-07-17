@@ -1,8 +1,10 @@
 const express = require('express');
 const pool = require('../db');
 const { deriveSupportResistance } = require('./supportResistance');
+const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
 
 const router = express.Router();
+const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
 
 function number(value) {
   if (value == null) return null;
@@ -34,6 +36,7 @@ function deriveWeekly(symbol, priceRows, gexRows, oiRows, srResult) {
     gamma_regime: row.gamma_regime, gamma_flip: number(row.gamma_flip), call_wall: number(row.call_wall),
     put_wall: number(row.put_wall), max_pain: number(row.max_pain), pcr_oi: number(row.pcr_oi),
     confidence: row.confidence,
+    gex_metadata: buildGexMetadata(row, {}, { historical: true }),
     strikes: Array.isArray(row.strikes) ? row.strikes.map(strike => ({
       strike: number(strike.strike), net_gex: number(strike.net_gex), call_oi: number(strike.call_oi), put_oi: number(strike.put_oi),
     })) : [],
@@ -90,9 +93,13 @@ async function sendWeekly(req, res) {
         SELECT * FROM price_history WHERE symbol = $1 ORDER BY date DESC LIMIT 250
       ) rows ORDER BY date ASC`, [symbol]),
       pool.query(`WITH daily AS (
-        SELECT *, (snapshot_ts AT TIME ZONE 'America/New_York')::date market_date,
-          ROW_NUMBER() OVER (PARTITION BY (snapshot_ts AT TIME ZONE 'America/New_York')::date ORDER BY snapshot_ts DESC) rank
-        FROM gex_snapshots WHERE symbol = $1
+        SELECT g.*, c.underlying_price, c.contract_count, c.completeness_pct,
+          c.missing_greeks_ratio, c.missing_oi_ratio,
+          (g.snapshot_ts AT TIME ZONE 'America/New_York')::date market_date,
+          ROW_NUMBER() OVER (PARTITION BY (g.snapshot_ts AT TIME ZONE 'America/New_York')::date ORDER BY g.snapshot_ts DESC) rank
+        FROM gex_snapshots g
+        JOIN option_chain_snapshots c ON c.id = g.snapshot_id
+        WHERE g.symbol = $1 AND g.raw_metrics->>'model_version' = '${GEX_MODEL_VERSION}'
       )
       SELECT daily.*, COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'strike', strike, 'net_gex', net_gex, 'call_oi', call_oi, 'put_oi', put_oi

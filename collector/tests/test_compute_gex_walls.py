@@ -5,7 +5,7 @@ import compute_gex
 
 
 class ComputeGexWallTest(unittest.TestCase):
-    def test_call_gex_is_positive_and_put_gex_is_negative(self):
+    def test_gex_is_scaled_to_a_one_percent_underlying_move(self):
         expiry = date(2026, 9, 18)
         contracts = [
             compute_gex.Contract(expiry, 100, 'C', 10, 1, 0.02, 0.30),
@@ -14,9 +14,29 @@ class ComputeGexWallTest(unittest.TestCase):
 
         result = compute_gex.aggregate_by_strike(contracts, 100)[100]
 
-        self.assertEqual(result['call_gex'], 200000)
-        self.assertEqual(result['put_gex'], -100000)
-        self.assertEqual(result['net_gex'], 100000)
+        self.assertEqual(result['call_gex'], 2000)
+        self.assertEqual(result['put_gex'], -1000)
+        self.assertEqual(result['net_gex'], 1000)
+
+    def test_gex_metadata_discloses_unit_and_positioning_proxy(self):
+        snapshot = {
+            'id': 1,
+            'symbol': 'TEST',
+            'snapshot_ts': datetime.now(timezone.utc),
+            'source': 'test',
+            'underlying_price': 100,
+            'missing_greeks_ratio': 0,
+            'missing_oi_ratio': 0,
+            'completeness_pct': 100,
+        }
+        contract = compute_gex.Contract(date(2026, 9, 18), 100, 'C', 10, 1, 0.02, 0.30)
+        result = compute_gex.compute_for_snapshot(snapshot, [contract])
+
+        self.assertEqual(result['raw_metrics']['unit'], 'usd_delta_change_per_1pct_move')
+        self.assertEqual(result['raw_metrics']['model_version'], 'gex-v2-1pct-positioning-proxy')
+        self.assertEqual(result['raw_metrics']['underlying_move_pct'], 1.0)
+        self.assertEqual(result['raw_metrics']['positioning_model'], 'call_positive_put_negative_proxy')
+        self.assertIn('does not identify actual dealer positions', result['raw_metrics']['positioning_assumption'])
 
     def test_walls_stay_on_their_expected_side_of_spot(self):
         snapshot = {
@@ -64,6 +84,14 @@ class ComputeGexWallTest(unittest.TestCase):
         ]
 
         self.assertEqual(compute_gex.find_gamma_flip(curve), 100)
+
+    def test_gamma_curve_uses_snapshot_valuation_date_not_runtime_date(self):
+        contract = compute_gex.Contract(date(2026, 9, 18), 100, 'C', 10, 1, 0.02, 0.30)
+
+        first = compute_gex.compute_gamma_curve([contract], 100, date(2026, 7, 16))
+        second = compute_gex.compute_gamma_curve([contract], 100, date(2026, 7, 16))
+
+        self.assertEqual(first, second)
 
     def test_pcr_division_by_zero_returns_missing(self):
         self.assertIsNone(compute_gex._safe_ratio(100, 0))

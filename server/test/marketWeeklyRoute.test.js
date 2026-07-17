@@ -62,6 +62,7 @@ test('weekly product uses real GEX, max pain and OI delta without synthetic hist
   const result = deriveWeekly('TEST', prices, gex, oi, { supports: [{ price: 103 }], resistances: [{ price: 116 }] });
   assert.equal(result.status, 'ready');
   assert.equal(result.gamma.history.length, 1);
+  assert.equal(result.gamma.history[0].gex_metadata.data_state.status, 'historical');
   assert.equal(result.pinning.max_pain, 108);
   assert.equal(result.positioning.total_oi_delta, 1250);
   assert.equal(result.scenarios.up.trigger, 112);

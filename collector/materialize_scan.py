@@ -29,6 +29,7 @@ DB_URL = os.getenv('DATABASE_URL')
 SCAN_KEY = os.getenv('SCAN_KEY', 'watchlist_v1')
 OPTIONS_STALE_MINUTES = int(os.getenv('OPTIONS_STALE_MINUTES', '15'))
 USE_DERIVED_VOLATILITY = os.getenv('USE_DERIVED_VOLATILITY', 'true').strip().lower() in ('1', 'true', 'yes')
+GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy'
 
 
 def load_symbols(conn=None):
@@ -59,7 +60,7 @@ def load_symbols(conn=None):
 def fetch_rows(conn, symbols):
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             WITH watchlist AS (
               SELECT UNNEST(%s::text[]) AS symbol
             ),
@@ -114,11 +115,16 @@ def fetch_rows(conn, symbols):
                 g.symbol, g.snapshot_ts AS gex_snapshot_ts, g.source AS gex_source,
                 g.global_gex, g.local_gamma, g.gamma_flip, g.gamma_regime,
                 g.call_wall, g.put_wall, g.max_pain, g.pcr_oi, g.pcr_volume,
-                g.confidence AS gex_confidence, c.underlying_price,
+                g.confidence AS gex_confidence, g.raw_metrics AS gex_raw_metrics,
+                c.underlying_price, c.contract_count AS gex_contract_count,
+                c.completeness_pct AS gex_completeness_pct,
+                c.missing_greeks_ratio AS gex_missing_greeks_ratio,
+                c.missing_oi_ratio AS gex_missing_oi_ratio,
                 EXTRACT(EPOCH FROM (NOW() - g.snapshot_ts)) / 60.0 AS gex_age_minutes
               FROM gex_snapshots g
               JOIN option_chain_snapshots c ON c.id = g.snapshot_id
               WHERE g.symbol = ANY(%s)
+                AND g.raw_metrics->>'model_version' = '{GEX_MODEL_VERSION}'
               ORDER BY g.symbol, g.snapshot_ts DESC
             ),
             latest_chain AS (
@@ -204,7 +210,9 @@ def fetch_rows(conn, symbols):
               latest_gex.global_gex, latest_gex.local_gamma, latest_gex.gamma_flip,
               latest_gex.gamma_regime, latest_gex.call_wall, latest_gex.put_wall,
               latest_gex.max_pain, latest_gex.pcr_oi, latest_gex.pcr_volume,
-              latest_gex.gex_confidence,
+              latest_gex.gex_confidence, latest_gex.gex_raw_metrics,
+              latest_gex.gex_contract_count, latest_gex.gex_completeness_pct,
+              latest_gex.gex_missing_greeks_ratio, latest_gex.gex_missing_oi_ratio,
               option_totals.total_oi, option_totals.total_volume,
               option_totals.total_volume / NULLIF(option_totals.total_oi, 0) AS volume_oi_ratio,
               option_totals.max_strike_oi, option_totals.max_strike_volume,
@@ -455,6 +463,13 @@ def insert_rows(conn, rows):
             'iv_rank_source': row.get('iv_rank_source'),
             'iv_rank_ready': bool(row.get('iv_rank_ready')),
             'iv_observation_count': row.get('iv_observation_count') or 0,
+            'gex_model': {
+                'raw_metrics': row.get('gex_raw_metrics') or {},
+                'contract_count': row.get('gex_contract_count'),
+                'completeness_pct': row.get('gex_completeness_pct'),
+                'missing_greeks_ratio': row.get('gex_missing_greeks_ratio'),
+                'missing_oi_ratio': row.get('gex_missing_oi_ratio'),
+            } if row.get('gex_raw_metrics') else None,
         }
         freshness = 'fresh'
         is_stale = False

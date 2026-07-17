@@ -16,7 +16,7 @@ import math
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,11 @@ GAMMA_FLIP_GRID_PCT = float(os.getenv('GEX_GAMMA_FLIP_GRID_PCT', '10'))
 GAMMA_FLIP_GRID_STEPS = int(os.getenv('GEX_GAMMA_FLIP_GRID_STEPS', '81'))
 MAX_MISSING_RATIO = float(os.getenv('GEX_MAX_MISSING_RATIO', '0.25'))
 RISK_FREE_RATE = float(os.getenv('GEX_RISK_FREE_RATE', '0.045'))
+RECOMPUTE_ALL = os.getenv('GEX_RECOMPUTE_ALL', 'false').strip().lower() in ('1', 'true', 'yes')
+GEX_MOVE_PCT = 0.01
+GEX_UNIT = 'usd_delta_change_per_1pct_move'
+GEX_POSITIONING_MODEL = 'call_positive_put_negative_proxy'
+GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy'
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,24 @@ def latest_chain_snapshot(conn, symbol: str) -> dict[str, Any] | None:
             return None
         cols = [desc[0] for desc in cur.description]
         return dict(zip(cols, row))
+
+
+def chain_snapshots(conn, symbol: str, recompute_all: bool = False) -> list[dict[str, Any]]:
+    if not recompute_all:
+        snapshot = latest_chain_snapshot(conn, symbol)
+        return [snapshot] if snapshot else []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM option_chain_snapshots
+            WHERE symbol = %s
+            ORDER BY snapshot_ts ASC
+            """,
+            (symbol,),
+        )
+        cols = [desc[0] for desc in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
 def load_contracts(conn, snapshot_id: int) -> list[Contract]:
@@ -138,7 +161,8 @@ def compute_for_snapshot(snapshot: dict[str, Any], contracts: list[Contract]) ->
     pcr_oi = _safe_ratio(sum(row['put_oi'] for row in by_strike.values()), sum(row['call_oi'] for row in by_strike.values()))
     pcr_volume = _safe_ratio(sum(row['put_volume'] for row in by_strike.values()), sum(row['call_volume'] for row in by_strike.values()))
     max_pain = compute_max_pain(contracts)
-    gamma_curve = compute_gamma_curve(contracts, spot)
+    valuation_date = _valuation_date(snapshot['snapshot_ts'])
+    gamma_curve = compute_gamma_curve(contracts, spot, valuation_date)
     gamma_flip = find_gamma_flip(gamma_curve)
     spot_vs_flip_distance_pct = None if gamma_flip is None else ((spot - gamma_flip) / gamma_flip) * 100
     gamma_regime = classify_gamma_regime(global_gex)
@@ -164,10 +188,23 @@ def compute_for_snapshot(snapshot: dict[str, Any], contracts: list[Contract]) ->
         'gamma_curve': gamma_curve,
         'by_strike': by_strike,
         'raw_metrics': {
-            'formula': 'call_gex=gamma*oi*100*spot^2; put_gex=-gamma*oi*100*spot^2',
+            'formula': 'call_gex=gamma*oi*contract_multiplier*spot^2*0.01; put_gex=-gamma*oi*contract_multiplier*spot^2*0.01',
+            'formula_id': 'gamma_oi_spot_squared_1pct',
+            'unit': GEX_UNIT,
+            'model_version': GEX_MODEL_VERSION,
+            'underlying_move_pct': GEX_MOVE_PCT * 100,
+            'positioning_model': GEX_POSITIONING_MODEL,
+            'positioning_assumption': 'Call and Put OI are assigned opposite dealer-side signs as a proxy; public OI does not identify actual dealer positions.',
             'contract_multiplier': CONTRACT_MULTIPLIER,
             'contract_count_used': len(contracts),
+            'contract_count_available': _to_float(snapshot.get('contract_count')),
             'spot': spot,
+            'underlying_price_as_of': snapshot['snapshot_ts'].isoformat(),
+            'valuation_date': valuation_date.isoformat(),
+            'expiry_start': min(contract.expiry for contract in contracts).isoformat(),
+            'expiry_end': max(contract.expiry for contract in contracts).isoformat(),
+            'dte_min': min((contract.expiry - valuation_date).days for contract in contracts),
+            'dte_max': max((contract.expiry - valuation_date).days for contract in contracts),
             'local_gamma_window_pct': LOCAL_GAMMA_WINDOW_PCT,
             'gamma_flip_grid_pct': GAMMA_FLIP_GRID_PCT,
             'gamma_flip_grid_steps': GAMMA_FLIP_GRID_STEPS,
@@ -191,7 +228,7 @@ def aggregate_by_strike(contracts: list[Contract], spot: float) -> dict[float, d
         'put_abs_gex': 0.0,
     })
     for contract in contracts:
-        exposure = contract.gamma * contract.open_interest * CONTRACT_MULTIPLIER * spot * spot
+        exposure = gex_exposure(contract.gamma, contract.open_interest, spot)
         row = by_strike[contract.strike]
         if contract.right == 'C':
             row['call_gex'] += exposure
@@ -207,11 +244,11 @@ def aggregate_by_strike(contracts: list[Contract], spot: float) -> dict[float, d
     return dict(sorted(by_strike.items()))
 
 
-def compute_gamma_curve(contracts: list[Contract], spot: float) -> list[dict[str, float]]:
+def compute_gamma_curve(contracts: list[Contract], spot: float, valuation_date: date | None = None) -> list[dict[str, float]]:
     steps = max(GAMMA_FLIP_GRID_STEPS, 3)
     low = spot * (1 - GAMMA_FLIP_GRID_PCT / 100)
     high = spot * (1 + GAMMA_FLIP_GRID_PCT / 100)
-    today = date.today()
+    today = valuation_date or date.today()
     curve = []
     for idx in range(steps):
         price = low + (high - low) * idx / (steps - 1)
@@ -220,10 +257,15 @@ def compute_gamma_curve(contracts: list[Contract], spot: float) -> list[dict[str
             gamma = projected_gamma(contract, price, today)
             if gamma is None:
                 gamma = contract.gamma
-            exposure = gamma * contract.open_interest * CONTRACT_MULTIPLIER * price * price
+            exposure = gex_exposure(gamma, contract.open_interest, price)
             net_gex += exposure if contract.right == 'C' else -exposure
         curve.append({'price': round(price, 4), 'net_gex': round(net_gex, 4)})
     return curve
+
+
+def gex_exposure(gamma: float, open_interest: int, spot: float) -> float:
+    """Estimate dollar Delta change for a 1% underlying move."""
+    return gamma * open_interest * CONTRACT_MULTIPLIER * spot * spot * GEX_MOVE_PCT
 
 
 def projected_gamma(contract: Contract, price: float, today: date) -> float | None:
@@ -390,19 +432,20 @@ def run() -> None:
     skipped = []
     for symbol in symbols:
         try:
-            snapshot = latest_chain_snapshot(conn, symbol)
-            if not snapshot:
+            snapshots = chain_snapshots(conn, symbol, RECOMPUTE_ALL)
+            if not snapshots:
                 skipped.append((symbol, 'missing_chain_snapshot'))
                 log.warning(f'{symbol}: skipped; missing chain snapshot')
                 continue
-            contracts = load_contracts(conn, snapshot['id'])
-            metrics = compute_for_snapshot(snapshot, contracts)
-            gex_id = persist_gex(conn, metrics)
-            written += 1
-            log.info(
-                f"{symbol}: gex_id={gex_id}; snapshot_id={snapshot['id']}; "
-                f"global_gex={metrics['global_gex']:.2f}; confidence={metrics['confidence']}"
-            )
+            for snapshot in snapshots:
+                contracts = load_contracts(conn, snapshot['id'])
+                metrics = compute_for_snapshot(snapshot, contracts)
+                gex_id = persist_gex(conn, metrics)
+                written += 1
+                log.info(
+                    f"{symbol}: gex_id={gex_id}; snapshot_id={snapshot['id']}; "
+                    f"global_gex={metrics['global_gex']:.2f}; confidence={metrics['confidence']}"
+                )
         except Exception as exc:
             conn.rollback()
             skipped.append((symbol, str(exc)))
@@ -457,6 +500,16 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _valuation_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).date()
+    raise ValueError('snapshot_ts is required to derive valuation date')
 
 
 if __name__ == '__main__':

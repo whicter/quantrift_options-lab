@@ -69,6 +69,15 @@ function seededSnapshot(symbol, snapshotTs) {
     pcr_oi: 1.1,
     pcr_volume: 0.9,
     confidence: 'high',
+    raw_metrics: {
+      unit: 'usd_delta_change_per_1pct_move',
+      model_version: 'gex-v2-1pct-positioning-proxy',
+      formula_id: 'gamma_oi_spot_squared_1pct',
+      positioning_model: 'call_positive_put_negative_proxy',
+      positioning_assumption: 'Public OI is a positioning proxy.',
+      underlying_move_pct: 1,
+      contract_multiplier: 100,
+    },
     gamma_curve: [{ price: 100, net_gex: 123456 }],
     contract_count: 40,
     completeness_pct: 98,
@@ -97,6 +106,12 @@ test('seeded GEX snapshot returns computed fields without refresh', async () => 
   assert.equal(res.body.gamma_flip, 99.5);
   assert.equal(res.body.call_wall, 105);
   assert.equal(res.body.put_wall, 95);
+  assert.equal(res.body.raw_metrics.unit, 'usd_delta_change_per_1pct_move');
+  assert.equal(res.body.gex_metadata.model.version, 'gex-v2-1pct-positioning-proxy');
+  assert.equal(res.body.gex_metadata.model.unit, 'usd_delta_change_per_1pct_move');
+  assert.equal(res.body.gex_metadata.data_state.source_label, '期权链快照');
+  assert.equal(res.body.gex_metadata.coverage.contract_count, 40);
+  assert.equal(Object.hasOwn(res.body.gex_metadata.data_state, 'source'), false);
   assert.equal(res.body.strikes.length, 1);
   assert.equal(refreshCalls.length, 0);
   assert.equal(queryResults.length, 0);
@@ -111,6 +126,7 @@ test('missing GEX snapshot returns missing and enqueues one refresh', async () =
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.freshness, 'missing');
   assert.equal(res.body.refresh_status, 'queued');
+  assert.equal(res.body.gex_metadata.data_state.status, 'missing');
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0].symbol, 'MISS1');
   assert.equal(refreshCalls[0].jobType, 'option_chain_snapshot');

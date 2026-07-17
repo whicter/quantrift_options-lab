@@ -3,10 +3,12 @@ const router = express.Router();
 const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
+const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
 
 const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 180, 10);
 const GEX_CACHE_SECONDS = parseInt(process.env.GEX_CACHE_SECONDS ?? 120, 10);
 const CHAIN_CACHE_SECONDS = parseInt(process.env.CHAIN_CACHE_SECONDS ?? 120, 10);
+const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
 
 function isMissingTableError(err) {
   return err?.code === '42P01';
@@ -68,9 +70,10 @@ async function latestGexSnapshot(symbol) {
      FROM gex_snapshots g
      JOIN option_chain_snapshots c ON c.id = g.snapshot_id
      WHERE g.symbol = $1
+       AND g.raw_metrics->>'model_version' = $2
      ORDER BY g.snapshot_ts DESC
      LIMIT 1`,
-    [symbol]
+    [symbol, GEX_MODEL_VERSION]
   );
   return rows[0] || null;
 }
@@ -171,7 +174,8 @@ async function sendGexSnapshot(req, res) {
         jobType: 'option_chain_snapshot',
         requestParams: { reason: 'missing_gex_snapshot' },
       });
-      return res.json({ ...missingSnapshot(symbol), refresh_status: refreshStatus });
+      const missing = { ...missingSnapshot(symbol), refresh_status: refreshStatus };
+      return res.json({ ...missing, gex_metadata: buildGexMetadata(missing, missing, { refreshStatus }) });
     }
 
     const strikesResult = await pool.query(
@@ -212,6 +216,8 @@ async function sendGexSnapshot(req, res) {
       pcr_oi: snapshot.pcr_oi,
       pcr_volume: snapshot.pcr_volume,
       confidence: snapshot.confidence,
+      raw_metrics: snapshot.raw_metrics,
+      gex_metadata: buildGexMetadata(snapshot, state, { refreshStatus }),
       gamma_curve: snapshot.gamma_curve,
       strikes: strikesResult.rows,
       quality: {

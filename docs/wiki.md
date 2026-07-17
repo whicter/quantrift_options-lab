@@ -18,6 +18,17 @@ All product outputs are research views, not trade instructions or broker orders.
 - **Data states**: the UI uses source, timestamp and freshness labels. “Delayed”, “stale”, “partial” and “unavailable” are product states, not concealed implementation failures.
 - **Static homepage preview**: homepage preview rows are explicitly illustrative and non-current; the product does not imply a live scanner before a scan response is available.
 
+### Unified GEX product metadata
+
+Every GEX-derived public DTO uses `gex_metadata`; the same contract is attached to Analyze GEX snapshots, each Scanner candidate, and each Weekly historical point. It prevents a chart, card or scanner row from presenting a model number without its calculation context.
+
+- `model`: metric identifier, `model_version`, unit, formula ID, positioning proxy and its limitation.
+- `data_state`: `fresh`, `delayed`, `stale`, `partial`, `unavailable` or `historical`; includes snapshot time, age, refresh state, confidence and a public label (`期权链快照`). Internal provider identifiers remain outside the public DTO.
+- `coverage`: contract count, data-completeness ratios, selected expiry range/DTE window and underlying price timestamp.
+- `parameters`: 1% move convention, contract multiplier, Local Gamma window, Gamma Flip grid, quality threshold and risk-free rate.
+
+The current GEX calculation uses `gex-v2-1pct-positioning-proxy`. Scanner materialization persists the GEX metadata inside the scanner snapshot payload so candidates can be traced to the calculation that produced them. A missing historical payload is reported as `partial`; it is not reconstructed from guessed model inputs.
+
 ### Monorepo 结构
 
 ```

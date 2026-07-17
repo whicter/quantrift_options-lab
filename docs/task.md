@@ -31,13 +31,21 @@
 
 #### B. GEX and research-model governance
 
-- [ ] Add a versioned model metadata contract to every GEX-derived product DTO.
-  - Required fields: formula/unit, `model_version`, selected expiry window, OI snapshot timestamp, spot timestamp, contract multiplier, positioning-sign assumption, freshness and partial-data reason.
+- [x] Add a versioned model metadata contract to every GEX-derived product DTO.
+  - Implemented in four independently deployable steps: (1) API adapter and persisted scan payload, (2) shared `DataDetails` UI, (3) deterministic GEX/Flip/Wall fixture validation, (4) versioned POP/Expected Move inputs and validation.
+  - Step 1 completed: `/api/options/:symbol/gex`, `/api/scan`, and `/api/weekly/:symbol` expose `gex_metadata` with model, data state, coverage and calculation parameters.
+  - `gex_metadata.model` carries metric, model version, unit, formula ID, positioning model and public-OI limitation. `data_state` carries status, snapshot time, age, refresh state, confidence and a public source label. `coverage` carries contract/quality and expiry-window fields. `parameters` carries move size, multiplier, local window, flip grid and risk-free rate.
+  - Scanner materialization persists this metadata in its existing JSON payload, so it is tied to the GEX snapshot that generated the scanner row. Old rows without that payload are explicitly `partial`, never backfilled with invented assumptions.
   - The UI must render a compact user-facing data-details view and retain a richer admin/debug view.
 - [ ] Establish a reproducible GEX validation suite.
+  - Step 3 plan: freeze option-chain fixtures with a known valuation timestamp; verify contract exposure, strike aggregation, Global/Local GEX, Wall selection, Gamma Flip interpolation and no-crossing behavior. Recompute the same fixture twice and require byte-stable output.
+  - Add a fixture manifest containing model version, valuation date, multiplier, expiry range, expected outputs and tolerances. A separate replay command will load the fixture through the collector calculation path and emit a machine-readable result.
+  - Add a real-snapshot comparison report for one ETF and one single stock: snapshot ID/time, option count, missing data ratios, formula inputs, output values and changed-field diff. It is validation of calculation consistency, not a trading-performance claim.
   - Fixed option-chain fixtures must verify per-contract GEX, aggregate GEX, Gamma Flip interpolation, Call/Put Wall selection, 1%-move units and sign-assumption labeling.
   - Run a historical comparison across at least one ETF and one single-stock chain before making any performance or market-structure claim.
 - [ ] Define and document expected-move and POP inputs per strategy.
+  - Step 4 plan: define `expected_move_model` and `pop_model` objects per concrete setup. Expected Move declares `iv_sqrt_time` or `atm_straddle_mid`, calendar-day convention and input timestamp. POP declares its payoff/distribution method, price input (bid/ask/mid/mark), rate, IV and validity state.
+  - Candidate construction must set `unavailable` when required fields are absent; it must not convert a fallback or estimate into a quoted result. Fixtures will cover a credit spread, debit spread, iron condor and missing-quote case.
   - State whether expected move is IV-based or ATM-straddle-based, whether time uses calendar/trading days, and whether pricing uses bid/ask/mid/mark.
   - Ensure displayed POP is unavailable when required model inputs are missing rather than inferred from a fallback.
 
