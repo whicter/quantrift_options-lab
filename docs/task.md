@@ -36,7 +36,7 @@
 
 | 顺序 | 任务 | 为什么是这个位置 | 外部阻塞 |
 |---|---|---|---|
-| E1 | V3A-6 内部状态端点权限拆分 | `/api/status/data`、`/api/status/options`、`/api/status/cache` 当前**完全无认证**，公开暴露 job 失败、provider 用量、覆盖率与 universe 细节。这是当前唯一正在生效的信息暴露，先修。 | 无 |
+| ✅ E1 | V3A-6 内部状态端点权限拆分 | 已完成（2026-07-17）：`/api/status/data` 降级为产品安全摘要，运维明细移入 `/api/admin/status/*` 与 `GET /api/heartbeat/status`，由 fail-closed 的 `ADMIN_API_TOKEN` 保护。 | 部署需注入 `ADMIN_API_TOKEN` |
 | E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 仓库**没有任何 CI**（无 `.github`），也**没有任何安全响应头**。`build.sourcemap=false` 已完成但无自动校验，回归无人发现。 | 无 |
 | E3 | P2.8.6 ingestion / derivation 解耦 | 单点改动、收益最大：一个 batch 当前最多重复跑 10 次全局 `materialize_scan`。是 P2.8 吞吐的前置。 | 无 |
 | E4 | P2.8.2 `symbol_data_state` 汇总表 | P2.8.1 freshness 口径与 P2.8.8 前端体验都要读它，先建表与写入。 | 无 |
@@ -1702,27 +1702,22 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - free user cannot access pro scanner candidates。
   - admin status requires admin/service token。
 
-### V3A-6 Internal Status And Operational API Separation
+### ✅ V3A-6 Internal Status And Operational API Separation（E1，2026-07-17 完成）
 
-- [ ] 保留 `/health` 为 minimal public health：
-  - status ok/error；
-  - no provider details；
-  - no job failure details；
-  - no database table row counts unless safe。
-- [ ] 新增 `/api/admin/status` 或 `/api/internal/status`：
-  - provider usage；
-  - recent failures；
-  - job backlog；
-  - scanner batch age；
-  - option snapshot coverage；
-  - stale/running job diagnostics。
-- [ ] Existing `/api/status/cache`、`/api/status/data`、`/api/status/heartbeat` 需分类：
-  - public product-safe summary；
-  - admin-only operational detail。
-- [ ] Tests：
-  - public status 不泄露 provider internals。
-  - admin status without token fails。
-  - admin status with token passes。
+- [x] 保留 `/health` 为 minimal public health：仍只返回 `{status:'ok'}`，无 provider、job 或 row count 细节。
+- [x] 新增 `/api/admin/status/{data,options,cache}`（`server/src/routes/adminStatus.js`）：provider usage、recent failures、job backlog、scanner batch age、option snapshot coverage 与 stale/running job 诊断全部保留在此，需 `ADMIN_API_TOKEN`。
+- [x] Existing 端点分类：
+  - public product-safe summary：`/api/status/data` 只返回 `status`、`generated_at`、`latest_date`、`expected_count`、`expected_symbols`、`universe.scan_enabled_count`。审计前端后确认只有 `expected_symbols` 被 Scan/Weekly/Analyze 真正消费。
+  - admin-only operational detail：`/api/admin/status/*` 与 `GET /api/heartbeat/status`。`POST /api/heartbeat` 继续用 collector 的 `HEARTBEAT_TOKEN`，与 `ADMIN_API_TOKEN` 是不同密钥、不同调用方。
+- [x] 实现边界：`server/src/domain/status/statusReports.js` 提供 admin/public 共用的 builder；`toPublicDataStatus()` 是降级给未认证客户端的唯一通道，移除 `source_counts`、逐 symbol `source`、`missing/stale_symbols`、`price_history` 覆盖明细与 `extra_symbols`。
+- [x] `requireAdminToken`（`server/src/lib/adminAuth.js`）fail closed：未配置 `ADMIN_API_TOKEN` 返回 503 而非放行；`crypto.timingSafeEqual` 比较；接受 `Authorization: Bearer` 或 `X-Admin-Token`。
+- [x] Tests（`server/test/adminStatusRoute.test.js`，5 个）：
+  - public status 不泄露 `tastytrade` / `polygon_licensed` / `ib_internal` / `tt_internal`，且不含 6 个运维字段。
+  - admin status 未配置 token → 503；无 token / 错 token / 等长错 token → 401。
+  - admin status 正确 token（两种 header）→ 通过。
+  - admin report 仍保留 public 视图丢弃的运维明细。
+- [x] 验证：server 94/94 通过（89 → 94）；frontend 40/40、full ESLint 0 errors/0 warnings、Vite production build 通过（仅既有 chunk-size 警告）。前端无改动即兼容，因为它只读 `expected_symbols`。
+- [ ] 部署前置：Railway 注入 `ADMIN_API_TOKEN`（`openssl rand -hex 32`，勿复用 `HEARTBEAT_TOKEN`）。未注入时运维端点返回 503，产品路径不受影响。
 
 ### V3A-7 Database Permission Boundary
 

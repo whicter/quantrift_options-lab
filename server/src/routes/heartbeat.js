@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const pool = require('../db');
+const { requireAdminToken } = require('../lib/adminAuth');
 
 const router = express.Router();
 const MAX_AGE_SECONDS = Math.max(30, Number(process.env.HEARTBEAT_MAX_AGE_SECONDS || 180));
@@ -57,6 +58,7 @@ async function sendHeartbeatStatus(req, res) {
 }
 
 router.post('/', receiveHeartbeat);
-router.get('/status', sendHeartbeatStatus);
+// Node liveness is operator detail, not product data.
+router.get('/status', requireAdminToken, sendHeartbeatStatus);
 
 module.exports = { router, tokenMatches, heartbeatState, receiveHeartbeat, sendHeartbeatStatus };

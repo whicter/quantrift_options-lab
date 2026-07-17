@@ -27,7 +27,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Analyze has no production mock seed or fallback. A displayed price, IV field, GEX, Wall, conclusion, or strategy leg must come from its real response; otherwise it remains unavailable.
 - Scanner SQL joins several snapshot products. Every duplicate column name in its final select/CASE expressions must be qualified to its owning CTE (for example `latest_rows.source` and `latest_rows.snapshot_ts`).
 - Refresh requests enqueue `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes queued jobs.
-- `/api/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
+- `/api/admin/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
 - Scanner user output is an actionable candidate, not snapshot inventory: use actual same-expiry contracts, executable-side pricing and explicit risk; never display a DTE range or fixed POP as a recommendation.
 - Scanner `不限` means all qualifying setups across supported strategies, not one inferred strategy per symbol. Multiple rows per symbol are expected.
 - Scanner candidate enumeration, score and economics run only in `server/src/domain/scanner/candidateEngine.cjs`. Normal `/api/scan` responses contain candidate DTOs, never complete `option_contracts`; do not reintroduce frontend chain traversal.

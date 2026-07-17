@@ -216,7 +216,7 @@ API response 应统一携带数据状态：
   - API creates/reuses `provider_fetch_jobs`.
   - `collector/run_refresh_worker.py` consumes queued jobs.
   - `provider_request_usage` tracks daily provider/job request counts against a configured budget.
-  - `/api/status/cache` reports backlog, failures, stale scanner age, empty snapshots and budget usage.
+  - `/api/admin/status/cache` reports backlog, failures, stale scanner age, empty snapshots and budget usage. It requires `ADMIN_API_TOKEN`; see 7.2.1.
 
 ---
 
@@ -482,7 +482,24 @@ Railway
 | GET | `/health` | 服务存活检查 |
 | GET | `/api/metrics` | 查询一个或多个 symbol 的指标 |
 | GET | `/api/scan` | 按 IV Rank 等条件扫描 |
-| GET | `/api/status/data` | 查询 watchlist 数据覆盖率、缺失标的、stale 标的和 latest_date |
+| GET | `/api/status/data` | 公开的产品安全摘要：symbol 注册表、整体 ok/degraded 与 latest_date |
+| GET | `/api/admin/status/data` | 运维明细：source 分布、逐 symbol provenance、缺失/stale 标的、extra symbols |
+| GET | `/api/admin/status/options` | 运维明细：option snapshot 覆盖率、completeness、provider_status |
+| GET | `/api/admin/status/cache` | 运维明细：job backlog、recent failures、scanner batch age、provider budget |
+
+### 7.2.1 公开状态与运维状态的边界
+
+`/api/status/data` 是唯一公开的状态端点，因为 Scan、Weekly 和 Analyze 需要 symbol 注册表来判断一个标的是否已被收录。它只返回 `status`、`generated_at`、`latest_date`、`expected_count`、`expected_symbols` 和 `universe.scan_enabled_count`。
+
+运维明细一律走 `/api/admin/status/*`，需要 `ADMIN_API_TOKEN`。两侧共用 `server/src/domain/status/statusReports.js` 的同一组 builder；`toPublicDataStatus()` 是把任何内容降级给未认证客户端的唯一通道，它会移除：
+
+- `source_counts` 与逐 symbol `source`：这些会泄露 `polygon_licensed`、`ib_internal`、`tt_internal` 等内部 provider 名，与 V3A-4 的 provider 降级展示要求一致。
+- `missing_symbols` / `stale_symbols` / `price_history` 覆盖明细：属于采集健康度，不是产品数据。
+- `extra_symbols`：泄露 watchlist 之外的内部采集范围。
+
+`requireAdminToken` 对未配置 `ADMIN_API_TOKEN` 的部署返回 503 而不是放行——缺失的密钥必须关闭端点，不能打开它。token 比较使用 `crypto.timingSafeEqual`，接受 `Authorization: Bearer` 或 `X-Admin-Token`。
+
+`GET /api/heartbeat/status` 同样是运维读模型，因此也需要 admin token；`POST /api/heartbeat` 继续使用 collector 自己的 `HEARTBEAT_TOKEN`，两者是不同的密钥和不同的调用方。
 
 ### 7.3 建议分层
 
@@ -1401,7 +1418,7 @@ Mac Studio collector
 | Scanner cache | `materialize_scan.py` → `scanner_results_snapshots` → `/api/scan` |
 | OI delta / unusual | `materialize_oi_delta.py` → `option_oi_delta_snapshots` → `/api/unusual/:symbol` |
 | Refresh queue | API enqueue → `provider_fetch_jobs` → `run_refresh_worker.py` |
-| Budget / monitoring | `provider_request_usage` + `/api/status/cache` |
+| Budget / monitoring | `provider_request_usage` + `/api/admin/status/cache` |
 
 3C runtime verification performed on 2026-07-14:
 
@@ -1409,14 +1426,14 @@ Mac Studio collector
 - `materialize_scan.py` wrote 67 scanner rows for `scan_key=watchlist_v1`.
 - `run_refresh_worker.py` completed with no queued jobs.
 - Local API with Railway DB returned `/api/scan?minIvr=0&maxIvr=100&limit=3` from materialized scanner rows.
-- `/api/status/cache` returned scanner row_count=67 and stale=false.
+- `/api/admin/status/cache` returned scanner row_count=67 and stale=false.
 - `/api/metrics?symbols=PLTR` returned freshness metadata.
 - Phase 3E verification：`materialize_oi_delta.py` wrote 10 PLTR OI delta rows; `/api/unusual/PLTR` returned confirmed rows with `oi_delta=0` and `status=quiet`.
 - Scanner materialization derives trend fields from `price_history` (`trend_score`, `trend_label`, `trend_signal`, 5D change, RSI14, MA20/50/200) and carries `earnings_date` from `iv_history`; the frontend does not compute scanner-wide trend on demand.
 
 Known current monitoring state:
 
-- `/api/status/cache` may report `degraded` while historical failed IB jobs or metadata-only option snapshots remain in the 24h window.
+- `/api/admin/status/cache` may report `degraded` while historical failed IB jobs or metadata-only option snapshots remain in the 24h window.
 - This is expected monitoring visibility, not a Phase 3C implementation failure.
 - 2026-07-15 collector audit found uneven coverage: `iv_history` and `price_history` covered the watchlist, while option-chain/GEX snapshots initially covered only PLTR. The option collector now defaults to `watchlist.txt`, and targeted backfills remain available through `OPTION_SYMBOLS` / `SYMBOLS`.
 - Refresh worker failure handling now has four guardrails: stale `running` jobs are recovered after timeout, unsupported provider names fail closed instead of requeueing forever, TT auth failures are catchable so worker state is written back to `provider_fetch_jobs`, and option-chain jobs fall back from `tt_internal` to `ib_internal` when TT auth is unavailable.

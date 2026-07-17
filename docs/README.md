@@ -100,7 +100,7 @@ Open http://localhost:5173
 - Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
 - Scanner materialized rows include IV, latest price, GEX/walls, OI/volume, OI delta, price-history trend, and earnings date
 - Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
-- Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
+- Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/admin/status/cache` monitors backlog/stale/failure/budget state
 - Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
 - Analyze computes direction context from real price history and displays Focus Score, OBV, MFI-14, VRP, Gamma Flip, Local Gamma, S/R, 30M Volume Profile, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
 - Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.

@@ -778,7 +778,7 @@ Phase 3D-1 已落地的数据接口：
 | `GET /api/options/:symbol/snapshot` | 返回最新 option chain snapshot metadata；`includeContracts=true` 时返回合约行 |
 | `GET /api/chain/:symbol` | 返回最新 option chain snapshot + contract rows |
 | `GET /api/gex/:symbol` | 返回最新 GEX / Wall / Gamma Flip snapshot |
-| `GET /api/status/options` | 返回 watchlist option snapshot coverage |
+| `GET /api/admin/status/options` | 返回 watchlist option snapshot coverage（需 `ADMIN_API_TOKEN`）|
 
 这些 API 只读 PostgreSQL，不会同步调用 IB Gateway 或任何外部 provider。没有 snapshot 时返回 `freshness=missing`，而不是 fallback 到 mock。
 
@@ -1095,7 +1095,7 @@ Phase 3C implementation status：
   - `option_chain_snapshot`
   - `scanner_materialize`
 - `provider_request_usage` tracks daily provider request usage and budget.
-- `/api/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
+- `/api/admin/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
 - Runtime completed：Mac Studio PM2 直接运行 `collector/ecosystem.config.cjs`。`quantrift-options-collector` 每 300 秒 missing-first/oldest-first bounded enqueue 两个 symbols、每 60 秒消费 queue、每 300 秒 materialize scanner；失败 symbol 有 30 分钟 cooldown；`quantrift-options-prices` 工作日 13:35 PT 运行。
 - No runtime copy：旧 LaunchAgent、wrappers 和 `~/.quantrift_options_collector` 已移除；当前 repo 是唯一运行代码源。
 - Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 以 `RunAtLoad=true` 调用 `pm2 resurrect`，saved list 已含五个 Quantrift collector apps。因此市电恢复后 Mac 会启动并恢复 collector apps。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
@@ -1261,7 +1261,7 @@ Each latest materialized row is tested against active rules. A unique delivery o
 
 ### Collector Heartbeat
 
-`send_heartbeat.py` reports the Mac Studio daemon identity and runtime metadata to `POST /api/heartbeat`. `GET /api/heartbeat/status` is the operator-facing read model: expected nodes appear even before their first report, with `missing`, `offline`, or `online` state and heartbeat age.
+`send_heartbeat.py` reports the Mac Studio daemon identity and runtime metadata to `POST /api/heartbeat` using `HEARTBEAT_TOKEN`. `GET /api/heartbeat/status` is the operator-facing read model and therefore requires `ADMIN_API_TOKEN` instead: expected nodes appear even before their first report, with `missing`, `offline`, or `online` state and heartbeat age. The two tokens are separate secrets with separate callers.
 
 The Railway monitor persists an incident in `collector_heartbeat_alerts` when a report is absent or older than the configured threshold. Repeated notification follows a cooldown; recovery resolves the same incident. URL/token absence disables only heartbeat transmission, never the collector loop.
 

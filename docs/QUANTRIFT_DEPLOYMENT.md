@@ -307,6 +307,13 @@ NODE_ENV=production
 | `DATABASE_URL` | 连接同一 Railway 项目中的 PostgreSQL |
 | `NODE_ENV` | 启用生产行为及当前数据库 SSL 分支 |
 | `PORT` | Railway 自动注入，不建议硬编码 |
+| `ADMIN_API_TOKEN` | 保护 `/api/admin/status/*` 与 `GET /api/heartbeat/status`；未设置时这些路由返回 503 而不是放行 |
+
+`ADMIN_API_TOKEN` 与 `HEARTBEAT_TOKEN` 是两个独立密钥，不要复用同一个值：前者给运维人员读取状态，后者给 Mac Studio collector 上报心跳。生成方式：
+
+```bash
+openssl rand -hex 32
+```
 
 注意：
 
@@ -983,6 +990,14 @@ GET /api/scan
 
 CORS 只限制浏览器，不阻止服务器、脚本或 curl 调用 API，因此不能把 CORS 当作认证机制。
 
+### 13.1 公开状态与运维状态的分级（2026-07-17）
+
+`/api/status/data` 是唯一公开的状态端点，只返回产品自身要渲染的 symbol 注册表和整体 ok/degraded。运维明细走 `/api/admin/status/{data,options,cache}` 和 `GET /api/heartbeat/status`，需要 `ADMIN_API_TOKEN`。
+
+未认证客户端不会再看到：内部 provider 名（`polygon_licensed` / `ib_internal` / `tt_internal`）、逐 symbol 数据来源、缺失/stale 覆盖明细、watchlist 之外的 extra symbols、job 失败详情和 provider budget 用量。
+
+`requireAdminToken` 的失败模式是**关闭而不是放行**：`ADMIN_API_TOKEN` 未配置时返回 503。这样漏配密钥只会让运维端点不可用，不会静默把明细暴露到公网。token 比较使用 `crypto.timingSafeEqual`，接受 `Authorization: Bearer` 或 `X-Admin-Token`。
+
 ---
 
 ## 14. 常见故障排查
@@ -1259,7 +1274,7 @@ Railway API enqueue
   → provider_fetch_jobs
   → collector/run_refresh_worker.py
   → provider_request_usage
-  → /api/status/cache
+  → /api/admin/status/cache
 ```
 
 Endpoint 行为：
@@ -1334,10 +1349,10 @@ IB option ingestion defaults to `IB_MARKET_DATA_TYPE=3`. Contract discovery must
 Monitoring endpoint:
 
 ```bash
-curl -f "$API_BASE/api/status/cache"
+curl -f -H "Authorization: Bearer $ADMIN_API_TOKEN" "$API_BASE/api/admin/status/cache"
 ```
 
-`/api/status/cache` reports provider job failures, queue backlog, scanner cache age, empty/metadata-only option snapshots and provider budget usage.
+`/api/admin/status/cache` reports provider job failures, queue backlog, scanner cache age, empty/metadata-only option snapshots and provider budget usage. It requires `ADMIN_API_TOKEN`; without that variable the route returns 503 rather than serving operational detail unauthenticated.
 
 Suggested TTLs:
 

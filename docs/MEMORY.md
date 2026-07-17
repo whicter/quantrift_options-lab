@@ -43,7 +43,7 @@
 - `collector/materialize_scan.py` 生成 scanner cache。
 - `collector/materialize_oi_delta.py` 生成 OI delta / unusual activity cache。
 - `collector/run_refresh_worker.py` 消费 `provider_fetch_jobs`。
-- `/api/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget。
+- `/api/admin/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget；需要 `ADMIN_API_TOKEN`。
 - PM2 app `quantrift-options-collector` 每 300 秒 bounded enqueue 最多 2 个 missing/stale option symbols、每 60 秒处理 queue、每 300 秒 materialize scanner；`quantrift-options-prices` 工作日 13:35 PT 跑 OHLCV。
 - IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
 - 2026-07-16 real-data integrity repair is deployed: `mockAnalysis.js` was deleted and Analyze uses a null-initialized real-data model only. Railway scanner SQL now qualifies `latest_rows.source` and `latest_rows.snapshot_ts`; production `/api/scan` returned HTTP 200, while `/analyze?symbol=NFLX` rendered actual `$73.68`, Polygon GEX and $75/$73 Walls.
@@ -55,7 +55,9 @@
 ## 关键文件
 - `server/src/migrate.js` — 建表脚本，Railway 上跑一次
 - `server/src/routes/scan.js` — scanner cache API，只读 `scanner_results_snapshots`
-- `server/src/routes/status.js` — `/api/status/data`, `/api/status/options`, `/api/status/cache`
+- `server/src/routes/status.js` — 公开的 `/api/status/data` 产品安全摘要
+- `server/src/routes/adminStatus.js` — `/api/admin/status/{data,options,cache}` 运维明细，需 `ADMIN_API_TOKEN`
+- `server/src/domain/status/statusReports.js` — 两侧共用的 builder；`toPublicDataStatus()` 是降级给未认证客户端的唯一通道
 - `collector/auth.py` — Tastytrade 认证，`--login` 手动登录；仅在成功 session exchange 返回 successor 时原子持久化 remember-token
 - `collector/collect.py` — 每日 4:30pm ET 采集 IV → PostgreSQL
 - `collector/collect_options.py` — bounded option-chain snapshots

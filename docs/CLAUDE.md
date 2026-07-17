@@ -33,7 +33,8 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Browser requests go to Railway API, then PostgreSQL snapshots/cache.
 - `/api/scan` reads `scanner_results_snapshots`; it must not recompute the full watchlist on request.
 - Stale/missing data enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` is the execution boundary.
-- `/api/status/cache` reports job backlog, failures, scanner age, empty snapshots and provider budget.
+- `/api/admin/status/cache` reports job backlog, failures, scanner age, empty snapshots and provider budget.
+- `/api/status/data` is the only public status route and returns just the symbol registry plus an overall health label. Operational detail lives under `/api/admin/status/*` and `GET /api/heartbeat/status` behind `ADMIN_API_TOKEN`, which fails closed with 503 when unset. Route any new status field through `toPublicDataStatus()` in `server/src/domain/status/statusReports.js`; never expose provider/source names to unauthenticated clients.
 - Scanner rows must represent complete actionable candidates from actual same-expiry quotes. DTE ranges are diagnostics only; fixed placeholder POP values are forbidden.
 - The Scanner browser must receive final candidate DTOs only. Candidate enumeration, scoring and economics belong to `server/src/domain/scanner/candidateEngine.cjs`; never return the complete `option_contracts` array from normal `/api/scan`.
 - Production frontend builds explicitly disable source maps and verification must confirm no `.map` artifact.

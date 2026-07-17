@@ -311,7 +311,7 @@ GEX compute job：
 - licensed provider 第一候选是 Massive/Polygon options snapshot，第二候选是 Intrinio；真正上线前必须确认 OPRA/options display 与 redistribution 权利。
 - Phase 3C 后，`/api/scan` 不再做 request-time full watchlist aggregation；scanner rows 由 `collector/materialize_scan.py` 预计算进 `scanner_results_snapshots`。
 - stale/missing API responses 只 enqueue `provider_fetch_jobs`，不在用户请求路径同步调用 provider。
-- `collector/run_refresh_worker.py` 是 refresh job 执行边界；`provider_request_usage` 记录每日 provider budget；`/api/status/cache` 用于观察 backlog、failure、stale scanner、empty snapshot。
+- `collector/run_refresh_worker.py` 是 refresh job 执行边界；`provider_request_usage` 记录每日 provider budget；`/api/admin/status/cache` 用于观察 backlog、failure、stale scanner、empty snapshot。
 - Phase 3E 已实现 OI delta / unusual activity：用连续 option contract snapshots 计算 OI delta；volume/OI 只是 proxy，不能等同“机构建仓确认”。
 - `/api/unusual/:symbol` 的 `quiet` 表示有 confirmed OI delta 数据但未命中 unusual 阈值；`baseline` 表示还没有 previous snapshot，不能确认 OI delta。
 - Scanner direction 已接入真实 `price_history` 派生趋势：MA20/50/200、RSI14、5D change 写入 `scanner_results_snapshots`，前端不再硬编码 `待接入趋势`。
@@ -460,7 +460,7 @@ GEX compute job：
 
 ### 12. Health endpoint 不等于 operator alert
 
-- `/api/status/cache` 只能在有人主动查看时暴露 degraded；它不会主动通知，也不保存同一故障是否已经通知。
+- `/api/admin/status/cache` 只能在有人主动查看时暴露 degraded；它不会主动通知，也不保存同一故障是否已经通知。
 - Collector health check 必须复用明确阈值，并把 issue code + affected symbols 做 fingerprint。否则每 5 分钟发一封相同邮件会让告警失效。
 - Snapshot 表里“有 row”不等于 covered：`contract_count=0`、`metadata_only`、stale、低 completeness 必须分别判断。
 - 告警本身不得阻断采集。Webhook/SMTP 失败写 error 并降级到日志；collector 下一轮继续运行。
@@ -698,3 +698,11 @@ GEX compute job：
 - **fallback 必须覆盖 provider 初始化失败**：Polygon 缺 key 时错误发生在 `make_provider()`，早于 API 请求或“空报价”判断。若只对空 snapshot fallback，队列会无限重试 Polygon 而永远不尝试 TT/IB。初始化、连接和无 usable quote 三类可恢复失败必须走同一个受限 provider sequence。
 - **云端 secret 的验收必须在变量部署后执行**：2026-07-17 Railway option cron 因缺 `POLYGON_API_KEY` 在 provider construction 阶段失败，并误入 TT device challenge。把 secret 加到变量面板不等于运行容器已收到它；必须 deploy 变量变更后再执行 cron，并同时确认 `option_chain_snapshot succeeded`、OI-delta materialization 与 scanner materialization。该次验收写入 2 个真实链快照、4,826 条 OI delta、80 条 scanner rows。
 - **端到端验收必须验证用户最终路径**：2026-07-17 RKLB 有 price/IV/GEX 却没有 quoted chain 时，单测与日志分别发现了 scheduler、JSONB Decimal、cross-worker blocker 和 provider-construction fallback 四个断点。最终验收不能止于“worker 成功”：必须确认 Analyze readiness 变为 `option_quotes=true`，再确认 candidate endpoint 能从同一真实 snapshot 返回具体策略腿。
+
+### 14. 状态端点的默认受众是运维，不是产品
+
+- **公开状态端点只应返回产品自己会渲染的字段**：`/api/status/data` 过去返回逐 symbol `source`、`source_counts`、缺失/stale 覆盖明细、`extra_symbols`、job 失败和 provider budget，但前端实际只读 `expected_symbols` 一个字段。多出来的全部是未认证公网可见的采集情报。
+- **审计要以消费方为准，不是以字段是否"敏感"为准**：判断哪些字段可以公开，先 grep 前端到底读了什么，再反推最小公开集合；靠逐字段主观判断敏感度会漏掉 `source_counts` 这种间接泄露内部 provider 名的字段。
+- **降级必须是单一通道，不能靠调用方自觉**：`toPublicDataStatus()` 是公开视图的唯一出口，admin 与 public 共用同一组 builder。若让两条路径各自拼装 response，新增字段迟早会只加到一侧，公开面会无声扩大。
+- **缺失密钥必须关闭端点而不是放行**：`requireAdminToken` 在 `ADMIN_API_TOKEN` 未配置时返回 503。若写成"没配就跳过认证"，一次漏配就等于把运维明细公开，而且不会有任何报错提示。
+- **运维读模型与上报写入是不同的信任边界**：`POST /api/heartbeat` 由 collector 用 `HEARTBEAT_TOKEN` 上报，`GET /api/heartbeat/status` 由人读取，应该用 `ADMIN_API_TOKEN`。复用同一个密钥会让采集节点顺带获得读取全局运维状态的权限。
