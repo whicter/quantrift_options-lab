@@ -118,7 +118,7 @@ export default function Tab3Options({ data }) {
   const gexStr = compactMoney(gexTotal);
 
   const insights = [
-    `${gexPositive ? '正' : '负'} GEX 模型状态 ${gexStr}，在当前代理假设下，波动可能${gexPositive ? '更容易收敛' : '更容易放大'}`,
+    `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}），短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     `PCR(OI) ${pcr?.toFixed(2) ?? '--'}，表示 Put/Call 未平仓量比例；它不单独代表看多或看空` +
       (pcrVol ? `。PCR(Vol) ${pcrVol.toFixed(2)} 表示当日 Put/Call 成交量比例` : ''),
     `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，绝对水平较高；需结合自身历史、实现波动率和事件风险判断' : iv30 > 20 ? '，处于中间区间' : '，绝对水平较低；不等于期权被低估'}`,
@@ -141,7 +141,7 @@ export default function Tab3Options({ data }) {
         <div className="az-gex-num">
           <div className="az-gex-num-label">GEX Total · 1% Move</div>
           <div className={`az-gex-num-val ${gexPositive ? 'c-green' : 'c-red'}`}>{gexStr}</div>
-          <div className="az-gex-num-sub">{gexPositive ? '正 GEX 模型状态' : '负 GEX 模型状态'} · 非现金流</div>
+          <div className="az-gex-num-sub">{gexPositive ? '正 Gamma 环境' : '负 Gamma 环境'} · 模型估算，非现金流</div>
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">PCR (OI)</div>

@@ -18,7 +18,7 @@ export default function Tab1Overview({ data }) {
   const gexStr = compactMoney(gexTotal);
 
   const insights = [
-    `${gexPositive ? '正' : '负'} GEX 模型状态（${gexStr}），在当前定位假设下，波动可能${gexPositive ? '更容易收敛' : '更容易放大'}`,
+    `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}）：短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
     `模型观察位：Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）；距离不代表价格一定触及。`,
     recommendation ? `策略候选：${recommendation.strategy}，模型估算 POP ${recommendation.params.pop}%，DTE ${recommendation.params.dte}天` : null,
@@ -28,8 +28,8 @@ export default function Tab1Overview({ data }) {
     {
       q: '当前期权结构是正Gamma还是负Gamma？',
       a: gexPositive
-        ? `正 GEX 模型状态（${gexStr}）。在 Call/Put OI 的代理符号假设成立且其他条件不变时，短线波动可能更容易收敛；这不能确认做市商实际持仓。`
-        : `负 GEX 模型状态（${gexStr}）。在当前代理符号假设下，短线波动可能更容易放大；这不能确认做市商实际持仓。`,
+        ? `当前模型显示正 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格靠近关键行权价时，短线波动通常较容易收窄或被拉回。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`
+        : `当前模型显示负 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格一旦向上或向下加速，短线波动更可能被放大。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`,
       type: gexPositive ? 'bull' : 'bear',
     },
     {
@@ -81,8 +81,8 @@ export default function Tab1Overview({ data }) {
 
       <div className="az-gex-explainer">
         <strong>GEX 怎么看</strong>
-        <span>GEX 是根据 Gamma、OI、合约乘数和现价估算的 Delta-dollar 敏感度；当前单位是标的变动 1% 时的模型估算值，不是现金流入，也不是目标价。</span>
-        <span>Call/Put 的正负号来自 dealer positioning 代理假设，不能确认真实做市商持仓。正负 GEX 只表示模型下的潜在波动环境，局部 GEX 只看现价附近 ±1% 的期权结构。</span>
+        <span>GEX 用 Gamma、OI、合约乘数和现价估算标的变动 1% 时的 Delta-dollar 变化。它不是资金流，也不是目标价。</span>
+        <span>正/负只用来描述模型下可能较收敛或较放大的波动环境；局部 GEX 只看现价附近 ±1% 的期权结构。公开 OI 无法确认任何参与者的真实仓位。</span>
       </div>
 
       {supportResistance && (
@@ -112,8 +112,8 @@ export default function Tab1Overview({ data }) {
             colorFn={v => v.includes('向上') ? 'az-badge-bull' : v.includes('向下') ? 'az-badge-bear' : 'az-badge-neutral'} />
           <Badge label="信号" value={trend.signal}
             colorFn={v => v.includes('延续') ? 'az-badge-bull' : 'az-badge-warn'} />
-          <Badge label="GEX环境" value={gexPositive ? '正Gamma' : '负Gamma'}
-            colorFn={v => v === '正Gamma' ? 'az-badge-bull' : 'az-badge-bear'} />
+          <Badge label="GEX环境" value={gexPositive ? '正 Gamma' : '负 Gamma'}
+            colorFn={v => v === '正 Gamma' ? 'az-badge-bull' : 'az-badge-bear'} />
         </div>
         <div className="az-conclusion-text">{conclusion}</div>
 

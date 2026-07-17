@@ -686,3 +686,4 @@ GEX compute job：
 - **版本迁移应重算派生层，不重拉行情**：collector 现在对最新 watchlist chain 做版本差异检查，并只从 PostgreSQL 重算 GEX/Wall/Flip。这样不会消耗 provider 配额，也不会在模型升级后留下整批“不可用”。
 - **用户请求不能排在 watchlist 冷启动之后**：按需 Analyze 任务以显式 priority `100` 入队，worker 优先消费；否则每 5 分钟两个标的的后台补全会把一个具体用户输入拖到数小时。
 - **缺 GEX 和缺期权链必须走不同任务**：已有链只做本地 `gex_recompute`，缺链才调用 provider。把两者混为一次 options fetch 会浪费请求，并延长恢复时间。
+- **模型边界不能盖过产品解释**：先说“当前是正/负 Gamma 环境”和可能的盘面含义；公开 OI 的估算限制用一句放在后面。把“代理符号假设”放进答案主句，只会让用户读不懂结论。
