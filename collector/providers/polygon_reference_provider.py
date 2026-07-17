@@ -53,7 +53,9 @@ class PolygonReferenceProvider:
                 break
             if attempt >= self.max_retries:
                 response.raise_for_status()
-            time.sleep(_retry_after(response.headers.get('Retry-After')) or self.backoff)
+            # Shared penalty: back every worker off this provider, not just this
+            # process, so one rejection cannot become a storm.
+            self.stock_pacer.penalize(_retry_after(response.headers.get('Retry-After')) or self.backoff)
         if response is None:
             raise RuntimeError(f'Polygon ticker reference request did not run for {normalized}')
         payload = response.json()

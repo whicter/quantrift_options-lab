@@ -77,7 +77,9 @@ class PolygonPriceProvider:
             if attempt >= self.max_rate_limit_retries:
                 response.raise_for_status()
             retry_after = _retry_after_seconds(getattr(response, 'headers', {}).get('Retry-After'))
-            time.sleep(retry_after or self.rate_limit_backoff)
+            # Push the shared slot so every worker backs off. A local sleep
+            # would pause only this process while the others keep hammering.
+            self.stock_pacer.penalize(retry_after or self.rate_limit_backoff)
 
         if response is None:
             raise RuntimeError(f'Polygon aggregates request did not run for {symbol}')

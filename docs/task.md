@@ -42,7 +42,7 @@
 | ✅ E4 | P2.8.2 `symbol_data_state` 汇总表 | 已完成（2026-07-17）：additive 表 + collector 写入路径 + Railway 迁移与真实 runtime 证据。API 读路径按依赖顺序留给 E5。 | 无 |
 | ✅ E5 | P2.8.1 统一 freshness 口径 | 已完成（2026-07-17）：`server/src/domain/status/freshness.js` 是唯一 freshness 契约；Analyze 按 product 返回 `fresh/stale/missing/queued/failed` + `is_stale` + age + refresh 状态。 | 无 |
 | ✅ E6 | P2.8.3 queue-fill scheduler | 已完成（2026-07-17）：按队列深度补满（target 20）+ 五级优先级 + cooldown；候选来源由 `watchlist.txt` 改为 `symbol_universe`。 | 无 |
-| E7 | P2.8.5 shared provider rate limiter | 依赖 E6 的队列深度；多 worker 前必须先有跨进程限流，否则并发直接打爆 429。 | 无 |
+| ✅ E7 | P2.8.5 shared provider rate limiter | 已完成（2026-07-17）：`provider_rate_limits` 表 + 原子 slot 认领 + 共享 429 惩罚；数据库时钟为唯一权威。file lock 仅在无 DB 时降级使用。 | 无 |
 | E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
 | E9 | P2.8.7 减少每 symbol 冗余请求 | 依赖 E4 的最新 price snapshot 状态。 | 无 |
 | E10 | V3A-4 后端 Analyze DTO | GEX 结论文案与情景触发/目标价当前仍在浏览器计算（`analyzeData.js`）。依赖 E5 的 freshness 契约一并进 DTO。 | 无 |
@@ -1242,13 +1242,19 @@ PostgreSQL
     - Railway 可以单独创建 `polygon-collector` service；Mac Studio 继续跑 IB/TT/internal collector。
     - TT/IB 不跟 Polygon 共用 worker 池；provider adapter 独立限流。
 
-- [ ] **P2.8.5 shared provider rate limiter**
-  - 当前 Polygon stock pacer 使用本地 file lock，只能约束同一台机器/同一文件系统；多 Railway replicas 或多机器 worker 会失效。
-  - 新增 PostgreSQL-backed provider pacing：
-    - table example：`provider_rate_limits(provider, scope, next_allowed_at, last_status, updated_at)`。
-    - 通过 transaction/advisory lock 原子读取和推进 `next_allowed_at`。
-    - 429 时尊重 `Retry-After` 并延长该 provider/scope 的 next allowed time。
-  - 验证：两个并发 worker 同时请求时不会突破最小间隔；429 不会造成请求风暴。
+- [x] **P2.8.5 shared provider rate limiter**（E7，2026-07-17 完成）
+  - 新增 additive table `provider_rate_limits(provider, scope, next_allowed_at, last_status, updated_at)`，PK `(provider, scope)`。
+  - 新增 `collector/providers/provider_rate_limit.py::DatabaseRequestPacer`。`PolygonStockRequestPacer` 改为 facade：有 `DATABASE_URL` 走共享后端，无 DB 时降级为原 file lock 并明确 warn，不静默发出不受限请求。
+  - **原子 slot 认领**：一条语句 `INSERT ... ON CONFLICT DO UPDATE SET next_allowed_at = GREATEST(next_allowed_at, NOW()) + delay RETURNING (next_allowed_at - delay - NOW())`。调用方认领"下一个空位"并被告知还要等多久；两个 worker 竞争会拿到两个**不同**的 slot，不可能撞在同一时刻。
+  - **数据库时钟是唯一权威**：等待时长在 SQL 内计算，因此系统时钟有偏差的两台 worker 不会都认为轮到自己。这是 file lock 无法提供的性质。
+  - **不持锁睡眠**：认领立即 commit 并关闭连接，调用方在事务外等待；一次限流请求不会把连接占住整个 delay。
+  - **429 惩罚是共享的**：原实现在 429 后 `time.sleep()` 只暂停当前进程，其余 worker 继续猛打——这正是单次拒绝演变成请求风暴的机制。现改为 `penalize()` 推移共享 slot，所有 worker 一起退避；`GREATEST` 保证并发 429 中较短的 `Retry-After` 不会缩短已生效的较长退避。
+  - 等待有上限（`PROVIDER_RATE_LIMIT_MAX_WAIT=300`），配置错误或异常惩罚不会静默地把 worker 永久停住。
+  - Tests：`tests/test_provider_rate_limit.py` 9 个（并发 worker 拿到不同且按 delay 间隔的 slot、多 worker 间隔累进、scope 互不阻塞、delay=0 不碰 DB、共享惩罚影响其他 worker、短惩罚不缩短长惩罚、等待封顶、连接释放且不在睡眠时持有、失败回滚并上抛）+ `tests/test_polygon_rate_limit.py` 扩到 4 个（原 2 个 file-lock 测试保留断言不变，新增"有 DB 时默认不选 file 后端"与"共享限流失败降级为本地锁"）。
+  - **修复了一个测试隐患**：改动后原 file-lock 测试会因 `.env` 里存在 `DATABASE_URL` 而真的去连生产数据库。现两个测试显式钉住 `PROVIDER_RATE_LIMIT_BACKEND=file`，单元测试不触达网络/数据库。
+  - 验证：collector 174/174（163 → 174）。
+  - 真实 runtime 证据（2026-07-17，真 SQL + Railway 数据库时钟，探针行已清理）：worker A 等待 `0.0s`；worker B 等待 `15.8s`（独立 slot，按 16s delay 间隔）；另一 scope 等待 `0.0s`（预算独立）；`penalize(120)` 后**另一个** worker 等待 `119.8s`（证明退避是共享的，不是本进程 sleep）；随后 `penalize(5)` 未缩短既有退避。
+  - Rollback：`PROVIDER_RATE_LIMIT_BACKEND=file` 立即回到旧行为；表为 additive。
 
 - [x] **P2.8.6 ingestion 与 derivation 解耦**（E3，2026-07-17 完成）
   - option snapshot 写入后只立即计算该 symbol 的 GEX；GEX 失败仍按原逻辑降级为 `gex_status=skipped`，不阻断 snapshot。

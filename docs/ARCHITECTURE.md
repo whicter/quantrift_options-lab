@@ -950,6 +950,24 @@ run_refresh_worker.handle_job
 - **错误码是粗粒度码，不是原始消息。** provider 名和请求明细不进该表，留在 `provider_fetch_jobs.last_error` 给运维。
 - **写入 best-effort。** snapshot 表仍是 source of truth；汇总表写失败不能把成功的刷新变成失败的 job。
 
+**Shared provider rate limiter（E7，2026-07-17）**
+
+`provider_rate_limits(provider, scope, next_allowed_at, last_status, updated_at)` 是跨进程/跨机器的 provider 限流状态。它替代的 file lock 只能约束同一文件系统上的进程：一旦 Mac Studio 与 Railway collector 同时跑，两边各自持有自己的锁文件，实际速率翻倍。
+
+```text
+DatabaseRequestPacer.wait()
+  → INSERT ... ON CONFLICT DO UPDATE
+      SET next_allowed_at = GREATEST(next_allowed_at, NOW()) + delay
+      RETURNING next_allowed_at - delay - NOW()   ← 我的 slot 还有多久
+  → commit + close                                ← 不持锁睡眠
+  → sleep(该时长)
+```
+
+- **slot 认领是原子的。** 两个 worker 竞争拿到两个不同的 slot，不可能撞在同一时刻。
+- **数据库时钟是唯一权威。** 等待时长在 SQL 内算，系统时钟有偏差的两台机器不会都认为轮到自己。
+- **429 惩罚必须共享。** 本地 `time.sleep` 只暂停一个进程，其余继续猛打——这正是单次拒绝变成风暴的机制。`penalize()` 推移共享 slot；`GREATEST` 保证并发 429 中较短的 `Retry-After` 不缩短已生效的较长退避。
+- **降级是显式的。** 无 `DATABASE_URL` 时退回 file lock 并 warn，绝不静默发出不受限请求。
+
 **Queue-fill scheduler（E6，2026-07-17）**
 
 `schedule_option_refresh.py` 按**队列深度**补满，而不是每轮固定入队 N 个：

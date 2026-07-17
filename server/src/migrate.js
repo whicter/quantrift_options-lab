@@ -653,6 +653,20 @@ async function migrate() {
       ON symbol_data_state (product, latest_snapshot_ts DESC NULLS FIRST);
     CREATE INDEX IF NOT EXISTS symbol_data_state_refresh_status
       ON symbol_data_state (refresh_status, updated_at DESC);
+
+    -- Cross-process provider pacing. Replaces a local file lock, which cannot
+    -- coordinate workers on different machines or Railway replicas.
+    -- next_allowed_at is the next free request slot; callers claim one
+    -- atomically and the database clock is the single authority, so worker
+    -- machines with skewed clocks cannot both fire early.
+    CREATE TABLE IF NOT EXISTS provider_rate_limits (
+      provider        TEXT        NOT NULL,
+      scope           TEXT        NOT NULL,
+      next_allowed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_status     TEXT,
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (provider, scope)
+    );
   `);
 
   console.log('Migrations complete.');
