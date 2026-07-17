@@ -37,10 +37,13 @@
   - `gex_metadata.model` carries metric, model version, unit, formula ID, positioning model and public-OI limitation. `data_state` carries status, snapshot time, age, refresh state, confidence and a public source label. `coverage` carries contract/quality and expiry-window fields. `parameters` carries move size, multiplier, local window, flip grid and risk-free rate.
   - Scanner materialization persists this metadata in its existing JSON payload, so it is tied to the GEX snapshot that generated the scanner row. Old rows without that payload are explicitly `partial`, never backfilled with invented assumptions.
   - The UI must render a compact user-facing data-details view and retain a richer admin/debug view.
-- [ ] Establish a reproducible GEX validation suite.
+- [x] Establish a reproducible GEX validation suite.
   - Step 3 plan: freeze option-chain fixtures with a known valuation timestamp; verify contract exposure, strike aggregation, Global/Local GEX, Wall selection, Gamma Flip interpolation and no-crossing behavior. Recompute the same fixture twice and require byte-stable output.
   - Add a fixture manifest containing model version, valuation date, multiplier, expiry range, expected outputs and tolerances. A separate replay command will load the fixture through the collector calculation path and emit a machine-readable result.
   - Add a real-snapshot comparison report for one ETF and one single stock: snapshot ID/time, option count, missing data ratios, formula inputs, output values and changed-field diff. It is validation of calculation consistency, not a trading-performance claim.
+  - Implemented: `collector/tests/fixtures/gex_validation_v1.json`, `collector/gex_validation.py`, `collector/compare_gex_snapshots.py`, and `collector/tests/test_gex_validation.py`.
+  - Reproducible fixture command: `cd collector && .venv/bin/python -m unittest tests.test_compute_gex_walls tests.test_gex_validation`.
+  - Read-only production-snapshot comparison: `cd collector && .venv/bin/python compare_gex_snapshots.py --symbols SPY,AAPL`. 2026-07-16 result: SPY snapshot `757` (27 usable contracts, missing Greeks `25.00%`) and AAPL snapshot `815` (72 usable contracts, missing Greeks/OI `0.00%`) matched all stored Global/Local GEX, Gamma Flip, Call/Put Wall and Max Pain values within `0.0001` tolerance.
   - Fixed option-chain fixtures must verify per-contract GEX, aggregate GEX, Gamma Flip interpolation, Call/Put Wall selection, 1%-move units and sign-assumption labeling.
   - Run a historical comparison across at least one ETF and one single-stock chain before making any performance or market-structure claim.
 - [ ] Define and document expected-move and POP inputs per strategy.

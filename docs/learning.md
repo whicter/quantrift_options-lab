@@ -302,6 +302,7 @@ GEX compute job：
 - GEX 不能只以数值字段在不同产品间传播。Analyze、Scan 与 Weekly 的 GEX DTO 都必须带同一份 `gex_metadata`：模型版本/单位/代理假设、快照时间与数据状态、合约覆盖范围、计算参数。这样每个展示点都能追溯到具体快照，而旧 Scanner 行缺少 metadata 时必须显示 `partial`，不能用当前默认配置猜测历史模型。
 - Gamma Flip 重算必须使用 option-chain snapshot 的估值日期，而不是 job 运行当天。否则同一历史链会因剩余 DTE 改变得到不同曲线，不能复现或比较。
 - 数据详情属于研究结果的一部分，而非调试装饰。默认收起能保持 Scan 的可读性；展开后用户必须能看到口径、快照时点、覆盖质量、到期范围与定位代理假设，才能正确理解 GEX 数值。
+- GEX 验证要区分两件事：固定 fixture 验证“代码是否按既定公式计算”，数据库 replay 验证“保存值能否由同一快照重现”。两者都不能证明 dealer 实际仓位或价格预测能力。SPY/AAPL replay 已核对 Global/Local GEX、Flip、Walls 与 Max Pain，但结论仅限计算一致性。
 - 当前模型版本为 `gex-v2-1pct-positioning-proxy`；不同模型版本的 GEX 数值不能直接做历史比较。
 - 部署重算：`GEX_RECOMPUTE_ALL=true GEX_SYMBOLS=<symbols> venv311/bin/python compute_gex.py`，随后重新 materialize scanner rows。
 - scanner 已可读取 latest GEX snapshot 做 Gamma regime / Wall proximity / Local Gamma / OI / Volume / Volume-to-OI filters。

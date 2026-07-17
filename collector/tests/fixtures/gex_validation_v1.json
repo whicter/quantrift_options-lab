@@ -1,0 +1,71 @@
+{
+  "fixture_version": "gex-validation-v1",
+  "model_version": "gex-v2-1pct-positioning-proxy",
+  "tolerance": 0.0001,
+  "chains": [
+    {
+      "name": "etf_like_positive_gex",
+      "snapshot": {
+        "id": 1001,
+        "symbol": "SPY",
+        "snapshot_ts": "2026-07-16T14:30:00+00:00",
+        "source": "fixture",
+        "underlying_price": 100,
+        "contract_count": 3,
+        "completeness_pct": 100,
+        "missing_greeks_ratio": 0,
+        "missing_oi_ratio": 0
+      },
+      "contracts": [
+        {"expiry": "2026-08-21", "strike": 90, "right": "C", "open_interest": 100, "volume": 20, "gamma": 0.01, "iv": null},
+        {"expiry": "2026-08-21", "strike": 110, "right": "C", "open_interest": 300, "volume": 30, "gamma": 0.02, "iv": null},
+        {"expiry": "2026-08-21", "strike": 90, "right": "P", "open_interest": 250, "volume": 10, "gamma": 0.015, "iv": null}
+      ],
+      "expected": {
+        "global_gex": 32500,
+        "local_gamma": 0,
+        "gamma_regime": "positive",
+        "call_wall": 110,
+        "put_wall": 90,
+        "gamma_flip": 90,
+        "max_pain": 90,
+        "pcr_oi": 0.625,
+        "pcr_volume": 0.2,
+        "by_strike": {"90": {"call_gex": 10000, "put_gex": -37500, "net_gex": -27500}, "110": {"call_gex": 60000, "put_gex": 0, "net_gex": 60000}}
+      }
+    },
+    {
+      "name": "single_stock_negative_gex",
+      "snapshot": {
+        "id": 1002,
+        "symbol": "AAPL",
+        "snapshot_ts": "2026-07-16T14:30:00+00:00",
+        "source": "fixture",
+        "underlying_price": 200,
+        "contract_count": 3,
+        "completeness_pct": 100,
+        "missing_greeks_ratio": 0,
+        "missing_oi_ratio": 0
+      },
+      "contracts": [
+        {"expiry": "2026-09-18", "strike": 220, "right": "C", "open_interest": 500, "volume": 50, "gamma": 0.01, "iv": null},
+        {"expiry": "2026-09-18", "strike": 180, "right": "C", "open_interest": 50, "volume": 5, "gamma": 0.005, "iv": null},
+        {"expiry": "2026-09-18", "strike": 180, "right": "P", "open_interest": 350, "volume": 25, "gamma": 0.02, "iv": null}
+      ],
+      "expected": {
+        "global_gex": -70000,
+        "local_gamma": 0,
+        "gamma_regime": "negative",
+        "call_wall": 220,
+        "put_wall": 180,
+        "gamma_flip": 180,
+        "max_pain": 180,
+        "pcr_oi": 0.6363636364,
+        "pcr_volume": 0.4545454545,
+        "by_strike": {"180": {"call_gex": 10000, "put_gex": -280000, "net_gex": -270000}, "220": {"call_gex": 200000, "put_gex": 0, "net_gex": 200000}}
+      }
+    }
+  ],
+  "gamma_flip_curve": [{"price": 90, "net_gex": -300}, {"price": 100, "net_gex": 100}],
+  "expected_gamma_flip": 97.5
+}

@@ -31,6 +31,15 @@ The current GEX calculation uses `gex-v2-1pct-positioning-proxy`. Scanner materi
 
 `DataDetails` is the shared, closed-by-default product component for this contract. It appears below the selected Analyze snapshot, as a compact disclosure in each Scanner positioning cell, and below the selected Weekly Gamma history point. It deliberately provides a public source label rather than an internal provider or routing name.
 
+### GEX validation and replay
+
+The calculation has two reproducibility checks:
+
+1. `collector/tests/fixtures/gex_validation_v1.json` is a fixed ETF-like and single-stock-like option-chain fixture. `gex_validation.py` computes each chain twice, compares canonical outputs, verifies per-strike exposure, Global/Local GEX, Wall selection, no-crossing fallback, 1% unit metadata and the separate fixed Gamma Flip interpolation curve.
+2. `compare_gex_snapshots.py --symbols SPY,AAPL` is read-only. It reloads the latest persisted versioned GEX snapshot and contracts, recomputes the same fields, and reports every stored/recomputed difference with a configured tolerance.
+
+The live-snapshot comparison executed on 2026-07-16 matched SPY snapshot `757` and AAPL snapshot `815` for Global GEX, Local Gamma, Gamma Flip, Call Wall, Put Wall and Max Pain. This establishes implementation consistency only; it does not validate the positioning proxy as a market prediction.
+
 ### Monorepo 结构
 
 ```
