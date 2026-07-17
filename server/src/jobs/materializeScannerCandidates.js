@@ -261,6 +261,43 @@ async function insertCandidates(pool, batchId, candidates) {
   }
 }
 
+function batchKeep() {
+  const configured = parseInt(process.env.SCANNER_CANDIDATE_BATCH_KEEP ?? 5, 10);
+  return Number.isFinite(configured) ? configured : 5;
+}
+
+/**
+ * Keep only the newest `SCANNER_CANDIDATE_BATCH_KEEP` completed batches per
+ * scan_key and drop everything else (older completed, plus stale running/failed
+ * rows) so the tables do not grow without bound -- a batch runs every scan cycle
+ * and carries thousands of rows. `ON DELETE CASCADE` removes the snapshots.
+ * Best-effort: the just-written batch is already usable, so a prune failure is
+ * logged and swallowed rather than failing the run. Returns the deleted count,
+ * or null when pruning is disabled (`keep <= 0`) or errors.
+ */
+async function pruneOldBatches(pool, scanKey, currentBatchId) {
+  const keep = batchKeep();
+  if (keep <= 0) return null;
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM scanner_candidate_batches
+       WHERE scan_key = $1
+         AND id <> $3
+         AND id NOT IN (
+           SELECT id FROM scanner_candidate_batches
+           WHERE scan_key = $1 AND status = 'completed'
+           ORDER BY completed_at DESC NULLS LAST
+           LIMIT $2
+         )`,
+      [scanKey, keep, currentBatchId],
+    );
+    return rowCount ?? 0;
+  } catch (err) {
+    console.error('prune scanner candidate batches failed:', err.message);
+    return null;
+  }
+}
+
 /**
  * Materialize one batch for scanKey. Creates a 'running' batch row, inserts the
  * ranked candidates, then marks the batch 'completed'. On any error the batch is
@@ -288,7 +325,8 @@ async function runMaterialization(pool, { scanKey = DEFAULT_SCAN_KEY, overrides 
        WHERE id = $1`,
       [batchId, candidateCount],
     );
-    return { batchId, scanKey, algorithmVersion: ALGORITHM_VERSION, universeCount, candidateCount, status: 'completed' };
+    const pruned = await pruneOldBatches(pool, scanKey, batchId);
+    return { batchId, scanKey, algorithmVersion: ALGORITHM_VERSION, universeCount, candidateCount, prunedBatches: pruned, status: 'completed' };
   } catch (err) {
     await pool.query(
       `UPDATE scanner_candidate_batches
@@ -306,6 +344,7 @@ module.exports = {
   candidateKey,
   buildCandidateBatch,
   fetchMaterializationInput,
+  pruneOldBatches,
   runMaterialization,
   MATERIALIZATION_INPUT_SQL,
 };

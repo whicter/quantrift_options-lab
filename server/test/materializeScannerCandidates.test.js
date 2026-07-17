@@ -5,6 +5,7 @@ const {
   strategyFamily,
   candidateKey,
   buildCandidateBatch,
+  pruneOldBatches,
   runMaterialization,
 } = require('../src/jobs/materializeScannerCandidates');
 
@@ -114,6 +115,9 @@ function recordingPool(batchId = 77) {
       if (/INSERT INTO scanner_candidate_batches/.test(sql)) {
         return { rows: [{ id: batchId }] };
       }
+      if (/DELETE FROM scanner_candidate_batches/.test(sql)) {
+        return { rowCount: 2 };
+      }
       return { rows: [] };
     },
   };
@@ -140,6 +144,49 @@ test('runMaterialization inserts a batch, the candidates, and marks it completed
   const complete = pool.queries.find(q => /UPDATE scanner_candidate_batches/.test(q.sql) && /completed/.test(q.sql));
   assert.ok(complete, 'batch marked completed');
   assert.equal(complete.params[0], 101);
+
+  const prune = pool.queries.find(q => /DELETE FROM scanner_candidate_batches/.test(q.sql));
+  assert.ok(prune, 'old batches pruned after completion');
+  assert.equal(prune.params[0], 'watchlist_v1');
+  assert.equal(prune.params[2], 101, 'the just-written batch is never pruned');
+  assert.equal(result.prunedBatches, 2);
+});
+
+test('pruneOldBatches keeps the newest N completed and spares the current batch', async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rowCount: 3 };
+    },
+  };
+  const deleted = await pruneOldBatches(pool, 'watchlist_v1', 42);
+  assert.equal(deleted, 3);
+  assert.match(calls[0].sql, /DELETE FROM scanner_candidate_batches/);
+  assert.equal(calls[0].params[0], 'watchlist_v1');
+  assert.equal(calls[0].params[1], 5, 'default keep is 5');
+  assert.equal(calls[0].params[2], 42);
+});
+
+test('pruneOldBatches is disabled when keep <= 0', async () => {
+  const original = process.env.SCANNER_CANDIDATE_BATCH_KEEP;
+  process.env.SCANNER_CANDIDATE_BATCH_KEEP = '0';
+  try {
+    let called = false;
+    const pool = { async query() { called = true; return { rowCount: 0 }; } };
+    const result = await pruneOldBatches(pool, 'watchlist_v1', 1);
+    assert.equal(result, null);
+    assert.equal(called, false, 'no delete runs when pruning is disabled');
+  } finally {
+    if (original === undefined) delete process.env.SCANNER_CANDIDATE_BATCH_KEEP;
+    else process.env.SCANNER_CANDIDATE_BATCH_KEEP = original;
+  }
+});
+
+test('pruneOldBatches swallows a delete failure and returns null', async () => {
+  const pool = { async query() { throw new Error('delete boom'); } };
+  const result = await pruneOldBatches(pool, 'watchlist_v1', 1);
+  assert.equal(result, null);
 });
 
 test('runMaterialization marks the batch failed when a candidate insert throws', async () => {
