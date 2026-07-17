@@ -53,6 +53,11 @@
   - Required inputs are fail-closed. Missing same-expiry ATM IV, non-positive DTE, absent static break-evens or an unsupported payoff shape return `status: unavailable` with a reason; the system never substitutes a fixed POP, mark price or fallback IV. Missing leg quotes prevent candidate construction.
   - Scanner UI renders compact `EM` / `POP` state with an in-context tooltip; EM/POP are model estimates, not a prediction, tradable quote or return guarantee.
   - Verification: `cd server && npm test` covers credit spread, debit strategy, Iron Condor, absent IV and missing quote behavior; route tests assert the public DTO includes the declared fields and contract-IV sample input. Frontend test/lint/build verify the compact rendering path.
+- [x] Reconcile stored watchlist GEX after a model-version upgrade.
+  - Root cause observed 2026-07-16: option-chain snapshots existed for 67 watchlist symbols, but 64 latest GEX rows were calculated with the legacy unversioned formula. The API correctly rejected those rows because it requires `gex-v2-1pct-positioning-proxy`, causing Analyze to say GEX/Wall unavailable.
+  - `collector/reconcile_gex_models.py` now reads only the latest persisted chain per watchlist symbol, finds missing or version-mismatched GEX rows, and recomputes GEX/Wall/Flip locally from PostgreSQL. It never requests market data.
+  - `run_collector_daemon.py` runs that reconciliation at startup and every hour by default (`GEX_MODEL_RECONCILE_SECONDS=3600`). This makes a model upgrade an automatic derived-data backfill rather than a user-visible coverage outage.
+  - 2026-07-16 repair: 66 of 67 symbols recomputed successfully. `SRVR` stayed unavailable because its latest chain had a 44.44% missing-Greeks ratio, above the model's 25% quality threshold.
 
 #### C. Product architecture and disclosure follow-through
 

@@ -679,3 +679,8 @@ GEX compute job：
 - **Expected Move 必须说明输入和时间口径**：当前 Scanner 使用同一 expiry 的最近 ATM Call/Put IV 均值和 calendar-day `sqrt(T/365)`，并在 DTO 中声明模型版本、标准差、输入合约和快照时间；不能把它写成价格必然范围。
 - **POP 不是固定策略标签**：只用真实 bid/ask 选腿形成的盈亏平衡点、已声明 IV、利率和到期日计算；缺少任一核心输入就返回 unavailable，而不是沿用 64/66% 之类的占位百分比。
 - **跨期结构必须承认模型边界**：Calendar / Diagonal 没有一个单一到期日的静态 payoff，当前单到期 POP 模型不能假装给出精确概率，因此明确标记 unavailable。
+
+## GEX Version Reconciliation Lesson (2026-07-16)
+
+- **原始链存在不等于当前产品 GEX 可用**：GEX 公式/单位版本升级后，旧派生行必须被 API 拒绝，不能静默混用；但拒绝后若没有回填任务，用户会误以为 collector 没有采集。
+- **版本迁移应重算派生层，不重拉行情**：collector 现在对最新 watchlist chain 做版本差异检查，并只从 PostgreSQL 重算 GEX/Wall/Flip。这样不会消耗 provider 配额，也不会在模型升级后留下整批“不可用”。

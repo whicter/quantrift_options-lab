@@ -1353,6 +1353,12 @@ Scanner 对每个具体候选单返回两个可复核的模型对象，而不是
 
 输入不足时不会用固定百分比、mark 或另一到期日的 IV 填补：缺少同到期 ATM Call/Put IV、DTE 不成立或 payoff 形状无法静态定义时，字段会返回 `unavailable` 和原因。Calendar / Diagonal 的跨期 payoff 不在当前单到期 POP 模型范围内，因此明确显示不可用。
 
+### GEX 模型升级后的数据回填
+
+期权链快照和 GEX 是两层数据：前者是原始、可复用的合约快照，后者是基于当前模型版本产生的派生结果。API 只接受当前 `gex-v2-1pct-positioning-proxy` 输出，避免把不同量纲/假设的旧结果和当前界面混在一起。
+
+长期 collector 在启动时及此后每小时检查 watchlist 最新链的 `raw_metrics.model_version`。发现缺失或版本不一致时，`reconcile_gex_models.py` 仅从 PostgreSQL 重算 GEX、Wall 和 Gamma Flip，不重新请求外部数据。若链本身的 Greeks/OI 缺失率超过质量阈值，仍明确保持 unavailable，而不伪造结构结论。
+
 ### 策略对比
 
 策略库提供 side-by-side 模式，可从全部策略中选择两个模板。对比视图列出方向、风险级别、DTE、IV 适用环境、止盈/止损规则和每条实际腿。该视图仅读取策略模板，不会覆盖主页面中正在编辑的策略或情景参数。
