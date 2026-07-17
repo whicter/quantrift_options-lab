@@ -29,6 +29,12 @@ module.exports = {
         OPTION_REFRESH_QUEUE_TARGET: '20',
         OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE: '20',
         REFRESH_WORKER_BATCH_SIZE: '2',
+        // Polygon paid plans (incl. the $29 Options subscription) allow unlimited
+        // API calls, so this is only a runaway-loop backstop, not a cost throttle.
+        // The default 1000 was starving mid-day refreshes: ~81 symbols refreshed
+        // through the day exceed 1000 well before market close. Keep it far above
+        // real need so option data stays fresh all day. Mirror on Railway.
+        PROVIDER_DAILY_BUDGET: '50000',
         COLLECTOR_HEALTH_CHECK_ENABLED: 'true',
         COLLECTOR_HEALTH_CHECK_SECONDS: '300',
         HEALTH_MIN_COVERAGE_PCT: '95',

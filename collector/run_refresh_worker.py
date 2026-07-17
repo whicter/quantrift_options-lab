@@ -50,6 +50,9 @@ NON_RETRYABLE_ERROR_PREFIXES = (
     'provider auth unavailable for this worker run:',
     'provider unavailable for this worker run:',
     'option quote unavailable:',
+    # A spent daily budget does not replenish until the next budget day, so
+    # retrying the same job 3x only multiplies failures against the wall.
+    'provider budget exhausted:',
 )
 
 

@@ -49,6 +49,15 @@ class RefreshProviderContractTest(unittest.TestCase):
             RuntimeError('option quote unavailable: polygon_licensed returned no usable bid/ask quotes')
         ))
 
+    def test_exhausted_budget_is_non_retryable(self):
+        import run_refresh_worker
+
+        # A spent daily budget will not replenish until the next budget day, so
+        # retrying the job only multiplies failures against the wall.
+        self.assertFalse(run_refresh_worker.should_retry(
+            RuntimeError('provider budget exhausted: provider=polygon_licensed, job_type=option_chain_snapshot, budget=50000')
+        ))
+
     def test_worker_recovers_stale_running_jobs(self):
         source = WORKER_SOURCE.read_text()
         self.assertIn('recover_stale_running_jobs', source)
