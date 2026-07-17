@@ -23,6 +23,25 @@
 - `feat/v3a-2-materialized-candidates`（已 push）：V3A-2 后端全套(两表已建生产、materializer、`/api/v1/scanner/candidates`、collector 调度接入、retention)。
 - `feat/v3a-frontend-cutover`（本地未 push）：Analyze `/summary` 切流(`applySummary`,server 权威+本地 fallback),待人工浏览器验收;Scanner 未切流(端点是精简候选流,盲切会退化)。
 
+## 2026-07-17 — IV Rank 自给自足（脱离 Mac / TT 依赖，进行中）
+
+**目标**：让 options-lab 产品 100% Polygon-derived、跑在 Railway，彻底不依赖 Mac Studio。诊断结论：唯一真·Mac 依赖是 **TT 的 IV Rank**(device challenge 绑可信 IP);IB 只是 fallback,产品用 Polygon。所以脱离 Mac = 干掉 TT = **自己从 Polygon 算 IV Rank**。IV Rank 自算的机器已存在(`derive_volatility.py::calculate_iv_rank` + `fetch_atm_observations`),缺的只是 252 天历史 + 更干净的日 IV 口径。
+
+**Polygon 历史可行性(2026-07-17 实测,用生产 key)**：
+- 期权**价格聚合**回溯 ≥1 年:`/v2/aggs/ticker/O:.../range/1/day/...` 对 1 年前到期的 AAPL 合约返回 14 根日线(首 2025-06-02)。
+- `/v3/reference/options/contracts?underlying_ticker=X&as_of=<过去日期>` 能列出历史某天在册的合约 → 可按天定位 ATM。
+- **历史 IV/greeks 不提供**(只 current snapshot 有)→ 回填必须**从历史期权价格 BS 反解 IV**(Polygon options 无历史 IV 端点,web + 实测均确认)。
+
+**分阶段计划(带验收)**：
+- [x] **Phase 1 — IV 数学核心(Python,纯函数,可单测)**（E19，2026-07-17 完成)
+  - 新增 `collector/implied_vol.py`:`norm_cdf/pdf`、`bs_price(spot,strike,t,r,sigma,is_call)`、`implied_vol_from_price(...)`(二分反解;越界/低于内在价值/超过理论上限返回 None;用二分而非 Newton,对噪声 EOD 价稳健、不需 vega)、`constant_maturity_iv(points, target_days=30)`(按总方差 var=iv²·dte 线性插值到 30 天,范围外持平最近点)、`atm_iv_from_call_put(call_iv,put_iv)`。
+  - 验收:`collector/tests/test_implied_vol.py` 12 个（norm_cdf 已知值、put-call parity、反解对 4 个 sigma×call/put round-trip recover 到 4 位、低于内在价值/超上限/非正输入返回 None、constant-maturity 总方差插值/单点/边界 clamp/空输入、call+put 平均）。collector `unittest discover` 200/200（188 → 200）。
+  - 真实数据交叉校验(BS 反解 vs Polygon 自报 IV)留到 Phase 2:收盘后延迟快照的 per-contract quote/close 字段稀疏跑不出;Phase 2 取历史 EOD bar(有收盘价)时自然跑上。
+- [ ] **Phase 2 — Polygon 历史回填器**:按 symbol × 过去 ~252 交易日,用 `reference?as_of` 定位 30 天两侧到期的 ATM call+put,取 `aggs` 当日 EOD 价,BS 反解 → `constant_maturity_iv` 到 30 天 → 写 `volatility_history.atm_iv`。Polygon 无限调用,分批限速。验收:回填后 `iv_observation_count` 达 252、`iv_rank_ready=true`;抽样人工核对反解 IV 合理(与当日 snapshot IV 量级一致)。
+- [ ] **Phase 3 — 前向口径统一**:把每日 `atm_iv` 采集也改成 constant-30-day 口径(而非现在浮动 30–45 DTE 的单张 ATM),与回填口径一致,避免序列方法噪声。跑 `derive_volatility` 出 iv_rank。
+- [ ] **Phase 4 — TT 对比验证 harness**:重叠 symbol-日上比 ①IV 水平(自算 atm_iv vs TT `iv_history.iv30`)②IV Rank(自算 vs TT `iv_rank`)。指标 MAE + 相关系数。参考验收线:IV 水平 MAE < ~2 vol 点 & corr > 0.95;IV Rank MAE < ~5–8 点。水平对但 rank 偏 = 方法差异(可修);水平就偏 = 数据/反解问题。
+- [ ] **Phase 5 — cutover**:TT 保持并行跑攒重叠样本;Phase 4 达标后各处 `TT_METRICS_ENABLED=false` 下线 TT;从 option provider fallback 序列移除 IB(产品路径)。结果:options-lab = Railway(DB+API+Polygon+derive)+ Vercel,Mac 可关机。
+
 ## ✅ 2026-07-16 — Page Copy Audit Remediation
 
 - ✅ 全站：`zh-CN` metadata、产品 title/description、中文主题标签与固定研究/风险披露。
