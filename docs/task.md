@@ -1,5 +1,29 @@
 # Task Tracker
 
+## 2026-07-17 — Option refresh starvation + 架构 review（进行中，回家继续）
+
+**症状**：生产 Analyze 页（如 STX）显示期权快照过期 ~409 分钟、永远"后台补全中"。STX $745 价格经核实**是对的**（Seagate 2026 AI 存储暴涨，回调自 $1,100，web 核实），不是 bug。
+
+**根因（已查实）**：Polygon 每日预算 `PROVIDER_DAILY_BUDGET`（自设 1000）在 13:45 UTC 打满 → 405 次 `provider budget exhausted` 失败覆盖全部 81 标的。Polygon 付费档（含 $29 Options）**API 调用无限**，所以 1000 是纯自设、成本为零的错误节流。放大因素两个：①调度器预算 gate **fail-open**——`load_remaining_budget` 读不到当天 usage 行时返回 None（当无限额），Mac daemon 上泄漏 ~2.5h（06:46–09:16 PDT 持续 `capacity=20` 灌满已耗尽预算），直到 09:24 PDT 进程重启才恢复；②预算耗尽被当可重试,每个必败 job 重试 3 次(405 = ~135 job × 3)。
+
+**已修（master `ae58097`，未 push）**：
+- `PROVIDER_DAILY_BUDGET=50000`（ecosystem.config.cjs，runaway backstop 非节流）；`provider budget exhausted:` 设为不可重试；CLAUDE.md 更新；collector 测试 188/188。
+- 运维恢复：Mac daemon PM2 reload（restart #17，env 生效）；手动把今天预算行 `request_budget` 抬到 50000 打破死锁；已验证刷新恢复（QQQ/AAPL 新快照，count 越过 1000）。
+
+**⚠️ 回家必须处理（时效性）**：
+- **Railway 刷新 cron 也要 `PROVIDER_DAILY_BUDGET=50000`**，否则它用旧的 1000 去 `ON CONFLICT UPDATE` 会把共享预算行**打回 1000**，重新耗尽。或者直接按下面架构决策关掉它。
+- **push master** 把 `ae58097` 部署到 Railway（含不可重试修复）。
+
+**架构 review（核心问题，待你决策）**：option 刷新管道**在 Mac Studio daemon 和 Railway cron 两地同跑一个 DB**——预算互抢、dedup 竞态、无单一 owner。Railway 那个 cron 是旧 TT metrics cron（`collector/railway.metrics.json` + `Dockerfile.metrics`）被顺手改成通用刷新循环,属堆积非设计。
+- 真·本地约束:仅 IB Gateway、TT 认证 metrics 必须在 Mac。Polygon 快照/GEX/物化/API/DB 全云友好(今天 935 快照里 621 是 Polygon)。
+- **Option B(短期,推荐先做)**:停掉 Railway 刷新 cron,Mac 成唯一写者。零迁移、立刻消除争用。落地方式:env 开关把 `run_railway_refresh_cycle.py` 变空操作(我改+push,你批一次)/ Railway dashboard 删 cron / 给 RAILWAY_TOKEN 我用 CLI 停。
+- **Option A(目标态)**:Railway 拥有常开产品管道(DB+API+Polygon 刷新+物化),Mac 降级为只跑 IB/TT 的薄适配器。产品不再受家里断电牵制,单一写者。代价:Railway 镜像要加 node(candidate materializer 是 JS)或移植。
+- 决策后架构修复**直接吞掉**上面的预算补丁(单一写者就没有"两 runtime 不同 env 互抢")。
+
+**本会话其它分支状态**：
+- `feat/v3a-2-materialized-candidates`（已 push）：V3A-2 后端全套(两表已建生产、materializer、`/api/v1/scanner/candidates`、collector 调度接入、retention)。
+- `feat/v3a-frontend-cutover`（本地未 push）：Analyze `/summary` 切流(`applySummary`,server 权威+本地 fallback),待人工浏览器验收;Scanner 未切流(端点是精简候选流,盲切会退化)。
+
 ## ✅ 2026-07-16 — Page Copy Audit Remediation
 
 - ✅ 全站：`zh-CN` metadata、产品 title/description、中文主题标签与固定研究/风险披露。
