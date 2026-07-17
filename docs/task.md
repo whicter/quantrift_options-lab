@@ -1234,6 +1234,9 @@ PostgreSQL
   - Rollback：`OPTION_REFRESH_QUEUE_TARGET=2` 即恢复旧吞吐；无 schema migration。
 
 - [ ] **P2.8.4 bounded parallel refresh workers**
+  - **开工前必读（2026-07-17 由 E7 实施时发现的设计冲突，尚未解决）**：E3 让全局派生每个 worker batch 只跑一次，但那是**进程内**的 `PendingDerivations`。直接起 2 个 worker 会让每轮出现 2 次全局 `materialize_scan` / `materialize_oi_delta`，把 E3 的收益按 worker 数打回去。同理，`recover_stale_running_jobs`、`deduplicate_queued_jobs`、`fail_unrunnable_queued_jobs` 目前假设单进程，多 worker 并发执行时行为未经验证。
+    - 结论：并行 worker 必须先把全局派生从 worker 循环中拆出去（独立 derivation job 或单例 materializer），否则不是提速而是重复劳动。这一点应在起第二个 worker **之前**解决。
+    - 已就绪的部分：`fetch_jobs` 已用 `FOR UPDATE SKIP LOCKED` + priority ordering，数据库层本身支持多 worker 领取互不相交的 job；E7 的共享限流已就位，因此并发不会直接放大 429。
   - 利用现有 `FOR UPDATE SKIP LOCKED`，先在 Mac Studio 启 2 个 worker processes 验证，不在线程内共享 psycopg/provider session。
   - 每个 worker 独立 DB connection；连接池上限必须小于 Railway PostgreSQL 可承受连接数。
   - 初始并发建议：2；验证 429、job duration、DB CPU/connection 后升到 4。
