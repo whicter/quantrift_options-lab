@@ -59,6 +59,7 @@ export default function ScannerAlerts({ minIvr, gammaRegime, unusualOnly }) {
         {!token && <button type="button" onClick={subscribePush}>浏览器 Push</button>}
         {token && <button type="button" onClick={removeSubscription}>取消提醒</button>}
       </div>
+      <div className="scan-filter-help">提醒可能延迟或遗漏，仅提示已保存条件命中，不应作为下单依据。</div>
       {status && <div className="scan-filter-help">{status}</div>}
     </details>
   );

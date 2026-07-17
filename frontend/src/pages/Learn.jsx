@@ -10,8 +10,8 @@ import { STRATEGIES } from '../data/strategies';
 import StrategyComparison from '../components/StrategyComparison';
 
 const CAT_LABELS = {
-  direction: '方向', income: '收租', volatility: '波动率',
-  calendar: '跨期', complex: '复杂', arb: '套利', guide: '向导',
+  direction: '方向', income: '权利金卖方', volatility: '波动率',
+  calendar: '跨期', complex: '复杂', arb: '相对价值', guide: '向导',
 };
 const TAG_LABELS = {
   bullish: 'BULLISH', bearish: 'BEARISH', neutral: 'NEUTRAL',

@@ -170,7 +170,7 @@ function VolumeProfile({ profile, spot }) {
       <div className="az-trend-header">
         <div>
           <div className="az-card-title">Volume Profile · 价位成交分布</div>
-          <div className="az-data-note">近 {profile.days} 天，{profile.barCount} 根 regular-session 30M bars；横条越长，成交越密集。</div>
+          <div className="az-data-note">近 {profile.days} 天，{profile.barCount} 根常规交易时段 30 分钟K线；横条越长，成交越密集。</div>
         </div>
         <span className="az-mini-badge yellow">{profile.highVolumeNodes.length} 个高量节点</span>
       </div>
@@ -232,7 +232,7 @@ function ObvCanvas({ series }) {
 
 function ObvPanel({ obv }) {
   if (!obv?.series?.length) return null;
-  const label = obv.trend === 'inflow' ? '资金流入' : obv.trend === 'outflow' ? '资金流出' : '资金平衡';
+  const label = obv.trend === 'inflow' ? 'OBV 上行' : obv.trend === 'outflow' ? 'OBV 下行' : 'OBV 横向';
   const tone = obv.trend === 'inflow' ? 'green' : obv.trend === 'outflow' ? 'red' : 'yellow';
   return (
     <div className="az-card az-obv-card">
@@ -258,7 +258,7 @@ export default function Tab2Trend({ data }) {
     return (
       <div className="az-card az-unavailable-panel">
         <div className="az-card-title">价格走势暂不可用</div>
-        <div className="az-unavailable-text">当前没有足够的真实 OHLCV 历史，不生成示例走势或技术信号。</div>
+        <div className="az-unavailable-text">当前没有足够的 OHLCV 价格历史，不生成示例走势或技术信号。</div>
       </div>
     );
   }
@@ -275,10 +275,10 @@ export default function Tab2Trend({ data }) {
   const insights = [
     `趋势格局：${trend.regime}，KF均线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
     `动量信号：${trend.momentum}，${trend.signal}`,
-    `相对量能 RVol ${trend.rvol.toFixed(2)}×${trend.rvol > 1.3 ? '，成交量明显放大，趋势可信度高' : trend.rvol >= 1.0 ? '，量能正常' : '，缩量，趋势可靠性存疑'}`,
+    `相对量能 RVol ${trend.rvol.toFixed(2)}×${trend.rvol > 1.3 ? '，成交量高于参考水平；需结合价格方向和后续延续性判断' : trend.rvol >= 1.0 ? '，量能接近参考水平' : '，成交量低于参考水平'}`,
     priceOnly
-      ? '期权情绪：暂不可用，当前没有授权 IV / option chain / GEX 数据'
-      : `期权情绪：PCR ${pcr?.toFixed(2) ?? '--'}，${pcr < 0.6 ? '看多拥挤，逆向需谨慎' : pcr > 1.0 ? '看空拥挤，可能存在反弹机会' : '多空情绪均衡'}`,
+      ? '期权持仓比例：暂不可用，当前没有可用的 IV、期权链或 GEX 快照'
+      : `期权持仓比例：PCR(OI) ${pcr?.toFixed(2) ?? '--'}；Put/Call 比例不单独预测方向，也不识别买卖方开仓意图`,
   ];
 
   return (
@@ -286,8 +286,8 @@ export default function Tab2Trend({ data }) {
       <div className="az-card">
         <div className="az-trend-header">
           <div className="az-card-title">
-            趋势走势 · Kalman Filter
-            {` · price_history${stale ? ' stale' : ''}`}
+            模型平滑趋势 · Kalman Filter
+            {stale ? ' · 价格历史已延迟' : ''}
           </div>
           <span className={`az-mini-badge ${trend.regime.includes('多头') ? 'green' : trend.regime.includes('空头') ? 'red' : 'yellow'}`}>
             {trend.regime}
@@ -334,7 +334,7 @@ export default function Tab2Trend({ data }) {
               </div>
             ))}
           </div>
-        ) : <div className="az-empty-copy">需要至少 60 根日线、12 个周线观察与 26 根 regular-session 30M bars。</div>}
+        ) : <div className="az-empty-copy">需要至少 60 根日线、12 个周线观察与 26 根常规交易时段 30 分钟 K 线。</div>}
         {composite?.status === 'stale' && (
           <div className="az-data-note">日线 {composite.latest_daily_date} · 30M {composite.latest_intraday_market_date}，不作为当前多周期确认。</div>
         )}
@@ -351,7 +351,7 @@ export default function Tab2Trend({ data }) {
         <div className="az-aux-cell">
           <div className="az-aux-label">{priceOnly ? '数据范围' : '期权结构'}</div>
           <div className="az-aux-val c-gray">
-            {priceOnly ? '仅价格' : pcr < 0.6 ? '看多拥挤' : pcr > 1.0 ? '看空拥挤' : '结构中性'}
+            {priceOnly ? '仅价格' : pcr < 0.6 ? 'Call OI 相对较多' : pcr > 1.0 ? 'Put OI 相对较多' : 'OI 比例居中'}
           </div>
         </div>
         <div className="az-aux-cell">

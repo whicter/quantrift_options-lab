@@ -113,10 +113,10 @@ function drawGreekChart(canvas, data) {
 
 const GREEKS_CONFIG = [
   { key: 'price', label: 'Risk', desc: '价格风险曲线：随标的价格变化的持仓价值（含时间价值）。' },
-  { key: 'theta', label: 'Theta', desc: '时间衰减：每日时间价值损耗。负值为买方，正值为卖方。' },
+  { key: 'theta', label: 'Theta', desc: '在其他输入不变的模型假设下，时间减少一天时组合理论价值的近似变化。' },
   { key: 'delta', label: 'Delta', desc: '方向敏感性：正股上涨 1 美元时的盈亏变化量。' },
   { key: 'vega',  label: 'Vega',  desc: 'IV 敏感性：隐含波动率变化 1% 时的盈亏变化。' },
-  { key: 'gamma', label: 'Gamma', desc: 'Delta 变化速率：正 Gamma 有利于大幅移动，负 Gamma 相反。' },
+  { key: 'gamma', label: 'Gamma', desc: 'Delta 的变化率；盈亏影响需与 Theta、波动路径、交易成本和持仓管理一起评估。' },
   { key: 'rho',   label: 'Rho',   desc: '利率敏感性：利率变化 1% 时的盈亏变化（通常影响较小）。' },
 ];
 

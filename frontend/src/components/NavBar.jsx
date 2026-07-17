@@ -29,14 +29,14 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
         </NavLink>
       </div>
       {authConfigured ? <AuthControls /> : null}
-      <div className="theme-toggle" role="group" aria-label="Theme mode">
+      <div className="theme-toggle" role="group" aria-label="主题模式">
         <button
           type="button"
           className={theme === 'dark' ? 'theme-toggle-btn active' : 'theme-toggle-btn'}
           onClick={() => onThemeChange('dark')}
           aria-pressed={theme === 'dark'}
         >
-          Dark
+          深色
         </button>
         <button
           type="button"
@@ -44,7 +44,7 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
           onClick={() => onThemeChange('light')}
           aria-pressed={theme === 'light'}
         >
-          Light
+          浅色
         </button>
       </div>
     </nav>

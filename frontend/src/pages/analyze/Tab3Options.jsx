@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
+import { compactMoney } from '../../lib/scannerPresentation';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -54,7 +55,7 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
         }
         // Value label on taller bars
         if (Math.abs(gex) / maxGex > 0.28) {
-          const label = Math.abs(gex) >= 1e6 ? `${(gex / 1e6).toFixed(1)}M` : `${(gex / 1e3).toFixed(0)}K`;
+          const label = compactMoney(gex).replace('$', '');
           ctx.fillStyle = theme.text; ctx.font = '8px monospace'; ctx.textAlign = 'center';
           ctx.fillText(label, x, pos ? zero - h - 4 : zero + h + 9);
         }
@@ -108,29 +109,24 @@ function GEXChart({ gexByStrike, putWall, callWall, price }) {
 }
 
 function money(value) {
-  const number = Number(value || 0);
-  if (Math.abs(number) >= 1e6) return `$${(number / 1e6).toFixed(2)}M`;
-  if (Math.abs(number) >= 1e3) return `$${(number / 1e3).toFixed(1)}K`;
-  return `$${number.toFixed(0)}`;
+  return compactMoney(value);
 }
 
 export default function Tab3Options({ data }) {
   const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, externalFlow, conclusion, chainStats } = data;
   const gexPositive = gexTotal > 0;
-  const gexStr = Math.abs(gexTotal) >= 1e9
-    ? `$${(gexTotal / 1e9).toFixed(2)}B`
-    : `${gexPositive ? '' : '-'}$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+  const gexStr = compactMoney(gexTotal);
 
   const insights = [
-    `${gexPositive ? '正' : '负'}Gamma ${gexStr}，做市商${gexPositive ? '减震对冲，短线摆动受限' : '跟随对冲，波动可能放大'}`,
-    `PCR(OI) ${pcr?.toFixed(2) ?? '--'}${pcr > 1.1 ? '，看跌持仓堆积，市场情绪偏空' : pcr < 0.6 ? '，看涨持仓主导，情绪偏多' : '，多空持仓较均衡'}` +
-      (pcrVol ? `；PCR(Vol) ${pcrVol.toFixed(2)}${pcrVol > pcr ? '，当日交易偏空' : '，当日交易偏多'}` : ''),
-    `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，隐含波动率偏高，卖方有统计优势' : iv30 > 20 ? '，IV适中，关注方向选策略' : '，IV偏低，买方成本低'}`,
+    `${gexPositive ? '正' : '负'} GEX 模型状态 ${gexStr}，在当前代理假设下，波动可能${gexPositive ? '更容易收敛' : '更容易放大'}`,
+    `PCR(OI) ${pcr?.toFixed(2) ?? '--'}，表示 Put/Call 未平仓量比例；它不单独代表看多或看空` +
+      (pcrVol ? `。PCR(Vol) ${pcrVol.toFixed(2)} 表示当日 Put/Call 成交量比例` : ''),
+    `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，绝对水平较高；需结合自身历史、实现波动率和事件风险判断' : iv30 > 20 ? '，处于中间区间' : '，绝对水平较低；不等于期权被低估'}`,
     unusualActivity?.length
       ? unusualActivity[0].status === 'confirmed'
         ? `OI异动：${unusualActivity[0].type} $${unusualActivity[0].strike} ΔOI ${unusualActivity[0].oiDelta?.toLocaleString() ?? '--'}，需要结合价格与成交确认`
         : `OI状态：${unusualActivity[0].status}，当前只能作为基线/活跃度观察`
-      : '本期暂无显著大单异动',
+      : '当前没有达到异动阈值的合约，或相关快照尚未采集',
   ];
 
   return (
@@ -143,21 +139,21 @@ export default function Tab3Options({ data }) {
       {/* 4 core numbers */}
       <div className="az-gex-numbers az-gex-numbers-4">
         <div className="az-gex-num">
-          <div className="az-gex-num-label">GEX Total</div>
+          <div className="az-gex-num-label">GEX Total · 1% Move</div>
           <div className={`az-gex-num-val ${gexPositive ? 'c-green' : 'c-red'}`}>{gexStr}</div>
-          <div className="az-gex-num-sub">{gexPositive ? '正Gamma环境' : '负Gamma环境'}</div>
+          <div className="az-gex-num-sub">{gexPositive ? '正 GEX 模型状态' : '负 GEX 模型状态'} · 非现金流</div>
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">PCR (OI)</div>
           <div className={`az-gex-num-val ${pcr < 0.6 ? 'c-green' : pcr > 1.1 ? 'c-red' : 'c-yellow'}`}>{pcr?.toFixed(2) ?? '--'}</div>
-          <div className="az-gex-num-sub">{pcr < 0.6 ? '持仓偏多' : pcr > 1.1 ? '持仓偏空' : '持仓中性'}</div>
+          <div className="az-gex-num-sub">Put/Call OI 相对比例，不代表净方向</div>
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">PCR (Vol)</div>
           <div className={`az-gex-num-val ${!pcrVol ? 'c-gray' : pcrVol < 0.6 ? 'c-green' : pcrVol > 1.1 ? 'c-red' : 'c-yellow'}`}>
             {pcrVol?.toFixed(2) ?? '--'}
           </div>
-          <div className="az-gex-num-sub">{!pcrVol ? '暂无数据' : pcrVol < 0.6 ? '交易偏多' : pcrVol > 1.1 ? '交易偏空' : '交易中性'}</div>
+          <div className="az-gex-num-sub">{!pcrVol ? '暂无数据' : 'Put/Call 成交量相对比例，不代表净方向'}</div>
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">IV ATM</div>
@@ -179,7 +175,7 @@ export default function Tab3Options({ data }) {
                 </div>
               ))}
             </div>
-          ) : <div className="az-empty-copy">当前真实快照没有可用 ATM IV 期限结构。</div>}
+          ) : <div className="az-empty-copy">当前期权快照没有可用 ATM IV 期限结构。</div>}
         </div>
         <div className="az-card">
           <div className="az-card-title">IV Skew · {chainStats?.skew?.expiry || '偏斜'}</div>
@@ -193,13 +189,13 @@ export default function Tab3Options({ data }) {
                 </div>
               ))}
             </div>
-          ) : <div className="az-empty-copy">当前真实快照没有可用 strike IV skew。</div>}
+          ) : <div className="az-empty-copy">当前期权快照没有可用 strike IV skew。</div>}
         </div>
       </div>
 
       {/* Unusual activity */}
       <div className="az-card">
-        <div className="az-card-title">期权大单异动</div>
+        <div className="az-card-title">期权成交与 OI 异动</div>
         {unusualMeta && (
           <div className="az-unusual-meta">
             {unusualMeta.status || unusualMeta.freshness}
@@ -222,25 +218,25 @@ export default function Tab3Options({ data }) {
             ))}
           </div>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>暂无异常大单</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>暂无达到当前筛选阈值的合约，或相关数据尚未采集。</div>
         )}
       </div>
 
       <div className="az-card">
-        <div className="az-card-title">Sweep / Dark Pool · 实时资金流</div>
+        <div className="az-card-title">Sweep / Dark Pool · 外部事件流</div>
         <div className="az-flow-meta">
           <span className={`az-mini-badge ${externalFlow?.freshness === 'fresh' ? 'green' : 'yellow'}`}>
             {externalFlow?.status === 'active' ? '有事件' : externalFlow?.status === 'quiet' ? '当前安静' : externalFlow?.status === 'stale' ? '数据延迟' : '待接入'}
           </span>
-          {externalFlow?.providerLastMessageAt && <span>provider {String(externalFlow.providerLastMessageAt).slice(0, 16).replace('T', ' ')}</span>}
+          {externalFlow?.providerLastMessageAt && <span>数据截至 {String(externalFlow.providerLastMessageAt).slice(0, 16).replace('T', ' ')}</span>}
         </div>
         {externalFlow?.freshness === 'fresh' ? (
           <>
             <div className="az-flow-summary">
               <span>Option Flow <strong>{externalFlow.summary.optionFlowCount}</strong></span>
               <span>Sweep <strong>{externalFlow.summary.sweepCount}</strong></span>
-              <span>期权权利金 <strong>{money(externalFlow.summary.optionPremium)}</strong></span>
-              <span>Dark Pool <strong>{money(externalFlow.summary.darkPoolNotional)}</strong></span>
+              <span>匹配事件名义金额 <strong>{money(externalFlow.summary.optionPremium)}</strong></span>
+              <span>Dark Pool 匹配名义金额 <strong>{money(externalFlow.summary.darkPoolNotional)}</strong></span>
             </div>
             <div className="az-flow-list">
               {externalFlow.items.slice(0, 10).map(item => (
@@ -254,7 +250,7 @@ export default function Tab3Options({ data }) {
               {externalFlow.items.length === 0 && <div className="az-empty-copy">过去 {externalFlow.windowHours || 24} 小时该标的没有匹配事件。</div>}
             </div>
           </>
-        ) : <div className="az-empty-copy">外部资金流尚未形成可用的新鲜数据，不展示推断值。</div>}
+        ) : <div className="az-empty-copy">外部事件流尚未形成可用的数据快照，不展示推断值。</div>}
       </div>
 
       {/* Conclusion */}

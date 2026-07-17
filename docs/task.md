@@ -1,5 +1,61 @@
 # Task Tracker
 
+## ✅ 2026-07-16 — Page Copy Audit Remediation
+
+- ✅ 全站：`zh-CN` metadata、产品 title/description、中文主题标签与固定研究/风险披露。
+- ✅ 首页：静态预览明确标为示例且非当前市场；产品边界改为数据覆盖、快照候选与研究决策支持。
+- ✅ Analyze：移除“盘中即时”“IV 优势”“做市商事实持仓”等断言；GEX/Wall/Flip 统一为带单位和定位假设的模型估算；POP、情景、财报提示改为条件化研究说明。
+- ✅ Trend / Options：OBV 改为价量动量；PCR 仅描述 Put/Call 相对比例；外部事件流、OI 异动与数据状态不再暗示净资金流、机构身份或实时性。
+- ✅ Scan：已采集报价快照、筛选匹配分、模型定位、社区样本和候选结构均附清晰边界；不再表述为可直接成交订单或预测分数。
+- ✅ Weekly：自定义“恐慌/贪婪”改为周度模型分数；Gamma/Wall/Max Pain/ΔOI 改为快照模型与条件情景。
+- ✅ Learn / Portfolio / Account：Greek、概率锥、导出水印、策略知识、记录平仓和订阅频率均明确模型/教育/记录边界。
+- ✅ 审计记录：`docs/quantrift_page_copy_audit.md` 已加入逐块完成状态和剩余项。
+
+### Deferred / requires a separate decision
+
+- [ ] 全路由 SSR/SSG：当前先在静态 `index.html` 放入可抓取的产品语义摘要；完整 SSR/SSG 需要单独决定框架与部署迁移。
+- [ ] 品牌名、域名和商标保护：需要产品所有者在注册商、法务和运营侧执行，不能由 repository 直接完成。
+
+### Post-audit remaining work (ordered)
+
+#### A. Release verification for the copy/model changes
+
+- [ ] Add Playwright visual regression coverage for `/`、`/analyze?symbol=SPY`、`/scan`、`/weekly`、`/learn`、`/portfolio`、`/account` on desktop and mobile viewports.
+  - Assert no clipped headers, horizontal overflow, hidden controls, or footer overlap.
+  - Assert the homepage’s illustrative/non-current label and fixed research disclosure are visible.
+  - Assert GEX/Wall/POP model disclosures appear when those values are rendered.
+- [ ] Add production smoke checks after deployment.
+  - Verify the deployed HTML contains `lang=zh-CN`, product title/description, static H1 and research disclaimer before JavaScript hydration.
+  - Verify the production frontend artifact contains no `.map` files and no API/provider secrets.
+  - Verify `/api/scan` and `/api/analyze/:symbol` responses retain source, snapshot time, freshness and model-version fields used by the UI.
+
+#### B. GEX and research-model governance
+
+- [ ] Add a versioned model metadata contract to every GEX-derived product DTO.
+  - Required fields: formula/unit, `model_version`, selected expiry window, OI snapshot timestamp, spot timestamp, contract multiplier, positioning-sign assumption, freshness and partial-data reason.
+  - The UI must render a compact user-facing data-details view and retain a richer admin/debug view.
+- [ ] Establish a reproducible GEX validation suite.
+  - Fixed option-chain fixtures must verify per-contract GEX, aggregate GEX, Gamma Flip interpolation, Call/Put Wall selection, 1%-move units and sign-assumption labeling.
+  - Run a historical comparison across at least one ETF and one single-stock chain before making any performance or market-structure claim.
+- [ ] Define and document expected-move and POP inputs per strategy.
+  - State whether expected move is IV-based or ATM-straddle-based, whether time uses calendar/trading days, and whether pricing uses bid/ask/mid/mark.
+  - Ensure displayed POP is unavailable when required model inputs are missing rather than inferred from a fallback.
+
+#### C. Product architecture and disclosure follow-through
+
+- [ ] Implement a reusable `DataDetails` component across Analyze, Scan and Weekly.
+  - Show user-level source label, snapshot time, freshness and calculation basis without exposing raw provider/internal implementation names.
+  - Use the same state vocabulary: `fresh` / `delayed` / `stale` / `partial` / `unavailable`.
+- [ ] Implement full SSR/SSG only after choosing the frontend migration path.
+  - The current static HTML semantic summary satisfies the immediate crawler requirement; route-level SSR/SSG remains a separate architecture migration.
+- [ ] Complete V3A follow-up tasks already specified below: backend Analyze DTO, authorization/entitlement fail-closed gate, internal-status split, DB role separation, shared rate limiting/cache coordination, deployment security headers and CI artifact checks.
+
+#### D. External-owner prerequisites (not executable from this repository)
+
+- [ ] Register and configure any replacement domain; update DNS, Vercel domain mapping, CORS allowlist, canonical URL, CSP/connect-src and email sender configuration.
+- [ ] Obtain legal review for the chosen brand/product name and register trademark protection where appropriate.
+- [ ] Rotate any provider key that has entered Git history and store replacements only in deployment secret stores. See the existing P2.8 task at line 941.
+
 ## ✅ Done (V1 Core)
 - ✅ Project scaffolding: React + Vite + Zustand
 - ✅ Documentation: CLAUDE.md, README.md, wiki.md, learning.md, task.md
@@ -19,13 +75,13 @@
 - ✅ 期权实战交易框架记录（卖方哲学、Tastytrade 规则、Vol Risk Premium）→ learning.md
 - ✅ 数据库/基础设施决策：PostgreSQL on Railway（放弃 DuckDB）
 
-## ✅ Done (V2 Scaffold)
+## ✅ Done (V2 Scaffold — historical, superseded by the real-data paths below)
 - ✅ React Router 多页路由：/learn、/analyze、/scan
 - ✅ NavBar 组件：页面导航
 - ✅ /learn：V1 所有组件完整保留（Learn.jsx）
-- ✅ /analyze：标的分析页（mock data），IV状态、方向信号、期限结构、策略推荐
-- ✅ /scan：扫描器页（mock data），过滤条件、结果列表、点击跳转 Analyze
-- ✅ mock data：9个标的（AAPL/SPY/QQQ/TSLA/MSFT/XOM/GLD/NVDA/AMD）
+- ✅ /analyze：标的分析页的初始 UI scaffold（当时使用示例数据；现已由真实数据路径与 fail-closed 状态取代）
+- ✅ /scan：扫描器页的初始 UI scaffold（当时使用示例数据；现已由 `/api/scan` 候选 DTO 取代）
+- ✅ 历史示例数据：9 个标的；不再作为生产 Analyze/Scan 的 fallback
 - ✅ Analyze ↔ Scan 联动：扫描器点击行自动填入并分析
 
 ## ✅ Done (Phase 1 — /analyze 4-Tab UI)
@@ -515,8 +571,10 @@
   - Upsert by `snapshot_id`，同一 option snapshot 重算不会重复堆数据
   - Fail-closed：缺 spot、缺 gamma/OI、missing ratio 超过 `GEX_MAX_MISSING_RATIO=0.25` 时不写假 GEX
 - ✅ GEX by contract：
-  - call gex = `gamma * open_interest * 100 * spot^2`
-  - put gex = `-gamma * open_interest * 100 * spot^2`
+  - call gex = `gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+  - put gex = `-gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+  - unit = `usd_delta_change_per_1pct_move`
+  - Call positive / Put negative is a dealer-positioning proxy assumption, not a claim about actual dealer positions.
   - 缺 gamma 或 OI 的 contract 不参与 GEX，并计入 missing ratio
 - ✅ GEX by strike：
   - `net_gex = sum(call_gex + put_gex)` by strike
@@ -549,6 +607,14 @@
   - Result：`gex_id=1`、`snapshot_id=6`、`global_gex=112882349.11`、`confidence=high`
   - API verified：`/api/gex/PLTR` returned `global_gex=112882349.1123`、`local_gamma=25163724.2306`、`gamma_regime=positive`、`call_wall=135`、`put_wall=135`、`max_pain=135`、`pcr_oi=0.3634`、`pcr_volume=0.4672`
   - Note：API `freshness=stale` because the source option snapshot was older than the 15-minute API freshness threshold at verification time
+
+- ✅ GEX unit and model transparency correction：
+  - `compute_gex.py` and the Gamma Flip curve both use the 1% underlying-move unit.
+  - `gex_snapshots.raw_metrics` records formula, unit, move percentage, positioning model and limitation.
+  - Model version is `gex-v2-1pct-positioning-proxy`; mixed-version history is not comparable.
+  - `/api/options/:symbol/gex` returns `raw_metrics` for UI/data-detail disclosure.
+  - Existing pre-correction GEX snapshots are not comparable and must be recomputed before deployment.
+  - Recompute command：`GEX_RECOMPUTE_ALL=true GEX_SYMBOLS=<symbols> venv311/bin/python compute_gex.py`；完成后运行 `venv311/bin/python materialize_scan.py`。
 
 **Phase 3D-4 — API Layer**
 - ✅ `GET /api/options/:symbol/snapshot`

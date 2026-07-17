@@ -60,7 +60,7 @@ function CandleChart({ candles }) {
   return <canvas ref={canvasRef} style={{ display: 'block' }} />;
 }
 
-function CMEGauge({ score }) {
+function WeeklyModelGauge({ score }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -105,7 +105,7 @@ function CMEGauge({ score }) {
 
     // Labels
     ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
-    [[0, '恐慌'], [50, '中性'], [100, '贪婪']].forEach(([v, label]) => {
+    [[0, '偏弱'], [50, '中性'], [100, '偏强']].forEach(([v, label]) => {
       const a = Math.PI + (v / 100) * Math.PI;
       const rr = r + 10;
       ctx.fillText(label, cx + rr * Math.cos(a), cy + rr * Math.sin(a) + 3);
@@ -128,13 +128,13 @@ function CMEGauge({ score }) {
     ctx.fillStyle = theme.text; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
     ctx.fillText(score, cx, cy - r / 2 - 4);
     ctx.fillStyle = theme.axis; ctx.font = '9px monospace';
-    ctx.fillText('情绪指数', cx, cy - r / 2 + 10);
+    ctx.fillText('周度模型分数', cx, cy - r / 2 + 10);
   }, [score]);
   return <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />;
 }
 
 export default function Sec1Tone({ data }) {
-  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, cmeScore, candles, symbol, priceMeta } = data;
+  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, modelScore, candles, symbol, priceMeta } = data;
   const bull = weekChange >= 0;
   const co = getCompanyInfo(symbol);
   const priceStale = Boolean(priceMeta?.isStale || priceMeta?.freshness === 'stale');
@@ -151,8 +151,8 @@ export default function Sec1Tone({ data }) {
             <div className="wk-week">{week}</div>
             <div className={`wk-price-source ${priceMeta ? (priceStale ? 'stale' : 'fresh') : 'missing'}`}>
               {priceMeta
-                ? `price_history ${priceStale ? 'stale' : priceMeta.source} ${priceMeta.latestDate}`
-                : 'price_history missing · 示例 weekly shell'}
+                ? `价格历史${priceStale ? '已延迟' : '可用'} · 数据截至 ${priceMeta.latestDate}`
+                : '周度价格数据暂不可用'}
             </div>
           </div>
         </div>
@@ -176,11 +176,12 @@ export default function Sec1Tone({ data }) {
           <CandleChart candles={candles} />
         </div>
         <div className="az-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>综合市场状态</div>
-          <CMEGauge score={cmeScore} />
+          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>标的周度模型状态</div>
+          <WeeklyModelGauge score={modelScore} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            {cmeScore < 30 ? '弱势' : cmeScore < 50 ? '偏弱' : cmeScore < 70 ? '中性偏强' : '强势'}
+            {modelScore < 30 ? '偏弱' : modelScore < 50 ? '中性偏弱' : modelScore < 70 ? '中性偏强' : '偏强'}
           </div>
+          <div className="az-data-note">由周涨跌幅与 Gamma 状态按固定规则合成，不是恐慌贪婪指数。</div>
         </div>
       </div>
 

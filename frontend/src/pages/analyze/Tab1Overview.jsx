@@ -1,4 +1,5 @@
 import InsightCarousel from '../../components/InsightCarousel';
+import { compactMoney } from '../../lib/scannerPresentation';
 
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
@@ -14,37 +15,31 @@ export default function Tab1Overview({ data }) {
   const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, earnings,
     ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance, mfi } = data;
   const gexPositive = gexTotal > 0;
-  const gexStr = Math.abs(gexTotal) >= 1e9
-    ? `$${(gexTotal / 1e9).toFixed(2)}B`
-    : `$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+  const gexStr = compactMoney(gexTotal);
 
   const insights = [
-    `${gexPositive ? '正Gamma' : '负Gamma'}环境（GEX ${gexStr}），做市商${gexPositive ? '减震对冲，价格倾向震荡' : '跟随对冲，波动可能放大'}`,
+    `${gexPositive ? '正' : '负'} GEX 模型状态（${gexStr}），在当前定位假设下，波动可能${gexPositive ? '更容易收敛' : '更容易放大'}`,
     `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
-    `关键区间：上方压力 $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ 下方支撑 $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）`,
-    recommendation ? `推荐策略：${recommendation.strategy}，POP ${recommendation.params.pop}%，DTE ${recommendation.params.dte}天` : null,
+    `模型观察位：Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）；距离不代表价格一定触及。`,
+    recommendation ? `策略候选：${recommendation.strategy}，模型估算 POP ${recommendation.params.pop}%，DTE ${recommendation.params.dte}天` : null,
   ].filter(Boolean);
 
   const questions = [
     {
       q: '当前期权结构是正Gamma还是负Gamma？',
       a: gexPositive
-        ? `正Gamma环境（GEX ${gexStr}），做市商持有long gamma，有减震效应，价格倾向于在Call Wall $${callWall}和Put Wall $${putWall}间震荡`
-        : `负Gamma环境（GEX -${gexStr}），做市商持有short gamma，需跟随价格对冲，可能放大波动`,
+        ? `正 GEX 模型状态（${gexStr}）。在 Call/Put OI 的代理符号假设成立且其他条件不变时，短线波动可能更容易收敛；这不能确认做市商实际持仓。`
+        : `负 GEX 模型状态（${gexStr}）。在当前代理符号假设下，短线波动可能更容易放大；这不能确认做市商实际持仓。`,
       type: gexPositive ? 'bull' : 'bear',
     },
     {
-      q: '上涨/下跌来自趋势修复，还是期权结构推动？',
-      a: trend.momentum === '向上增强'
-        ? `趋势主导：${trend.regime}，动量${trend.momentum}，技术面是主要驱动力，${gexPositive ? 'Gamma减震辅助' : '注意负Gamma放大效应'}`
-        : trend.momentum === '向下减弱'
-        ? `技术面走弱：动量${trend.momentum}，当前走势可能主要来自${gexPositive ? 'Gamma壁效应' : '负Gamma放大效应'}`
-        : `技术与期权共同作用：动量${trend.momentum}，${gexPositive ? 'Gamma减震' : 'Gamma放大'}是主要结构特征`,
+      q: '价格趋势与期权结构当前如何同时出现？',
+      a: `当前价格动量为${trend.momentum}，GEX 模型状态为${gexPositive ? '正' : '负'}。两者同时出现，但这些指标不能单独识别价格变动原因。`,
       type: 'neutral',
     },
     {
       q: '接下来的关键位置是什么？',
-      a: `上方 Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%），下方 Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）。谁离现价更近，就更容易先被测试`,
+      a: `Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）与 Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）是模型观察位。距离现价更近不代表价格一定会触及。`,
       type: 'neutral',
     },
   ];
@@ -63,7 +58,7 @@ export default function Tab1Overview({ data }) {
           <small>{focusScore?.label || '历史不足'}</small>
         </div>
         <div className="az-analysis-metric">
-          <span>MFI · 资金流</span>
+          <span>MFI · 价量动量</span>
           <strong>{mfi?.value == null ? '--' : mfi.value.toFixed(0)}</strong>
           <small>{mfi?.signal === 'overbought' ? '超买区' : mfi?.signal === 'oversold' ? '超卖区' : mfi?.signal === 'neutral' ? '中性区' : '14日历史不足'}</small>
         </div>
@@ -78,10 +73,16 @@ export default function Tab1Overview({ data }) {
           <small>{gammaFlip == null ? '当前快照未得出' : `${((price / gammaFlip - 1) * 100).toFixed(1)}% from spot`}</small>
         </div>
         <div className="az-analysis-metric">
-          <span>Local Gamma 局部Γ</span>
-          <strong>{localGamma == null ? '--' : localGamma.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-          <small>现价附近净 Gamma</small>
+          <span>Local Gamma 局部净 GEX</span>
+          <strong>{compactMoney(localGamma)}</strong>
+          <small>现价 ±1% 内的模型估算净 GEX</small>
         </div>
+      </div>
+
+      <div className="az-gex-explainer">
+        <strong>GEX 怎么看</strong>
+        <span>GEX 是根据 Gamma、OI、合约乘数和现价估算的 Delta-dollar 敏感度；当前单位是标的变动 1% 时的模型估算值，不是现金流入，也不是目标价。</span>
+        <span>Call/Put 的正负号来自 dealer positioning 代理假设，不能确认真实做市商持仓。正负 GEX 只表示模型下的潜在波动环境，局部 GEX 只看现价附近 ±1% 的期权结构。</span>
       </div>
 
       {supportResistance && (
@@ -119,23 +120,23 @@ export default function Tab1Overview({ data }) {
         {/* Scenario playbook */}
         <div className="az-scenario-row">
           <div className="az-scenario az-scenario-bull">
-            <div className="az-scenario-title">多头剧本</div>
-            <div className="az-scenario-line">触发：突破 <strong>${scenarios.upTrigger}</strong></div>
-            <div className="az-scenario-line">目标：<strong>${scenarios.upTarget}</strong></div>
-            <div className="az-scenario-hint">观察成交量与Gamma是否同步扩张</div>
+            <div className="az-scenario-title">上行情景</div>
+            <div className="az-scenario-line">条件：日线收盘站上 <strong>${scenarios.upTrigger}</strong></div>
+            <div className="az-scenario-line">下一观察位：<strong>${scenarios.upTarget}</strong></div>
+            <div className="az-scenario-hint">观察成交量与 Gamma 是否同步变化</div>
           </div>
           <div className="az-scenario az-scenario-bear">
-            <div className="az-scenario-title">空头剧本</div>
-            <div className="az-scenario-line">触发：跌破 <strong>${scenarios.downTrigger}</strong></div>
-            <div className="az-scenario-line">目标：<strong>${scenarios.downTarget}</strong></div>
-            <div className="az-scenario-hint">观察跌破后是否出现负Gamma放大</div>
+            <div className="az-scenario-title">下行情景</div>
+            <div className="az-scenario-line">条件：日线收盘跌破 <strong>${scenarios.downTrigger}</strong></div>
+            <div className="az-scenario-line">下一观察位：<strong>${scenarios.downTarget}</strong></div>
+            <div className="az-scenario-hint">观察价格与 Gamma 是否同步变化</div>
           </div>
         </div>
       </div>
 
       {recommendation ? (
         <div className="az-card" style={{ marginTop: 12 }}>
-          <div className="az-card-title">策略推荐</div>
+          <div className="az-card-title">策略候选 · 模型筛选结果</div>
           <div className="az-rec-header">
             <div>
               <div className="az-rec-strategy">{recommendation.strategy}</div>
@@ -143,7 +144,7 @@ export default function Tab1Overview({ data }) {
             </div>
             <div className="az-rec-pop">
               <div className="az-rec-pop-val">{recommendation.params.pop}%</div>
-              <div className="az-rec-pop-label">POP</div>
+              <div className="az-rec-pop-label">模型估算 POP</div>
             </div>
           </div>
           <div className="az-rec-params">
@@ -156,7 +157,7 @@ export default function Tab1Overview({ data }) {
               <span className="az-rec-param-val">{recommendation.params.shortDelta}</span>
             </div>
             <div className="az-rec-param">
-              <span className="az-rec-param-label">Max Credit</span>
+              <span className="az-rec-param-label">每份合约净信用额</span>
               <span className="az-rec-param-val" style={{ color: 'var(--green)' }}>${recommendation.params.maxCredit}</span>
             </div>
             <div className="az-rec-param">
@@ -170,7 +171,7 @@ export default function Tab1Overview({ data }) {
             <div className="az-rec-warning">裸卖策略风险无限，建议加保护腿转为 defined-risk</div>
           )}
           {earnings.warning && (
-            <div className="az-rec-warning">财报在 {earnings.daysAway} 天内，注意 IV Crush 风险</div>
+            <div className="az-rec-warning">财报在 {earnings.daysAway} 天内，事件后隐含波动率可能变化</div>
           )}
           <div className="az-rec-legs">
             {recommendation.legs.map((leg, i) => (
@@ -182,12 +183,13 @@ export default function Tab1Overview({ data }) {
               </div>
             ))}
           </div>
+          <div className="az-data-note">POP 基于当前模型和输入，不是实际胜率保证；未必包含滑点、手续费、提前指派和波动率变化。</div>
         </div>
       ) : (
         <div className="az-card" style={{ marginTop: 12 }}>
-          <div className="az-card-title">策略推荐</div>
+          <div className="az-card-title">策略候选 · 模型筛选结果</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            当前仅展示真实价格与 GEX 结构；缺少完整 IV metrics / liquidity / POP 输入，不生成策略腿推荐。
+            当前仅展示已采集的价格与 GEX 结构；缺少完整 IV、流动性或 POP 输入，不生成策略腿候选。
           </div>
         </div>
       )}

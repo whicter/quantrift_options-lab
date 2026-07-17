@@ -79,7 +79,7 @@ export default function RightPanel() {
 
     const pop = probOfProfit(spot, legs, netPremium, r, q, Math.max(...legs.map((l) => l.dte)));
 
-    // Current P/L (hypothetical: value if entered and measured now)
+    // Model P/L for the configured Black-Scholes scenario, not a broker valuation.
     let currentVal = 0;
     for (const leg of legs) {
       const T = Math.max(0.001, leg.dte / 365);
@@ -143,7 +143,7 @@ export default function RightPanel() {
           <div className="panel-subtitle">风险指标</div>
           <div className="metrics-grid">
             <div className="metric-item">
-              <div className="metric-label">当前 P/L</div>
+              <div className="metric-label" title="基于当前模型输入的情景估值，不是券商实际持仓盈亏。">模型情景 P/L</div>
               <div className={`metric-value ${metrics.currentPL > 0 ? 'pos' : metrics.currentPL < 0 ? 'neg' : 'neu'}`}>
                 {fmt(metrics.currentPL)}
               </div>
@@ -173,7 +173,7 @@ export default function RightPanel() {
               </div>
             </div>
             <div className="metric-item">
-              <div className="metric-label">POP</div>
+              <div className="metric-label" title="基于当前模型输入的估算概率，不保证实际胜率。">模型估算 POP</div>
               <div className={`metric-value ${metrics.pop > 0.5 ? 'pos' : 'neg'}`}>
                 {(metrics.pop * 100).toFixed(0)}%
               </div>

@@ -11,10 +11,10 @@ import Tab3Options from './analyze/Tab3Options';
 import Tab4Signals from './analyze/Tab4Signals';
 
 const TABS = [
-  { id: 0, label: '今日概览' },
-  { id: 1, label: '日内变化' },
-  { id: 2, label: '数据解读' },
-  { id: 3, label: '信号追踪' },
+  { id: 0, label: '最新概览' },
+  { id: 1, label: '价格与动量' },
+  { id: 2, label: '期权结构' },
+  { id: 3, label: '关键价位与情景' },
 ];
 
 function daysUntilEarnings(dateText) {
@@ -102,7 +102,7 @@ function createRealAnalysis(symbol, priceData) {
       rvol: rvol == null ? null : Number(rvol.toFixed(2)),
       indicators: null,
     },
-    direction: { score: 0, label: '真实数据', signals: [] },
+    direction: { score: 0, label: '已采集数据', signals: [] },
     gexTotal: null,
     gexByStrike: [],
     putWall: null,
@@ -114,7 +114,7 @@ function createRealAnalysis(symbol, priceData) {
     localGamma: null,
     gammaRegime: null,
     scenarios: null,
-    conclusion: '等待真实期权快照。',
+    conclusion: '等待已采集的期权快照。',
     recommendation: null,
   };
 }
@@ -282,14 +282,14 @@ function buildPriceOnlyAnalysis(symbol, priceData) {
     partialData: {
       type: 'price_only',
       title: '期权指标暂不可用',
-      message: `${symbol} 已有真实价格数据，但 IV Rank / GEX / Call Wall / Put Wall 等期权数据尚未写入；当前只展示价格趋势，不生成期权策略结论。`,
+      message: `${symbol} 已有价格数据，但 IV Rank / GEX / Call Wall / Put Wall 等期权数据尚未写入；当前只展示价格趋势，不生成策略候选。`,
     },
     trend: deriveTrendFromPriceHistory(priceHistory, data.trend),
     direction: {
       score: 0,
       label: 'Price-only',
       signals: [
-        { name: 'Price History', value: '真实', bullish: true },
+        { name: 'Price History', value: '已采集', bullish: true },
         { name: 'Options Metrics', value: '待接入', bullish: false },
         { name: 'GEX / Walls', value: '待接入', bullish: false },
       ],
@@ -309,8 +309,8 @@ function buildGexOnlyAnalysis(symbol, priceData, gexData) {
       score: 0,
       label: 'GEX + Price',
       signals: [
-        { name: 'Price History', value: priceHistory.length > 0 ? '真实' : '待接入', bullish: priceHistory.length > 0 },
-        { name: 'GEX / Walls', value: '真实', bullish: true },
+        { name: 'Price History', value: priceHistory.length > 0 ? '已采集' : '待接入', bullish: priceHistory.length > 0 },
+        { name: 'GEX / Walls', value: '已采集', bullish: true },
         { name: 'IV Metrics', value: '待接入', bullish: false },
       ],
     },
@@ -333,7 +333,7 @@ function UnavailableOptionsPanel({ symbol }) {
       <div className="az-card-title">期权分析暂不可用</div>
       <div className="az-unavailable-text">
         {symbol} 当前缺少可用的 IV Rank、GEX、Call Wall、Put Wall、PCR、期权腿或 POP 输入。
-        为避免把 mock 当成真实分析，这些模块暂不展示。
+        为避免把不完整数据当成完整分析，这些模块暂不展示。
       </div>
     </div>
   );
@@ -341,20 +341,20 @@ function UnavailableOptionsPanel({ symbol }) {
 
 function buildMissingMessage(symbol, status, onDemand) {
   if (onDemand?.status === 'queued') {
-    return `${symbol} 正在补齐价格与期权数据，通常 ${onDemand.estimated_wait || '~1-3min'}。完成后重新分析即可。`;
+    return `${symbol} 正在补齐价格与期权数据。页面会自动检查更新；等待时间取决于数据源与队列${onDemand.estimated_wait ? `（当前估计 ${onDemand.estimated_wait}，仅供参考）` : ''}。`;
   }
   if (!status) {
-    return `暂无 ${symbol} 的真实数据。数据覆盖状态暂时不可用，请稍后再试。`;
+    return `暂无 ${symbol} 的可用数据快照。数据覆盖状态暂时不可用，请稍后再试。`;
   }
   if (status.expected_symbols?.includes(symbol)) {
-    return `暂无 ${symbol} 的真实数据：该标的已在 watchlist 中，但 collector 尚未写入最新记录。下次收盘采集后会自动可用。`;
+    return `暂无 ${symbol} 的可用数据快照：该标的已在数据覆盖列表中，但尚未写入最新记录。数据补齐后会自动可用。`;
   }
-  return `暂无 ${symbol} 的真实数据：该标的还不在 collector watchlist 中。加入 watchlist 后，下一次收盘采集完成才会显示。`;
+  return `暂无 ${symbol} 的可用数据快照：该标的还不在数据覆盖列表中。加入覆盖列表并完成采集后才会显示。`;
 }
 
 function IVGauge({ value }) {
   const color = value >= 50 ? 'var(--red)' : value >= 30 ? 'var(--yellow)' : 'var(--green)';
-  const label = value >= 50 ? '高IV — 卖方有优势' : value >= 30 ? '中等IV' : '低IV — 买方有优势';
+  const label = value >= 50 ? 'IV Rank 较高 · 相对自身历史区间' : value >= 30 ? 'IV Rank 中等 · 相对自身历史区间' : 'IV Rank 较低 · 相对自身历史区间';
   return (
     <div className="az-gauge">
       <div className="az-gauge-bar">
@@ -465,7 +465,7 @@ export default function Analyze() {
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {
       setResult(null);
-      setError(`真实数据 API 暂时不可用，无法确认 ${sym} 的期权结构。`);
+      setError(`数据 API 暂时不可用，无法确认 ${sym} 的期权结构。`);
     } finally {
       setLoading(false);
     }
@@ -485,8 +485,8 @@ export default function Analyze() {
   return (
     <div className="az-page">
       <div className="az-header">
-        <div className="az-title">盘中即时分析</div>
-        <div className="az-subtitle">输入标的，查看 GEX 结构、趋势格局、期权信号与筹码位置</div>
+        <div className="az-title">标的快照分析</div>
+        <div className="az-subtitle">输入标的，查看 GEX 估算、价格趋势、期权链指标与关键价位</div>
       </div>
 
       <div className="az-search">
@@ -515,7 +515,7 @@ export default function Analyze() {
       {onDemandStatus?.status === 'queued' && !result ? (
         <div className="az-collecting" role="status">
           <strong>正在准备 {onDemandStatus.symbol} 的分析</strong>
-          <span>价格与期权数据写入后会自动刷新，通常 {onDemandStatus.estimated_wait || '~1-3min'}。</span>
+          <span>数据写入后会自动检查更新；等待时间取决于数据源与队列{onDemandStatus.estimated_wait ? `（当前估计 ${onDemandStatus.estimated_wait}，仅供参考）` : ''}。</span>
         </div>
       ) : error && <div className="az-error">{error}</div>}
 
@@ -558,7 +558,7 @@ export default function Analyze() {
           {result.onDemandStatus?.status === 'queued' && (
             <PartialDataNotice partialData={{
               title: '后台数据补全中',
-              message: `${result.symbol} 正在补齐价格与期权数据，通常 ${result.onDemandStatus.estimated_wait || '~1-3min'}。当前页面继续展示已存在的数据。`,
+              message: `${result.symbol} 正在补齐价格与期权数据。页面会自动检查更新；当前继续展示已存在的数据${result.onDemandStatus.estimated_wait ? `（当前等待估计 ${result.onDemandStatus.estimated_wait}，仅供参考）` : ''}。`,
             }} />
           )}
           {result.onDemandStatus?.blockers?.length > 0 && (

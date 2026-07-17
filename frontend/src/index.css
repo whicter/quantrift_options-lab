@@ -88,6 +88,29 @@ body {
   letter-spacing: 0.5px;
   text-decoration: none;
 }
+
+.seo-product-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.research-disclosure {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px max(20px, calc((100vw - 1180px) / 2));
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.research-disclosure strong { color: var(--text-dim); white-space: nowrap; }
 .navbar-links { display: flex; gap: 4px; }
 .nav-link {
   padding: 4px 12px;
@@ -1401,6 +1424,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-flow-row span:nth-child(3) { text-align: right; font-weight: 700; }
 .az-flow-row small { color: var(--green); }
 @media (max-width: 720px) {
+  .research-disclosure { flex-direction: column; gap: 4px; padding: 12px 20px; }
   .az-flow-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .az-flow-row { grid-template-columns: 52px minmax(0, 1fr) 76px; }
   .az-flow-row small { grid-column: 2 / -1; }
@@ -1662,6 +1686,9 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-analysis-metric { border: 1px solid var(--border); background: var(--bg-card); padding: 10px; min-width: 0; }
 .az-analysis-metric span, .az-analysis-metric small { display: block; color: var(--text-muted); font-size: 10px; }
 .az-analysis-metric strong { display: block; margin: 5px 0 3px; color: var(--text); font-size: 17px; overflow-wrap: anywhere; }
+.az-gex-explainer { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 10px 12px; margin: -2px 0 14px; border-left: 3px solid var(--blue); background: var(--bg-card); color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.az-gex-explainer strong { color: var(--text); white-space: nowrap; }
+.az-gex-explainer span { flex: 1 1 360px; min-width: 0; }
 .az-level-strip { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 9px 11px; margin-bottom: 12px; border-left: 3px solid var(--blue); background: var(--bg-card); color: var(--text-muted); font-size: 11px; }
 .az-chain-stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
 .az-chain-table { display: grid; gap: 1px; max-height: 240px; overflow: auto; }

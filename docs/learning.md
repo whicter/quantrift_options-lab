@@ -13,16 +13,18 @@
 - **IV Rank**: where current IV sits between 52-week high and low (0-100 scale)
 - **IV Percentile**: % of past days where IV was lower than today
 - IV Rank is more commonly cited but IV Percentile is more statistically meaningful
-- High IV Rank (>50) favors selling premium; Low IV Rank (<30) favors buying
+- IV Rank describes a relative historical range; it is not, by itself, a buy/sell signal. Any strategy comparison also needs event risk, realized volatility, term structure, skew, liquidity and transaction-cost assumptions.
 
 ### Greeks intuition
 - **Delta**: how many shares of stock this position behaves like
 - **Gamma**: how fast delta changes (high near expiry, near ATM)
-- **Theta**: daily P&L from time passing alone (negative for buyers, positive for sellers)
+- **Theta**: under unchanged model inputs, the approximate theoretical value change as one day passes. Its realized P/L effect depends on the whole position, volatility, spot path and repricing.
 - **Vega**: P&L per 1% increase in IV (positive for long options)
 - **Rho**: P&L per 1% increase in interest rates (usually small, matters more for LEAPS)
 
 ### Key strategy selection heuristics
+
+The table is a research starting point, not a recommendation or a claim of expected profitability. Defined-risk structures are generally easier to bound than naked short options, but still carry material loss risk.
 | Market view | IV view | Consider |
 |---|---|---|
 | Bullish | Low IV | Long Call, Bull Call Spread |
@@ -52,8 +54,8 @@
 - **Roll up/down**: adjust strikes when position goes against you
 - **Roll out**: extend DTE by buying back near-term and selling further out
 - **Add a wing**: convert naked short to spread to limit risk
-- **Take profit early**: at 50% of max profit for defined-risk trades (tasty-style)
-- **Stop loss**: at 2× credit received for credit spreads
+- **Take profit early**: some rule-based studies test exits such as 50% of maximum modeled profit; this is not a universal optimum.
+- **Loss management**: a multiple of credit is one possible risk rule, but it should be selected, tested and sized for the specific structure and portfolio.
 
 ## 期权实战交易框架（V2 扫描器设计依据）
 
@@ -69,18 +71,18 @@
 
 ### 两种交易哲学
 
-**卖方（Premium Seller）— 高胜率路线**
+**权利金卖方（Premium Seller）— 风险与溢价的权衡**
 
-逻辑：IV 长期系统性高于 RV，差值叫**波动率风险溢价（Vol Risk Premium）**。
+逻辑：在部分市场、样本和期限中，隐含波动率会高于后续实现波动率；两者的差异常被称为**波动率风险溢价（Vol Risk Premium）**。它会随标的、事件、期限和市场状态变化，并非保证可捕获的收益。
 
 ```
 历史数据示例（SPY）：
   30日 IV 均值 ≈ 16%
   30日 RV 均值 ≈ 13%
-  差值 ≈ 3% → 卖方的统计优势来源
+  差值 ≈ 3% → 一个历史样本中的差异，不代表未来结果
 ```
 
-- 胜率 70-90%，但单次亏损可能很大
+- 胜率、尾部损失和回撤高度依赖入场、管理、成本与样本；卖方结构可能出现大额或快速亏损
 - 代表策略：Iron Condor, Credit Spread, Strangle, Covered Call
 
 **买方（Premium Buyer）— 低胜率但非对称**
@@ -88,50 +90,46 @@
 - 需要：方向对 + 幅度够 + 时间内到 + IV 不能太高
 - 适合：有明确 catalyst（财报/FOMC）且 IV 处于历史低位时
 
-### Tastytrade 系统化框架（有回测支撑）
+### 常见的规则化研究框架（示例，不构成交易规则）
 
 ```
 过滤条件：
-  IVR > 50（IV 相对历史高位，均值回归预期）
+  IVR > 50（IV 相对历史区间较高；不代表一定均值回归）
   流动性好（bid-ask tight，OI > 1000）
 
 开仓：
-  DTE = 45 天（Theta 衰减加速区间）
-  短腿 Delta = 0.16 ~ 0.30（胜率 70-84%）
+  DTE 约 45 天（常见研究窗口之一，仍需考虑事件日与期限结构）
+  短腿 Delta = 0.16 ~ 0.30（常见区间；不是胜率承诺）
   用 defined-risk 结构控制最大亏损（Spread / Condor）
 
 管理规则：
-  盈利 50% → 平仓（不等到期，避免 gamma 风险）
-  亏损 200% 权利金 → 止损
-  DTE < 21 → 考虑 roll 或平仓
+  可研究在模型利润达到某一比例时退出、在某一风险阈值时减仓、或在到期前滚动；这些阈值需要针对策略、流动性和账户规模验证
 
 仓位规模：
-  单标的 ≤ 5% 资金
-  同时持有 15-20 个不相关标的（分散 vega 风险）
-  整体 Delta 保持中性或小方向偏移
+  以预先定义的最大损失、相关性和流动性约束确定仓位；具体比例不应脱离账户规模与风险承受能力照搬
 ```
 
 **为什么 50% 平仓？**
-数学上，一个 trade 赚 50% 的概率远高于等到期的期望，且最后几天 gamma 急剧上升，风险报酬比变差。
+部分历史回测会比较不同获利退出点和持有到期的结果；结论会随标的、时期、交易成本和执行假设变化，不能据此推断任何单笔交易的结果。
 
 ### 真正的 Edge 来源
 
 | Edge | 原理 |
 |---|---|
-| Vol Risk Premium | IV 系统性 > RV，卖方长期有统计优势 |
-| IV 均值回归 | 高 IV 会回落（VIX spike 后必然收缩）|
-| Theta 确定性 | 时间衰减是确定的，方向是随机的 |
+| Vol Risk Premium | 部分样本中 IV 与后续 RV 的差异；是否可交易取决于尾部风险、成本和模型 |
+| IV 均值回归 | 高 IV 可能回落，也可能因事件或市场状态继续上升 |
+| Theta 模型效应 | 在其他模型输入不变时的时间价值近似变化，不等于实际损益保证 |
 | 结构优化 | 相同方向判断，用对结构可提高盈亏比 |
 
 ### 常见死法
 
 | 死法 | 原因 | 解法 |
 |---|---|---|
-| IV crush 买方 | 财报前买期权，事后 IV 暴跌 | 看 IVR，高 IV 不买；用 spread 对冲 vega |
+| 事件后 IV 重估 | 财报前后 IV 可能显著变化 | 明确事件风险，比较不同结构与 Vega 暴露 |
 | 裸卖被黑天鹅 | 卖 naked，遇单边暴动 | 永远用 defined-risk（spread）|
 | 仓位集中 | 多个相关标的同方向 | 分散，控制 portfolio-level Greeks |
-| 不止损 | 亏 300% 还在等反弹 | 机械止损，2x 权利金必须平 |
-| Gamma 爆炸 | DTE < 7 还持仓 | 21天内 roll 或平仓 |
+| 缺少退出计划 | 风险超过预设承受范围 | 预先定义、回测并持续复核风险退出逻辑 |
+| 临近到期的 Gamma 风险 | DTE 很低时 Delta 对价格变化更敏感 | 按策略、流动性和组合风险评估是否减仓、滚动或持有 |
 
 ### V2 扫描器设计依据
 
@@ -283,9 +281,11 @@ GEX compute job：
 - 只读 PostgreSQL snapshot，不调用 provider。
 - 写入 `gex_snapshots` 和 `gex_by_strike_snapshots`。
 
-V1 公式：
-- Call GEX = `gamma * open_interest * 100 * spot^2`
-- Put GEX = `-gamma * open_interest * 100 * spot^2`
+当前公式（产品口径：标的变动 1% 时的模型估算 Delta-dollar exposure）：
+- Call GEX = `gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+- Put GEX = `-gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+- 单位：`usd_delta_change_per_1pct_move`；不代表现金流、PnL 或 dealer 实际持仓金额。
+- Call 正号 / Put 负号是 `call_positive_put_negative_proxy` dealer positioning 代理假设；公开 OI 无法识别真实 dealer side。
 - Global GEX = strike-level net GEX 汇总
 - Local Gamma = spot ±1% 内 strike net GEX 汇总
 - Call Wall = max call-side GEX strike
@@ -298,6 +298,9 @@ V1 公式：
 - 不把 mock shell 伪装成真实 options data。
 - 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
 - GEX 只有在 gamma + OI completeness 达标后才计算。
+- GEX API 必须返回 `raw_metrics.unit`、`raw_metrics.formula`、`raw_metrics.positioning_model` 和 `raw_metrics.positioning_assumption`，页面需要把 GEX 标记为模型估算。
+- 当前模型版本为 `gex-v2-1pct-positioning-proxy`；不同模型版本的 GEX 数值不能直接做历史比较。
+- 部署重算：`GEX_RECOMPUTE_ALL=true GEX_SYMBOLS=<symbols> venv311/bin/python compute_gex.py`，随后重新 materialize scanner rows。
 - scanner 已可读取 latest GEX snapshot 做 Gamma regime / Wall proximity / Local Gamma / OI / Volume / Volume-to-OI filters。
 - Scanner 的 IV/trend/GEX 用于 context、过滤和解释；`不限`必须跨所有已支持策略枚举达标 contract setups，不能先把一个 symbol 压成单一策略。
 - OI delta 异常需要连续 snapshot 历史；当前 Volume-to-OI 只能作为活跃度 proxy。

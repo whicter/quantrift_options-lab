@@ -7,11 +7,11 @@
 export const CATEGORIES = [
   { id: 'all',        label: 'All',         zh: '全部' },
   { id: 'direction',  label: 'Direction',   zh: '方向' },
-  { id: 'income',     label: 'Income',      zh: '收租' },
+  { id: 'income',     label: 'Income',      zh: '权利金卖方' },
   { id: 'volatility', label: 'Volatility',  zh: '波动率' },
   { id: 'calendar',   label: 'Calendar',    zh: '跨期' },
   { id: 'complex',    label: 'Complex',     zh: '复杂' },
-  { id: 'arb',        label: 'Arb',         zh: '套利' },
+  { id: 'arb',        label: 'Arb',         zh: '相对价值' },
   { id: 'guide',      label: 'Guide',       zh: '向导' },
 ];
 
@@ -360,7 +360,7 @@ export const STRATEGIES = [
   },
 
   // ─────────────────────────────────────────────
-  // INCOME 收租
+  // INCOME 权利金卖方
   // ─────────────────────────────────────────────
   {
     id: 'covered_call',
@@ -472,7 +472,7 @@ export const STRATEGIES = [
     ],
     notes: {
       build:  '买入 OTM Put（最低）+ 卖出 OTM Put + 卖出 OTM Call + 买入 OTM Call（最高），四腿组合。',
-      when:   '中性偏高 IV 市场；预期标的在到期前维持震荡范围内；是最常见的收租策略之一。',
+      when:   '中性偏高 IV 的研究场景；需先确认标的波动、事件风险、流动性与可承受的最大损失。',
       strike: '内腿 Delta 各 0.25-0.30；外腿作为保护，通常间距 5 点；宽铁鹰（10+ 点）收权利金更多但最大亏损更大。',
       iv:     'IV Rank > 30-40；高 IV 时权利金厚，盈利区间宽。',
       dte:    '30-45 DTE 最优；约 21 天剩余时考虑平仓。',
@@ -526,7 +526,7 @@ export const STRATEGIES = [
       when:   '轻度看涨偏中性；想消除上行风险同时保留下行信用；高 IV + 偏涨偏斜时理想。',
       strike: 'Put 选 Delta 0.30 左右；Call Spread 宽度 5 点；确保净信用 > 5 点（消除上行风险）。',
       iv:     'Skew 大时（Put 贵 Call 便宜）更有利；高 IV 环境整体。',
-      dte:    '30-45 DTE；同样适用标准收租管理规则。',
+      dte:    '30-45 DTE 是常见研究窗口；退出与滚动规则需按策略和风险约束单独定义。',
       delta:  '净正 Delta（比对称 Iron Condor 偏多方向）；上行方向无风险。',
       tp:     '收取信用 50% 时平仓。',
       sl:     '下行风险在 Put 侧；Put 被突破时是主要风险来源。',
@@ -799,7 +799,7 @@ export const STRATEGIES = [
       build:  '卖出 1 张 ATM Put + 买入 2 张更低行权价 Put（1:2 比率），通常接近零成本或小额信用。',
       when:   '预期大幅下跌（超过下腿行权价）；低 IV 时低成本建立多余买方头寸；也可用作尾部风险对冲。',
       strike: '卖出腿选 ATM（Delta ~-0.50）；买入腿选 5-10% OTM（Delta ~-0.25 × 2）；选使净成本为零的组合。',
-      iv:     'IV Rank < 30 时建立最佳（买方有 Long Vega 优势）；IV 上升后 Long Vega 净头寸获益；避免在 IV 极高时建立（成本高，反弹后 IV 崩塌）。',
+      iv:     'IV Rank 较低时可作为比较买方成本的输入；IV 变化会影响 Long Vega，但不代表优势或保证收益。',
       dte:    '45-60 DTE 建仓；DTE < 21 时 Gamma 急增，亏损区间（两腿之间）风险剧升，需评估是否平仓；事件驱动前 2-3 周建仓最佳。',
       delta:  '净负 Delta（1:2 比率时约 -0.50 + 2×(-0.25) = 净 -0.50 初始）；大幅下跌后 Delta 趋近 -2，盈利加速；上涨时两腿相互抵消，损失有限。',
       tp:     '标的大幅下跌接近下腿行权价时止盈（最大利润区）；也可在 IV 大幅上升后（不等标的大跌）止盈 Vega 利润；单侧盈利目标 +100% 权利金。',

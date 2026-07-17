@@ -1,3 +1,7 @@
+import { compactMoney } from './scannerPresentation.js';
+
+export const SUPPORTED_GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
+
 export function toNumber(value) {
   if (value == null || value === '') return null;
   const num = Number(value);
@@ -10,7 +14,9 @@ export function isUsableGex(gexData) {
     && toNumber(gexData.call_wall) != null
     && toNumber(gexData.put_wall) != null
     && Array.isArray(gexData.strikes)
-    && gexData.strikes.length > 0;
+    && gexData.strikes.length > 0
+    && gexData.raw_metrics?.model_version === SUPPORTED_GEX_MODEL_VERSION
+    && gexData.raw_metrics?.unit === 'usd_delta_change_per_1pct_move';
 }
 
 export function applyGex(data, gexData) {
@@ -20,7 +26,9 @@ export function applyGex(data, gexData) {
       partialData: {
         type: 'gex_unusable',
         title: 'GEX / Wall 暂不可用',
-        message: gexData?.freshness === 'stale'
+        message: gexData?.raw_metrics?.model_version && gexData.raw_metrics.model_version !== SUPPORTED_GEX_MODEL_VERSION
+          ? 'GEX 快照使用旧模型口径，等待新模型重算后再生成 GEX / Wall 结论和期权策略腿。'
+          : gexData?.freshness === 'stale'
           ? 'GEX/Wall 快照已过期，暂不生成 Call Wall / Put Wall 结论和期权策略腿。'
           : 'GEX/Wall 快照不可用，暂不生成 Call Wall / Put Wall 结论和期权策略腿。',
       },
@@ -71,9 +79,7 @@ export function applyGex(data, gexData) {
   const pcrVol = toNumber(gexData.pcr_volume);
   const upDistance = Math.max(callWall - price, Math.abs(price) * 0.03);
   const downDistance = Math.max(price - putWall, Math.abs(price) * 0.03);
-  const gexText = Math.abs(gexTotal) >= 1e9
-    ? `$${(Math.abs(gexTotal) / 1e9).toFixed(2)}B`
-    : `$${(Math.abs(gexTotal) / 1e6).toFixed(1)}M`;
+  const gexText = compactMoney(gexTotal);
 
   return {
     ...data,
@@ -99,6 +105,7 @@ export function applyGex(data, gexData) {
       confidence: gexData.confidence,
       providerStatus: gexData.provider_status,
       wallMethod: gexData.wall_method,
+      rawMetrics: gexData.raw_metrics || null,
     },
     scenarios: {
       ...data.scenarios,
@@ -185,6 +192,6 @@ function buildGexNotice(gexData) {
 
   return {
     title: stale ? '延迟期权快照' : '部分期权数据',
-    message: `当前仍展示已采集的真实 GEX、Call Wall 和 Put Wall${ageText}${oiText}。`,
+    message: `当前仍展示已采集的 GEX 模型估算、Call Wall 与 Put Wall${ageText}${oiText}。`,
   };
 }

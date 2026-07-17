@@ -10,10 +10,10 @@ import Sec5Playbook from './weekly/Sec5Playbook';
 
 const SECTIONS = [
   { id: 0, num: '01', label: '本周定调' },
-  { id: 1, num: '02', label: 'Gamma迁徙' },
-  { id: 2, num: '03', label: '交割偏离' },
-  { id: 3, num: '04', label: '仓位变化' },
-  { id: 4, num: '05', label: '下周分叉' },
+  { id: 1, num: '02', label: 'Gamma结构' },
+  { id: 2, num: '03', label: 'Max Pain距离' },
+  { id: 3, num: '04', label: '未平仓量变化' },
+  { id: 4, num: '05', label: '下周条件情景' },
 ];
 
 const COMMON_SYMBOLS = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMZN', 'META', 'MSFT'];
@@ -30,7 +30,7 @@ function toViewModel(result) {
     candles: result.price.candles,
     priceMeta: { source: result.price.source, latestDate: result.period.end, freshness: 'fresh', isStale: false },
     tone: result.tone,
-    cmeScore: result.score,
+    modelScore: result.score,
     gamma: result.gamma,
     pinning: result.pinning,
     positioning: result.positioning,
@@ -71,7 +71,7 @@ export default function Weekly() {
         if (cancelled) return;
         if (result.status !== 'ready') {
           setData(null);
-          setError(`${selectedSymbol} 至少需要 6 根真实日线才能生成周复盘。`);
+          setError(`${selectedSymbol} 至少需要 6 个有效交易日的价格历史，才能计算本周与前一收盘的比较。`);
           return;
         }
         setData(toViewModel(result));
@@ -80,7 +80,7 @@ export default function Weekly() {
       .catch(() => {
         if (cancelled) return;
         setData(null);
-        setError(`无法读取 ${selectedSymbol} 的真实周复盘数据。`);
+        setError(`暂时无法生成 ${selectedSymbol} 的周度快照。请查看数据状态或稍后重试。`);
       });
     return () => { cancelled = true; };
   }, [selectedSymbol]);
@@ -89,7 +89,7 @@ export default function Weekly() {
     <div className="az-page">
       <div className="wk-page-header">
         <div>
-          <div className="wk-page-title">一周深度复盘</div>
+          <div className="wk-page-title">周度市场快照</div>
           {data && <div className="wk-page-meta">{data.symbol} · {data.week}</div>}
         </div>
         <div className="wk-symbol-controls">

@@ -1,6 +1,6 @@
 export const OPPORTUNITY_PRESETS = {
   income: {
-    label: '高 IV 收租',
+    label: '高 IV 权利金卖方',
     values: { minIvr: 50, maxIvr: 100, gammaRegime: 'all', wall: 'all', nearWallPct: '', unusualOnly: false, minUnusualOi: '', sort: 'ivr' },
   },
   wall: {

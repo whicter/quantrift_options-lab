@@ -4,13 +4,19 @@ function number(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function compactMoney(value) {
+function compactUnit(value, unit, divisor, digits) {
+  const amount = Math.abs(value) / divisor;
+  const formatted = amount.toFixed(digits).replace(/\.0+$|(?<=\.[0-9])0+$/, '');
+  return `${value < 0 ? '-' : ''}$${formatted}${unit}`;
+}
+
+export function compactMoney(value) {
   const n = number(value);
   if (n == null) return '--';
   const abs = Math.abs(n);
-  if (abs >= 1e9) return `${n < 0 ? '-' : ''}$${(abs / 1e9).toFixed(1)}B`;
-  if (abs >= 1e6) return `${n < 0 ? '-' : ''}$${(abs / 1e6).toFixed(0)}M`;
-  if (abs >= 1e3) return `${n < 0 ? '-' : ''}$${(abs / 1e3).toFixed(0)}K`;
+  if (abs >= 5e8) return compactUnit(n, 'B', 1e9, abs >= 1e10 ? 0 : 1);
+  if (abs >= 1e6) return compactUnit(n, 'M', 1e6, abs >= 1e7 ? 0 : 1);
+  if (abs >= 1e3) return compactUnit(n, 'K', 1e3, abs >= 1e4 ? 0 : 1);
   return `${n < 0 ? '-' : ''}$${abs.toFixed(0)}`;
 }
 

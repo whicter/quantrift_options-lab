@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gammaRegimeLabel, gammaSummary, wallSummary } from './scannerPresentation.js';
+import { compactMoney, gammaRegimeLabel, gammaSummary, wallSummary } from './scannerPresentation.js';
+
+test('compactMoney keeps GEX readable across B, M, and K ranges', () => {
+  assert.equal(compactMoney(217_181_490_258), '$217B');
+  assert.equal(compactMoney(900_000_000), '$0.9B');
+  assert.equal(compactMoney(20_000_000), '$20M');
+  assert.equal(compactMoney(3_500_000), '$3.5M');
+});
 
 test('gamma summary exposes sign, exposure, behavior, and stale state', () => {
   assert.equal(gammaRegimeLabel('negative'), '负 Gamma');

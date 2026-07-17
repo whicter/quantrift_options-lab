@@ -3,7 +3,7 @@ import useStrategyStore from '../store/useStrategyStore';
 import { CATEGORIES, STRATEGIES } from '../data/strategies';
 import { strategyIvProfile } from '../lib/strategyIvProfile';
 
-const CAT_LABEL = { direction:'方向', income:'收租', volatility:'波动率', calendar:'跨期', complex:'复杂', arb:'套利', guide:'向导' };
+const CAT_LABEL = { direction:'方向', income:'权利金卖方', volatility:'波动率', calendar:'跨期', complex:'复杂', arb:'相对价值', guide:'向导' };
 
 export default function Sidebar({ view, onViewChange }) {
   const { strategy, category, search, setStrategy, setCategory, setSearch, getFilteredStrategies } =
@@ -91,7 +91,7 @@ export default function Sidebar({ view, onViewChange }) {
               <div className="si-meta">
                 <span className="si-zh">{s.zh}</span>
                 <span className={`cat-badge cat-${s.cat}`}>{CAT_LABEL[s.cat]}</span>
-                <span className={`iv-profile iv-profile-${ivProfile}`} title="策略适用的隐含波动率环境，不是当前标的的实时 IV Rank。">IV {ivProfile === 'low' ? 'LOW' : ivProfile === 'high' ? 'HIGH' : 'MED'}</span>
+                <span className={`iv-profile iv-profile-${ivProfile}`} title="策略适用的隐含波动率环境，不是当前标的的 IV Rank 数据。">IV {ivProfile === 'low' ? 'LOW' : ivProfile === 'high' ? 'HIGH' : 'MED'}</span>
               </div>
             </div>
           );

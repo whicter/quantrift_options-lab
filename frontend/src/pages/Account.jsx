@@ -2,6 +2,11 @@ import { SignedIn, SignedOut, SignInButton, useAuth } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
 import { createBillingCheckout, createBillingPortal, getAccount } from '../lib/api';
 
+const SUBSCRIPTION_STATUS = {
+  active: '有效', trialing: '试用中', past_due: '付款逾期', unpaid: '未付款',
+  canceled: '已取消', incomplete: '待完成', incomplete_expired: '已失效', none: '未订阅',
+};
+
 function AccountData() {
   const { getToken } = useAuth();
   const [account, setAccount] = useState(null);
@@ -32,12 +37,12 @@ function AccountData() {
     <>
       <div className="account-summary">
         <div><span>当前方案</span><strong>{account.subscription.plan === 'pro' ? 'Pro' : 'Free'}</strong></div>
-        <div><span>订阅状态</span><strong>{account.subscription.status}</strong></div>
-        <div><span>可用功能</span><strong>{account.entitlements.length}</strong></div>
+        <div><span>订阅状态</span><strong>{SUBSCRIPTION_STATUS[account.subscription.status] || '状态未知'}</strong></div>
+        <div><span>已启用功能</span><strong>{account.entitlements.length} 项</strong></div>
       </div>
       <section className="account-plans">
-        <div><h2>Free</h2><p>策略学习与延迟分析。</p></div>
-        <div><h2>Pro</h2><p>实时分析、扫描器、提醒与组合持仓。</p>{account.subscription.plan === 'pro' ? <button type="button" onClick={() => openBilling('portal')}>管理订阅</button> : <button className="primary-btn" type="button" onClick={() => openBilling('checkout')}>升级 Pro</button>}</div>
+        <div><h2>Free</h2><p>策略学习；分析数据可能延迟。具体数据时效与使用限制见方案详情。</p></div>
+        <div><h2>Pro</h2><p>更高频的数据快照、扫描器、条件提醒与持仓记录。数据频率和覆盖范围因来源而异。</p>{account.subscription.plan === 'pro' ? <button type="button" onClick={() => openBilling('portal')}>管理订阅</button> : <button className="primary-btn" type="button" onClick={() => openBilling('checkout')}>升级 Pro</button>}</div>
       </section>
     </>
   );

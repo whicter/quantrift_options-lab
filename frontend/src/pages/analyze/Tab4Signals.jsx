@@ -101,7 +101,7 @@ function ChipRuler({ oiByStrike, putWall, callWall, price }) {
       ctx.beginPath(); ctx.moveTo(PAD.left, putY); ctx.lineTo(W - PAD.right, putY); ctx.stroke();
       ctx.restore();
       ctx.fillStyle = 'rgba(34,197,94,0.9)'; ctx.font = 'bold 8px monospace';
-      ctx.textAlign = 'left'; ctx.fillText(`PUT WALL $${putWall}`, PAD.left + 4, putY - 4);
+      ctx.textAlign = 'left'; ctx.fillText(`PUT WALL 观察位 $${putWall}`, PAD.left + 4, putY - 4);
 
       // Call Wall (red dashed)
       const callY = sy(callWall);
@@ -110,7 +110,7 @@ function ChipRuler({ oiByStrike, putWall, callWall, price }) {
       ctx.beginPath(); ctx.moveTo(PAD.left, callY); ctx.lineTo(W - PAD.right, callY); ctx.stroke();
       ctx.restore();
       ctx.fillStyle = 'rgba(239,68,68,0.9)'; ctx.font = 'bold 8px monospace';
-      ctx.textAlign = 'left'; ctx.fillText(`CALL WALL $${callWall}`, PAD.left + 4, callY + 11);
+      ctx.textAlign = 'left'; ctx.fillText(`CALL WALL 观察位 $${callWall}`, PAD.left + 4, callY + 11);
 
       // Current price dot
       const prY = sy(price);
@@ -147,12 +147,10 @@ export default function Tab4Signals({ data }) {
   const nearerCall = Math.abs(callWall - price) < Math.abs(price - putWall);
 
   const insights = [
-    `观察区间 $${putWall} ~ $${callWall}，当前价 $${price} ${nearerCall ? `距Call Wall仅$${dToCall}（+${pctToCall}%），上方压力明显` : `距Put Wall仅$${dToPut}（-${pctToPut}%），下方支撑关键`}`,
-    `多头剧本：突破 $${scenarios.upTrigger} 确认上攻，目标 $${scenarios.upTarget}`,
-    `空头剧本：跌破 $${scenarios.downTrigger} 触发加速，目标 $${scenarios.downTarget}`,
-    nearerCall
-      ? `价格更靠近Call Wall，突破前建议观望，勿追高；突破后注意Gamma加速`
-      : `价格更靠近Put Wall，跌破则负Gamma放大波动；守住支撑是多头关键`,
+    `模型观察区间 $${putWall} ~ $${callWall}，当前价 $${price} ${nearerCall ? `距 Call Wall $${dToCall}（+${pctToCall}%）` : `距 Put Wall $${dToPut}（-${pctToPut}%）`}；距离不代表价格一定触及。`,
+    `上行情景：若日线收盘站上 $${scenarios.upTrigger}，观察下一价位 $${scenarios.upTarget}`,
+    `下行情景：若日线收盘跌破 $${scenarios.downTrigger}，观察下一价位 $${scenarios.downTarget}`,
+    'Call Wall 与 Put Wall 是按当前 OI/GEX 模型得出的观察位，不是确定支撑、阻力或交易指令。',
   ];
 
   return (
@@ -163,34 +161,34 @@ export default function Tab4Signals({ data }) {
       </div>
       {supportResistance && (
         <div className="az-level-strip">
-          <span>S/R 来自 {supportResistance.barCount} 根真实日线</span>
+          <span>S/R 基于 {supportResistance.barCount} 根价格日线</span>
           <span>S {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
           <span>R {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
         </div>
       )}
       <div className="az-signals-layout">
         <div className="az-chip-ruler-wrap az-card">
-          <div className="az-card-title">主力持仓密度 · OI by Strike</div>
+          <div className="az-card-title">未平仓量分布 · OI by Strike</div>
           {oiByStrike.length ? (
             <>
               <div className="az-oi-density-meta">
                 <span><i className="put" />Put OI</span><span><i className="call" />Call OI</span>
-                <span>{oiDensity.expiryCount} 个到期日 · {oiDensity.freshness === 'fresh' ? '新鲜' : '延迟'} · {oiDensity.source}</span>
+                <span>{oiDensity.expiryCount} 个到期日 · {oiDensity.freshness === 'fresh' ? '数据较新' : '数据延迟'} · 数据截至 {String(oiDensity.snapshotTs || '').slice(0, 16).replace('T', ' ') || '--'}</span>
               </div>
               <ChipRuler oiByStrike={oiByStrike} putWall={putWall} callWall={callWall} price={price} />
             </>
-          ) : <div className="az-chart-unavailable">真实 OI snapshot 暂不可用</div>}
+          ) : <div className="az-chart-unavailable">期权 OI 快照暂不可用</div>}
         </div>
 
         <div className="az-signals-info">
           <div className="az-wall-dist az-wall-dist-call">
-            <div className="az-wall-dist-label">上方压力 · Call Wall</div>
+            <div className="az-wall-dist-label">Call Wall 模型观察位</div>
             <div className="az-wall-dist-price">${callWall}</div>
             <div className="az-wall-dist-num">+{pctToCall}% / +${dToCall}</div>
           </div>
 
           <div className="az-wall-dist az-wall-dist-put">
-            <div className="az-wall-dist-label">下方支撑 · Put Wall</div>
+            <div className="az-wall-dist-label">Put Wall 模型观察位</div>
             <div className="az-wall-dist-price">${putWall}</div>
             <div className="az-wall-dist-num">-{pctToPut}% / -${dToPut}</div>
           </div>
@@ -199,22 +197,22 @@ export default function Tab4Signals({ data }) {
             <div className="az-obs-title">观察结论</div>
             <div className="az-obs-text">
               {nearerCall
-                ? `现价距Call Wall $${callWall}更近（+${pctToCall}%），上方压力是近期关键测试位，突破确认前谨慎追多`
-                : `现价距Put Wall $${putWall}更近（-${pctToPut}%），下方支撑是近期关键测试位，跌破则波动可能加速`}
+                ? `现价距 Call Wall $${callWall} 更近（+${pctToCall}%）。这是当前快照中的模型观察位，距离本身不代表价格一定触及或反转。`
+                : `现价距 Put Wall $${putWall} 更近（-${pctToPut}%）。这是当前快照中的模型观察位，距离本身不代表价格一定触及或反转。`}
             </div>
-            <div className="az-obs-note">本分析不是操作建议，仅回答一个问题：今天最该观察的风险点在哪里。</div>
+            <div className="az-obs-note">这些观察位仅用于研究，不构成交易指令或投资建议。</div>
           </div>
 
           <div className="az-scenario-row" style={{ marginTop: 12 }}>
             <div className="az-scenario az-scenario-bull" style={{ flex: 1 }}>
-              <div className="az-scenario-title">多头触发</div>
-              <div className="az-scenario-line">突破 <strong>${scenarios.upTrigger}</strong></div>
-              <div className="az-scenario-line">目标 <strong>${scenarios.upTarget}</strong></div>
+              <div className="az-scenario-title">上行情景</div>
+              <div className="az-scenario-line">日线收盘站上 <strong>${scenarios.upTrigger}</strong></div>
+              <div className="az-scenario-line">下一观察位 <strong>${scenarios.upTarget}</strong></div>
             </div>
             <div className="az-scenario az-scenario-bear" style={{ flex: 1 }}>
-              <div className="az-scenario-title">空头触发</div>
-              <div className="az-scenario-line">跌破 <strong>${scenarios.downTrigger}</strong></div>
-              <div className="az-scenario-line">目标 <strong>${scenarios.downTarget}</strong></div>
+              <div className="az-scenario-title">下行情景</div>
+              <div className="az-scenario-line">日线收盘跌破 <strong>${scenarios.downTrigger}</strong></div>
+              <div className="az-scenario-line">下一观察位 <strong>${scenarios.downTarget}</strong></div>
             </div>
           </div>
         </div>

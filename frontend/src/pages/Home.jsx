@@ -4,9 +4,9 @@ import { getMarketRegime } from '../lib/api';
 import heroMark from '../assets/hero.png';
 
 const PRODUCTS = [
-  { title: '标的分析', label: 'Analyze', text: '把价格结构、GEX、Wall、波动率与期权链放进同一份分析。', to: '/analyze', accent: 'green' },
-  { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，并落到真实到期日和策略腿。', to: '/scan', accent: 'blue' },
-  { title: '周度复盘', label: 'Weekly', text: '复盘五个交易日的价格、Gamma 迁徙、Max Pain 与 ΔOI。', to: '/weekly', accent: 'red' },
+  { title: '标的分析', label: 'Analyze', text: '把价格结构、GEX 估算、观察位、波动率与期权链指标放进同一份分析。', to: '/analyze', accent: 'green' },
+  { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，并基于已采集的期权链快照生成到期日与策略腿候选。', to: '/scan', accent: 'blue' },
+  { title: '周度复盘', label: 'Weekly', text: '比较价格、Gamma 结构、Max Pain 与可比较合约的 ΔOI。', to: '/weekly', accent: 'red' },
 ];
 
 const HERO_PREVIEW_ROWS = [
@@ -25,7 +25,7 @@ export default function Home() {
         <div className="home-hero-dashboard" aria-hidden="true">
           <div className="home-dashboard-topline">
             <span>MARKET SCANNER</span>
-            <span>LIVE RESEARCH VIEW</span>
+            <span>ILLUSTRATIVE RESEARCH VIEW · 示例数据，非当前市场</span>
           </div>
           <div className="home-dashboard-head">
             <span>标的</span><span>波动</span><span>期权定位</span><span>候选单</span><span>分数</span>
@@ -45,22 +45,22 @@ export default function Home() {
         <div className="home-hero-content">
           <div className="home-kicker">OPTIONS INTELLIGENCE</div>
           <h1>Quantrift</h1>
-          <p>从全市场扫描到具体期权结构，把价格趋势与期权仓位变成可核验的研究路径。</p>
+          <p>从已覆盖标的的扫描，到具体期权结构，把价格趋势与期权定位整理成带数据状态的研究路径。</p>
           <div className="home-actions">
             <Link className="home-primary" to="/analyze?symbol=SPY">分析标的</Link>
             <Link className="home-secondary" to="/scan">打开扫描器</Link>
           </div>
         </div>
         <div className="home-live-strip">
-          <div><span>Market Regime</span><strong>{market?.regime?.label || 'Loading'}</strong></div>
+          <div><span>Market Regime</span><strong>{market?.regime?.label || '加载中'}</strong></div>
           {(market?.instruments || []).map(item => (
             <div key={item.symbol}>
               <span>{item.symbol}</span>
               <strong>{item.momentum?.status === 'ready' ? item.momentum.score : '--'}</strong>
-              <small>{item.gex?.gamma_regime ? `${item.gex.gamma_regime} Gamma` : 'GEX unavailable'}</small>
+              <small>{item.gex?.gamma_regime ? `${item.gex.gamma_regime} Gamma` : 'GEX 暂不可用'}</small>
             </div>
           ))}
-          <div><span>Research workflow</span><strong>Concrete setups</strong><small>analysis to execution</small></div>
+          <div><span>Research workflow</span><strong>Research-ready setups</strong><small>analysis to decision support</small></div>
         </div>
       </section>
 

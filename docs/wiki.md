@@ -8,6 +8,16 @@
 
 The Scanner UI may send selected strategy types and advanced filters, then render `concrete_setup`; it does not enumerate contracts, calculate credit/debit, or own scoring weights. The former frontend `scanOpportunity.js` module was removed. Vite production builds use `build.sourcemap=false` and must be checked for absent `.map` artifacts.
 
+### User-facing research semantics (2026-07-16)
+
+All product outputs are research views, not trade instructions or broker orders. A user-visible value must be attributable to a stored snapshot or a documented model calculation, with its source/date/freshness exposed in the product data details. Missing fields remain unavailable; they must not be filled by example data.
+
+- **GEX / Gamma Flip / Wall**: GEX is an estimated positioning proxy derived from option-chain inputs and sign assumptions, not observed dealer inventory. The current formula reports estimated dollar-delta change for a **1% underlying move**: `gamma * OI * multiplier * spot^2 * 0.01`. Call Wall, Put Wall and Gamma Flip are model observation levels, not deterministic support, resistance, reversal or acceleration levels.
+- **PCR and OI**: Put/Call ratios are explicitly labeled as OI- or volume-based. They do not reveal opening/closing direction, trade intent or net market sentiment by themselves.
+- **POP, expected move and payoff charts**: these are model estimates using displayed snapshot inputs and assumptions. They are not realized win probabilities, execution prices or P/L guarantees; fees, slippage, early assignment and volatility changes can materially change results.
+- **Data states**: the UI uses source, timestamp and freshness labels. “Delayed”, “stale”, “partial” and “unavailable” are product states, not concealed implementation failures.
+- **Static homepage preview**: homepage preview rows are explicitly illustrative and non-current; the product does not imply a live scanner before a scan response is available.
+
 ### Monorepo 结构
 
 ```
@@ -837,9 +847,12 @@ Phase 3D-3 GEX calculation is implemented as a cached compute job:
 - Upserts by `snapshot_id`
 - Fail-closed gates：no spot, no usable gamma/OI, or missing Greeks/OI ratio above `GEX_MAX_MISSING_RATIO=0.25`
 
-V1 formulas:
-- Call GEX：`gamma * open_interest * 100 * spot^2`
-- Put GEX：`-gamma * open_interest * 100 * spot^2`
+Current formulas:
+- Call GEX：`gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+- Put GEX：`-gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+- 单位：`usd_delta_change_per_1pct_move`，即标的变动 1% 时的模型估算 Delta-dollar exposure；不是现金流或 PnL。
+- 符号模型：`call_positive_put_negative_proxy`。Call/Put 的正负号是 dealer positioning 代理假设，公开 OI 不能确认真实 dealer 持仓。
+- 模型版本：`gex-v2-1pct-positioning-proxy`；不同版本的快照不能直接比较。
 - Strike net GEX：sum call GEX + put GEX at strike
 - Global GEX：sum all strike net GEX
 - Local Gamma：sum strike net GEX within spot ±1%
@@ -897,13 +910,13 @@ User inputs AAPL
 
 ```text
 层级 1: GEX 环境（市场结构）
-  正GEX → 做市商 long gamma → 价格稳定 → 卖方策略友好
-  负GEX → 做市商 short gamma → 波动放大 → 降低卖方敞口
+  正 GEX 模型状态 → 在代理假设成立时，波动可能更容易收敛
+  负 GEX 模型状态 → 在代理假设成立时，波动可能更容易放大
 
 层级 2: 期权链信号（方向 + 情绪）
   PCR高 + IV put skew大 → 市场恐慌 → 可能是顶部，考虑 put spread
   PCR低 + IV call skew大 → 市场贪婪 → 可能是顶部，考虑 call spread
-  Max Pain → 到期价格收敛目标
+  Max Pain → 当前 OI 快照下的简化内在价值最小行权价，不是到期价格目标
   OI wall    → 支撑/阻力参考，帮助选 spread 边界
 
 层级 3: 大单验证（机构意图）
@@ -915,14 +928,14 @@ User inputs AAPL
 ### 实战组合示例
 
 ```
-场景: SPY 当前 450，正GEX环境，GEX wall at 455
+场景: SPY 当前 450，正 GEX 模型状态，模型 GEX wall at 455
 期权链: Max Pain = 448，PCR = 1.2（偏空情绪）
 大单: 上周出现大量 445 put 买入（机构对冲）
 
 结论:
   - 价格大概率在 445-455 之间震荡
   - 卖方策略：Iron Condor 445/448/452/455
-  - 到期收敛到 Max Pain 448 有利
+  - Max Pain 448 仅作为当前 OI 快照下的结构参考，不代表到期价格目标
 
 ```
 
@@ -930,7 +943,7 @@ User inputs AAPL
 
 | 信号 | 数据来源 | 成本 | 计算方式 |
 |---|---|---|---|
-| GEX by strike | 授权期权链（OI + Gamma）；IB 仅内部验证 | 需确认 | Σ(Gamma × OI × 100 × Spot²)，call为正，put为负 |
+| GEX by strike | 授权期权链（OI + Gamma）；IB 仅内部验证 | 需确认 | Σ(Gamma × OI × contract multiplier × Spot² × 0.01)，单位为标的变动 1% 时的模型估算 Delta-dollar exposure；call/put 符号为 positioning proxy |
 | Call Wall / Put Wall | 授权期权链；IB 仅内部验证 | 需确认 | call/put side OI 或 GEX 最大的 strike，产品需标明 OI Wall vs Gamma Wall |
 | Global GEX | 授权期权链；IB 仅内部验证 | 需确认 | 跨到期、跨行权价 Σ net GEX |
 | Local Gamma | 授权期权链；IB 仅内部验证 | 需确认 | 当前价附近窗口内的 Gamma/GEX 集中度 |
@@ -1146,7 +1159,7 @@ The returned candidate grid groups its data into seven decision cells: symbol/pr
 
 `ΔOI` is a daily position comparison, not an intraday quote change. The materializer selects the latest usable option snapshot and compares it with the newest prior New York market-date snapshot from the same provider. Repeated same-day snapshots cannot become the baseline. When no previous trading-day baseline exists, Scanner shows `ΔOI 待下一交易日`; it must not display `0 / 0`.
 
-Scanner positioning copy is price-relative: `上方 Call Wall $220 (+4.8%)` means the nearest Call Wall strike is 220, 4.8% above the current spot. `下方 Put Wall` is analogous. `净 GEX -$1.1B` is the model's aggregated net gamma exposure (Calls positive, Puts negative), not a cash flow or PnL number. Negative Gamma is labelled as a context where moves can amplify; positive Gamma is labelled as a context where moves can be dampened. GEX freshness remains visible.
+Scanner positioning copy is price-relative: `上方 Call Wall $220 (+4.8%)` means the nearest Call Wall strike is 220, 4.8% above the current spot. `下方 Put Wall` is analogous. `净 GEX -$1.1B` is the model's aggregated net gamma exposure for a 1% underlying move (Calls positive, Puts negative under a positioning proxy), not a cash flow, PnL, or confirmed dealer position. Negative/positive GEX is shown only as a conditional volatility context, and GEX freshness remains visible.
 
 Scanner opportunity types are active controls, not explanatory labels. Selecting one highlights it and immediately reruns the scan: `高 IV 收租` applies IV Rank 50-100; `靠近压力/支撑` applies IV Rank 30-100 and a 3% Wall-distance filter; `期权持仓异动` enables unusual-OI-only filtering. The selected preset's exact values remain visible in the surrounding filter controls.
 

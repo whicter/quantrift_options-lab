@@ -27,6 +27,7 @@ test('stale GEX remains visible when required real fields exist', () => {
     confidence: 'high',
     source: 'tt_internal',
     snapshot_ts: '2026-07-14T00:00:00Z',
+    raw_metrics: { model_version: 'gex-v2-1pct-positioning-proxy', unit: 'usd_delta_change_per_1pct_move' },
     age_minutes: 20,
     underlying_price: '133.74',
     global_gex: '1000',
@@ -74,6 +75,11 @@ test('fresh usable GEX replaces mock walls with real values', () => {
     gamma_regime: 'positive',
     gamma_flip: '132.50',
     local_gamma: '884400',
+    raw_metrics: {
+      model_version: 'gex-v2-1pct-positioning-proxy',
+      unit: 'usd_delta_change_per_1pct_move',
+      positioning_model: 'call_positive_put_negative_proxy',
+    },
     strikes: [
       { strike: '140.0000', net_gex: '1000', call_gex: '2000', put_gex: '-1000' },
     ],
@@ -88,7 +94,35 @@ test('fresh usable GEX replaces mock walls with real values', () => {
   assert.equal(result.partialData, undefined);
   assert.equal(result.gammaFlip, 132.5);
   assert.equal(result.localGamma, 884400);
+  assert.equal(result.gexMeta.rawMetrics.unit, 'usd_delta_change_per_1pct_move');
   assert.match(result.conclusion, /Call Wall \$140.00 \/ Put Wall \$140.00/);
+});
+
+test('legacy GEX model is rejected instead of being presented as current analysis', () => {
+  const legacy = {
+    symbol: 'SPY',
+    freshness: 'fresh',
+    is_stale: false,
+    confidence: 'high',
+    source: 'tt_internal',
+    snapshot_ts: '2026-07-15T07:26:50Z',
+    underlying_price: '754.81',
+    global_gex: '217181490258',
+    call_wall: '760',
+    put_wall: '745',
+    raw_metrics: {
+      model_version: 'gex-v1',
+      unit: 'usd_delta_change_per_1pct_move',
+    },
+    strikes: [{ strike: '760', net_gex: '1000' }],
+  };
+
+  assert.equal(isUsableGex(legacy), false);
+  const result = applyGex(mockSeed, legacy);
+  assert.equal(result.callWall, null);
+  assert.equal(result.putWall, null);
+  assert.equal(result.recommendation, null);
+  assert.match(result.partialData.message, /旧模型口径/);
 });
 
 test('low-confidence delayed data remains visible with a quality notice', () => {
@@ -105,6 +139,7 @@ test('low-confidence delayed data remains visible with a quality notice', () => 
     put_wall: '185',
     strikes: [{ strike: '200', net_gex: '-1000' }],
     quality: { contract_count: 52, missing_oi_ratio: '0.1923' },
+    raw_metrics: { model_version: 'gex-v2-1pct-positioning-proxy', unit: 'usd_delta_change_per_1pct_move' },
   };
 
   assert.equal(isUsableGex(gex), true);

@@ -11,6 +11,15 @@ import Portfolio from './pages/Portfolio';
 
 const THEME_KEY = 'options-lab-theme';
 
+function ResearchDisclosure() {
+  return (
+    <footer className="research-disclosure">
+      <strong>研究与教育用途</strong>
+      <span>本产品不构成投资建议或交易指令。期权可能导致全部本金损失；裸卖策略的损失可能超过初始收取的权利金。数据可能延迟、不完整或存在计算误差。</span>
+    </footer>
+  );
+}
+
 function getInitialTheme() {
   const saved = localStorage.getItem(THEME_KEY);
   if (saved === 'light' || saved === 'dark') return saved;
@@ -39,6 +48,7 @@ export default function App({ authConfigured = false }) {
           <Route path="/account" element={<Account authConfigured={authConfigured} />} />
           <Route path="/portfolio" element={<Portfolio authConfigured={authConfigured} />} />
         </Routes>
+        <ResearchDisclosure />
       </div>
     </BrowserRouter>
   );

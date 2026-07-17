@@ -29,8 +29,8 @@ const STRATEGY_PARAMETER_PRESETS = {
     },
   },
   conservative: {
-    label: '保守',
-    desc: '更远 Delta，更严流动性',
+    label: '较低 Delta',
+    desc: '更远 Delta，更严流动性；不代表整体风险等级',
     values: {
       dteMin: '30',
       dteMax: '60',
@@ -42,8 +42,8 @@ const STRATEGY_PARAMETER_PRESETS = {
     },
   },
   standard: {
-    label: '标准',
-    desc: '平衡胜率、收益和成交',
+    label: '平衡参数',
+    desc: '平衡 Delta、到期日与流动性；不代表胜率或收益',
     values: {
       dteMin: '30',
       dteMax: '60',
@@ -55,8 +55,8 @@ const STRATEGY_PARAMETER_PRESETS = {
     },
   },
   aggressive: {
-    label: '进取',
-    desc: '更靠近现价，收益更高',
+    label: '较高 Delta',
+    desc: '更靠近现价，通常权利金更高，同时被触及与亏损风险也更高',
     values: {
       dteMin: '7',
       dteMax: '45',
@@ -107,10 +107,10 @@ const DIR_COLOR = (score) =>
 const SORTABLE_COLUMNS = [
   { key: 'symbol', label: '标的', title: '股票或 ETF 代码' },
   { key: 'ivRank', label: '波动', title: 'IV Rank：当前 IV 在过去一年隐含波动率区间中的位置。下方同时显示 IV30 / HV30。' },
-  { key: 'direction', label: '方向', title: '由 price history 派生的趋势标签。' },
+  { key: 'direction', label: '方向', title: '由价格历史派生的趋势标签。' },
   { key: 'gex', label: '期权定位', title: 'GEX、最近 Wall 与 OI 异动。GEX 未采集时不会据此作结论。' },
-  { key: 'strategy', label: '候选单', title: '使用真实 bid/ask 合约组成具体策略 legs；Calendar / Diagonal 可以跨到期日。' },
-  { key: 'score', label: '机会分', title: '根据 DTE、Delta、bid/ask spread、OI、Volume 和收益风险综合计算。' },
+  { key: 'strategy', label: '策略候选', title: '基于已采集 bid/ask 快照的合约组成具体策略腿；不保证可按显示价格成交。Calendar / Diagonal 可以跨到期日。' },
+  { key: 'score', label: '筛选匹配分', title: '根据 DTE、Delta、bid/ask spread、OI、Volume 和收益风险的启发式综合评分，用于排序，不代表胜率、预期收益或投资建议。' },
   { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
 ];
 
@@ -129,14 +129,14 @@ function strategyAction(strategy) {
   if (strategy === 'Bear Call Spread') return '卖出较低行权价 Call，买入更高行权价 Call，收取 credit。';
   if (strategy === 'Bull Put Spread') return '卖出较高行权价 Put，买入更低行权价 Put，收取 credit。';
   if (strategy === 'Iron Condor') return '同时做 Bear Call Spread + Bull Put Spread，押注区间震荡。';
-  if (strategy === 'Long Straddle') return '买入同一到期 ATM Call + Put，押注大幅波动。';
-  if (strategy === 'Short Strangle') return '卖出 OTM Call + OTM Put，押注区间内震荡。';
+  if (strategy === 'Long Straddle') return '买入同一到期 ATM Call + Put；实际波动需足以覆盖支付的权利金与波动率变化。';
+  if (strategy === 'Short Strangle') return '卖出 OTM Call + OTM Put；上行损失理论上无限，下行损失可能很大，并存在保证金与提前指派风险。';
   if (strategy === 'Iron Butterfly') return '卖出同一 ATM Call + Put，并买入对称 wings 限定风险。';
   if (strategy === 'Calendar Spread') return '卖出近月并买入同 strike 远月期权，交易时间价值差。';
   if (strategy === 'Diagonal Spread') return '卖出近月 OTM 腿并买入更靠近现价的远月腿。';
   if (strategy === 'Long Call') return '买入 OTM Call，最大亏损为 debit。';
   if (strategy === 'Long Put') return '买入 OTM Put，最大亏损为 debit。';
-  if (strategy === 'Jade Lizard') return '卖出 OTM Put + Bear Call Spread；credit 覆盖 call width 时无上行风险。';
+  if (strategy === 'Jade Lizard') return '卖出 OTM Put + Bear Call Spread；若净信用不少于 Call spread 宽度，到期损益图上没有上行亏损，仍存在执行、指派、流动性和下行风险。';
   if (strategy === 'Short Put') return '卖出 OTM Put；需要承担较大的下行及保证金风险。';
   if (strategy === 'Short Call') return '卖出 OTM Call；上行风险无上限。';
   return '点击进入分析页查看结构。';
@@ -393,7 +393,7 @@ export default function Scan() {
       setResults(dedupeScannerRows(liveRows));
     } catch {
       setResults([]);
-      setError('真实 scanner API 暂时不可用。');
+      setError('扫描 API 暂时不可用。');
     } finally {
       setLoading(false);
     }
@@ -415,7 +415,7 @@ export default function Scan() {
     <div className="scan-page">
       <div className="scan-header">
         <div className="scan-title">扫描器</div>
-        <div className="scan-subtitle">扫描真实报价，输出具体到期日、策略腿和收益风险</div>
+        <div className="scan-subtitle">扫描已采集的报价快照，输出到期日、策略腿候选与模型收益风险</div>
       </div>
 
       {marketRegime?.regime?.status === 'ready' && (
@@ -482,9 +482,9 @@ export default function Scan() {
               />
             </div>
             <div className="scan-ivr-presets">
-              <button className="scan-preset" onClick={() => { setMinIvr(50); setMaxIvr(100); }}>高 IV (&gt;50)</button>
-              <button className="scan-preset" onClick={() => { setMinIvr(30); setMaxIvr(50); }}>中 IV (30-50)</button>
-              <button className="scan-preset" onClick={() => { setMinIvr(0); setMaxIvr(30); }}>低 IV (&lt;30)</button>
+              <button className="scan-preset" onClick={() => { setMinIvr(50); setMaxIvr(100); }}>高 IV Rank (&gt;50)</button>
+              <button className="scan-preset" onClick={() => { setMinIvr(30); setMaxIvr(50); }}>中 IV Rank (30-50)</button>
+              <button className="scan-preset" onClick={() => { setMinIvr(0); setMaxIvr(30); }}>低 IV Rank (&lt;30)</button>
             </div>
           </div>
 
@@ -513,7 +513,7 @@ export default function Scan() {
             <summary>高级期权数据过滤</summary>
             <div className="scan-filter-section">
               <div className="scan-filter-label">Universe / 标的池</div>
-              <div className="scan-filter-help">市值单位为十亿美元，Dollar Volume 单位为百万美元。元数据未知时，填写对应条件会将该标的排除。</div>
+              <div className="scan-filter-help">市值单位为十亿美元，最低日成交额单位为百万美元。元数据缺失时，填写对应条件会将该标的排除。</div>
               <div className="scan-filter-row">
                 <span className="scan-filter-sub">Market Cap ($B)</span>
                 <input type="number" min={0} className="scan-num-input" placeholder="min" value={marketCapMin} onChange={e => setMarketCapMin(e.target.value)} />
@@ -529,13 +529,13 @@ export default function Scan() {
                 <input type="number" min={0} className="scan-wide-input" placeholder="最低日成交股数" value={minUnderlyingVolume} onChange={e => setMinUnderlyingVolume(e.target.value)} />
               </div>
               <div className="scan-filter-row">
-                <span className="scan-filter-sub">Dollar Volume ($M)</span>
+                <span className="scan-filter-sub">最低日成交额（百万美元）</span>
                 <input type="number" min={0} className="scan-wide-input" placeholder="最低" value={minDollarVolume} onChange={e => setMinDollarVolume(e.target.value)} />
               </div>
               <div className="scan-filter-row">
                 <span className="scan-filter-sub">Optionable</span>
                 <select className="scan-select" value={optionable} onChange={e => setOptionable(e.target.value)}>
-                  <option value="all">不限 / Unknown allowed</option>
+                  <option value="all">不限（允许元数据缺失）</option>
                   <option value="true">仅已确认可交易期权</option>
                   <option value="false">仅不可交易期权</option>
                 </select>
@@ -624,7 +624,7 @@ export default function Scan() {
 
             <div className="scan-filter-section">
               <div className="scan-filter-label">Gamma / Wall</div>
-              <div className="scan-filter-help">Gamma 是期权仓位对标的价格变化的敏感度。这里用它判断价格附近是否容易被压住或放大波动。</div>
+              <div className="scan-filter-help">Gamma 描述 Delta 对标的价格变化的敏感度。这里显示的是基于 OI 和模型假设的定位代理，不是确定的价格预测。</div>
               <div className="scan-filter-row">
                 <span className="scan-filter-sub" title="Gamma Regime，全局 Gamma 环境。正 Gamma 往往压制波动，负 Gamma 往往放大波动。">Gamma Regime</span>
                 <select className="scan-select" value={gammaRegime} onChange={e => setGammaRegime(e.target.value)}>
@@ -706,7 +706,7 @@ export default function Scan() {
 
             <div className="scan-filter-section">
               <div className="scan-filter-label">Unusual OI / Put-Call Ratio</div>
-              <div className="scan-filter-help">OI Delta 比较连续快照的持仓变化；Put/Call Ratio 用来粗看期权情绪。</div>
+              <div className="scan-filter-help">OI Delta 比较连续快照中的未平仓量变化；Put/Call Ratio 是相对比例，不直接代表市场情绪或方向。</div>
               <label className="scan-toggle">
                 <input
                   type="checkbox"
@@ -786,7 +786,7 @@ export default function Scan() {
               <strong>{universeCount || '...'}</strong>
               <span>个已接入数据的标的</span>
             </div>
-            <div className="scan-filter-help">Universe 已持久化并支持按需扩展；只有 materialized snapshot 中具备所需字段的标的会通过筛选。</div>
+            <div className="scan-filter-help">扫描池会按需扩展；只有已生成的数据快照中具备所需字段的标的会通过筛选。</div>
           </div>
 
           <button className="scan-btn" onClick={handleScan} disabled={loading}>
@@ -808,12 +808,12 @@ export default function Scan() {
           ) : results.length === 0 ? (
             <div className="scan-empty">
               <div className="scan-empty-icon">∅</div>
-              <div>当前没有能用真实报价组成的完整候选单，请调整机会类型或参数</div>
+              <div>当前没有能用已采集报价快照组成的完整候选结构，请调整机会类型或参数</div>
             </div>
           ) : (
             <>
               <div className="scan-results-header">
-                找到 <strong>{results.length}</strong> 个真实报价候选单
+                找到 <strong>{results.length}</strong> 个基于报价快照生成的候选结构
               </div>
               <div className="scan-table" key={`${tableSort.key}:${tableSort.direction}`}>
                 <div className="scan-table-head">
@@ -851,20 +851,20 @@ export default function Scan() {
                     <span className="scan-direction" style={{ color: DIR_COLOR(d.direction.score) }} title={d.direction.change5d == null ? '' : `5日 ${d.direction.change5d.toFixed(1)}%`}>
                       {d.direction.label}
                     </span>
-                    <span className="scan-positioning" title={d.community.status === 'missing' ? '社区热度尚未采集' : `${d.community.windowHours}小时：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}`}>
+                    <span className="scan-positioning" title={d.community.status === 'missing' ? '社区样本热度尚未采集' : `${d.community.windowHours} 小时社区样本：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}；不代表整体市场情绪。`}>
                       <span className={`scan-gex-pill ${d.gex.regime}`}>
                         {gammaRegimeLabel(d.gex.regime)}
                       </span>
                       <small>{gammaSummary(d.gex)}</small>
                       <small>{wallSummary(d.gex, d.price)}</small>
-                      <small>{oiDeltaSummary(d.unusual)} · 社区 {communityHeatLabel(d.community)}</small>
+                      <small>{oiDeltaSummary(d.unusual)} · 社区样本 {communityHeatLabel(d.community)}</small>
                     </span>
                     <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>
                       <small>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE · OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</small>
                       <small>{d.concreteSetup.structure} · {d.concreteSetup.pricing} · {economicsSummary(d.concreteSetup)}</small>
                     </span>
-                    <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险综合评分">
+                    <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险的启发式综合评分，仅用于排序，不代表胜率、预期收益或投资建议。">
                       {d.concreteSetup.score}
                     </span>
                     <span style={{ color: d.earnings.warning ? 'var(--yellow)' : 'var(--text-muted)', fontSize: 11 }}>
