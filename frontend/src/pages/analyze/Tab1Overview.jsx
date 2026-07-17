@@ -20,7 +20,7 @@ export default function Tab1Overview({ data }) {
   const insights = [
     `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}）：短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
-    `模型观察位：Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）；距离不代表价格一定触及。`,
+    `值得关注的点位：上方 Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ 下方 Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）。`,
     recommendation ? `策略候选：${recommendation.strategy}，模型估算 POP ${recommendation.params.pop}%，DTE ${recommendation.params.dte}天` : null,
   ].filter(Boolean);
 
@@ -34,12 +34,14 @@ export default function Tab1Overview({ data }) {
     },
     {
       q: '价格趋势与期权结构当前如何同时出现？',
-      a: `当前价格动量为${trend.momentum}，GEX 模型状态为${gexPositive ? '正' : '负'}。两者同时出现，但这些指标不能单独识别价格变动原因。`,
+      a: gexPositive
+        ? `当前价格动量为${trend.momentum}，同时处在正 Gamma 环境。盘面上，波动通常更容易收窄，价格可能更倾向围绕关键行权价来回波动。`
+        : `当前价格动量为${trend.momentum}，同时处在负 Gamma 环境。若走势继续向同一方向发展，短线波动可能更容易放大；向下延续时跌幅可能更急，转强时反弹也可能更快。`,
       type: 'neutral',
     },
     {
       q: '接下来的关键位置是什么？',
-      a: `Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）与 Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）是模型观察位。距离现价更近不代表价格一定会触及。`,
+      a: `上方 $${callWall}（Call Wall，+${((callWall / price - 1) * 100).toFixed(1)}%）和下方 $${putWall}（Put Wall，${((putWall / price - 1) * 100).toFixed(1)}%）是接下来值得重点关注的价位。它们是期权持仓集中的模型参考位，不是价格一定会触及或反转的位置。`,
       type: 'neutral',
     },
   ];
