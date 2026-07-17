@@ -42,7 +42,11 @@ function requestedStrategies(value) {
   return [...new Set(requested)];
 }
 
-function toCandidateDto(candidate) {
+function toCandidateDto(candidate, row = {}) {
+  const withSnapshot = model => (model ? {
+    ...model,
+    input_snapshot_ts: row.quote_snapshot_ts || null,
+  } : null);
   return {
     strategy: candidate.strategy,
     summary: candidate.summary,
@@ -63,6 +67,8 @@ function toCandidateDto(candidate) {
     minOpenInterest: candidate.minOpenInterest,
     totalVolume: candidate.totalVolume,
     avgSpreadPct: candidate.avgSpreadPct,
+    expected_move: withSnapshot(candidate.expectedMove),
+    pop: withSnapshot(candidate.pop),
     legs: candidate.legs.map(leg => ({
       action: leg.action,
       expiry: leg.expiry,
@@ -266,6 +272,7 @@ async function sendScan(req, res) {
                'openInterest', c.open_interest,
                'delta', c.delta,
                'gamma', c.gamma,
+               'iv', c.iv,
                'contractSymbol', c.contract_symbol
              )
              ORDER BY c.expiry ASC, c.strike ASC, c.option_right ASC
@@ -483,7 +490,7 @@ async function sendScan(req, res) {
       return setups.map(concreteSetup => ({
         ...scannerSummary,
         gex_metadata: gexMetadata,
-        concrete_setup: toCandidateDto(concreteSetup),
+        concrete_setup: toCandidateDto(concreteSetup, row),
       }));
     });
 

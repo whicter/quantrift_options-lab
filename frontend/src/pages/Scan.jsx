@@ -150,6 +150,18 @@ function economicsSummary(setup) {
   return '--';
 }
 
+function researchModelSummary(setup) {
+  const move = setup.expected_move;
+  const pop = setup.pop;
+  const expectedMove = move?.status === 'available' && Number.isFinite(Number(move.expected_move))
+    ? `EM ±$${Number(move.expected_move).toFixed(2)}`
+    : 'EM 不可用';
+  const probability = pop?.status === 'available' && Number.isFinite(Number(pop.probability))
+    ? `POP ${(Number(pop.probability) * 100).toFixed(0)}%`
+    : 'POP 不可用';
+  return `${expectedMove} · ${probability}`;
+}
+
 function oiDeltaSummary(unusual) {
   if (unusual.status === 'confirmed') {
     const maxDelta = unusual.maxDelta == null ? '--' : Math.round(unusual.maxDelta).toLocaleString('en-US');
@@ -866,6 +878,7 @@ export default function Scan() {
                       <strong>{d.recommendation.strategy}</strong>
                       <small>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE · OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</small>
                       <small>{d.concreteSetup.structure} · {d.concreteSetup.pricing} · {economicsSummary(d.concreteSetup)}</small>
+                      <small title="Expected Move 使用同到期、最接近现价的 Call/Put IV 均值与日历日；POP 仅在期末盈亏平衡点明确且 IV 输入完整时按对数正态模型计算。">{researchModelSummary(d.concreteSetup)}</small>
                     </span>
                     <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险的启发式综合评分，仅用于排序，不代表胜率、预期收益或投资建议。">
                       {d.concreteSetup.score}

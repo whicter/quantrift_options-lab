@@ -2,8 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildActionableSetup, buildActionableSetups } = require('../src/domain/scanner/candidateEngine.cjs');
 
-function contract({ expiry, dte, strike, right, bid, ask, delta, oi = 500, volume = 50 }) {
-  return { expiry, dte, strike, right, bid, ask, delta, openInterest: oi, volume };
+function contract({ expiry, dte, strike, right, bid, ask, delta, iv, oi = 500, volume = 50 }) {
+  return { expiry, dte, strike, right, bid, ask, delta, iv, openInterest: oi, volume };
 }
 
 test('single-best selector prefers the stronger 45 DTE setup over a 2 DTE setup', () => {
@@ -168,4 +168,39 @@ test('jade lizard only emits when total credit removes upside call-spread risk',
   assert.equal(results[0].legs.length, 3);
   assert.ok(results[0].credit >= 5);
   assert.equal(results[0].riskType, 'defined-upside');
+});
+
+test('expected move and POP declare inputs for credit, debit and iron-condor candidates', () => {
+  const complete = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 85, right: 'P', bid: 0.8, ask: 0.9, delta: -0.1, iv: 0.27 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 2.0, ask: 2.1, delta: -0.2, iv: 0.29 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 100, right: 'C', bid: 5.0, ask: 5.2, delta: 0.5, iv: 0.3 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 100, right: 'P', bid: 5.0, ask: 5.2, delta: -0.5, iv: 0.32 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.2, iv: 0.28 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 115, right: 'C', bid: 0.8, ask: 0.9, delta: 0.1, iv: 0.25 }),
+  ];
+  const candidates = buildActionableSetups(complete, { price_close: 100 }, {}, ['Bear Call Spread', 'Long Call', 'Iron Condor']);
+  const byStrategy = strategy => candidates.find(candidate => candidate.strategy === strategy);
+  for (const strategy of ['Bear Call Spread', 'Long Call', 'Iron Condor']) {
+    const available = byStrategy(strategy);
+    assert.ok(available, `${strategy} candidate should exist`);
+    assert.equal(available.expectedMove.status, 'available');
+    assert.equal(available.expectedMove.model_version, 'expected-move-v1-atm-iv-sqrt-time');
+    assert.equal(available.expectedMove.time_convention, 'calendar_days');
+    assert.equal(available.expectedMove.standard_deviation, 1);
+    assert.equal(available.pop.status, 'available');
+    assert.equal(available.pop.model_version, 'pop-v1-lognormal-breakeven');
+    assert.ok(available.pop.probability > 0 && available.pop.probability < 1);
+  }
+
+  const unavailable = buildActionableSetups(complete.map(row => ({ ...row, iv: null })), { price_close: 100 }, {}, ['Bear Call Spread'])[0];
+  assert.equal(unavailable.expectedMove.status, 'unavailable');
+  assert.equal(unavailable.pop.status, 'unavailable');
+  assert.equal(unavailable.pop.reason, 'expected_move_unavailable');
+
+  const missingQuote = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.2, iv: 0.28 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 115, right: 'C', bid: 0.8, ask: null, delta: 0.1, iv: 0.25 }),
+  ];
+  assert.equal(buildActionableSetups(missingQuote, { price_close: 100 }, {}, ['Bear Call Spread']).length, 0);
 });

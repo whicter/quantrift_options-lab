@@ -46,11 +46,13 @@
   - Read-only production-snapshot comparison: `cd collector && .venv/bin/python compare_gex_snapshots.py --symbols SPY,AAPL`. 2026-07-16 result: SPY snapshot `757` (27 usable contracts, missing Greeks `25.00%`) and AAPL snapshot `815` (72 usable contracts, missing Greeks/OI `0.00%`) matched all stored Global/Local GEX, Gamma Flip, Call/Put Wall and Max Pain values within `0.0001` tolerance.
   - Fixed option-chain fixtures must verify per-contract GEX, aggregate GEX, Gamma Flip interpolation, Call/Put Wall selection, 1%-move units and sign-assumption labeling.
   - Run a historical comparison across at least one ETF and one single-stock chain before making any performance or market-structure claim.
-- [ ] Define and document expected-move and POP inputs per strategy.
-  - Step 4 plan: define `expected_move_model` and `pop_model` objects per concrete setup. Expected Move declares `iv_sqrt_time` or `atm_straddle_mid`, calendar-day convention and input timestamp. POP declares its payoff/distribution method, price input (bid/ask/mid/mark), rate, IV and validity state.
-  - Candidate construction must set `unavailable` when required fields are absent; it must not convert a fallback or estimate into a quoted result. Fixtures will cover a credit spread, debit spread, iron condor and missing-quote case.
-  - State whether expected move is IV-based or ATM-straddle-based, whether time uses calendar/trading days, and whether pricing uses bid/ask/mid/mark.
-  - Ensure displayed POP is unavailable when required model inputs are missing rather than inferred from a fallback.
+- [x] Define and document expected-move and POP inputs per strategy.
+  - Implemented on every concrete Scanner candidate as versioned `expected_move` and `pop` objects. The public DTO does not expose the full chain; it exposes only the selected setup, declared model inputs and the originating quote-snapshot timestamp.
+  - Expected Move is `expected-move-v1-atm-iv-sqrt-time`: spot × the mean IV of the nearest same-expiry Call/Put × sqrt(calendar DTE / 365). It declares `contract_iv`, `nearest_atm_call_put_mean`, one standard deviation, calendar-day convention, expiry/DTE, input contracts and lower/upper range.
+  - POP is `pop-v1-lognormal-breakeven`: risk-neutral lognormal terminal-price probability at the candidate expiry using that declared IV, `SCAN_RISK_FREE_RATE` (default `4.5%`), zero dividend-yield assumption and executable bid/ask-derived break-evens. It supports static-expiry Bear Call, Bull Put, Iron Condor, Iron Butterfly, Strangle, long/short single-leg and Jade Lizard payoff shapes. Calendar/Diagonal are explicitly unavailable because they do not have one static expiry payoff model.
+  - Required inputs are fail-closed. Missing same-expiry ATM IV, non-positive DTE, absent static break-evens or an unsupported payoff shape return `status: unavailable` with a reason; the system never substitutes a fixed POP, mark price or fallback IV. Missing leg quotes prevent candidate construction.
+  - Scanner UI renders compact `EM` / `POP` state with an in-context tooltip; EM/POP are model estimates, not a prediction, tradable quote or return guarantee.
+  - Verification: `cd server && npm test` covers credit spread, debit strategy, Iron Condor, absent IV and missing quote behavior; route tests assert the public DTO includes the declared fields and contract-IV sample input. Frontend test/lint/build verify the compact rendering path.
 
 #### C. Product architecture and disclosure follow-through
 

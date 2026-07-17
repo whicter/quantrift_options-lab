@@ -69,6 +69,10 @@ test('scanner selects the latest usable quote snapshot separately from positioni
   assert.equal(res.body[0].quote_source, 'ib_internal');
   assert.equal(res.body[0].quote_freshness, 'stale');
   assert.equal(res.body[0].concrete_setup.strategy, 'Bear Call Spread');
+  assert.equal(res.body[0].concrete_setup.expected_move.status, 'unavailable');
+  assert.equal(res.body[0].concrete_setup.expected_move.input_snapshot_ts, '2026-07-15T20:00:00.000Z');
+  assert.equal(res.body[0].concrete_setup.pop.status, 'unavailable');
+  assert.equal(res.body[0].concrete_setup.pop.input_snapshot_ts, '2026-07-15T20:00:00.000Z');
   assert.equal('option_contracts' in res.body[0], false);
   assert.deepEqual(Object.keys(res.body[0].concrete_setup.legs[0]).sort(), [
     'action', 'ask', 'bid', 'delta', 'dte', 'expiry', 'right', 'strike',
@@ -83,6 +87,7 @@ test('scanner selects the latest usable quote snapshot separately from positioni
   assert.match(queries[0].sql, /COALESCE\(mention_count, 0\)/);
   assert.match(queries[0].sql, /latest_community_batch community_batch ON TRUE/);
   assert.match(queries[0].sql, /quoted\.bid IS NOT NULL/);
+  assert.match(queries[0].sql, /'iv', c\.iv/);
   assert.match(queries[0].sql, /America\/New_York/);
   assert.match(queries[0].sql, /underlying_dollar_volume/);
   assert.match(queries[0].sql, /market_cap >= \$28/);

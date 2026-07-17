@@ -32,6 +32,10 @@ const ACTIONABLE_STRATEGIES = [
 ];
 
 const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
+const POP_MODEL_VERSION = 'pop-v1-lognormal-breakeven';
+const EXPECTED_MOVE_MODEL_VERSION = 'expected-move-v1-atm-iv-sqrt-time';
+const configuredRiskFreeRate = Number(process.env.SCAN_RISK_FREE_RATE ?? 0.045);
+const RISK_FREE_RATE = Number.isFinite(configuredRiskFreeRate) ? configuredRiskFreeRate : 0.045;
 
 function contractMid(contract) {
   if (contract.bid == null || contract.ask == null) return null;
@@ -59,6 +63,7 @@ function normalizeContracts(rawContracts) {
       openInterest: num(contract.openInterest) ?? 0,
       delta: num(contract.delta),
       gamma: num(contract.gamma),
+      iv: num(contract.iv),
       contractSymbol: contract.contractSymbol,
     }))
     .filter(contract => (
@@ -151,6 +156,86 @@ function candidateQuality(legs) {
     minOpenInterest: Math.min(...legs.map(leg => leg.openInterest)),
     totalVolume: legs.reduce((sum, leg) => sum + leg.volume, 0),
   };
+}
+
+function normalCdf(value) {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value) / Math.sqrt(2);
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x));
+  return 0.5 * (1 + sign * erf);
+}
+
+function expectedMoveForExpiry(contracts, spot, expiry, dte) {
+  const expiryContracts = contracts.filter(contract => contract.expiry === expiry && contract.iv != null && contract.iv > 0);
+  const nearest = right => expiryContracts
+    .filter(contract => contract.right === right)
+    .sort((left, rightContract) => Math.abs(left.strike - spot) - Math.abs(rightContract.strike - spot))[0] || null;
+  const call = nearest('C');
+  const put = nearest('P');
+  if (!call || !put || dte == null || dte <= 0) {
+    return {
+      status: 'unavailable', model_version: EXPECTED_MOVE_MODEL_VERSION,
+      reason: 'requires_same_expiry_atm_call_put_iv_and_positive_calendar_dte',
+      method: 'iv_sqrt_time', time_convention: 'calendar_days',
+    };
+  }
+  const iv = (call.iv + put.iv) / 2;
+  const expectedMove = spot * iv * Math.sqrt(dte / 365);
+  return {
+    status: 'available', model_version: EXPECTED_MOVE_MODEL_VERSION,
+    method: 'iv_sqrt_time', iv_input: 'nearest_atm_call_put_mean', price_input: 'contract_iv',
+    time_convention: 'calendar_days', expiry, dte, iv, expected_move: expectedMove,
+    standard_deviation: 1,
+    lower: spot - expectedMove, upper: spot + expectedMove,
+    atm_contracts: [call.contractSymbol || null, put.contractSymbol || null],
+  };
+}
+
+function expiryCdf(price, spot, iv, dte) {
+  if (price == null || price <= 0 || spot <= 0 || iv <= 0 || dte <= 0) return null;
+  const time = dte / 365;
+  const denominator = iv * Math.sqrt(time);
+  const z = (Math.log(price / spot) - (RISK_FREE_RATE - 0.5 * iv * iv) * time) / denominator;
+  return normalCdf(z);
+}
+
+function popForCandidate(candidate, spot, expectedMove) {
+  const base = {
+    model_version: POP_MODEL_VERSION,
+    status: 'unavailable',
+    distribution: 'lognormal_risk_neutral',
+    pricing_input: 'executable_bid_ask',
+    iv_input: expectedMove.iv_input || null,
+    rate: RISK_FREE_RATE,
+    dividend_yield: 0,
+    time_convention: 'calendar_days',
+    expiry: candidate.expiry,
+    dte: candidate.dte,
+    breakevens: candidate.breakevens || [],
+  };
+  if (expectedMove.status !== 'available') return { ...base, reason: 'expected_move_unavailable' };
+  const breakevens = candidate.breakevens || [];
+  if (!breakevens.length || ['Calendar Spread', 'Diagonal Spread'].includes(candidate.strategy)) {
+    return { ...base, reason: 'strategy_has_no_static_expiry_breakeven_model' };
+  }
+  const below = price => expiryCdf(price, spot, expectedMove.iv, candidate.dte);
+  let probability = null;
+  if (['Bear Call Spread', 'Long Put', 'Short Call'].includes(candidate.strategy)) probability = below(breakevens[0]);
+  if (['Bull Put Spread', 'Long Call', 'Short Put', 'Jade Lizard'].includes(candidate.strategy)) probability = 1 - below(breakevens[0]);
+  if (['Iron Condor', 'Iron Butterfly', 'Short Strangle'].includes(candidate.strategy) && breakevens.length === 2) {
+    probability = below(Math.max(...breakevens)) - below(Math.min(...breakevens));
+  }
+  if (candidate.strategy === 'Long Straddle' && breakevens.length === 2) {
+    probability = 1 - (below(Math.max(...breakevens)) - below(Math.min(...breakevens)));
+  }
+  if (probability == null || !Number.isFinite(probability)) return { ...base, reason: 'unsupported_strategy_payoff_shape' };
+  return { ...base, status: 'available', probability: Math.max(0, Math.min(1, probability)) };
+}
+
+function attachResearchModels(candidate, contracts, spot) {
+  const expectedMove = expectedMoveForExpiry(contracts, spot, candidate.expiry, candidate.dte);
+  return { ...candidate, expectedMove, pop: popForCandidate(candidate, spot, expectedMove) };
 }
 
 function candidateEconomics({ credit = null, debit = null, maxLoss = null, returnOnRisk = null }) {
@@ -582,6 +667,7 @@ function buildActionableSetups(rawContracts, row, overrides = {}, strategies = A
   if (requested.has('Short Call')) candidates.push(...allSingleLegSetups('Short Call', contracts, spot, rules));
 
   return candidates
+    .map(candidate => attachResearchModels(candidate, contracts, spot))
     .filter(candidate => candidate.score >= MIN_ACTIONABLE_SCORE)
     .sort((a, b) => b.score - a.score || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0));
 }
@@ -601,4 +687,7 @@ function buildActionableSetup(strategy, rawContracts, row, overrides = {}) {
   return candidate || missingSetup(rules);
 }
 
-module.exports = { ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups, buildActionableSetup };
+module.exports = {
+  ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups, buildActionableSetup,
+  expectedMoveForExpiry, popForCandidate,
+};
