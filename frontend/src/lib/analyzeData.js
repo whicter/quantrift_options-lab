@@ -52,6 +52,7 @@ export function applyGex(data, gexData) {
         freshness: gexData.freshness,
         confidence: gexData.confidence,
         reason: gexData.is_stale ? 'stale' : 'unusable',
+        metadata: gexData.gex_metadata || null,
       } : null,
     };
   }
@@ -106,6 +107,7 @@ export function applyGex(data, gexData) {
       providerStatus: gexData.provider_status,
       wallMethod: gexData.wall_method,
       rawMetrics: gexData.raw_metrics || null,
+      metadata: gexData.gex_metadata || null,
     },
     scenarios: {
       ...data.scenarios,

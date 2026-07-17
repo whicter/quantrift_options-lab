@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { compactMoney } from '../../lib/scannerPresentation';
+import DataDetails from '../../components/DataDetails';
 
 export default function Sec2Gamma({ data }) {
   const history = data.gamma.history;
@@ -42,6 +43,7 @@ export default function Sec2Gamma({ data }) {
         </div>
       </div>
       <div className="wk-note">GEX、Wall 与 Flip 均为基于 OI、Gamma、现价、合约乘数和定位代理假设的模型输出。仅展示已采集的每日最新快照；没有历史快照的日期不会补值。</div>
+      <DataDetails metadata={snap.gex_metadata} />
     </div>
   );
 }

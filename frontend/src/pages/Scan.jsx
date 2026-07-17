@@ -6,6 +6,7 @@ import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTre
 import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
 import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
 import { dedupeScannerRows, nextScannerSort, scanCandidateId, sortScannerRows } from '../lib/scannerResults';
+import DataDetails from '../components/DataDetails';
 
 const STRATEGY_OPTIONS = [
   'Iron Condor', 'Bull Put Spread', 'Bear Call Spread', 'Long Straddle',
@@ -219,6 +220,7 @@ function toScanRow(row, concreteSetup) {
       volumeOiRatio: num(row.volume_oi_ratio),
       score: Math.round(num(row.signal_score) ?? 0),
     },
+    gexMetadata: row.gex_metadata || null,
     unusual: {
       count: num(row.unusual_oi_count) ?? 0,
       maxDelta: num(row.max_oi_delta),
@@ -858,6 +860,7 @@ export default function Scan() {
                       <small>{gammaSummary(d.gex)}</small>
                       <small>{wallSummary(d.gex, d.price)}</small>
                       <small>{oiDeltaSummary(d.unusual)} · 社区样本 {communityHeatLabel(d.community)}</small>
+                      <DataDetails metadata={d.gexMetadata} compact />
                     </span>
                     <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>

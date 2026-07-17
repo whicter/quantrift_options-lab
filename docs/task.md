@@ -51,9 +51,10 @@
 
 #### C. Product architecture and disclosure follow-through
 
-- [ ] Implement a reusable `DataDetails` component across Analyze, Scan and Weekly.
-  - Show user-level source label, snapshot time, freshness and calculation basis without exposing raw provider/internal implementation names.
-  - Use the same state vocabulary: `fresh` / `delayed` / `stale` / `partial` / `unavailable`.
+- [x] Implement a reusable `DataDetails` component across Analyze, Scan and Weekly.
+  - `frontend/src/components/DataDetails.jsx` is collapsed by default. Analyze shows the selected GEX snapshot; each Scanner row offers a compact expandable detail; Weekly follows its selected historical GEX point.
+  - It shows public snapshot/model context without emitting provider/internal implementation names: model version and unit, snapshot time, contract coverage/completeness, expiry window, positioning proxy and Local/Flip parameters.
+  - State vocabulary is rendered as `fresh` / `delayed` / `stale` / `partial` / `unavailable` / `historical`. The detail disclosure is intentionally secondary to the opportunity/analysis result.
 - [ ] Implement full SSR/SSG only after choosing the frontend migration path.
   - The current static HTML semantic summary satisfies the immediate crawler requirement; route-level SSR/SSG remains a separate architecture migration.
 - [ ] Complete V3A follow-up tasks already specified below: backend Analyze DTO, authorization/entitlement fail-closed gate, internal-status split, DB role separation, shared rate limiting/cache coordination, deployment security headers and CI artifact checks.

@@ -9,6 +9,7 @@ import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
 import Tab4Signals from './analyze/Tab4Signals';
+import DataDetails from '../components/DataDetails';
 
 const TABS = [
   { id: 0, label: '最新概览' },
@@ -555,6 +556,7 @@ export default function Analyze() {
 
           <PartialDataNotice partialData={result.partialData} />
           <PartialDataNotice partialData={result.gexNotice} />
+          <DataDetails metadata={result.gexMeta?.metadata} />
           {result.onDemandStatus?.status === 'queued' && (
             <PartialDataNotice partialData={{
               title: '后台数据补全中',

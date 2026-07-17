@@ -29,6 +29,8 @@ Every GEX-derived public DTO uses `gex_metadata`; the same contract is attached 
 
 The current GEX calculation uses `gex-v2-1pct-positioning-proxy`. Scanner materialization persists the GEX metadata inside the scanner snapshot payload so candidates can be traced to the calculation that produced them. A missing historical payload is reported as `partial`; it is not reconstructed from guessed model inputs.
 
+`DataDetails` is the shared, closed-by-default product component for this contract. It appears below the selected Analyze snapshot, as a compact disclosure in each Scanner positioning cell, and below the selected Weekly Gamma history point. It deliberately provides a public source label rather than an internal provider or routing name.
+
 ### Monorepo 结构
 
 ```
