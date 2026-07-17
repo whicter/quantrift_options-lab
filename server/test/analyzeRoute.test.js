@@ -24,7 +24,7 @@ test.beforeEach(() => { queryResults.length = 0; refreshCalls.length = 0; querie
 
 test('unknown symbol is registered and enqueues the complete data bundle', async () => {
   queryResults.push({ rows: [] }, { rows: [{
-    has_price: false, has_metrics: false, has_options: false, has_gex: false,
+    has_price: false, has_metrics: false, has_options: false, has_quoted_options: false, has_gex: false,
     active_jobs: 0, queue_depth: 3,
     metrics_blocked: false,
   }] });
@@ -40,7 +40,7 @@ test('unknown symbol is registered and enqueues the complete data bundle', async
 
 test('symbol with an existing chain but outdated GEX queues local recompute without refetching options', async () => {
   queryResults.push({ rows: [] }, { rows: [{
-    has_price: true, has_metrics: true, has_options: true, has_gex: false,
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: true, has_gex: false,
     active_jobs: 0, queue_depth: 0, metrics_blocked: false,
   }] });
   const res = responseRecorder();
@@ -53,7 +53,7 @@ test('symbol with an existing chain but outdated GEX queues local recompute with
 
 test('fully covered symbol returns ready without duplicate jobs', async () => {
   queryResults.push({ rows: [] }, { rows: [{
-    has_price: true, has_metrics: true, has_options: true, has_gex: true,
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: true, has_gex: true,
     active_jobs: 0, queue_depth: 0,
     metrics_blocked: false,
   }] });
@@ -65,7 +65,7 @@ test('fully covered symbol returns ready without duplicate jobs', async () => {
 
 test('derived IV Rank readiness satisfies metrics without a Tastytrade job', async () => {
   queryResults.push({ rows: [] }, { rows: [{
-    has_price: true, has_metrics: true, has_derived_metrics: true, has_options: true, has_gex: true,
+    has_price: true, has_metrics: true, has_derived_metrics: true, has_options: true, has_quoted_options: true, has_gex: true,
     active_jobs: 0, queue_depth: 0, metrics_blocked: false,
   }] });
   const res = responseRecorder();
@@ -77,7 +77,7 @@ test('derived IV Rank readiness satisfies metrics without a Tastytrade job', asy
 
 test('recent non-retryable metrics failure is exposed without enqueue loop', async () => {
   queryResults.push({ rows: [] }, { rows: [{
-    has_price: true, has_metrics: false, has_options: true, has_gex: true,
+    has_price: true, has_metrics: false, has_options: true, has_quoted_options: true, has_gex: true,
     active_jobs: 0, queue_depth: 0, metrics_blocked: true,
     metrics_last_error: 'tastytrade metrics auth unavailable: device challenge',
   }] });
@@ -94,6 +94,22 @@ test('malformed ticker is rejected before persistence', async () => {
   await sendAnalyzeStatus({ params: { symbol: "SS'TS'T'X" } }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(queryResults.length, 0);
+});
+
+test('existing chain without bid/ask quotes is queued for an immediate quote refresh', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: false, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false,
+  }] });
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+
+  assert.equal(res.body.status, 'queued');
+  assert.equal(res.body.coverage.option_quotes, false);
+  assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_chain_snapshot']);
+  assert.equal(refreshCalls[0].requestParams.reason, 'analyze_on_demand_missing_option_quotes');
+  assert.equal(refreshCalls[0].requestParams.require_quotes, true);
+  assert.equal(refreshCalls[0].requestParams.priority, 100);
 });
 
 test('Analyze candidate is built server-side from the latest quoted chain without returning that chain', async () => {

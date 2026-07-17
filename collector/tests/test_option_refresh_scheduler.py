@@ -5,6 +5,15 @@ import schedule_option_refresh
 
 
 class OptionRefreshSchedulerTests(unittest.TestCase):
+    def test_quote_missing_symbol_is_selected_as_missing_before_fresh_quoted_data(self):
+        now = datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc)
+        selected = schedule_option_refresh.select_candidates(
+            ['RKLB', 'SPY'],
+            {'SPY': now - timedelta(minutes=10)},
+            set(), now, max_age_minutes=60, limit=2,
+        )
+        self.assertEqual(selected, ['RKLB'])
+
     def test_missing_symbols_are_selected_before_stale_symbols(self):
         now = datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc)
         selected = schedule_option_refresh.select_candidates(

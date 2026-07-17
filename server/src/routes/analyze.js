@@ -34,6 +34,17 @@ async function sendAnalyzeStatus(req, res) {
          EXISTS (SELECT 1 FROM volatility_history WHERE symbol = $1 AND iv_rank_ready = TRUE) AS has_derived_metrics,
          EXISTS (SELECT 1 FROM option_chain_snapshots WHERE symbol = $1 AND contract_count > 0) AS has_options,
          EXISTS (
+           SELECT 1
+           FROM option_chain_snapshots s
+           WHERE s.symbol = $1
+             AND EXISTS (
+               SELECT 1 FROM option_contract_snapshots c
+               WHERE c.snapshot_id = s.id
+                 AND c.bid IS NOT NULL AND c.ask IS NOT NULL
+                 AND c.ask > 0 AND c.ask >= c.bid
+             )
+         ) AS has_quoted_options,
+         EXISTS (
            SELECT 1 FROM gex_snapshots
            WHERE symbol = $1
              AND raw_metrics->>'model_version' = $2
@@ -67,10 +78,14 @@ async function sendAnalyzeStatus(req, res) {
         });
       }
     }
-    if (!coverage.has_options) {
+    if (!coverage.has_options || !coverage.has_quoted_options) {
       refresh.options = await enqueueRefreshJob({
         symbol, jobType: 'option_chain_snapshot', provider: 'polygon_licensed',
-        requestParams: { reason: 'analyze_on_demand', priority: 100 }, minIntervalSeconds: 300,
+        requestParams: {
+          reason: coverage.has_options ? 'analyze_on_demand_missing_option_quotes' : 'analyze_on_demand',
+          priority: 100,
+          require_quotes: true,
+        }, minIntervalSeconds: 300,
       });
     } else if (!coverage.has_gex) {
       refresh.gex = await enqueueRefreshJob({
@@ -78,16 +93,17 @@ async function sendAnalyzeStatus(req, res) {
         requestParams: { reason: 'analyze_on_demand_model_repair', priority: 100 }, minIntervalSeconds: 60,
       });
     }
-    const readyCount = [coverage.has_price, coverage.has_metrics, coverage.has_options, coverage.has_gex].filter(Boolean).length;
+    const readyCount = [coverage.has_price, coverage.has_metrics, coverage.has_options, coverage.has_quoted_options, coverage.has_gex].filter(Boolean).length;
     const queued = Object.values(refresh).some(value => value === 'queued') || coverage.active_jobs > 0;
     return res.json({
       symbol,
-      status: readyCount === 4 ? 'ready' : queued ? 'queued' : readyCount ? 'partial' : 'missing',
+      status: readyCount === 5 ? 'ready' : queued ? 'queued' : readyCount ? 'partial' : 'missing',
       coverage: {
         price: coverage.has_price,
         metrics: coverage.has_metrics,
         metrics_source: coverage.has_derived_metrics ? 'derived' : coverage.has_metrics ? 'provider' : null,
         options: coverage.has_options,
+        option_quotes: coverage.has_quoted_options,
         gex: coverage.has_gex,
       },
       refresh,

@@ -8,6 +8,7 @@
   - 2026-07-16 copy pass：Q1 先给出“正/负 Gamma 环境 + 估算 GEX”的直接结论，再用一句盘面含义解释波动可能收窄/放大；公开 OI 的模型边界放在结尾，不用“代理符号假设”打断主句。
   - 2026-07-17 copy pass：Q2 直接说明动量与 Gamma 环境组合下可能出现的波动表现；Q3 改为明确的上方/下方关注价位，模型边界仅保留为句末一句。
   - 2026-07-17 strategy-candidate repair：Analyze 改为调用后端的 `/api/analyze/:symbol/candidate`；服务端从最新已报价链生成并只返回入选策略腿，前端不再把 `recommendation` 硬编码为 `null`，也不再接收完整合约链。
+  - 2026-07-17 quote-readiness repair：期权链存在不再等于策略腿可用。Analyze 与 watchlist refresh 均把至少一条有效 bid/ask 视为独立完成条件；无报价链按高优先级排队补取，避免 GEX/OI 已有但策略候选永久为空。
 - ✅ Trend / Options：OBV 改为价量动量；PCR 仅描述 Put/Call 相对比例；外部事件流、OI 异动与数据状态不再暗示净资金流、机构身份或实时性。
 - ✅ Scan：已采集报价快照、筛选匹配分、模型定位、社区样本和候选结构均附清晰边界；不再表述为可直接成交订单或预测分数。
 - ✅ Weekly：自定义“恐慌/贪婪”改为周度模型分数；Gamma/Wall/Max Pain/ΔOI 改为快照模型与条件情景。

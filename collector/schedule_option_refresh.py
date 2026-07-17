@@ -60,6 +60,13 @@ def load_refresh_state(conn, symbols: list[str]) -> tuple[dict[str, datetime], s
             SELECT DISTINCT ON (symbol) symbol, snapshot_ts
             FROM option_chain_snapshots
             WHERE symbol = ANY(%s)
+              AND EXISTS (
+                SELECT 1
+                FROM option_contract_snapshots c
+                WHERE c.snapshot_id = option_chain_snapshots.id
+                  AND c.bid IS NOT NULL AND c.ask IS NOT NULL
+                  AND c.ask > 0 AND c.ask >= c.bid
+              )
             ORDER BY symbol, snapshot_ts DESC
             """,
             (symbols,),
