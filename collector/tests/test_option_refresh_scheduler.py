@@ -192,3 +192,74 @@ class _RecordingConn:
 
     def commit(self):
         return None
+
+
+class BudgetAwareFillTests(unittest.TestCase):
+    """Filling the queue to depth without respecting the provider's remaining
+    daily budget enqueues jobs that immediately fail on budget -- pure churn.
+    The scheduler must stop filling before the worker starts failing."""
+
+    def test_remaining_budget_caps_the_fill(self):
+        # Queue wants 20, but only 5 provider requests remain today.
+        self.assertEqual(
+            schedule_option_refresh.fill_count(0, queue_target=20, max_per_cycle=20, remaining_budget=5),
+            5,
+        )
+
+    def test_exhausted_budget_enqueues_nothing(self):
+        self.assertEqual(
+            schedule_option_refresh.fill_count(0, queue_target=20, max_per_cycle=20, remaining_budget=0),
+            0,
+        )
+
+    def test_no_budget_cap_behaves_as_before(self):
+        self.assertEqual(
+            schedule_option_refresh.fill_count(15, queue_target=20, max_per_cycle=20, remaining_budget=None),
+            5,
+        )
+
+    def test_budget_does_not_raise_capacity_above_queue_need(self):
+        # A large remaining budget must not override the depth target.
+        self.assertEqual(
+            schedule_option_refresh.fill_count(18, queue_target=20, max_per_cycle=20, remaining_budget=1000),
+            2,
+        )
+
+    def test_load_remaining_budget_returns_none_when_uncapped(self):
+        conn = _BudgetConn(row=None)
+        self.assertIsNone(schedule_option_refresh.load_remaining_budget(conn, 'polygon_licensed'))
+        conn = _BudgetConn(row=(10, None))
+        self.assertIsNone(schedule_option_refresh.load_remaining_budget(conn, 'polygon_licensed'))
+
+    def test_load_remaining_budget_computes_the_gap(self):
+        conn = _BudgetConn(row=(950, 1000))
+        self.assertEqual(schedule_option_refresh.load_remaining_budget(conn, 'polygon_licensed'), 50)
+
+    def test_load_remaining_budget_never_negative(self):
+        conn = _BudgetConn(row=(1000, 1000))
+        self.assertEqual(schedule_option_refresh.load_remaining_budget(conn, 'polygon_licensed'), 0)
+
+
+class _BudgetCursor:
+    def __init__(self, row):
+        self._row = row
+
+    def execute(self, *_args, **_kwargs):
+        return None
+
+    def fetchone(self):
+        return self._row
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+class _BudgetConn:
+    def __init__(self, row):
+        self._row = row
+
+    def cursor(self):
+        return _BudgetCursor(self._row)

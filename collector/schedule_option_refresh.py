@@ -113,9 +113,45 @@ def select_candidates(
     )[:limit]
 
 
-def fill_count(queue_depth: int, queue_target: int = QUEUE_TARGET, max_per_cycle: int = MAX_ENQUEUE_PER_CYCLE) -> int:
-    """How many jobs to add this cycle to reach the target depth."""
-    return max(0, min(queue_target - queue_depth, max_per_cycle))
+def fill_count(
+    queue_depth: int,
+    queue_target: int = QUEUE_TARGET,
+    max_per_cycle: int = MAX_ENQUEUE_PER_CYCLE,
+    remaining_budget: int | None = None,
+) -> int:
+    """How many jobs to add this cycle.
+
+    Bounded by three limits: the target queue depth, the per-cycle cap, and the
+    provider's remaining daily budget. Without the budget bound, filling the
+    queue to depth would enqueue jobs that immediately fail once the budget is
+    spent -- pure churn that marks rows failed for nothing.
+    """
+    capacity = min(queue_target - queue_depth, max_per_cycle)
+    if remaining_budget is not None:
+        capacity = min(capacity, remaining_budget)
+    return max(0, capacity)
+
+
+def load_remaining_budget(conn, provider: str, job_type: str = 'option_chain_snapshot') -> int | None:
+    """Provider requests left in today's budget, or None when uncapped.
+
+    Reads the same provider_request_usage row the worker reserves against, so
+    the scheduler stops filling before the worker starts failing on budget.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT request_count, request_budget
+            FROM provider_request_usage
+            WHERE provider = %s AND usage_date = CURRENT_DATE AND job_type = %s
+            """,
+            (provider, job_type),
+        )
+        row = cur.fetchone()
+    if not row or row[1] is None:
+        return None
+    request_count, request_budget = row
+    return max(0, int(request_budget) - int(request_count))
 
 
 def load_universe(conn) -> tuple[list[str], set[str]]:
@@ -264,15 +300,17 @@ def run() -> dict[str, Any]:
     try:
         symbols, scan_enabled = load_universe(conn)
         queue_depth = load_queue_depth(conn)
-        capacity = fill_count(queue_depth)
+        remaining_budget = load_remaining_budget(conn, REFRESH_PROVIDER)
+        capacity = fill_count(queue_depth, remaining_budget=remaining_budget)
         if capacity <= 0:
+            reason = 'budget exhausted' if remaining_budget == 0 else 'queue at target'
             log.info(
-                'Option refresh scheduler idle: queue_depth=%s already at target=%s',
-                queue_depth, QUEUE_TARGET,
+                'Option refresh scheduler idle (%s): queue_depth=%s target=%s remaining_budget=%s',
+                reason, queue_depth, QUEUE_TARGET, remaining_budget,
             )
             return {
                 'selected': [], 'inserted': 0, 'provider': REFRESH_PROVIDER,
-                'queue_depth': queue_depth, 'capacity': 0,
+                'queue_depth': queue_depth, 'capacity': 0, 'remaining_budget': remaining_budget,
             }
 
         recent_active = load_recent_active(conn, RECENT_ACTIVE_HOURS)
@@ -297,6 +335,7 @@ def run() -> dict[str, Any]:
         'provider': REFRESH_PROVIDER,
         'queue_depth': queue_depth,
         'capacity': capacity,
+        'remaining_budget': remaining_budget,
         'universe_count': len(symbols),
     }
     log.info(
