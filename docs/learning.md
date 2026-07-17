@@ -693,3 +693,4 @@ GEX compute job：
 - **provider 原始 JSON 也属于采集事务的一部分**：TT/DXLink 事件可能含 `Decimal`。数据库列可以正常适配 Decimal，但 JSONB 不会；raw metadata 与 raw contract 必须在持久化边界统一转成 JSON 数字，否则“数据已获取”仍会因审计字段失败而整单回滚。
 - **blocker 只能表达不可通过重试解决的状态**：无报价和认证失败适合短期阻断；代码或序列化错误不应被标记成数据不可用，否则部署修复后用户请求仍被旧失败记录挡住。
 - **enqueue 与执行是两个独立运行面**：API 写入 `provider_fetch_jobs` 不会自行执行 provider。Railway 若只跑 `collect.py`，按需队列和 watchlist option scheduler 都会饿死；云端 one-shot cron 必须按顺序运行 scheduler、refresh worker、scanner materialization。当前 cadence 为工作日每 5 分钟。
+- **所有 JSONB 写入边界都必须处理 Decimal**：修复 option snapshot 后，scanner materialization 从 PostgreSQL 读回 `gex.raw_metrics` 仍会重新带入 Decimal；若直接 `Json(payload)`，refresh worker 虽已完成，最终 scanner materialization 仍会失败。所有 raw/provider JSON 及其派生 payload 必须使用同一显式 Decimal-to-number encoder，并以完整 refresh cycle 覆盖回归。

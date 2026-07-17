@@ -1,4 +1,6 @@
+import json
 import unittest
+from decimal import Decimal
 
 import materialize_scan
 
@@ -64,6 +66,14 @@ class MaterializeScanVolatilityTests(unittest.TestCase):
                 return self.last_cursor
 
         self.assertEqual(materialize_scan.load_symbols(UniverseConnection()), ['AAPL', 'PLTR'])
+
+    def test_scan_payload_serializes_decimal_gex_metadata(self):
+        payload = materialize_scan.json_payload({'global_gex': Decimal('217181490258.5')})
+
+        self.assertEqual(
+            json.loads(payload.dumps(payload.adapted)),
+            {'global_gex': 217181490258.5},
+        )
 
 
 if __name__ == '__main__':

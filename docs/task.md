@@ -13,6 +13,7 @@
   - 2026-07-17 TT persistence repair：provider 原始 DXLink 元数据可能含 Python `Decimal`；snapshot 写入层统一 JSON 编码为数值，避免 TT 已拿到报价却在 `raw_metadata/raw_contract` 持久化时失败。
   - 2026-07-17 retry classification repair：仅“所有报价 provider 无有效 bid/ask”及认证不可用会阻断 24 小时；序列化等代码故障保留为可重新入队的失败，修复部署后可立即恢复。
   - 2026-07-17 Railway refresh execution repair：原 cloud cron 只执行 `collect.py`，而 API 入队由 `run_refresh_worker.py` 消费，造成 on-demand jobs 永远不执行。cron 现每 5 分钟运行 `run_railway_refresh_cycle.py`：watchlist scheduler → refresh worker → scanner materialization；TT metrics 仍保持禁用，不在该云任务中登录或拉取 IV metrics。
+  - 2026-07-17 scanner materialization repair：PostgreSQL GEX 原始 JSON 读回时包含 `Decimal`，`scanner_results_snapshots.payload` 的 JSONB 编码此前会抛错并使 refresh cycle 末尾失败。现与 option snapshot 持久化边界一致，将 Decimal 显式编码为 JSON number；Railway refresh scheduler 固定走 `polygon_licensed` 主 provider，避免将云端 watchlist 工作排到已知会触发 TT device challenge 的 provider。
 - ✅ Trend / Options：OBV 改为价量动量；PCR 仅描述 Put/Call 相对比例；外部事件流、OI 异动与数据状态不再暗示净资金流、机构身份或实时性。
 - ✅ Scan：已采集报价快照、筛选匹配分、模型定位、社区样本和候选结构均附清晰边界；不再表述为可直接成交订单或预测分数。
 - ✅ Weekly：自定义“恐慌/贪婪”改为周度模型分数；Gamma/Wall/Max Pain/ΔOI 改为快照模型与条件情景。

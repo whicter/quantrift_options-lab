@@ -22,6 +22,7 @@ class RailwayRefreshCronTest(unittest.TestCase):
         self.assertIn('COPY collector/ ./', dockerfile)
         self.assertIn('CMD ["python", "run_railway_refresh_cycle.py"]', dockerfile)
         self.assertIn('COLLECTOR_RUNTIME=railway-refresh-cron', dockerfile)
+        self.assertIn('OPTION_REFRESH_PROVIDER=polygon_licensed', dockerfile)
         self.assertIn('TT_METRICS_ENABLED=false', dockerfile)
         self.assertNotIn('run_collector_daemon.py', dockerfile)
         dockerignore = (COLLECTOR_DIR / '.dockerignore').read_text()

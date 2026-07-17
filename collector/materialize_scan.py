@@ -6,8 +6,10 @@ latest IV, price, option-chain GEX, and strike-level positioning snapshots,
 then writes one scanner row per active persisted-universe symbol to scanner_results_snapshots.
 """
 
+import json
 import logging
 import os
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg2
@@ -30,6 +32,16 @@ SCAN_KEY = os.getenv('SCAN_KEY', 'watchlist_v1')
 OPTIONS_STALE_MINUTES = int(os.getenv('OPTIONS_STALE_MINUTES', '15'))
 USE_DERIVED_VOLATILITY = os.getenv('USE_DERIVED_VOLATILITY', 'true').strip().lower() in ('1', 'true', 'yes')
 GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy'
+
+
+def _json_default(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(f'Object of type {type(value).__name__} is not JSON serializable')
+
+
+def json_payload(value):
+    return Json(value, dumps=lambda payload: json.dumps(payload, default=_json_default))
 
 
 def load_symbols(conn=None):
@@ -544,7 +556,7 @@ def insert_rows(conn, rows):
             row.get('max_oi_delta'),
             row.get('max_volume_oi_ratio'),
             row.get('unusual_status') or 'missing',
-            Json(payload),
+            json_payload(payload),
             freshness,
             is_stale,
             'none',
