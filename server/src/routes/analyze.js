@@ -58,7 +58,21 @@ async function sendAnalyzeStatus(req, res) {
          ) AS metrics_blocked,
          (SELECT last_error FROM provider_fetch_jobs
           WHERE symbol = $1 AND job_type = 'symbol_metrics_snapshot' AND status = 'failed'
-          ORDER BY finished_at DESC LIMIT 1) AS metrics_last_error`,
+          ORDER BY finished_at DESC LIMIT 1) AS metrics_last_error,
+         EXISTS (
+           SELECT 1 FROM provider_fetch_jobs
+           WHERE symbol = $1
+             AND job_type = 'option_chain_snapshot'
+             AND status = 'failed'
+             AND request_params->>'require_quotes' = 'true'
+             AND finished_at >= NOW() - INTERVAL '24 hours'
+         ) AS quotes_blocked,
+         (SELECT last_error FROM provider_fetch_jobs
+          WHERE symbol = $1
+            AND job_type = 'option_chain_snapshot'
+            AND status = 'failed'
+            AND request_params->>'require_quotes' = 'true'
+          ORDER BY finished_at DESC LIMIT 1) AS quotes_last_error`,
       [symbol, GEX_MODEL_VERSION]
     );
     const coverage = rows[0];
@@ -79,14 +93,17 @@ async function sendAnalyzeStatus(req, res) {
       }
     }
     if (!coverage.has_options || !coverage.has_quoted_options) {
-      refresh.options = await enqueueRefreshJob({
-        symbol, jobType: 'option_chain_snapshot', provider: 'polygon_licensed',
-        requestParams: {
-          reason: coverage.has_options ? 'analyze_on_demand_missing_option_quotes' : 'analyze_on_demand',
-          priority: 100,
-          require_quotes: true,
-        }, minIntervalSeconds: 300,
-      });
+      if (coverage.quotes_blocked) refresh.options = 'blocked';
+      else {
+        refresh.options = await enqueueRefreshJob({
+          symbol, jobType: 'option_chain_snapshot', provider: 'polygon_licensed',
+          requestParams: {
+            reason: coverage.has_options ? 'analyze_on_demand_missing_option_quotes' : 'analyze_on_demand',
+            priority: 100,
+            require_quotes: true,
+          }, minIntervalSeconds: 60,
+        });
+      }
     } else if (!coverage.has_gex) {
       refresh.gex = await enqueueRefreshJob({
         symbol, jobType: 'gex_recompute', provider: 'internal',
@@ -109,7 +126,10 @@ async function sendAnalyzeStatus(req, res) {
       refresh,
       queue_depth: coverage.queue_depth,
       estimated_wait: queued ? ON_DEMAND_ESTIMATED_WAIT : null,
-      blockers: coverage.metrics_blocked ? [{ field: 'metrics', reason: coverage.metrics_last_error }] : [],
+      blockers: [
+        ...(coverage.metrics_blocked ? [{ field: 'metrics', reason: coverage.metrics_last_error }] : []),
+        ...(coverage.quotes_blocked ? [{ field: 'option_quotes', reason: coverage.quotes_last_error }] : []),
+      ],
     });
   } catch (err) {
     if (err?.code === '42P01') return res.status(503).json({ error: 'universe migration required' });

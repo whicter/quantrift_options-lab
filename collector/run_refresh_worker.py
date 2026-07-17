@@ -41,13 +41,14 @@ RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINU
 PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000'))
 TT_CIRCUIT_OPEN = os.getenv('TT_CIRCUIT_OPEN', '').strip().lower() in ('1', 'true', 'yes')
 SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal', 'polygon_licensed'}
-DEFAULT_OPTION_FALLBACK_PROVIDERS = 'polygon_licensed'
+DEFAULT_OPTION_FALLBACK_PROVIDERS = 'tt_internal'
 NON_RETRYABLE_ERROR_PREFIXES = (
     'unsupported option provider for worker:',
     'tastytrade auth unavailable:',
     'tastytrade metrics auth unavailable:',
     'provider auth unavailable for this worker run:',
     'provider unavailable for this worker run:',
+    'option quote unavailable:',
 )
 
 
@@ -260,6 +261,16 @@ def fetch_and_persist_option_snapshot(
     return snapshot_id, snapshot
 
 
+def has_usable_option_quotes(snapshot: Any) -> bool:
+    return any(
+        contract.bid is not None
+        and contract.ask is not None
+        and contract.ask > 0
+        and contract.ask >= contract.bid
+        for contract in snapshot.contracts
+    )
+
+
 def finalize_option_snapshot(conn, snapshot_id: int) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     try:
@@ -291,6 +302,7 @@ def run_option_chain_snapshot(
 ) -> dict[str, Any]:
     symbol = job['symbol']
     primary_provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
+    require_quotes = bool((job.get('request_params') or {}).get('require_quotes'))
 
     if primary_provider not in SUPPORTED_OPTION_PROVIDERS:
         raise RuntimeError(f'unsupported option provider for worker: {primary_provider}')
@@ -316,6 +328,17 @@ def run_option_chain_snapshot(
                 log.error('job %s provider %s unavailable; trying fallback: %s', job['id'], provider_name, exc)
                 continue
             raise
+
+        if require_quotes and not has_usable_option_quotes(snapshot):
+            last_exc = RuntimeError(
+                f'option quote unavailable: {provider_name} returned no usable bid/ask quotes'
+            )
+            log.warning(
+                'job %s provider %s returned no usable bid/ask quotes; trying fallback',
+                job['id'],
+                provider_name,
+            )
+            continue
 
         summary = {
             'requested_provider': primary_provider,

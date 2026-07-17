@@ -110,6 +110,26 @@ test('existing chain without bid/ask quotes is queued for an immediate quote ref
   assert.equal(refreshCalls[0].requestParams.reason, 'analyze_on_demand_missing_option_quotes');
   assert.equal(refreshCalls[0].requestParams.require_quotes, true);
   assert.equal(refreshCalls[0].requestParams.priority, 100);
+  assert.equal(refreshCalls[0].minIntervalSeconds, 60);
+});
+
+test('failed quote collection is exposed without an enqueue loop', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: false, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false,
+    quotes_blocked: true,
+    quotes_last_error: 'option quote unavailable: tastytrade returned no usable bid/ask quotes',
+  }] });
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+
+  assert.equal(res.body.status, 'partial');
+  assert.equal(res.body.refresh.options, 'blocked');
+  assert.deepEqual(res.body.blockers, [{
+    field: 'option_quotes',
+    reason: 'option quote unavailable: tastytrade returned no usable bid/ask quotes',
+  }]);
+  assert.equal(refreshCalls.length, 0);
 });
 
 test('Analyze candidate is built server-side from the latest quoted chain without returning that chain', async () => {

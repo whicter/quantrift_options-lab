@@ -9,6 +9,7 @@
   - 2026-07-17 copy pass：Q2 直接说明动量与 Gamma 环境组合下可能出现的波动表现；Q3 改为明确的上方/下方关注价位，模型边界仅保留为句末一句。
   - 2026-07-17 strategy-candidate repair：Analyze 改为调用后端的 `/api/analyze/:symbol/candidate`；服务端从最新已报价链生成并只返回入选策略腿，前端不再把 `recommendation` 硬编码为 `null`，也不再接收完整合约链。
   - 2026-07-17 quote-readiness repair：期权链存在不再等于策略腿可用。Analyze 与 watchlist refresh 均把至少一条有效 bid/ask 视为独立完成条件；无报价链按高优先级排队补取，避免 GEX/OI 已有但策略候选永久为空。
+  - 2026-07-17 quote fallback repair：`require_quotes` 任务若 Polygon 快照没有有效 bid/ask，worker 自动尝试 `tt_internal`；两个 provider 都无报价则写入明确的 non-retryable blocker。不会把 mark、last 或日线价格伪装成策略腿报价。
 - ✅ Trend / Options：OBV 改为价量动量；PCR 仅描述 Put/Call 相对比例；外部事件流、OI 异动与数据状态不再暗示净资金流、机构身份或实时性。
 - ✅ Scan：已采集报价快照、筛选匹配分、模型定位、社区样本和候选结构均附清晰边界；不再表述为可直接成交订单或预测分数。
 - ✅ Weekly：自定义“恐慌/贪婪”改为周度模型分数；Gamma/Wall/Max Pain/ΔOI 改为快照模型与条件情景。
@@ -1001,7 +1002,7 @@
 
 ### run_refresh_worker.py
 - ✅ `SUPPORTED_OPTION_PROVIDERS` 加入 `'polygon_licensed'`（之前遗漏导致 `unsupported option provider for worker: polygon_licensed` 错误）
-- ✅ `DEFAULT_OPTION_FALLBACK_PROVIDERS` 从 `'ib_internal'` 改为 `'polygon_licensed'`
+- ✅ `DEFAULT_OPTION_FALLBACK_PROVIDERS` 当前为 `'tt_internal'`：当 `require_quotes` 的 Polygon 快照没有有效 bid/ask 时，worker 才尝试 TT，避免无报价链被误判为策略候选可用。
 
 ### ecosystem.config.cjs
 - ✅ `OPTION_REFRESH_PROVIDER: 'polygon_licensed'`

@@ -35,6 +35,13 @@ class RefreshProviderContractTest(unittest.TestCase):
             RuntimeError('temporary provider timeout')
         ))
 
+    def test_unquoted_option_snapshot_is_non_retryable(self):
+        import run_refresh_worker
+
+        self.assertFalse(run_refresh_worker.should_retry(
+            RuntimeError('option quote unavailable: polygon_licensed returned no usable bid/ask quotes')
+        ))
+
     def test_worker_recovers_stale_running_jobs(self):
         source = WORKER_SOURCE.read_text()
         self.assertIn('recover_stale_running_jobs', source)
@@ -177,6 +184,45 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertTrue(run_refresh_worker.is_provider_unavailable(
             RuntimeError('tastytrade network unavailable: ConnectTimeout')
         ))
+
+    def test_quote_required_job_falls_back_when_primary_has_no_bid_ask(self):
+        import run_refresh_worker
+
+        class FakeConn:
+            def rollback(self):
+                pass
+
+        calls = []
+
+        def fake_fetch(_conn, _symbol, provider, _provider_cache=None):
+            calls.append(provider)
+            contracts = [] if provider == 'polygon_licensed' else [
+                SimpleNamespace(bid=1.0, ask=1.2),
+            ]
+            return 200 + len(calls), SimpleNamespace(
+                contracts=contracts,
+                provider_status='ok',
+                snapshot_ts=datetime(2026, 7, 15, tzinfo=timezone.utc),
+            )
+
+        with patch.dict('os.environ', {'OPTION_FALLBACK_PROVIDERS': 'tt_internal'}, clear=False), \
+             patch.object(run_refresh_worker, 'reserve_budget'), \
+             patch.object(run_refresh_worker, 'fetch_and_persist_option_snapshot', side_effect=fake_fetch), \
+             patch.object(run_refresh_worker, 'finalize_option_snapshot', return_value={}):
+            summary = run_refresh_worker.run_option_chain_snapshot(
+                FakeConn(),
+                {
+                    'id': 101,
+                    'symbol': 'RKLB',
+                    'job_type': 'option_chain_snapshot',
+                    'provider': 'polygon_licensed',
+                    'request_params': {'require_quotes': True},
+                },
+            )
+
+        self.assertEqual(calls, ['polygon_licensed', 'tt_internal'])
+        self.assertEqual(summary['provider'], 'tt_internal')
+        self.assertEqual(summary['fallback_from'], 'polygon_licensed')
 
     def test_worker_reuses_one_provider_instance_for_all_jobs(self):
         import run_refresh_worker
