@@ -1463,7 +1463,7 @@ WHERE iv_rank_ready = TRUE;
 
 ## Railway Metrics Cron
 
-The separate Railway service is `quantrift-metrics-cron`. Its config file path is `/collector/railway.metrics.json`; that file selects `collector/Dockerfile.metrics`, runs `python collect.py`, schedules `30 22 * * 1-5` UTC and never restarts a completed run. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
+The separate Railway service is `quantrift-metrics-cron`. Its config file path is `/collector/railway.metrics.json`; it selects `collector/Dockerfile.metrics`, runs `python run_railway_refresh_cycle.py`, schedules `*/5 * * * 1-5` UTC and never restarts a completed run. Each execution schedules bounded watchlist refresh work, consumes API/on-demand jobs, then materializes scanner rows. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
 
 The Railway build context remains the repository root even when the config file is inside `collector/`. Therefore the Dockerfile path and `COPY` sources must be repo-root-relative: config uses `collector/Dockerfile.metrics`, and the Dockerfile copies `collector/requirements.txt` and `collector/`. Do not rely on the config path to change build context.
 

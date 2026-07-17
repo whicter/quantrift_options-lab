@@ -8,8 +8,8 @@
     ]
   },
   "deploy": {
-    "startCommand": "python collect.py",
-    "cronSchedule": "30 22 * * 1-5",
+    "startCommand": "python run_railway_refresh_cycle.py",
+    "cronSchedule": "*/5 * * * 1-5",
     "restartPolicyType": "NEVER"
   }
 }
