@@ -51,7 +51,7 @@
 | E13 | A. Playwright 视觉回归 | 放在 UI 改动（E10/E11）之后，避免基线立即失效。 | 无 |
 | E14 | A. 生产 smoke 检查 | 依赖 E2 的 CI 与 E1 的端点分类。 | 需要一次真实部署 |
 | E15 | V3A-2 materialized candidate snapshots | 纯可维护性/吞吐优化，当前 `/api/scan` 已满足产品契约，优先级低于以上。 | 无 |
-| E16 | V3A-8 shared cache / rate limit | 与 E7 重叠；Redis 部分需先决定是否引入 Upstash。PostgreSQL-backed 部分已由 E7 覆盖。 | 需决定是否引入 Redis |
+| E16 | V3A-8 shared cache / rate limit | 与 E7 重叠：限流/预算协调已由 E7 用 PostgreSQL 覆盖。剩余只是"多实例后是否加 Redis 缓存层"，托管直接用 **Railway Redis**（一键加服务，同 project 内网，非 Upstash）。单实例阶段用不上。 | 决策项：多实例前不需要 |
 | E17 | V3A-7 数据库角色边界 | 可交付 SQL + 文档；实际 role 创建需 DB 管理员。 | 需 Railway DB 管理员操作 |
 | E18 | V3A-5 auth fail-closed gate | 代码可实现，但 enforcement 必须保持 `false` 直到 Clerk/Stripe 密钥就绪，否则会锁死生产。 | Clerk/Stripe keys |
 | E19 | P2.8.9 Railway 承载验证 | 需要 E3-E9 全部落地后的真实 runtime 测量。 | 需真实运行窗口 |
@@ -1774,10 +1774,14 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-8 Shared Cache And Rate Limit Layer
 
-- [ ] 引入 Redis/Upstash 或 PostgreSQL-backed shared state：
+> **托管决策已明确（2026-07-17）**：若引入 Redis，直接用 **Railway Redis**（New → Database → Redis，同 project 内网、并入 Railway 账单），**不用 Upstash**——全套已在 Railway,内网互通、少一个第三方账号。Upstash 只在 Vercel serverless 函数直连场景才更优,不是本架构。
+>
+> **现阶段是否需要 Redis：否。** provider 限流与预算协调已由 E7 用 PostgreSQL 实现并在生产验证；API 缓存目前是进程内 `server/src/lib/cache.js` 的 `Map`,单实例完全够用。Redis 的唯一增量价值是**多实例部署后**的共享缓存/限流,而多实例只在有付费用户、并发上来后才发生。届时:在 Railway 加 Redis 服务 + 把 `cache.js` 改为"有 `REDIS_URL` 就用 Redis、否则退回 Map"即可,是 1-2 小时的向后兼容改动,不是 blocker。
+
+- [ ] （多实例前不做）引入 Railway Redis 或继续用 PostgreSQL-backed shared state：
   - API response cache；
   - per-user/IP rate limits；
-  - provider budget/rate coordination；
+  - provider budget/rate coordination（已由 E7 覆盖）；
   - stale-while-refresh polling state。
 - [ ] 保留 PostgreSQL 为 source of truth；Redis 只做 cache/coordination。
 - [ ] Rate limits：
