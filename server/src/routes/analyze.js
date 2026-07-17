@@ -3,7 +3,8 @@ const pool = require('../db');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 
 const router = express.Router();
-const ON_DEMAND_ESTIMATED_WAIT = '~1-3min';
+const ON_DEMAND_ESTIMATED_WAIT = '约 1 分钟';
+const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
 
 function normalizeSymbol(value) {
   return String(value || '').trim().toUpperCase();
@@ -30,7 +31,11 @@ async function sendAnalyzeStatus(req, res) {
          ) AS has_metrics,
          EXISTS (SELECT 1 FROM volatility_history WHERE symbol = $1 AND iv_rank_ready = TRUE) AS has_derived_metrics,
          EXISTS (SELECT 1 FROM option_chain_snapshots WHERE symbol = $1 AND contract_count > 0) AS has_options,
-         EXISTS (SELECT 1 FROM gex_snapshots WHERE symbol = $1) AS has_gex,
+         EXISTS (
+           SELECT 1 FROM gex_snapshots
+           WHERE symbol = $1
+             AND raw_metrics->>'model_version' = $2
+         ) AS has_gex,
          (SELECT COUNT(*)::int FROM provider_fetch_jobs WHERE symbol = $1 AND status IN ('queued', 'running')) AS active_jobs,
          (SELECT COUNT(*)::int FROM provider_fetch_jobs WHERE status IN ('queued', 'running')) AS queue_depth,
          EXISTS (
@@ -41,14 +46,14 @@ async function sendAnalyzeStatus(req, res) {
          (SELECT last_error FROM provider_fetch_jobs
           WHERE symbol = $1 AND job_type = 'symbol_metrics_snapshot' AND status = 'failed'
           ORDER BY finished_at DESC LIMIT 1) AS metrics_last_error`,
-      [symbol]
+      [symbol, GEX_MODEL_VERSION]
     );
     const coverage = rows[0];
     const refresh = {};
     if (!coverage.has_price) {
       refresh.price = await enqueueRefreshJob({
         symbol, jobType: 'price_history_snapshot', provider: 'polygon_licensed',
-        requestParams: { reason: 'analyze_on_demand' }, minIntervalSeconds: 300,
+        requestParams: { reason: 'analyze_on_demand', priority: 100 }, minIntervalSeconds: 300,
       });
     }
     if (!coverage.has_metrics) {
@@ -56,14 +61,19 @@ async function sendAnalyzeStatus(req, res) {
       else {
         refresh.metrics = await enqueueRefreshJob({
           symbol, jobType: 'symbol_metrics_snapshot', provider: 'tastytrade',
-          requestParams: { reason: 'analyze_on_demand' }, minIntervalSeconds: 86400,
+          requestParams: { reason: 'analyze_on_demand', priority: 100 }, minIntervalSeconds: 86400,
         });
       }
     }
-    if (!coverage.has_options || !coverage.has_gex) {
+    if (!coverage.has_options) {
       refresh.options = await enqueueRefreshJob({
         symbol, jobType: 'option_chain_snapshot', provider: 'polygon_licensed',
-        requestParams: { reason: 'analyze_on_demand' }, minIntervalSeconds: 300,
+        requestParams: { reason: 'analyze_on_demand', priority: 100 }, minIntervalSeconds: 300,
+      });
+    } else if (!coverage.has_gex) {
+      refresh.gex = await enqueueRefreshJob({
+        symbol, jobType: 'gex_recompute', provider: 'internal',
+        requestParams: { reason: 'analyze_on_demand_model_repair', priority: 100 }, minIntervalSeconds: 60,
       });
     }
     const readyCount = [coverage.has_price, coverage.has_metrics, coverage.has_options, coverage.has_gex].filter(Boolean).length;

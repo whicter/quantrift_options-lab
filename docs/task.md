@@ -58,6 +58,11 @@
   - `collector/reconcile_gex_models.py` now reads only the latest persisted chain per watchlist symbol, finds missing or version-mismatched GEX rows, and recomputes GEX/Wall/Flip locally from PostgreSQL. It never requests market data.
   - `run_collector_daemon.py` runs that reconciliation at startup and every hour by default (`GEX_MODEL_RECONCILE_SECONDS=3600`). This makes a model upgrade an automatic derived-data backfill rather than a user-visible coverage outage.
   - 2026-07-16 repair: 66 of 67 symbols recomputed successfully. `SRVR` stayed unavailable because its latest chain had a 44.44% missing-Greeks ratio, above the model's 25% quality threshold.
+- [x] Make Analyze-triggered missing-data collection immediate and priority-aware.
+  - Analyze already polls `/api/analyze/:symbol`; it now enqueues its missing price, metrics and option-chain jobs with priority `100`. The refresh worker consumes queued jobs by priority before the background watchlist schedule, so an interactive request is not delayed behind cold-start coverage work.
+  - Current option chain but missing/current-version-rejected GEX enqueues `gex_recompute` with provider `internal`. The worker reads the latest persisted chain, recalculates GEX/Wall/Flip, and rematerializes Scanner without making an external provider request.
+  - Truly missing chains still enqueue `polygon_licensed` option collection. After the worker persists a chain, its existing finalization path computes GEX, materializes OI delta and Scanner output; Analyze's existing five-second poll reloads the page data.
+  - Verification: server `npm test` covers priority on-demand jobs and old-GEX local recompute; collector tests cover recompute from the latest persisted chain without provider calls.
 
 #### C. Product architecture and disclosure follow-through
 

@@ -684,3 +684,5 @@ GEX compute job：
 
 - **原始链存在不等于当前产品 GEX 可用**：GEX 公式/单位版本升级后，旧派生行必须被 API 拒绝，不能静默混用；但拒绝后若没有回填任务，用户会误以为 collector 没有采集。
 - **版本迁移应重算派生层，不重拉行情**：collector 现在对最新 watchlist chain 做版本差异检查，并只从 PostgreSQL 重算 GEX/Wall/Flip。这样不会消耗 provider 配额，也不会在模型升级后留下整批“不可用”。
+- **用户请求不能排在 watchlist 冷启动之后**：按需 Analyze 任务以显式 priority `100` 入队，worker 优先消费；否则每 5 分钟两个标的的后台补全会把一个具体用户输入拖到数小时。
+- **缺 GEX 和缺期权链必须走不同任务**：已有链只做本地 `gex_recompute`，缺链才调用 provider。把两者混为一次 options fetch 会浪费请求，并延长恢复时间。

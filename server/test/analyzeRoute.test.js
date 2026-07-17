@@ -30,10 +30,24 @@ test('unknown symbol is registered and enqueues the complete data bundle', async
   const res = responseRecorder();
   await sendAnalyzeStatus({ params: { symbol: 'new1' } }, res);
   assert.equal(res.body.status, 'queued');
-  assert.equal(res.body.estimated_wait, '~1-3min');
+  assert.equal(res.body.estimated_wait, '约 1 分钟');
   assert.deepEqual(refreshCalls.map(call => call.jobType), [
     'price_history_snapshot', 'symbol_metrics_snapshot', 'option_chain_snapshot',
   ]);
+  assert.ok(refreshCalls.every(call => call.requestParams.priority === 100));
+});
+
+test('symbol with an existing chain but outdated GEX queues local recompute without refetching options', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_gex: false,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false,
+  }] });
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+  assert.equal(res.body.status, 'queued');
+  assert.deepEqual(refreshCalls.map(call => call.jobType), ['gex_recompute']);
+  assert.equal(refreshCalls[0].provider, 'internal');
+  assert.equal(refreshCalls[0].requestParams.priority, 100);
 });
 
 test('fully covered symbol returns ready without duplicate jobs', async () => {

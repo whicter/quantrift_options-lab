@@ -1359,6 +1359,12 @@ Scanner 对每个具体候选单返回两个可复核的模型对象，而不是
 
 长期 collector 在启动时及此后每小时检查 watchlist 最新链的 `raw_metrics.model_version`。发现缺失或版本不一致时，`reconcile_gex_models.py` 仅从 PostgreSQL 重算 GEX、Wall 和 Gamma Flip，不重新请求外部数据。若链本身的 Greeks/OI 缺失率超过质量阈值，仍明确保持 unavailable，而不伪造结构结论。
 
+### Analyze 的按需数据补全
+
+输入尚未覆盖的标的时，Analyze 会立即建立价格、指标和期权链任务，并以 priority `100` 排在后台 watchlist 覆盖任务前。页面保留现有数据并每五秒检查任务状态；完成后自动重新读取分析结果。
+
+若原始期权链已存在、只是 GEX 缺失或模型版本不一致，系统不会浪费一次外部请求：它建立内部 `gex_recompute` 任务，从最新 PostgreSQL 链直接重算 GEX、Wall、Gamma Flip 和 Scanner 行。真正没有期权链时才会调用 option provider。链质量未达到 GEX 阈值时，状态仍为 unavailable 并给出质量原因。
+
 ### 策略对比
 
 策略库提供 side-by-side 模式，可从全部策略中选择两个模板。对比视图列出方向、风险级别、DTE、IV 适用环境、止盈/止损规则和每条实际腿。该视图仅读取策略模板，不会覆盖主页面中正在编辑的策略或情景参数。

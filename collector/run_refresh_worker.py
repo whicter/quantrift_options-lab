@@ -65,7 +65,8 @@ def fetch_jobs(conn) -> list[dict[str, Any]]:
               FROM provider_fetch_jobs
               WHERE status = 'queued'
                 AND attempts < %s
-              ORDER BY created_at ASC
+              ORDER BY COALESCE((request_params->>'priority')::int, 0) DESC,
+                       created_at ASC
               LIMIT %s
               FOR UPDATE SKIP LOCKED
             )
@@ -332,6 +333,35 @@ def run_option_chain_snapshot(
     raise last_exc or RuntimeError(f'no supported option provider available for {symbol}')
 
 
+def run_gex_recompute(conn, job: dict[str, Any]) -> dict[str, Any]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM option_chain_snapshots
+            WHERE symbol = %s
+            ORDER BY snapshot_ts DESC
+            LIMIT 1
+            """,
+            (job['symbol'],),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError(f"missing option chain for {job['symbol']}")
+        columns = [description[0] for description in cur.description]
+        snapshot = dict(zip(columns, row))
+    contracts = compute_gex.load_contracts(conn, snapshot['id'])
+    metrics = compute_gex.compute_for_snapshot(snapshot, contracts)
+    gex_id = compute_gex.persist_gex(conn, metrics)
+    materialize_scan.run()
+    return {
+        'symbol': job['symbol'],
+        'snapshot_id': snapshot['id'],
+        'gex_id': gex_id,
+        'model_version': compute_gex.GEX_MODEL_VERSION,
+    }
+
+
 def should_retry(exc: Exception) -> bool:
     message = str(exc)
     return not any(message.startswith(prefix) for prefix in NON_RETRYABLE_ERROR_PREFIXES)
@@ -448,6 +478,8 @@ def handle_job(
             summary = run_scanner_materialize()
         elif job['job_type'] == 'option_chain_snapshot':
             summary = run_option_chain_snapshot(conn, job, blocked_providers, provider_cache)
+        elif job['job_type'] == 'gex_recompute':
+            summary = run_gex_recompute(conn, job)
         elif job['job_type'] == 'symbol_metrics_snapshot':
             summary = run_symbol_metrics_snapshot(conn, job)
         elif job['job_type'] == 'price_history_snapshot':
