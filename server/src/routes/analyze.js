@@ -4,6 +4,8 @@ const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 const freshness = require('../domain/status/freshness');
+const { buildAnalyzeSummary } = require('../domain/analyze/analyzeDto');
+const { tokenMatches, requestToken } = require('../lib/adminAuth');
 
 const router = express.Router();
 const ON_DEMAND_ESTIMATED_WAIT = '约 1 分钟';
@@ -305,9 +307,83 @@ async function sendAnalyzeCandidate(req, res) {
   }
 }
 
+/**
+ * GET /api/analyze/:symbol/summary
+ *
+ * The positioning conclusion, scenarios and data label, assembled server-side.
+ * These were computed in the browser (analyzeData.js); a product conclusion
+ * belongs behind the API. Normal users get a user-facing data label with no
+ * provider names; an admin token adds raw provenance.
+ */
+async function sendAnalyzeSummary(req, res) {
+  const symbol = normalizeSymbol(req.params.symbol);
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+
+  const admin = isAdminRequest(req);
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.*, c.underlying_price
+       FROM gex_snapshots g
+       JOIN option_chain_snapshots c ON c.id = g.snapshot_id
+       WHERE g.symbol = $1 AND g.raw_metrics->>'model_version' = $2
+       ORDER BY g.snapshot_ts DESC
+       LIMIT 1`,
+      [symbol, GEX_MODEL_VERSION]
+    );
+    const snapshot = rows[0];
+    if (!snapshot) {
+      return res.json(buildAnalyzeSummary(symbol, { freshness: 'missing' }, { admin }));
+    }
+
+    const { rows: strikes } = await pool.query(
+      `SELECT strike, call_gex, put_gex, net_gex, call_oi, put_oi, call_volume, put_volume
+       FROM gex_by_strike_snapshots WHERE snapshot_id = $1 ORDER BY strike ASC`,
+      [snapshot.snapshot_id]
+    );
+
+    // Freshness from the single E5 contract, so the summary agrees with every
+    // other endpoint's notion of stale.
+    const state = freshness.freshnessFor(freshness.PRODUCT_GEX, { snapshotTs: snapshot.snapshot_ts });
+    const gex = {
+      freshness: state.freshness,
+      is_stale: state.is_stale,
+      age_minutes: state.age_minutes,
+      source: snapshot.source,
+      provider_status: snapshot.provider_status,
+      snapshot_ts: snapshot.snapshot_ts,
+      confidence: snapshot.confidence,
+      underlying_price: snapshot.underlying_price,
+      global_gex: snapshot.global_gex,
+      local_gamma: snapshot.local_gamma,
+      gamma_flip: snapshot.gamma_flip,
+      gamma_regime: snapshot.gamma_regime,
+      call_wall: snapshot.call_wall,
+      put_wall: snapshot.put_wall,
+      max_pain: snapshot.max_pain,
+      pcr_oi: snapshot.pcr_oi,
+      pcr_volume: snapshot.pcr_volume,
+      raw_metrics: snapshot.raw_metrics,
+      strikes,
+    };
+    return res.json(buildAnalyzeSummary(symbol, gex, { admin, price: snapshot.underlying_price }));
+  } catch (err) {
+    if (err?.code === '42P01') return res.status(503).json({ error: 'options data migration required' });
+    console.error('GET /api/analyze/:symbol/summary error:', err.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
+function isAdminRequest(req) {
+  const expected = process.env.ADMIN_API_TOKEN || '';
+  return Boolean(expected) && tokenMatches(requestToken(req), expected);
+}
+
 router.get('/:symbol/candidate', sendAnalyzeCandidate);
+router.get('/:symbol/summary', sendAnalyzeSummary);
 router.get('/:symbol', sendAnalyzeStatus);
 
 module.exports = router;
 module.exports.sendAnalyzeStatus = sendAnalyzeStatus;
 module.exports.sendAnalyzeCandidate = sendAnalyzeCandidate;
+module.exports.sendAnalyzeSummary = sendAnalyzeSummary;

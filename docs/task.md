@@ -45,7 +45,7 @@
 | ✅ E7 | P2.8.5 shared provider rate limiter | 已完成（2026-07-17）：`provider_rate_limits` 表 + 原子 slot 认领 + 共享 429 惩罚；数据库时钟为唯一权威。file lock 仅在无 DB 时降级使用。 | 无 |
 | E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
 | ✅ E9 | P2.8.7 减少每 symbol 冗余请求 | 已完成（2026-07-17）：Polygon option 采集前用 DB 最新 daily close 作 spot hint，仅缺失/stale 时才打 `/prev`。 | 无 |
-| E10 | V3A-4 后端 Analyze DTO | GEX 结论文案与情景触发/目标价当前仍在浏览器计算（`analyzeData.js`）。依赖 E5 的 freshness 契约一并进 DTO。 | 无 |
+| 🟡 E10 | V3A-4 后端 Analyze DTO | 后端已完成（2026-07-17）：positioning/scenario/DTO 引擎 + `GET /api/analyze/:symbol/summary`，结论文案与情景已在服务端生成、provider 名对普通用户降级、测试+真实 DB 验证。前端切流（Analyze.jsx 改读 `/summary`、删除 `analyzeData.js` 重复计算）与 E11 一并做，受 visual-verification 限制。 | 前端切流受 E13 同一 runtime 限制 |
 | E11 | P2.8.8 stale-while-refresh 前端体验 | 依赖 E5 与 E10 的 DTO 字段。 | 无 |
 | ✅ E12 | V3A-3 剩余：internal/admin chain endpoint | 已完成（2026-07-17）：`GET /api/admin/chain/:symbol` 返回原始链 + 重算的覆盖/质量诊断，复用 `requireAdminToken` fail-closed。 | 无 |
 | E13 | A. Playwright 视觉回归 | 放在 UI 改动（E10/E11）之后，避免基线立即失效。 | 无 |
@@ -1701,27 +1701,19 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - same-expiry 策略不会跨 expiry 拼接。
   - credit spread 不会用负 credit 伪装成可卖结构。
 
-### V3A-4 Backend Analyze DTO
+### V3A-4 Backend Analyze DTO（E10，后端 2026-07-17 完成；前端切流与 E11 一并）
 
-- [ ] 新增后端 analyze domain：
-  - `server/src/domain/analyze/analyzeDto.js`
-  - `server/src/domain/analyze/scenarioEngine.js`
-  - `server/src/domain/analyze/recommendationEngine.js`
-  - `server/src/domain/analyze/positioningSummary.js`
-- [ ] `/api/analyze/:symbol` 返回统一 product DTO：
-  - header；
-  - data freshness；
-  - key metrics；
-  - GEX/Wall/Gamma Flip；
-  - Q&A；
-  - playbooks；
-  - recommended setup；
-  - unavailable reasons。
-- [ ] 前端 Analyze 只负责展示，不拼接核心结论。
-- [ ] provider/source 对普通用户降级展示：
-  - 显示：`数据更新于 11m 前`、`延迟行情`、`刷新中`、`部分数据缺失`。
-  - 隐藏：`polygon_licensed`、`ib_internal`、`tt_internal`、internal job type。
-- [ ] 保留 admin/debug mode 查看 raw source provenance。
+- [x] 新增后端 analyze domain：
+  - `server/src/domain/analyze/positioningSummary.js`：GEX/Wall 结论文案 + 结构化字段 + unavailable 原因。`compactMoney`/`isUsableGex` 逐字移植自 `analyzeData.js`，usable 情况下结论字符串与旧客户端**逐字节一致**（已交叉验证）。
+  - `server/src/domain/analyze/scenarioEngine.js`：从 walls + price 生成 up/down trigger/target，含 3% 最小距离下限（防止 wall 贴现价时情景塌缩为零宽）。
+  - `server/src/domain/analyze/analyzeDto.js`：组装统一 DTO；普通用户降级 provider 名，admin 保留 provenance。
+  - recommendation 复用已在服务端的 `GET /api/analyze/:symbol/candidate`（不重复造引擎），DTO 以 `recommendation_ref` 指向它。
+- [x] `GET /api/analyze/:symbol/summary` 返回统一 product DTO：`data_status`（用户向标签）、`positioning`（结论/regime/walls/pcr/max_pain/gamma_flip 或 unavailable_reason）、`scenarios`、`recommendation_ref`；admin token 额外带 `provenance`。freshness 走 E5 的 `freshness.js`,与其他端点口径一致。
+- [x] provider/source 对普通用户降级：`dataStatusLabel` 输出 `数据更新于11分钟前` / `延迟行情 · 3小时前` / `刷新中` / `正在准备数据`,**不含任何 provider 名**;有测试断言 `polygon_licensed`/`ib_internal`/`tt_internal`/`tastytrade` 均不出现。
+- [x] 保留 admin/debug provenance：合法 `ADMIN_API_TOKEN` 时 DTO 带 `provenance`（source、provider_status、snapshot_ts、confidence、model_version）。
+- [x] Tests：`server/test/analyzeSummary.test.js` 11 个（compactMoney 与客户端一致、legacy model 不 usable、结论逐字节、unusable 给原因不造 wall、legacy 与 unusable 区分、情景 wall 触发 + 距离下限、缺 wall 返回 null、标签不泄露 provider、normal 隐藏/admin 保留 provenance、recommendation_ref）+ `analyzeRoute.test.js` 新增 2 个（route 组装、无 GEX 返回 unavailable）。
+- [x] 验证：server 134/134（121 → 134）。真实 runtime（2026-07-17，直连 Railway）：`GET /api/analyze/AAPL/summary` 普通用户返回 `正Gamma $348M，Call Wall $340.00 / Put Wall $330.00…`、scenarios `{340,350,330,320}`、`data_status=数据更新于2小时前`、无 provenance;带 admin token 额外返回 `provenance.source=polygon_licensed`。
+- [ ] **前端切流（与 E11 一并，受 E13 同一 visual-verification 限制）**：`analyzeData.js` 的 `applyGex` 目前同时产出图表数据（gexByStrike/walls/gexMeta）和结论/情景,二者交织在同一函数;把结论/情景改读 `/summary` 需跨 4 个调用点重构,且 Analyze 页渲染无法在本环境自动截图验证。故前端切流与 E11 stale-while-refresh 一并做,按项目既有标准（ESLint + 单测 + 生产 build + 人工浏览器验证）交付。后端逻辑已就绪且可调用——IP 保护的实质（结论逻辑离开浏览器）在服务端已成立。
 
 ### V3A-5 Auth, Entitlement, And Fail-Closed Production Gate
 

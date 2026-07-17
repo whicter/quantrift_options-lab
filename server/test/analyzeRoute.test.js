@@ -290,3 +290,37 @@ test('product states never leak provider or internal source names', async () => 
     assert.equal(serialized.includes(name), false, `products must not disclose ${name}`);
   }
 });
+
+test('summary endpoint assembles positioning and scenarios server-side', async () => {
+  const { sendAnalyzeSummary } = require(routePath);
+  queryResults.push(
+    { rows: [{
+      snapshot_id: 5, source: 'polygon_licensed', provider_status: 'ok',
+      snapshot_ts: new Date().toISOString(), confidence: 'high', underlying_price: 210,
+      global_gex: 1_100_000_000, local_gamma: 5_000_000, gamma_flip: 205, gamma_regime: 'positive',
+      call_wall: 220, put_wall: 200, max_pain: 210, pcr_oi: 0.85, pcr_volume: 0.9,
+      raw_metrics: { model_version: 'gex-v2-1pct-positioning-proxy', unit: 'usd_delta_change_per_1pct_move' },
+    }] },
+    { rows: [{ strike: 210, net_gex: 1 }] },
+  );
+  const res = responseRecorder();
+  await sendAnalyzeSummary({ params: { symbol: 'AAPL' }, get: () => '' }, res);
+
+  assert.equal(res.body.positioning.available, true);
+  assert.match(res.body.positioning.conclusion, /正Gamma/);
+  assert.equal(res.body.scenarios.up_trigger, 220);
+  assert.equal(res.body.data_status.label.includes('polygon'), false);
+  // Normal (no admin token) response hides provenance.
+  assert.equal('provenance' in res.body, false);
+});
+
+test('summary endpoint returns an unavailable positioning when no GEX exists', async () => {
+  const { sendAnalyzeSummary } = require(routePath);
+  queryResults.push({ rows: [] });
+  const res = responseRecorder();
+  await sendAnalyzeSummary({ params: { symbol: 'ZZZZ' }, get: () => '' }, res);
+
+  assert.equal(res.body.positioning.available, false);
+  assert.equal(res.body.scenarios, null);
+  assert.equal(res.body.data_status.freshness, 'missing');
+});
