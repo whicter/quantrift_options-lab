@@ -231,6 +231,46 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertEqual(summary['provider'], 'tt_internal')
         self.assertEqual(summary['fallback_from'], 'polygon_licensed')
 
+    def test_quote_required_job_falls_back_when_polygon_is_not_configured(self):
+        import run_refresh_worker
+
+        class FakeConn:
+            def rollback(self):
+                pass
+
+        calls = []
+
+        def fake_fetch(_conn, _symbol, provider, _provider_cache=None):
+            calls.append(provider)
+            if provider == 'polygon_licensed':
+                raise RuntimeError('POLYGON_API_KEY is required for PolygonOptionChainProvider')
+            return 202, SimpleNamespace(
+                contracts=[SimpleNamespace(bid=1.0, ask=1.2)],
+                provider_status='ok',
+                snapshot_ts=datetime(2026, 7, 15, tzinfo=timezone.utc),
+            )
+
+        with patch.dict('os.environ', {'OPTION_FALLBACK_PROVIDERS': 'tt_internal'}, clear=False), \
+             patch.object(run_refresh_worker, 'reserve_budget'), \
+             patch.object(run_refresh_worker, 'fetch_and_persist_option_snapshot', side_effect=fake_fetch), \
+             patch.object(run_refresh_worker, 'finalize_option_snapshot', return_value={}):
+            summary = run_refresh_worker.run_option_chain_snapshot(
+                FakeConn(),
+                {
+                    'id': 102,
+                    'symbol': 'RKLB',
+                    'job_type': 'option_chain_snapshot',
+                    'provider': 'polygon_licensed',
+                    'request_params': {'require_quotes': True},
+                },
+            )
+
+        self.assertEqual(calls, ['polygon_licensed', 'tt_internal'])
+        self.assertEqual(summary['provider'], 'tt_internal')
+        self.assertTrue(run_refresh_worker.is_provider_unavailable(
+            RuntimeError('POLYGON_API_KEY is required for PolygonOptionChainProvider')
+        ))
+
     def test_worker_reuses_one_provider_instance_for_all_jobs(self):
         import run_refresh_worker
 

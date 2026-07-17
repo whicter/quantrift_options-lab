@@ -322,8 +322,8 @@ def run_option_chain_snapshot(
         except Exception as exc:
             conn.rollback()
             last_exc = exc
-            if provider_name == 'tt_internal' and is_provider_unavailable(exc):
-                if blocked_providers is not None:
+            if is_provider_unavailable(exc):
+                if provider_name == 'tt_internal' and blocked_providers is not None:
                     blocked_providers.add('tastytrade')
                 log.error('job %s provider %s unavailable; trying fallback: %s', job['id'], provider_name, exc)
                 continue
@@ -412,6 +412,7 @@ def is_provider_unavailable(exc: Exception) -> bool:
         'connection timed out',
         'read timed out',
         'max retries exceeded',
+        'polygon_api_key is required',
     ))
 
 

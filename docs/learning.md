@@ -695,3 +695,4 @@ GEX compute job：
 - **enqueue 与执行是两个独立运行面**：API 写入 `provider_fetch_jobs` 不会自行执行 provider。Railway 若只跑 `collect.py`，按需队列和 watchlist option scheduler 都会饿死；云端 one-shot cron 必须按顺序运行 scheduler、refresh worker、scanner materialization。当前 cadence 为工作日每 5 分钟。
 - **所有 JSONB 写入边界都必须处理 Decimal**：修复 option snapshot 后，scanner materialization 从 PostgreSQL 读回 `gex.raw_metrics` 仍会重新带入 Decimal；若直接 `Json(payload)`，refresh worker 虽已完成，最终 scanner materialization 仍会失败。所有 raw/provider JSON 及其派生 payload 必须使用同一显式 Decimal-to-number encoder，并以完整 refresh cycle 覆盖回归。
 - **认证失败的作用域不能扩大为数据不存在**：Railway TT 的 device challenge 只说明该 worker 不能用 TT session；它不能阻断 Mac Studio 或 IB 的后续 quote refresh。on-demand blocker 只可用于 provider 已明确无可用报价的终态，worker-specific auth failure 必须留在队列重试路径。
+- **fallback 必须覆盖 provider 初始化失败**：Polygon 缺 key 时错误发生在 `make_provider()`，早于 API 请求或“空报价”判断。若只对空 snapshot fallback，队列会无限重试 Polygon 而永远不尝试 TT/IB。初始化、连接和无 usable quote 三类可恢复失败必须走同一个受限 provider sequence。
