@@ -40,7 +40,20 @@ class PolygonOptionChainProvider:
         self._session.headers['Authorization'] = f'Bearer {self.api_key}'
         self.stock_pacer = PolygonStockRequestPacer()
 
-    def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
+    def fetch_underlying(self, symbol: str, spot_hint: float | None = None) -> UnderlyingSnapshot:
+        # A fresh daily close from the database is an equally good previous-day
+        # spot, and skipping /prev removes one Stocks request per symbol per
+        # refresh. Only fetch /prev when no usable hint was supplied.
+        if spot_hint is not None:
+            return UnderlyingSnapshot(
+                symbol=symbol.upper(),
+                price=float(spot_hint),
+                bid=None,
+                ask=None,
+                timestamp=datetime.now(timezone.utc),
+                source=self.source,
+                raw={'price': float(spot_hint), 'endpoint': 'db_spot_hint'},
+            )
         url = f'{self.base_url}/v2/aggs/ticker/{symbol.upper()}/prev'
         self.stock_pacer.wait()
         resp = self._session.get(url, params={'adjusted': 'true'}, timeout=self.timeout)
@@ -66,13 +79,14 @@ class PolygonOptionChainProvider:
         expirations: list[date] | None = None,
         strike_window_pct: float | None = None,
         max_strikes_per_side: int | None = None,
+        spot_hint: float | None = None,
     ) -> OptionChainSnapshot:
         symbol = symbol.upper()
         snapshot_ts = datetime.now(timezone.utc)
         window_pct = strike_window_pct if strike_window_pct is not None else self.strike_window_pct
         strike_limit = max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side
 
-        underlying = self.fetch_underlying(symbol)
+        underlying = self.fetch_underlying(symbol, spot_hint=spot_hint)
         if underlying.price is None:
             raise RuntimeError(f'Polygon underlying price unavailable for {symbol}')
         spot = underlying.price

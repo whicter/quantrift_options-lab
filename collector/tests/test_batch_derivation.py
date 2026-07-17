@@ -193,3 +193,61 @@ class _FakeConn:
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SpotHintWorkerTests(unittest.TestCase):
+    """The Polygon option job should reuse a fresh persisted daily close as spot
+    rather than always fetching /prev; tt/ib carry spot in their own payloads."""
+
+    def test_latest_db_spot_returns_a_fresh_close(self):
+        import run_refresh_worker
+        conn = _FakeConn(rows=[(212.5,)], columns=['close'])
+        self.assertEqual(run_refresh_worker.latest_db_spot(conn, 'AAPL'), 212.5)
+
+    def test_latest_db_spot_returns_none_when_missing_or_stale(self):
+        import run_refresh_worker
+        # The SQL's date filter excludes stale rows, so a stale symbol simply
+        # returns no row and the caller falls back to /prev.
+        conn = _FakeConn(rows=[], columns=['close'])
+        self.assertIsNone(run_refresh_worker.latest_db_spot(conn, 'AAPL'))
+
+    def test_polygon_job_passes_the_spot_hint(self):
+        import run_refresh_worker
+        captured = {}
+
+        class _Provider:
+            source = 'polygon_licensed'
+            def fetch_option_chain(self, symbol, spot_hint=None):
+                captured['spot_hint'] = spot_hint
+                return _FakeSnapshot()
+
+        with patch.object(run_refresh_worker, 'latest_db_spot', return_value=205.0), \
+             patch.object(run_refresh_worker.collect_options, 'persist_snapshot', return_value=1):
+            run_refresh_worker.fetch_and_persist_option_snapshot(
+                _FakeConn(), 'AAPL', 'polygon_licensed', {'polygon_licensed': _Provider()},
+            )
+        self.assertEqual(captured['spot_hint'], 205.0)
+
+    def test_non_polygon_job_does_not_pass_a_spot_hint(self):
+        import run_refresh_worker
+        captured = {}
+
+        class _Provider:
+            source = 'tt_internal'
+            def fetch_option_chain(self, symbol):
+                captured['called'] = True
+                return _FakeSnapshot()
+
+        with patch.object(run_refresh_worker, 'latest_db_spot') as db_spot, \
+             patch.object(run_refresh_worker.collect_options, 'persist_snapshot', return_value=1):
+            run_refresh_worker.fetch_and_persist_option_snapshot(
+                _FakeConn(), 'AAPL', 'tt_internal', {'tt_internal': _Provider()},
+            )
+        # tt provider carries its own spot; no DB lookup, no extra kwarg.
+        self.assertTrue(captured['called'])
+        self.assertEqual(db_spot.call_count, 0)
+
+
+class _FakeSnapshot:
+    contracts = []
+    provider_status = 'ok'

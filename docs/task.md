@@ -44,7 +44,7 @@
 | ✅ E6 | P2.8.3 queue-fill scheduler | 已完成（2026-07-17）：按队列深度补满（target 20）+ 五级优先级 + cooldown；候选来源由 `watchlist.txt` 改为 `symbol_universe`。 | 无 |
 | ✅ E7 | P2.8.5 shared provider rate limiter | 已完成（2026-07-17）：`provider_rate_limits` 表 + 原子 slot 认领 + 共享 429 惩罚；数据库时钟为唯一权威。file lock 仅在无 DB 时降级使用。 | 无 |
 | E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
-| E9 | P2.8.7 减少每 symbol 冗余请求 | 依赖 E4 的最新 price snapshot 状态。 | 无 |
+| ✅ E9 | P2.8.7 减少每 symbol 冗余请求 | 已完成（2026-07-17）：Polygon option 采集前用 DB 最新 daily close 作 spot hint，仅缺失/stale 时才打 `/prev`。 | 无 |
 | E10 | V3A-4 后端 Analyze DTO | GEX 结论文案与情景触发/目标价当前仍在浏览器计算（`analyzeData.js`）。依赖 E5 的 freshness 契约一并进 DTO。 | 无 |
 | E11 | P2.8.8 stale-while-refresh 前端体验 | 依赖 E5 与 E10 的 DTO 字段。 | 无 |
 | ✅ E12 | V3A-3 剩余：internal/admin chain endpoint | 已完成（2026-07-17）：`GET /api/admin/chain/:symbol` 返回原始链 + 重算的覆盖/质量诊断，复用 `requireAdminToken` fail-closed。 | 无 |
@@ -1269,10 +1269,15 @@ PostgreSQL
   - 验证：collector 138/138 通过（130 → 138）。
   - Rollback：回滚本 commit；无 schema migration，无 API contract 变更。
 
-- [ ] **P2.8.7 减少每 symbol 冗余请求**
-  - option provider 请求前优先使用数据库最新 price snapshot 作为 underlying spot；只有缺失或 stale 时才请求 `/v2/aggs/ticker/{symbol}/prev`。
-  - 对同一 symbol 同一轮 refresh 的 price/options/GEX bundle 共用基础价格状态。
-  - 验证：option refresh 不再为每个 symbol 必然额外打一条 stock prev aggregate。
+- [x] **P2.8.7 减少每 symbol 冗余请求**（E9，2026-07-17 完成）
+  - `PolygonOptionChainProvider.fetch_option_chain/fetch_underlying` 新增 `spot_hint`：给定时用它构造 underlying（`endpoint=db_spot_hint`）并跳过整个 `/prev` 请求；未给定时行为不变,照打 `/prev`。
+  - worker 新增 `latest_db_spot(conn, symbol)`：取 `price_history` 最新 `polygon_licensed` daily close,且 market date 在 `OPTION_SPOT_HINT_MAX_AGE_DAYS`(默认 4,覆盖周末/假日)内;缺失或过旧返回 None → 回退 `/prev`,不会用陈旧价格居中期权链。
+  - 只对 `polygon_licensed` 传 hint:tt/ib 的 spot 本就在各自 chain payload 里,不查 DB、不加 kwarg。
+  - 一个 fresh daily close 与 `/prev` 的前日收盘对"±15% 居中 strike window"是等价质量,因此省掉的是纯冗余请求,不牺牲正确性。
+  - Tests：provider 2 个（有 hint 不打 `/prev`、无 hint 照打）+ worker 4 个（fresh 返回、missing/stale 返回 None、polygon 传 hint、tt 不查 DB 不传 kwarg）。base Protocol 签名同步加 `spot_hint`。
+  - 验证：collector 180/180（163 → 180，本批含 E9 6 个）。真实 runtime（2026-07-17，直连 Railway）：`latest_db_spot` 返回 AAPL 333.26 / SPY 750.72 / NFLX 73.68,不存在的 symbol 返回 None。
+  - 效果：78-symbol 一轮 option refresh 少打最多 78 条 stock prev aggregate,直接减轻 E7 共享限流器上的 Polygon Stocks 预算压力。
+  - Rollback：回滚本 commit,或设 `OPTION_SPOT_HINT_MAX_AGE_DAYS=0` 使 hint 几乎总为 None（等于恢复每次 `/prev`）；无 schema 变更。
 
 - [ ] **P2.8.8 stale-while-refresh 前端体验**
   - Analyze：

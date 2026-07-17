@@ -302,6 +302,36 @@ def option_provider_sequence(primary_provider: str, blocked_providers: set[str] 
     ]
 
 
+# A daily close this recent is an equally good previous-day spot for centering
+# the strike window, so passing it lets the Polygon provider skip its /prev
+# request. Covers weekends and holidays without reaching for a stale price.
+SPOT_HINT_MAX_AGE_DAYS = max(int(os.getenv('OPTION_SPOT_HINT_MAX_AGE_DAYS', '4')), 0)
+
+
+def latest_db_spot(conn, symbol: str, max_age_days: int = SPOT_HINT_MAX_AGE_DAYS) -> float | None:
+    """Most recent licensed daily close for a symbol, if fresh enough to be spot.
+
+    Returns None when missing or stale, so the caller falls back to /prev rather
+    than centering the option chain on an out-of-date price.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT close
+            FROM price_history
+            WHERE symbol = %s
+              AND source = 'polygon_licensed'
+              AND close IS NOT NULL
+              AND date >= (NOW() AT TIME ZONE 'America/New_York')::date - %s::int
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (symbol, max_age_days),
+        )
+        row = cur.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def fetch_and_persist_option_snapshot(
     conn,
     symbol: str,
@@ -314,7 +344,13 @@ def fetch_and_persist_option_snapshot(
         collect_options.OPTION_PROVIDER = provider_name
         provider = collect_options.make_provider()
         provider_cache[provider_name] = provider
-    snapshot = provider.fetch_option_chain(symbol)
+    # Only Polygon fetches a separate underlying request; tt/ib carry spot in
+    # their own chain payloads, so the hint is provider-specific.
+    if provider_name == 'polygon_licensed':
+        spot_hint = latest_db_spot(conn, symbol)
+        snapshot = provider.fetch_option_chain(symbol, spot_hint=spot_hint)
+    else:
+        snapshot = provider.fetch_option_chain(symbol)
     snapshot_id = collect_options.persist_snapshot(conn, snapshot)
     return snapshot_id, snapshot
 

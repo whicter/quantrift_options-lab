@@ -76,3 +76,50 @@ class PolygonOptionProviderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SpotHintTests(unittest.TestCase):
+    """A fresh daily close from the database is an equally good previous-day
+    spot, so passing it must remove the /prev request entirely."""
+
+    def _provider(self, session):
+        env = {
+            'POLYGON_API_KEY': 'test-key',
+            'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
+            'POLYGON_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_option_provider_test',
+            'PROVIDER_RATE_LIMIT_BACKEND': 'file',
+        }
+        with patch.dict(os.environ, env, clear=False), \
+             patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
+            return PolygonOptionChainProvider()
+
+    def test_spot_hint_skips_the_prev_aggregate_request(self):
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        # No /prev payload queued: if the provider asked for it, .pop(0) would
+        # hand back the option page and the test would fail on the DTE window.
+        session = FakeSession([
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+        ])
+        provider = self._provider(session)
+        snapshot = provider.fetch_option_chain('TEST', spot_hint=100.0)
+
+        prev_calls = [call for call in session.calls if '/prev' in call[0]]
+        self.assertEqual(prev_calls, [])
+        self.assertEqual(float(snapshot.underlying.price), 100.0)
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'db_spot_hint')
+
+    def test_no_hint_still_fetches_prev(self):
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession([
+            {'status': 'OK', 'results': [{'c': 100}]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+        ])
+        provider = self._provider(session)
+        provider.fetch_option_chain('TEST')
+
+        prev_calls = [call for call in session.calls if '/prev' in call[0]]
+        self.assertEqual(len(prev_calls), 1)

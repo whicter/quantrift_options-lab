@@ -101,8 +101,13 @@ class OptionChainSnapshot:
 class OptionChainProvider(Protocol):
     source: str
 
-    def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
-        """Return the latest underlying quote/price snapshot for one symbol."""
+    def fetch_underlying(self, symbol: str, spot_hint: float | None = None) -> UnderlyingSnapshot:
+        """Return the latest underlying quote/price snapshot for one symbol.
+
+        A caller may pass spot_hint (e.g. a fresh persisted daily close) to let a
+        provider skip a separate underlying request; providers without such a
+        request ignore it.
+        """
         ...
 
     def fetch_option_chain(
@@ -111,6 +116,7 @@ class OptionChainProvider(Protocol):
         expirations: list[date] | None = None,
         strike_window_pct: float | None = None,
         max_strikes_per_side: int | None = None,
+        spot_hint: float | None = None,
     ) -> OptionChainSnapshot:
         """Return a bounded option-chain snapshot suitable for persistence."""
         ...
