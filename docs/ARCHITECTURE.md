@@ -1841,3 +1841,9 @@ community_batch.snapshot_ts -> community freshness only
 ```
 
 Readiness requires 60 daily bars, 12 weekly observations, and 26 regular-session 30M bars. The component and composite scores are bounded to 0–100. If the latest 30M New York market date differs from the latest daily date, the computed values remain visible for diagnosis but status is `stale`; UI explicitly says it is not current multi-timeframe confirmation.
+
+## 45. Quote Refresh Recovery Boundary
+
+An Analyze request never calls a provider inline. When an existing chain lacks executable bid/ask quotes, the API enqueues one high-priority `option_chain_snapshot` job with `require_quotes=true`. The worker executes a bounded provider sequence: Polygon first, then the configured local fallback such as TT or IB. A provider construction or connection failure is recoverable and advances the sequence; a returned chain without usable bid/ask also advances the sequence. Only an explicit final `option quote unavailable` result may temporarily block repeat enqueueing. A cloud-specific TT device challenge is not a global quote-data verdict and cannot block a later Mac Studio worker.
+
+The worker persists the successful chain, recomputes GEX, materializes OI delta and scanner rows, then Analyze candidate generation reads only the latest quote-bearing snapshot. This was production-verified for RKLB on 2026-07-17: the local worker fell back after the absent Polygon key, wrote a real quoted snapshot, and `/api/analyze/RKLB/candidate` returned a server-side Diagonal Spread DTO. JSONB boundaries for both raw provider data and scanner payloads explicitly encode Python `Decimal` values before persistence.

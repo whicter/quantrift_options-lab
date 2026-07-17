@@ -1621,3 +1621,16 @@ Code evidence: collector 95 tests, server 62 tests, frontend 25 tests, full ESLi
 No migration or collector restart is required. Deploy the Node API and frontend, then call `/api/sr/AAPL`. Verify `momentum.weights` is `30m=0.3`, `1d=0.4`, `1w=0.3`, all three component scores are present, and the latest daily/intraday New York market dates agree before treating status as ready.
 
 2026-07-15 Railway read-only replay used 250 AAPL daily rows and 200 regular-session 30M rows. It returned composite 84 (`30M=50`, `1D=100`, `1W=95`) and correctly marked stale because daily was 2026-07-15 while intraday was 2026-07-14. Collector 95, server 65, frontend 25, full ESLint and production build pass. Rollback is the composite-momentum commit; `/api/sr` additions are backward compatible and have no schema changes.
+
+## Quote Refresh Acceptance (2026-07-17)
+
+The Railway refresh cron must provide `DATABASE_URL`; if it is expected to call Polygon directly it must also provide `POLYGON_API_KEY`. Absence of that key is recoverable for an option job when a configured local fallback can run, but it is visible in worker logs and must not be mistaken for “the symbol has no options.” The cloud cron uses Polygon as its primary refresh provider and does not authenticate TT.
+
+Acceptance command and result:
+
+```bash
+curl -fsS https://quantriftoptions-lab-production.up.railway.app/api/analyze/RKLB
+curl -fsS https://quantriftoptions-lab-production.up.railway.app/api/analyze/RKLB/candidate
+```
+
+On 2026-07-17, the first response reported all five coverage fields including `option_quotes=true`; the second returned a server-generated Diagonal Spread with real bid/ask legs and its persisted snapshot timestamp. A failed chain without valid bid/ask must remain unavailable, never receive fabricated quotes. Rollback is the corresponding collector/API commit; persisted snapshots remain additive and can be superseded by a later real refresh.

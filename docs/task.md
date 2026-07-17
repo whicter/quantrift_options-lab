@@ -16,6 +16,7 @@
   - 2026-07-17 scanner materialization repair：PostgreSQL GEX 原始 JSON 读回时包含 `Decimal`，`scanner_results_snapshots.payload` 的 JSONB 编码此前会抛错并使 refresh cycle 末尾失败。现与 option snapshot 持久化边界一致，将 Decimal 显式编码为 JSON number；Railway refresh scheduler 固定走 `polygon_licensed` 主 provider，避免将云端 watchlist 工作排到已知会触发 TT device challenge 的 provider。
   - 2026-07-17 on-demand quote retry repair：Railway TT 的 `device_challenge` 是该 cloud worker 的认证状态，不代表 Mac Studio/IB worker 不能采集。Analyze 过去把这类失败记成 24 小时全局 quote blocker，导致队列为空、可用本机 worker 也不能补齐 RKLB 等标的。现仅在 provider 已明确返回“所有尝试均无可用报价”时才阻断；认证失败保持可重试并可交由另一运行面消费。
   - 2026-07-17 provider-construction fallback repair：Polygon key 缺失会在 provider 初始化时抛错，旧 worker 只对“已返回但无 bid/ask”的 Polygon snapshot 做 TT fallback，因而直接重排队且永远不尝试本机 TT。现将可识别的 provider 初始化/连接不可用与无报价统一进入 fallback 序列；RKLB 等 quote job 可由本机 TT/IB 继续消费。
+  - ✅ 2026-07-17 runtime acceptance：生产 `GET /api/analyze/RKLB` 从 `option_quotes=false` 恢复为 `ready`；更新后的本机 worker 对 job 1059 先识别 Polygon 未配置、再使用本机 TT 获取真实报价，写入 snapshot/GEX/OI delta/scanner。`GET /api/analyze/RKLB/candidate` 返回后端筛出的具体 Diagonal Spread 两腿、35/63 DTE、真实 bid/ask 与输入 snapshot time。
 - ✅ Trend / Options：OBV 改为价量动量；PCR 仅描述 Put/Call 相对比例；外部事件流、OI 异动与数据状态不再暗示净资金流、机构身份或实时性。
 - ✅ Scan：已采集报价快照、筛选匹配分、模型定位、社区样本和候选结构均附清晰边界；不再表述为可直接成交订单或预测分数。
 - ✅ Weekly：自定义“恐慌/贪婪”改为周度模型分数；Gamma/Wall/Max Pain/ΔOI 改为快照模型与条件情景。
