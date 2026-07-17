@@ -39,7 +39,7 @@
 | ✅ E1 | V3A-6 内部状态端点权限拆分 | 已完成（2026-07-17）：`/api/status/data` 降级为产品安全摘要，运维明细移入 `/api/admin/status/*` 与 `GET /api/heartbeat/status`，由 fail-closed 的 `ADMIN_API_TOKEN` 保护。 | 部署需注入 `ADMIN_API_TOKEN` |
 | ✅ E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 已完成（2026-07-17）：新增 `.github/workflows/ci.yml`（4 job）、前端与 API 安全响应头、`check-dist.mjs` artifact 门、`scan-secrets.sh`、provider 名披露守卫测试。CSP 暂未含 Clerk，见 V3A-9 已知边界。 | 无 |
 | ✅ E3 | P2.8.6 ingestion / derivation 解耦 | 已完成（2026-07-17）：`PendingDerivations` 累积一个 batch 内的全局派生请求，`run_pending_derivations` 在 batch 末尾各执行一次；per-symbol GEX 仍即时计算。 | 无 |
-| E4 | P2.8.2 `symbol_data_state` 汇总表 | P2.8.1 freshness 口径与 P2.8.8 前端体验都要读它，先建表与写入。 | 无 |
+| ✅ E4 | P2.8.2 `symbol_data_state` 汇总表 | 已完成（2026-07-17）：additive 表 + collector 写入路径 + Railway 迁移与真实 runtime 证据。API 读路径按依赖顺序留给 E5。 | 无 |
 | E5 | P2.8.1 统一 freshness 口径 | 依赖 E4 的表；Analyze 改为按 product 返回 `fresh/stale/missing/queued/failed`。 | 无 |
 | E6 | P2.8.3 queue-fill scheduler | 依赖 E4 的 priority 来源；把每轮 2 个改为按队列深度补满 + 优先级 + cooldown。 | 无 |
 | E7 | P2.8.5 shared provider rate limiter | 依赖 E6 的队列深度；多 worker 前必须先有跨进程限流，否则并发直接打爆 429。 | 无 |
@@ -1198,11 +1198,18 @@ PostgreSQL
   - Analyze 不能只检查 existence；必须按 product 返回 `fresh | stale | missing | queued | failed`。
   - stale 不是空白页：返回最近可用真实 snapshot + `is_stale=true` + `age_minutes` + 后台刷新状态。
 
-- [ ] **P2.8.2 symbol data state 汇总表**
-  - 新增 additive table：`symbol_data_state(symbol, product, latest_snapshot_ts, latest_market_date, source, freshness, refresh_status, last_job_id, last_error_code, updated_at)`。
-  - collector 写入 snapshots 后更新该表；API 读该表决定是否 enqueue、是否提示 stale、是否继续展示旧数据。
-  - 支持 unknown symbol 被注册到 `symbol_universe` 后进入 data-state 流程；Weekly 自定义标的也应复用同一 orchestration。
-  - Rollback：表为 additive；旧 API 可继续直接读 snapshots。
+- [x] **P2.8.2 symbol data state 汇总表**（E4，2026-07-17 完成）
+  - 新增 additive table：`symbol_data_state(symbol, product, latest_snapshot_ts, latest_market_date, source, refresh_status, last_job_id, last_error_code, updated_at)`，PK `(symbol, product)`。
+  - **与原计划的一处刻意偏离**：不落 `freshness` 列。freshness 随 wall-clock 衰减，一旦没有写入就立刻变成错的（60 分钟目标的行在第 61 分钟仍写着 `fresh`）。表只记录观测事实；freshness 由读方用 `latest_snapshot_ts` + product policy 在读取时计算。E5 定义该 policy。
+  - Products 独立跟踪：`price_daily` / `price_30m` / `metrics` / `option_chain` / `gex`。一个 symbol 可以价格 fresh 而期权链 missing，绝不塌缩成单一 per-symbol 状态。
+  - `collector/symbol_data_state.py` 是纯写入层（`record_success` / `record_failure` / `record_products`）；job 语义映射留在 worker 的 `job_product_facts()`。
+  - 失败不擦除数据：upsert 用 `COALESCE` 保留上一次真实 snapshot，失败的刷新只更新 `refresh_status`/`last_error_code`，仍可作为 stale 展示。
+  - `last_error_code` 只存粗粒度码（`auth_unavailable` / `no_quotes` / `insufficient_data` / `provider_unavailable` / `rate_limited` / `unsupported_provider` / `error`）。provider 名与请求明细不进入该表，仍留在 `provider_fetch_jobs.last_error` 给运维。
+  - 写入为 best-effort：该表是读侧汇总，snapshot 表仍是 source of truth；记录状态失败不会把成功的刷新变成失败的 job。
+  - Tests：`collector/tests/test_symbol_data_state.py` 14 个 —— symbol 规范化、未知 product/空 symbol 拒绝、错误码分类（含生产实测的 GEX 质量门）、失败不覆盖既有 snapshot、per-product 事实隔离、失败 job 标记全部所属 product、`__SCAN__` 不写 symbol 状态、状态写入失败不影响 job。
+  - 验证：collector 151/151（138 → 151）、server 96/96。三个既有测试的 fake 补齐了真实行必有的字段（`SELECT *` 的 `snapshot_ts`/`source`、`PriceBar.date`），生产代码不为恒存在的字段做防御性降级。
+  - Railway 迁移与 runtime 证据（2026-07-17）：additive migration 成功；表结构 9 列、PK + 2 索引、初始 0 行。PM2 daemon 直接运行本 repo，因此新 worker 代码在下一次 60 秒轮询即生效并写入真实状态：`IREN` job 1123 的 `option_chain` 与 `gex` 均 `ok`/`tt_internal`；`GDXJ` job 1122 的 `option_chain` 为 `ok`，而 `gex` 独立记为 `failed`（`underlying_price missing; cannot compute GEX`）—— 正是"链已落库但 GEX 未生成"必须分开记录的实证。该行的 `last_error_code` 由分类修复前的代码写成 `error`，下次 GDXJ 刷新即自动更正为 `insufficient_data`。
+  - Rollback：表为 additive；无 API contract 变更，旧读路径继续直接读 snapshots。`DROP TABLE symbol_data_state` 即可完全回退。
 
 - [ ] **P2.8.3 queue-fill scheduler**
   - 将当前“每轮只挑 2 个”改为“按目标队列深度补满”：

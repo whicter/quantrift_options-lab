@@ -48,7 +48,10 @@ class BatchDerivationTest(unittest.TestCase):
              patch.object(run_refresh_worker.materialize_scan, 'run') as scan_run:
 
             summary = run_refresh_worker.run_gex_recompute(
-                _FakeConn(rows=[(1,)], columns=['id']),
+                _FakeConn(
+                    rows=[(1, '2026-07-17T12:00:00+00:00', 'polygon_licensed')],
+                    columns=['id', 'snapshot_ts', 'source'],
+                ),
                 {'symbol': 'AAPL'},
                 pending,
             )

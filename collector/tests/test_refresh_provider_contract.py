@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -302,8 +302,13 @@ class RefreshProviderContractTest(unittest.TestCase):
         provider = SimpleNamespace(source='polygon_licensed')
         conn = SimpleNamespace(commit=lambda: None)
         cache = {}
+        daily_bars = [
+            SimpleNamespace(date=date(2026, 7, 16)),
+            SimpleNamespace(date=date(2026, 7, 17)),
+        ]
+        intraday_bars = [SimpleNamespace(bar_ts=datetime(2026, 7, 17, 19, 30, tzinfo=timezone.utc))]
         with patch.object(run_refresh_worker.collect_prices, 'make_provider', return_value=provider) as make_provider, \
-             patch.object(run_refresh_worker.collect_prices, 'fetch_price_rows', return_value=([1, 2], [3])), \
+             patch.object(run_refresh_worker.collect_prices, 'fetch_price_rows', return_value=(daily_bars, intraday_bars)), \
              patch.object(run_refresh_worker.collect_prices, 'upsert_price_rows', return_value=2), \
              patch.object(run_refresh_worker.collect_prices, 'upsert_30m_rows', return_value=1), \
              patch.object(run_refresh_worker, 'reserve_budget'), \

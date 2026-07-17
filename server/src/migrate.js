@@ -629,6 +629,30 @@ async function migrate() {
       ADD COLUMN IF NOT EXISTS sector TEXT,
       ADD COLUMN IF NOT EXISTS market_cap NUMERIC(20,2),
       ADD COLUMN IF NOT EXISTS optionable BOOLEAN;
+
+    -- Per-symbol, per-product freshness summary. One row per (symbol, product).
+    -- Records only observed facts: what landed, when, from where, and what the
+    -- last refresh attempt did. Freshness itself is NOT stored -- it decays with
+    -- wall-clock time, so a stored label would be wrong the moment nothing
+    -- writes. Readers derive it from latest_snapshot_ts against the shared
+    -- product policy.
+    CREATE TABLE IF NOT EXISTS symbol_data_state (
+      symbol             TEXT        NOT NULL,
+      product            TEXT        NOT NULL,
+      latest_snapshot_ts TIMESTAMPTZ,
+      latest_market_date DATE,
+      source             TEXT,
+      refresh_status     TEXT        NOT NULL DEFAULT 'unknown',
+      last_job_id        BIGINT,
+      last_error_code    TEXT,
+      updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (symbol, product)
+    );
+
+    CREATE INDEX IF NOT EXISTS symbol_data_state_product_snapshot
+      ON symbol_data_state (product, latest_snapshot_ts DESC NULLS FIRST);
+    CREATE INDEX IF NOT EXISTS symbol_data_state_refresh_status
+      ON symbol_data_state (refresh_status, updated_at DESC);
   `);
 
   console.log('Migrations complete.');

@@ -24,6 +24,7 @@ import compute_gex
 import derive_volatility
 import materialize_oi_delta
 import materialize_scan
+import symbol_data_state
 
 load_dotenv(Path(__file__).with_name('.env'))
 
@@ -416,6 +417,9 @@ def run_option_chain_snapshot(
             'contract_count': len(snapshot.contracts),
             'provider_status': snapshot.provider_status,
             'snapshot_ts': snapshot.snapshot_ts.isoformat(),
+            # The provider that actually answered, which may be a fallback
+            # rather than the one requested.
+            'source': provider_name,
         }
         summary.update(finalize_option_snapshot(conn, snapshot_id, pending))
         return summary
@@ -448,6 +452,10 @@ def run_gex_recompute(conn, job: dict[str, Any], pending: PendingDerivations | N
         'snapshot_id': snapshot['id'],
         'gex_id': gex_id,
         'model_version': compute_gex.GEX_MODEL_VERSION,
+        # GEX inherits the timing and provenance of the option snapshot it was
+        # computed from; it has no independent freshness.
+        'snapshot_ts': snapshot['snapshot_ts'],
+        'source': snapshot['source'],
     }
     if pending is None:
         materialize_scan.run()
@@ -456,6 +464,112 @@ def run_gex_recompute(conn, job: dict[str, Any], pending: PendingDerivations | N
         pending.request_scan()
         summary['scanner_deferred'] = True
     return summary
+
+
+# Which data products each job type is responsible for. Used to mark every
+# product a failed job owed, since the job itself reports only one outcome.
+JOB_PRODUCTS: dict[str, tuple[str, ...]] = {
+    'option_chain_snapshot': (
+        symbol_data_state.PRODUCT_OPTION_CHAIN,
+        symbol_data_state.PRODUCT_GEX,
+    ),
+    'gex_recompute': (symbol_data_state.PRODUCT_GEX,),
+    'symbol_metrics_snapshot': (symbol_data_state.PRODUCT_METRICS,),
+    'price_history_snapshot': (
+        symbol_data_state.PRODUCT_PRICE_DAILY,
+        symbol_data_state.PRODUCT_PRICE_30M,
+    ),
+}
+
+
+def job_product_facts(job: dict[str, Any], summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Map one successful job's summary to per-product facts.
+
+    Each product records its own timing and provenance. An option chain can land
+    while its GEX is skipped for data-quality reasons, and a price job writes
+    daily and 30M bars with different market dates, so neither may share a
+    single per-job status.
+    """
+    job_type = job['job_type']
+
+    if job_type == 'option_chain_snapshot':
+        facts: dict[str, dict[str, Any]] = {
+            symbol_data_state.PRODUCT_OPTION_CHAIN: {
+                'snapshot_ts': summary.get('snapshot_ts'),
+                'source': summary.get('source'),
+            },
+        }
+        if summary.get('gex_id'):
+            facts[symbol_data_state.PRODUCT_GEX] = {
+                'snapshot_ts': summary.get('snapshot_ts'),
+                'source': summary.get('source'),
+            }
+        elif summary.get('gex_status') == 'skipped':
+            facts[symbol_data_state.PRODUCT_GEX] = {
+                'error': summary.get('gex_error', 'gex computation skipped'),
+            }
+        return facts
+
+    if job_type == 'gex_recompute':
+        return {
+            symbol_data_state.PRODUCT_GEX: {
+                'snapshot_ts': summary.get('snapshot_ts'),
+                'source': summary.get('source'),
+            },
+        }
+
+    if job_type == 'symbol_metrics_snapshot':
+        return {
+            symbol_data_state.PRODUCT_METRICS: {
+                'market_date': summary.get('market_date'),
+                'source': summary.get('source'),
+            },
+        }
+
+    if job_type == 'price_history_snapshot':
+        return {
+            symbol_data_state.PRODUCT_PRICE_DAILY: {
+                'market_date': summary.get('daily_market_date'),
+                'source': summary.get('source'),
+            },
+            symbol_data_state.PRODUCT_PRICE_30M: {
+                'snapshot_ts': summary.get('intraday_snapshot_ts'),
+                'market_date': summary.get('intraday_market_date'),
+                'source': summary.get('source'),
+            },
+        }
+
+    return {}
+
+
+def record_job_state(
+    conn,
+    job: dict[str, Any],
+    summary: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> None:
+    """Mirror a job outcome into symbol_data_state.
+
+    Best-effort by design: this table is a read-side summary and the snapshot
+    tables remain the source of truth, so failing to record state must never
+    turn a successful refresh into a failed job.
+    """
+    if job['job_type'] not in JOB_PRODUCTS:
+        return
+    symbol = job.get('symbol')
+    if not symbol or symbol == '__SCAN__':
+        return
+
+    try:
+        if error is not None:
+            facts = {product: {'error': error} for product in JOB_PRODUCTS[job['job_type']]}
+        else:
+            facts = job_product_facts(job, summary or {})
+        if facts:
+            symbol_data_state.record_products(conn, symbol, facts, job_id=job.get('id'))
+    except Exception as exc:
+        conn.rollback()
+        log.error('failed to record symbol_data_state for job %s: %s', job.get('id'), exc)
 
 
 def should_retry(exc: Exception) -> bool:
@@ -515,6 +629,7 @@ def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     return {
         'symbol': symbol,
         'date': row['date'].isoformat(),
+        'market_date': row['date'],
         'source': row['source'],
     }
 
@@ -538,11 +653,19 @@ def run_price_history_snapshot(
     intraday_written = collect_prices.upsert_30m_rows(conn, intraday_rows, commit=False)
     conn.commit()
     derived = derive_volatility.run(backfill=False, symbols=[symbol])
+    # Daily and 30M bars advance independently: an intraday feed can lag the
+    # daily close. Report each one's own latest bar rather than a shared date.
+    latest_daily = max((bar.date for bar in daily_rows), default=None)
+    latest_intraday = max((bar.bar_ts for bar in intraday_rows), default=None)
     return {
         'symbol': symbol,
         'provider': provider.source,
+        'source': provider.source,
         'daily_written': daily_written,
         'intraday_written': intraday_written,
+        'daily_market_date': latest_daily,
+        'intraday_snapshot_ts': latest_intraday,
+        'intraday_market_date': latest_intraday.date() if latest_intraday else None,
         'derived': derived,
     }
 
@@ -592,6 +715,7 @@ def handle_job(
         else:
             raise RuntimeError(f"unsupported job_type={job['job_type']}")
         finish_job(conn, job_id, 'succeeded', summary=summary)
+        record_job_state(conn, job, summary=summary)
         log.info('job %s succeeded: %s', job_id, job['job_type'])
     except Exception as exc:
         conn.rollback()
@@ -599,6 +723,7 @@ def handle_job(
             blocked_providers.add(auth_provider)
         status = 'queued' if should_retry(exc) and job.get('attempts', 1) < WORKER_MAX_ATTEMPTS else 'failed'
         finish_job(conn, job_id, status, error=str(exc))
+        record_job_state(conn, job, error=str(exc))
         log.error('job %s %s: %s', job_id, status, exc)
 
 

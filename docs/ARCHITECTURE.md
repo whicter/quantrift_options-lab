@@ -931,6 +931,25 @@ option_contract_snapshots（最新 snapshot vs 同一来源的前一纽约交易
 
 `scanner_materialize` job 因此不再 inline 执行：job row 保持 `running`，直到 batch 末尾的真实结果回写 `succeeded` 或 `failed`。这是刻意的——延迟执行不能让失败的物化被记成成功。两个全局派生各自独立 try/except，OI delta 失败不阻断 scanner 物化。
 
+**`symbol_data_state`：每 symbol × product 的读侧汇总（E4，2026-07-17）**
+
+```text
+run_refresh_worker.handle_job
+  → job_product_facts()（job 语义 → per-product 事实）
+  → symbol_data_state.record_products()
+  → symbol_data_state (symbol, product) 一行
+      latest_snapshot_ts, latest_market_date, source,
+      refresh_status, last_job_id, last_error_code, updated_at
+```
+
+设计约束：
+
+- **不存 freshness。** freshness 随 wall-clock 衰减：60 分钟目标的行在第 61 分钟没有任何写入也已经过期，存下来的标签必然说谎。表只记录"什么落库了、什么时候、来自哪里、上次尝试做了什么"；freshness 由读方用 `latest_snapshot_ts` + product policy 现算。
+- **product 独立。** `price_daily` / `price_30m` / `metrics` / `option_chain` / `gex` 各自一行。期权链落库但 GEX 未过质量门是常态（2026-07-17 GDXJ 实例），塌缩成单一 per-symbol 状态会谎报 GEX 可用。
+- **失败不擦除数据。** upsert 用 `COALESCE` 保留上一次真实 snapshot；失败只更新 `refresh_status` / `last_error_code`，数据仍可作为 stale 展示。
+- **错误码是粗粒度码，不是原始消息。** provider 名和请求明细不进该表，留在 `provider_fetch_jobs.last_error` 给运维。
+- **写入 best-effort。** snapshot 表仍是 source of truth；汇总表写失败不能把成功的刷新变成失败的 job。
+
 ### 10.3 读路径（API → 前端）
 
 ```text
