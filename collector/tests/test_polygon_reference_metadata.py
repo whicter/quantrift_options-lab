@@ -91,6 +91,9 @@ class PolygonReferenceMetadataTests(unittest.TestCase):
             'POLYGON_API_KEY': 'test-key', 'POLYGON_STOCK_REQUEST_DELAY': '0',
             'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_reference_test',
             'POLYGON_REFERENCE_RATE_LIMIT_BACKOFF': '1',
+            # Pin the local backend: a unit test must not open a connection to
+            # the real database just because DATABASE_URL is in the environment.
+            'PROVIDER_RATE_LIMIT_BACKEND': 'file',
         }, clear=False):
             provider = PolygonReferenceProvider(session)
         return provider, session
@@ -117,8 +120,11 @@ class PolygonReferenceMetadataTests(unittest.TestCase):
             FakeResponse({}, 429, {'Retry-After': '2'}),
             FakeResponse({'status': 'OK', 'results': {'ticker': 'AAPL', 'name': 'Apple'}}),
         ])
-        self.assertEqual(provider.fetch_ticker('AAPL').name, 'Apple')
-        sleep.assert_called_once_with(2.0)
+        # A 429 now pushes the shared slot rather than sleeping locally, so every
+        # worker backs off instead of only this process.
+        with patch.object(provider.stock_pacer, 'penalize') as penalize:
+            self.assertEqual(provider.fetch_ticker('AAPL').name, 'Apple')
+            penalize.assert_called_once_with(2.0)
 
     def test_sic_and_ticker_type_mapping_are_deterministic_and_nullable(self):
         self.assertEqual(sector_from_sic('3571'), 'Technology')

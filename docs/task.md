@@ -1251,8 +1251,8 @@ PostgreSQL
   - **429 惩罚是共享的**：原实现在 429 后 `time.sleep()` 只暂停当前进程，其余 worker 继续猛打——这正是单次拒绝演变成请求风暴的机制。现改为 `penalize()` 推移共享 slot，所有 worker 一起退避；`GREATEST` 保证并发 429 中较短的 `Retry-After` 不会缩短已生效的较长退避。
   - 等待有上限（`PROVIDER_RATE_LIMIT_MAX_WAIT=300`），配置错误或异常惩罚不会静默地把 worker 永久停住。
   - Tests：`tests/test_provider_rate_limit.py` 9 个（并发 worker 拿到不同且按 delay 间隔的 slot、多 worker 间隔累进、scope 互不阻塞、delay=0 不碰 DB、共享惩罚影响其他 worker、短惩罚不缩短长惩罚、等待封顶、连接释放且不在睡眠时持有、失败回滚并上抛）+ `tests/test_polygon_rate_limit.py` 扩到 4 个（原 2 个 file-lock 测试保留断言不变，新增"有 DB 时默认不选 file 后端"与"共享限流失败降级为本地锁"）。
-  - **修复了一个测试隐患**：改动后原 file-lock 测试会因 `.env` 里存在 `DATABASE_URL` 而真的去连生产数据库。现两个测试显式钉住 `PROVIDER_RATE_LIMIT_BACKEND=file`，单元测试不触达网络/数据库。
-  - 验证：collector 174/174（163 → 174）。
+  - **修复了一个测试隐患**：改动后原 file-lock 测试会因 `.env` 里存在 `DATABASE_URL` 而真的去连生产数据库。`test_polygon_price_provider` 与 `test_polygon_reference_metadata` 的 429 用例同样受影响——它们一度"通过"只是因为 DB 调用恰好失败并降级为本地 sleep，即测试结果取决于生产数据库是否可达。现三处均显式钉住 `PROVIDER_RATE_LIMIT_BACKEND=file`，且 429 断言改为验证真实契约（调用共享 `penalize`，而非本地 sleep）。
+  - 验证：collector 174/174（163 → 174）。套件耗时由 0.367s 降至 0.037s，且以无效 `DATABASE_URL` 连跑三次均 174/174——证明单元测试确实不再触达数据库。
   - 真实 runtime 证据（2026-07-17，真 SQL + Railway 数据库时钟，探针行已清理）：worker A 等待 `0.0s`；worker B 等待 `15.8s`（独立 slot，按 16s delay 间隔）；另一 scope 等待 `0.0s`（预算独立）；`penalize(120)` 后**另一个** worker 等待 `119.8s`（证明退避是共享的，不是本进程 sleep）；随后 `penalize(5)` 未缩短既有退避。
   - Rollback：`PROVIDER_RATE_LIMIT_BACKEND=file` 立即回到旧行为；表为 additive。
 

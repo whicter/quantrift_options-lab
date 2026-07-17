@@ -99,11 +99,17 @@ class PolygonPriceProviderTests(unittest.TestCase):
             'POLYGON_STOCK_REQUEST_DELAY': '0',
             'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_price_provider_test',
             'POLYGON_PRICE_RATE_LIMIT_BACKOFF': '0',
+            # Pin the local backend: a unit test must not open a connection to
+            # the real database just because DATABASE_URL is in the environment.
+            'PROVIDER_RATE_LIMIT_BACKEND': 'file',
         }, clear=False):
             provider = PolygonPriceProvider(session=session)
 
-        self.assertEqual(provider.fetch_daily_bars('AAPL'), [])
-        sleep.assert_called_once_with(2.0)
+            # A 429 now pushes the shared slot rather than sleeping locally, so
+            # every worker backs off instead of only this process.
+            with patch.object(provider.stock_pacer, 'penalize') as penalize:
+                self.assertEqual(provider.fetch_daily_bars('AAPL'), [])
+                penalize.assert_called_once_with(2.0)
 
 
 if __name__ == '__main__':
