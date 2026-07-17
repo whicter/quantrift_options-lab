@@ -249,16 +249,6 @@ function toScanRow(row, concreteSetup) {
       maxAbsDelta: num(row.max_abs_delta),
       avgSpreadPct: num(row.avg_spread_pct),
     },
-    dataMeta: {
-      source: row.source,
-      date: row.date ? String(row.date).slice(0, 10) : null,
-      priceSource: row.price_source,
-      priceDate: row.price_date ? String(row.price_date).slice(0, 10) : null,
-      priceStatus: row.price_status || 'missing',
-      quoteSource: row.quote_source,
-      quoteSnapshotTs: row.quote_snapshot_ts,
-      quoteFreshness: row.quote_freshness || 'missing',
-    },
   };
 }
 

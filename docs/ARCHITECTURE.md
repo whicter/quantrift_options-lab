@@ -487,6 +487,19 @@ Railway
 | GET | `/api/admin/status/options` | 运维明细：option snapshot 覆盖率、completeness、provider_status |
 | GET | `/api/admin/status/cache` | 运维明细：job backlog、recent failures、scanner batch age、provider budget |
 
+### 7.2.0 生产加固边界（2026-07-17）
+
+安全响应头有两个独立下发点，对应两种截然不同的内容：`frontend/vercel.json` 服务浏览器可执行的 SPA；`server/src/lib/securityHeaders.js` 服务只出 JSON 的 API，因此后者用 `default-src 'none'`——API 不加载任何资源，也不该出现在任何 frame 中。
+
+CSP 目前**不含 Clerk**：未配置 `VITE_CLERK_PUBLISHABLE_KEY` 时 `ClerkProvider` 不挂载，无法对真实 Clerk 实例域名做验证。启用 Clerk 前必须扩展 `script-src`/`connect-src`/`img-src`/`worker-src`/`frame-src`，见 V3A-5 前置项。一个猜出来的 CSP 会静默打断登录，比暂时不写更糟。
+
+CI（`.github/workflows/ci.yml`）的两个门禁都断言产物而非配置：
+
+- `frontend/scripts/check-dist.mjs` 直接扫描 `dist/`，不信任 `vite.config.js` 的 `build.sourcemap=false`。配置与产物是两件事，只有产物是用户真正拿到的东西。
+- `scripts/scan-secrets.sh` 保留 docs 在范围内并过滤占位符。Polygon key 正是通过文档进入 Git 历史的；把文档排除出扫描范围等于把已经发生过的泄露路径永久设为盲区。
+
+内部 provider 名（`polygon_licensed` / `ib_internal` / `tt_internal`）当前不会出现在任何渲染路径：所有 `source` 字段要么写入 view model 后无人读取，要么只用于 `freshness` / `isStale` 的条件判断。`frontend/src/lib/providerDisclosure.test.js` 守住硬编码与 `DataDetails` 两条路径，但它是静态断言，不能证明运行时值不会被渲染——根治仍是服务端降级（V3A-4）。
+
 ### 7.2.1 公开状态与运维状态的边界
 
 `/api/status/data` 是唯一公开的状态端点，因为 Scan、Weekly 和 Analyze 需要 symbol 注册表来判断一个标的是否已被收录。它只返回 `status`、`generated_at`、`latest_date`、`expected_count`、`expected_symbols` 和 `universe.scan_enabled_count`。

@@ -706,3 +706,11 @@ GEX compute job：
 - **降级必须是单一通道，不能靠调用方自觉**：`toPublicDataStatus()` 是公开视图的唯一出口，admin 与 public 共用同一组 builder。若让两条路径各自拼装 response，新增字段迟早会只加到一侧，公开面会无声扩大。
 - **缺失密钥必须关闭端点而不是放行**：`requireAdminToken` 在 `ADMIN_API_TOKEN` 未配置时返回 503。若写成"没配就跳过认证"，一次漏配就等于把运维明细公开，而且不会有任何报错提示。
 - **运维读模型与上报写入是不同的信任边界**：`POST /api/heartbeat` 由 collector 用 `HEARTBEAT_TOKEN` 上报，`GET /api/heartbeat/status` 由人读取，应该用 `ADMIN_API_TOKEN`。复用同一个密钥会让采集节点顺带获得读取全局运维状态的权限。
+
+### 15. 门禁必须断言产物，并且必须能失败
+
+- **配置不是产物**：`vite.config.js` 里的 `build.sourcemap=false` 只是意图。真正到用户手上的是 `dist/`。门禁应该扫描 `dist/`，因为任何一次配置回归、插件行为变化或构建路径调整都会让"配置正确"和"产物正确"分叉，而只有后者有意义。
+- **没验证过能失败的门禁等于没有门禁**：`check-dist` 和 `scan-secrets` 都先注入伪造 source map、伪造 Polygon key、真实格式的 DB URL 和 Stripe live key 反向验证过。一个永远返回 0 的检查会给出比没有检查更强的虚假安全感。
+- **不要把已经发生过泄露的路径排除出扫描范围**：Polygon key 是通过文档进入 Git 历史的。secret 扫描一开始因为文档里的 `postgresql://postgres:PASSWORD@...` 占位符误报，最省事的做法是 `':!*.md'`——那等于把唯一一条已被证实的泄露路径永久设为盲区。正确做法是过滤占位符（`:PASSWORD@`、`YOUR_*`、`${...}`），保留文件在范围内。
+- **宁可留下明确前置，也不要猜一个会静默失败的配置**：CSP 若猜错 Clerk 的 host，登录会被静默阻断，且只有浏览器控制台有线索。当前 Clerk 未配置、实例域名无法验证，因此 CSP 只覆盖真实运行的应用，并把"启用 Clerk 前先扩展 CSP"写成 V3A-5 的显式前置。未验证的安全配置不是保守，是把故障推迟到最难排查的时刻。
+- **无人读取不是一种保障机制**：审计发现没有任何 provider 名被渲染，但这只是因为恰好没有组件读那些字段——`Scan.jsx` 的 `dataMeta` 把三个原始 provider 字符串送进 props 却无人消费。删掉死字段能减少暴露面，但真正的保障必须是服务端不下发，而不是前端恰好不显示。

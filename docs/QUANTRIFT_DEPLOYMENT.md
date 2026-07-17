@@ -990,7 +990,49 @@ GET /api/scan
 
 CORS 只限制浏览器，不阻止服务器、脚本或 curl 调用 API，因此不能把 CORS 当作认证机制。
 
-### 13.1 公开状态与运维状态的分级（2026-07-17）
+### 13.1 安全响应头（2026-07-17）
+
+前端由 `frontend/vercel.json` 的 `headers` 块下发；API 由 `server/src/lib/securityHeaders.js` 中间件下发。
+
+| Header | 前端（Vercel） | API（Railway） |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'self'`，允许 `logo.clearbit.com` 图片与 Railway API 的 `connect-src`；`frame-ancestors 'none'`、`object-src 'none'` | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'`——API 只出 JSON，不加载任何资源 |
+| `X-Content-Type-Options` | `nosniff` | `nosniff` |
+| `X-Frame-Options` | `DENY` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | `no-referrer` |
+| `Permissions-Policy` | 关闭 camera/microphone/geolocation/payment/usb 等 | — |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | 同左，仅 `NODE_ENV=production` |
+| `Cross-Origin-Resource-Policy` | — | `same-site` |
+
+`X-Powered-By` 已通过 `app.disable('x-powered-by')` 与中间件双重移除。
+
+验证：
+
+```bash
+curl -sD - -o /dev/null https://www.quantrift.io/ | grep -iE "content-security|x-frame|referrer|permissions|strict-transport"
+curl -sD - -o /dev/null "$API_BASE/health" | grep -iE "content-security|x-content-type|x-powered"
+```
+
+**CSP 尚未包含 Clerk（重要）**：当前 `VITE_CLERK_PUBLISHABLE_KEY` 未配置，`ClerkProvider` 不挂载，因此现有 CSP 与实际运行的应用一致并已验证。注入 Clerk key 时**必须同时**按真实 Clerk 实例域名扩展 `script-src`、`connect-src`、`img-src`、`worker-src` 和 `frame-src`，否则登录会被 CSP 静默阻断，且浏览器控制台之外没有任何提示。Stripe 目前是 hosted checkout 重定向，不加载前端脚本；若改用 Stripe.js 需同时扩展 `script-src` 与 `frame-src`。
+
+### 13.2 CI 门禁（2026-07-17）
+
+`.github/workflows/ci.yml` 在 push 到 master 和所有 PR 上运行四个 job：
+
+| Job | 内容 |
+|---|---|
+| `server` | `npm ci` + `npm test` |
+| `frontend` | `npm ci` + lint（`--max-warnings=0`）+ test + build + `check:dist` |
+| `collector` | Python 3.11 + `pip install -r requirements.txt` + `unittest discover`；`TT_LOGIN`/`DATABASE_URL` 置空，确保测试不读 `.env`、不触达 provider |
+| `secrets` | `scripts/scan-secrets.sh` |
+
+`frontend/scripts/check-dist.mjs` 校验的是 **artifact 本身**而不是配置：`vite.config.js` 已设 `build.sourcemap=false`，但门禁不信任该设置，直接扫描 `dist/` 是否含 `.map`、内联 `sourceMappingURL=data:` 或 provider secret pattern。
+
+`scripts/scan-secrets.sh` 把 `docs/` 保留在扫描范围内——Polygon key 恰恰是通过文档进入 Git 历史的——并以占位符过滤（`:PASSWORD@`、`YOUR_*`、`${...}`、`<...>`）代替排除文件。`*.example` 与 `VITE_` 前缀值按设计不在范围内。
+
+两个门禁都做过反向验证：注入伪造 source map、伪造 Polygon key、真实 DB URL、Stripe live key 与 admin token 后均正确失败；干净仓库与占位符正确通过。
+
+### 13.3 公开状态与运维状态的分级（2026-07-17）
 
 `/api/status/data` 是唯一公开的状态端点，只返回产品自身要渲染的 symbol 注册表和整体 ok/degraded。运维明细走 `/api/admin/status/{data,options,cache}` 和 `GET /api/heartbeat/status`，需要 `ADMIN_API_TOKEN`。
 

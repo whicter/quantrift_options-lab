@@ -24,8 +24,10 @@ const { router: accountRouter } = require('./routes/account');
 const { router: portfolioRouter } = require('./routes/portfolio');
 const { router: billingRouter, receiveWebhook } = require('./routes/billing');
 const { requireEntitlement } = require('./lib/entitlements');
+const { securityHeaders } = require('./lib/securityHeaders');
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 3001;
 
 function buildCorsOrigin() {
@@ -45,6 +47,7 @@ function buildCorsOrigin() {
   };
 }
 
+app.use(securityHeaders);
 app.use(buildAuthMiddleware());
 app.use(cors({
   origin: buildCorsOrigin(),

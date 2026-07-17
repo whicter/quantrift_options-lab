@@ -37,7 +37,7 @@
 | 顺序 | 任务 | 为什么是这个位置 | 外部阻塞 |
 |---|---|---|---|
 | ✅ E1 | V3A-6 内部状态端点权限拆分 | 已完成（2026-07-17）：`/api/status/data` 降级为产品安全摘要，运维明细移入 `/api/admin/status/*` 与 `GET /api/heartbeat/status`，由 fail-closed 的 `ADMIN_API_TOKEN` 保护。 | 部署需注入 `ADMIN_API_TOKEN` |
-| E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 仓库**没有任何 CI**（无 `.github`），也**没有任何安全响应头**。`build.sourcemap=false` 已完成但无自动校验，回归无人发现。 | 无 |
+| ✅ E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 已完成（2026-07-17）：新增 `.github/workflows/ci.yml`（4 job）、前端与 API 安全响应头、`check-dist.mjs` artifact 门、`scan-secrets.sh`、provider 名披露守卫测试。CSP 暂未含 Clerk，见 V3A-9 已知边界。 | 无 |
 | E3 | P2.8.6 ingestion / derivation 解耦 | 单点改动、收益最大：一个 batch 当前最多重复跑 10 次全局 `materialize_scan`。是 P2.8 吞吐的前置。 | 无 |
 | E4 | P2.8.2 `symbol_data_state` 汇总表 | P2.8.1 freshness 口径与 P2.8.8 前端体验都要读它，先建表与写入。 | 无 |
 | E5 | P2.8.1 统一 freshness 口径 | 依赖 E4 的表；Analyze 改为按 product 返回 `fresh/stale/missing/queued/failed`。 | 无 |
@@ -1687,6 +1687,12 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-5 Auth, Entitlement, And Fail-Closed Production Gate
 
+- [ ] **前置：启用 Clerk 前必须先扩展 CSP**（2026-07-17 由 E2 引入）。
+  - `frontend/vercel.json` 的 CSP 目前只允许自有 bundle、`logo.clearbit.com` 和 Railway API。当前 `VITE_CLERK_PUBLISHABLE_KEY` 未配置，`ClerkProvider` 不挂载，因此 CSP 与现状一致且已验证。
+  - 一旦注入 Clerk key，登录会被 CSP 静默阻断，除非同时扩展：`script-src`、`connect-src`（Clerk frontend API 域名）、`img-src`（头像）、`worker-src`、`frame-src`（bot 保护）。
+  - 必须按 Clerk 官方文档和**真实实例域名**填写，并以一次真实 sign-in 验收，而不是照抄猜测的 host。E2 明确拒绝猜测这些值。
+  - Stripe 目前是 hosted checkout 重定向，不加载前端 JS；若将来引入 Stripe.js，需同时扩展 `script-src` 与 `frame-src`。
+
 - [ ] Production auth defaults：
   - production 环境默认 `AUTH_ENFORCEMENT_ENABLED=true`。
   - 缺 Clerk/Stripe required env 时 production startup fail closed 或 paid routes 503。
@@ -1759,22 +1765,34 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - scanner pagination limit cannot be bypassed。
   - stale cache is labeled, not silently treated as fresh。
 
-### V3A-9 Frontend Production Hardening
+### ✅ V3A-9 Frontend Production Hardening（E2，2026-07-17 完成）
 
 - [x] `frontend/vite.config.js` production build explicitly sets `build.sourcemap=false`。
-- [ ] CI/build verification checks no `.map` files in production artifact。
-- [ ] Remove unused mock modules from production import graph：
-  - `frontend/src/data/weeklyMock.js` 已删除；继续检查其他 mock imports。
-  - Any remaining examples must be clearly educational/demo route only。
-- [ ] Security headers:
-  - CSP appropriate for Vercel/Clerk/Stripe。
-  - `X-Content-Type-Options`。
-  - `Referrer-Policy`。
-  - `Permissions-Policy`。
-- [ ] Do not display internal source names in normal product UI。
-- [ ] Tests:
-  - production build contains no source maps。
-  - scanner/analyze UI does not render `polygon_licensed` / `ib_internal` / `tt_internal` for normal user mode。
+- [x] CI/build verification checks no `.map` files in production artifact：
+  - `frontend/scripts/check-dist.mjs`（`npm run check:dist`）断言 artifact 本身，不信任配置：拒绝 `.map` 文件、内联 `sourceMappingURL=data:` 以及 8 类 provider secret pattern（Polygon/Clerk/Stripe/TT/DB URL/VAPID/admin token）。
+  - 反向验证：注入伪造 `.map` 与伪造 `POLYGON_API_KEY` 后均正确 exit 1；干净 artifact exit 0。门必须能失败才算门。
+- [x] Remove unused mock modules from production import graph：
+  - 全仓已无 `*mock*` 文件；`mockAnalysis` / `weeklyMock` 均已删除。
+  - `Mock` 字样只出现在两个测试文件中，不进入生产 import graph。
+- [x] Security headers（`frontend/vercel.json` + `server/src/lib/securityHeaders.js`）：
+  - 前端：CSP、`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`、HSTS。
+  - API：`default-src 'none'; frame-ancestors 'none'; base-uri 'none'`（只出 JSON，不加载任何资源、不该被 frame）、nosniff、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、`Cross-Origin-Resource-Policy: same-site`；移除 `X-Powered-By`；HSTS 仅 production。
+  - Runtime 验证：`NODE_ENV=production` 起服务 curl `/health`，六个 header 全部实际下发，`X-Powered-By` 不存在。
+- [x] Do not display internal source names in normal product UI：
+  - 审计结论：目前**没有任何** provider 名被渲染。所有 `source` 字段都只写进 view model 后无人读取，或只用于 `freshness`/`isStale` 等兄弟字段的条件判断。
+  - 已移除 `Scan.jsx` 中完全无消费者的 `dataMeta`（携带 `row.source`、`row.price_source`、`row.quote_source` 三个原始 provider 字符串进入组件 props）。
+- [x] Tests:
+  - production build contains no source maps → `check:dist`，CI 强制。
+  - `frontend/src/lib/providerDisclosure.test.js`：生产代码不得硬编码 `polygon_licensed` / `ib_internal` / `tt_internal` / `tastytrade` / `stooq`；`DataDetails` 不得读取 `data_state.source`；scanner row 不得携带原始 provider 字符串。
+  - `server/test/securityHeaders.test.js`：baseline header 齐全；HSTS 仅在 production 下发。
+- [x] CI（`.github/workflows/ci.yml`，此前仓库完全没有 CI）：四个 job —— server tests、frontend lint/test/build/check:dist、collector unittest（Python 3.11，环境置空以确保不读 `.env`、不触达 provider）、`scripts/scan-secrets.sh`。
+  - `scan-secrets.sh` 保留 docs 在扫描范围内（Polygon key 曾进入 Git 历史，正是文档类泄露），改为过滤占位符而不是跳过文件。反向验证：4 类真实 secret 全部捕获，`YOUR_PASSWORD@` 占位符正确放行。
+- [x] 验证：server 96/96（94 → 96）；frontend 43/43（40 → 43）；full ESLint 0 errors/0 warnings；production build 通过（仅既有 chunk-size 警告）；collector 130/130。
+
+**已知边界（不要当作已完成）**：
+
+- CSP 的 `script-src`/`connect-src` 目前只覆盖当前实际运行的应用：自有 bundle、`logo.clearbit.com` 图片、Railway API。**Clerk 尚未包含**——当前未配置 `VITE_CLERK_PUBLISHABLE_KEY`，`ClerkProvider` 根本不挂载，且无法对真实 Clerk 实例域名做验证。启用 Clerk 前必须扩展 CSP，见 V3A-5 / P3 的对应前置项。宁可留下明确前置，也不猜测 Clerk host 而发布一个未经验证、会静默打断登录的 CSP。
+- `providerDisclosure.test.js` 是静态断言（测试运行器无 JSX transform，全仓测试均为源码文本断言）。它能挡住硬编码的 provider 名和 `DataDetails` 长出 source 字段，但**不能证明**运行时值永远不会被渲染——这些字符串来自 API。真正的根治是服务端对普通用户降级 provider/source，见 V3A-4 / E10。
 
 ### V3A-10 Worker And Runtime Boundaries
 
@@ -1870,6 +1888,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - ✅ React conditional `ClerkProvider`、SignIn/UserButton、`/account` route；无 key 时不挂载 SDK
   - ✅ Tests/build：server 43/43、frontend 19/19、Vite build passed
   - [ ] Railway/Vercel 注入 Clerk publishable/secret keys 并完成真实 sign-in 验收
+    - 同一步必须先扩展 `frontend/vercel.json` 的 CSP，否则 Clerk 会被 CSP 静默阻断；见 V3A-5 前置项。
 - [ ] 订阅分层: 免费（教育工具）/ 付费（scanner + alerts + live data）
   - ✅ Free/Pro plan catalog 与 bounded entitlements 已写入 account API
   - ✅ scanner/alerts/live/portfolio routes 已接入 entitlement middleware；`AUTH_ENFORCEMENT_ENABLED=false` rollout gate
