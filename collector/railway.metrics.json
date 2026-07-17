@@ -9,7 +9,6 @@
   },
   "deploy": {
     "startCommand": "python run_railway_refresh_cycle.py",
-    "cronSchedule": "*/5 * * * 1-5",
     "restartPolicyType": "NEVER"
   }
 }
