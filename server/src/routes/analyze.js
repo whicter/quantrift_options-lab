@@ -65,6 +65,11 @@ async function sendAnalyzeStatus(req, res) {
              AND job_type = 'option_chain_snapshot'
              AND status = 'failed'
              AND request_params->>'require_quotes' = 'true'
+             AND (
+               last_error LIKE 'option quote unavailable:%'
+               OR last_error LIKE 'tastytrade auth unavailable:%'
+               OR last_error LIKE 'provider auth unavailable for this worker run:%'
+             )
              AND finished_at >= NOW() - INTERVAL '24 hours'
          ) AS quotes_blocked,
          (SELECT last_error FROM provider_fetch_jobs
@@ -72,6 +77,11 @@ async function sendAnalyzeStatus(req, res) {
             AND job_type = 'option_chain_snapshot'
             AND status = 'failed'
             AND request_params->>'require_quotes' = 'true'
+            AND (
+              last_error LIKE 'option quote unavailable:%'
+              OR last_error LIKE 'tastytrade auth unavailable:%'
+              OR last_error LIKE 'provider auth unavailable for this worker run:%'
+            )
           ORDER BY finished_at DESC LIMIT 1) AS quotes_last_error`,
       [symbol, GEX_MODEL_VERSION]
     );

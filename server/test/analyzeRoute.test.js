@@ -132,6 +132,21 @@ test('failed quote collection is exposed without an enqueue loop', async () => {
   assert.equal(refreshCalls.length, 0);
 });
 
+test('transient quote collection failure is retried instead of becoming a blocker', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: false, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false,
+    quotes_blocked: false,
+    quotes_last_error: null,
+  }] });
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+
+  assert.equal(res.body.status, 'queued');
+  assert.equal(res.body.blockers.length, 0);
+  assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_chain_snapshot']);
+});
+
 test('Analyze candidate is built server-side from the latest quoted chain without returning that chain', async () => {
   const { sendAnalyzeCandidate } = require(routePath);
   queryResults.push(
