@@ -7,12 +7,16 @@ COLLECTOR_DIR = Path(__file__).resolve().parents[1]
 
 
 class RailwayRefreshCronTest(unittest.TestCase):
-    def test_config_is_one_shot_five_minute_refresh_cron(self):
+    def test_refresh_cron_is_disabled_for_single_writer(self):
+        # Option B (2026-07-17): the Railway refresh cron was removed so Mac
+        # Studio is the single writer. Two runtimes against one DB contended on
+        # the shared provider_request_usage budget row. The start command stays
+        # (runs once per deploy, then idle) but there must be no cronSchedule.
         config = json.loads((COLLECTOR_DIR / 'railway.metrics.json').read_text())
         self.assertEqual(config['build']['builder'], 'DOCKERFILE')
         self.assertEqual(config['build']['dockerfilePath'], 'collector/Dockerfile.metrics')
         self.assertEqual(config['deploy']['startCommand'], 'python run_railway_refresh_cycle.py')
-        self.assertEqual(config['deploy']['cronSchedule'], '*/5 * * * 1-5')
+        self.assertNotIn('cronSchedule', config['deploy'])
         self.assertEqual(config['deploy']['restartPolicyType'], 'NEVER')
 
     def test_container_runs_the_one_shot_refresh_cycle(self):

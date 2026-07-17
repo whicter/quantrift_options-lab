@@ -1799,7 +1799,7 @@ Current Railway runtime is 0/67 ready, so 67 symbols correctly remain eligible f
 
 ## 34. Cloud Metrics Cron
 
-Tastytrade market metrics use REST only and are isolated from the Mac option collector. `collector/Dockerfile.metrics` builds a one-shot Python image whose sole command is `collect.py`; `collector/railway.metrics.json` configures a weekday `22:30 UTC` cron and `NEVER` restart policy.
+Tastytrade market metrics use REST only and are isolated from the Mac option collector. `collector/Dockerfile.metrics` builds a one-shot Python image; its command evolved from `collect.py` (metrics only) to `run_railway_refresh_cycle.py` (full refresh cycle). `collector/railway.metrics.json` uses a `NEVER` restart policy and, as of Option B (2026-07-17), carries **no `cronSchedule`** — the service now runs once per deploy then idles (see the disable note below).
 
 ```text
 Railway cron start -> collect.py -> filter derived-ready symbols
@@ -1808,7 +1808,9 @@ Railway cron start -> collect.py -> filter derived-ready symbols
                                 -> process exits
 ```
 
-The original after-close metrics cron did not consume API refresh jobs. The Railway service now runs a bounded one-shot refresh cycle every five minutes on weekdays: `schedule_option_refresh` → `run_refresh_worker` → `materialize_scan`. It does not run the long-lived Mac daemon, IB adapter, heartbeat, or TT metrics login. The image excludes `.env`, local virtualenv, tests and logs. The config file does not alter Railway's repo-root build context, so its Dockerfile and `COPY` paths are explicitly repo-root-relative.
+The original after-close metrics cron did not consume API refresh jobs. It was later repurposed into a bounded one-shot refresh cycle (`schedule_option_refresh` → `run_refresh_worker` → `materialize_scan`), running every five minutes on weekdays.
+
+**Disabled 2026-07-17 (Option B, commit `48b1cbc`).** Running the refresh cycle here AND on the Mac Studio daemon made two writers contend on one DB — notably the `provider_request_usage` budget row, each stamping its own `PROVIDER_DAILY_BUDGET`, which starved mid-day refreshes. `cronSchedule` was removed from `railway.metrics.json` so Mac Studio is the sole writer; the service keeps its start command but runs once per deploy then idles (`restartPolicyType: NEVER`). Reversible by re-adding `"cronSchedule": "*/5 * * * 1-5"`; if re-enabled, both runtimes must set the same `PROVIDER_DAILY_BUDGET`. The image still excludes `.env`, local virtualenv, tests and logs, and its Dockerfile/`COPY` paths remain repo-root-relative.
 
 The first manual cloud execution reached PostgreSQL and loaded the 67-symbol watchlist. Railway initially omitted `TT_LOGIN`; this is now a required credential-contract field and the collector fails before sending an HTTP request when it is absent. Railway also initially stored a token with literal wrapping quotes; removing those did not restore the invalid database state. The additive migration was applied on 2026-07-16. `provider_auth_state` is shared only by collectors using the same `DATABASE_URL`: a local `auth.py --login` does not seed Railway if its database binding differs. Railway bootstraps an empty row from `TT_REMEMBER_TOKEN`; every collector locks its provider row for the exchange and commits any successor before accepting the session. An explicit 401/403 against an existing database token ends the run after one request; it does not attempt the environment seed, password login, or transient retries. The log includes only an irreversible token fingerprint and named consumer. This avoids a Railway Volume entirely. Cloud collection remains incomplete until its execution log and resulting `iv_history`/`provider_auth_state.updated_at` are verified.
 

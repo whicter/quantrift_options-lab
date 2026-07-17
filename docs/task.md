@@ -6,19 +6,18 @@
 
 **根因（已查实）**：Polygon 每日预算 `PROVIDER_DAILY_BUDGET`（自设 1000）在 13:45 UTC 打满 → 405 次 `provider budget exhausted` 失败覆盖全部 81 标的。Polygon 付费档（含 $29 Options）**API 调用无限**，所以 1000 是纯自设、成本为零的错误节流。放大因素两个：①调度器预算 gate **fail-open**——`load_remaining_budget` 读不到当天 usage 行时返回 None（当无限额），Mac daemon 上泄漏 ~2.5h（06:46–09:16 PDT 持续 `capacity=20` 灌满已耗尽预算），直到 09:24 PDT 进程重启才恢复；②预算耗尽被当可重试,每个必败 job 重试 3 次(405 = ~135 job × 3)。
 
-**已修（master `ae58097`，未 push）**：
-- `PROVIDER_DAILY_BUDGET=50000`（ecosystem.config.cjs，runaway backstop 非节流）；`provider budget exhausted:` 设为不可重试；CLAUDE.md 更新；collector 测试 188/188。
+**已修并 push（master：`ae58097` 预算修复 + `48b1cbc` Option B）**：
+- `PROVIDER_DAILY_BUDGET=50000`（ecosystem.config.cjs + `.env.example`，runaway backstop 非节流）；`provider budget exhausted:` 设为不可重试；CLAUDE.md 更新；collector 测试 188/188。
 - 运维恢复：Mac daemon PM2 reload（restart #17，env 生效）；手动把今天预算行 `request_budget` 抬到 50000 打破死锁；已验证刷新恢复（QQQ/AAPL 新快照，count 越过 1000）。
 
-**⚠️ 回家必须处理（时效性）**：
-- **Railway 刷新 cron 也要 `PROVIDER_DAILY_BUDGET=50000`**，否则它用旧的 1000 去 `ON CONFLICT UPDATE` 会把共享预算行**打回 1000**，重新耗尽。或者直接按下面架构决策关掉它。
-- **push master** 把 `ae58097` 部署到 Railway（含不可重试修复）。
+**✅ 已处理（2026-07-17 更新）**：
+- **Railway 刷新 cron 已按 Option B 停用**：`48b1cbc` 从 `railway.metrics.json` 去掉 `cronSchedule`,Mac 成唯一写者,不再有"两 runtime 用不同 env 互抢预算行"。**唯一残留操作**:该 config 已提交,但停用需 Railway **重新部署该 service** 才生效——去 Railway dashboard 确认已 redeploy。
+- master 已 push（`ae58097`、`48b1cbc` 均在 origin/master）。
 
-**架构 review（核心问题，待你决策）**：option 刷新管道**在 Mac Studio daemon 和 Railway cron 两地同跑一个 DB**——预算互抢、dedup 竞态、无单一 owner。Railway 那个 cron 是旧 TT metrics cron（`collector/railway.metrics.json` + `Dockerfile.metrics`）被顺手改成通用刷新循环,属堆积非设计。
-- 真·本地约束:仅 IB Gateway、TT 认证 metrics 必须在 Mac。Polygon 快照/GEX/物化/API/DB 全云友好(今天 935 快照里 621 是 Polygon)。
-- **Option B(短期,推荐先做)**:停掉 Railway 刷新 cron,Mac 成唯一写者。零迁移、立刻消除争用。落地方式:env 开关把 `run_railway_refresh_cycle.py` 变空操作(我改+push,你批一次)/ Railway dashboard 删 cron / 给 RAILWAY_TOKEN 我用 CLI 停。
-- **Option A(目标态)**:Railway 拥有常开产品管道(DB+API+Polygon 刷新+物化),Mac 降级为只跑 IB/TT 的薄适配器。产品不再受家里断电牵制,单一写者。代价:Railway 镜像要加 node(candidate materializer 是 JS)或移植。
-- 决策后架构修复**直接吞掉**上面的预算补丁(单一写者就没有"两 runtime 不同 env 互抢")。
+**架构 review（已决策 Option B 并实施）**：option 刷新管道曾在 Mac Studio daemon 和 Railway cron 两地同跑一个 DB——预算互抢、dedup 竞态、无单一 owner。
+- 真·本地约束:仅 IB Gateway、TT 认证 metrics 必须在 Mac。Polygon 快照/GEX/物化/API/DB 全云友好。
+- **Option B（已实施，`48b1cbc`）**:停掉 Railway 刷新 cron,Mac 成唯一写者。零迁移、立刻消除争用。可逆:re-add `"cronSchedule": "*/5 * * * 1-5"`。
+- **Option A(目标态,未做)**:Railway 拥有常开产品管道(DB+API+Polygon 刷新+物化),Mac 降级为只跑 IB/TT 的薄适配器。产品不再受家里断电牵制。代价:Railway 镜像要加 node(candidate materializer 是 JS)或移植。
 
 **本会话其它分支状态**：
 - `feat/v3a-2-materialized-candidates`（已 push）：V3A-2 后端全套(两表已建生产、materializer、`/api/v1/scanner/candidates`、collector 调度接入、retention)。
@@ -1257,7 +1256,7 @@ PostgreSQL
   - 未改动 `REFRESH_WORKER_BATCH_SIZE`：填满队列本身不提高 provider 并发，执行速率仍由 worker batch/poll 决定，提高它属于 E8 且必须在 E7 shared limiter 之后。
   - Rollback：`OPTION_REFRESH_QUEUE_TARGET=2` 即恢复旧吞吐；无 schema migration。
   - **E6 后续修复（2026-07-17，生产观测触发）**：reload 后日志出现 `provider budget exhausted: budget=1000`。E6 把吞吐从 2/cycle 提到填满 20,当天很快耗尽 `provider_request_usage` 里 polygon_licensed option_chain_snapshot 的自设日预算 1000,之后 scheduler 仍按队列深度填 20,worker 领取后立即在预算上失败——纯 churn,把 job 行刷成 failed。修复:`fill_count` 增加第三个上限 `remaining_budget`,`load_remaining_budget` 读同一张 `provider_request_usage`,预算耗尽时 capacity=0、scheduler 记 `budget exhausted` 并 idle,不再入队必然失败的 job。Tests +7(budget cap、耗尽入队 0、无 cap 同旧行为、大预算不抬高至超过队列需求、None/gap/非负）。真实验证:当天 remaining=0 → capacity=0（此前会填 20）。
-  - **待用户决策(不擅自改)**：`PROVIDER_DAILY_BUDGET` 默认 1000 是**自设安全/成本上限,不是 Polygon 硬限**（Options Starter 按分钟限速,由 E7 pacer 处理,无日请求上限）。要达到 P2.8.9 的"78-symbol 全量 < 60 分钟"目标,80 symbol 每小时刷一轮约 1920 job/天 > 1000,需把该预算调高。这是订阅成本权衡,留给账户持有人设 `PROVIDER_DAILY_BUDGET`,不在代码里擅自上调。
+  - **预算已提高（2026-07-17 已决策并落地，见本文件顶部事件记录 + commit `ae58097`/`48b1cbc`）**：`PROVIDER_DAILY_BUDGET` 从 1000 提到 **50000**（`ecosystem.config.cjs` + `.env.example`）。Polygon 付费档 API 调用无限,故此值是 runaway backstop 非成本节流,1000 会在收盘前就饿死当天刷新。同批还做了两处:①`provider budget exhausted:` 设为不可重试（预算当天不回补,重试只是撞墙）；②Railway 刷新 cron 已按 Option B 停用（`railway.metrics.json` 去掉 `cronSchedule`）,Mac Studio 成唯一写者,消除两地争抢同一预算行。已知遗留:scheduler 预算 gate **fail-open**（`load_remaining_budget` 读不到 usage 行返回 None=无限额）,靠把预算设得远高于实际需求来避免触发,未在代码里改成 fail-closed。
 
 - [ ] **P2.8.4 bounded parallel refresh workers**
   - **开工前必读（2026-07-17 由 E7 实施时发现的设计冲突，尚未解决）**：E3 让全局派生每个 worker batch 只跑一次，但那是**进程内**的 `PendingDerivations`。直接起 2 个 worker 会让每轮出现 2 次全局 `materialize_scan` / `materialize_oi_delta`，把 E3 的收益按 worker 数打回去。同理，`recover_stale_running_jobs`、`deduplicate_queued_jobs`、`fail_unrunnable_queued_jobs` 目前假设单进程，多 worker 并发执行时行为未经验证。
