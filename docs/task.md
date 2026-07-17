@@ -47,7 +47,7 @@
 | E9 | P2.8.7 减少每 symbol 冗余请求 | 依赖 E4 的最新 price snapshot 状态。 | 无 |
 | E10 | V3A-4 后端 Analyze DTO | GEX 结论文案与情景触发/目标价当前仍在浏览器计算（`analyzeData.js`）。依赖 E5 的 freshness 契约一并进 DTO。 | 无 |
 | E11 | P2.8.8 stale-while-refresh 前端体验 | 依赖 E5 与 E10 的 DTO 字段。 | 无 |
-| E12 | V3A-3 剩余：internal/admin chain endpoint | 复用 E1 的 admin token 机制。 | 无 |
+| ✅ E12 | V3A-3 剩余：internal/admin chain endpoint | 已完成（2026-07-17）：`GET /api/admin/chain/:symbol` 返回原始链 + 重算的覆盖/质量诊断，复用 `requireAdminToken` fail-closed。 | 无 |
 | E13 | A. Playwright 视觉回归 | 放在 UI 改动（E10/E11）之后，避免基线立即失效。 | 无 |
 | E14 | A. 生产 smoke 检查 | 依赖 E2 的 CI 与 E1 的端点分类。 | 需要一次真实部署 |
 | E15 | V3A-2 materialized candidate snapshots | 纯可维护性/吞吐优化，当前 `/api/scan` 已满足产品契约，优先级低于以上。 | 无 |
@@ -1680,9 +1680,13 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 ### V3A-3 Remove Raw Option Chain From Normal Scanner API
 
 - [x] 普通 scanner API 不返回 `option_contracts`。
-- [ ] 新增 internal/admin chain endpoint 或给现有 chain endpoint 加权限：
-  - 用于 debug、coverage、data quality inspection。
-  - 需要 admin/service token 或 authenticated entitlement。
+- [x] 新增 internal/admin chain endpoint（E12，2026-07-17 完成）：
+  - `server/src/routes/adminChain.js` → `GET /api/admin/chain/:symbol`，挂在 `/api/admin/chain`，复用 `requireAdminToken`（未配置 `ADMIN_API_TOKEN` 返回 503、无/错 token 401、`timingSafeEqual` 比较）。
+  - 返回最新 snapshot metadata + 全量原始 contract（`bid/ask/greeks/oi/con_id/provider_contract_id`，limit 1-5000，默认 1000）+ **从返回行重算的诊断**：`quoted_contract_count`、`has_usable_quotes`、missing greeks/oi count+ratio、expiry 列表。诊断按响应实际内容算，不只复述 stored summary。
+  - 用途：debug、coverage、data-quality inspection——普通 `/api/scan`、`/api/analyze` 已不返回完整链，运维需要一个认证入口看原始数据。
+  - Tests：`server/test/adminChainRoute.test.js` 7 个（未配 token→503、错 token→401、返回原始链+重算诊断、无可用报价显式标记、missing snapshot、非法 symbol 400、limit 封顶）。
+  - 验证：server 121/121（114 → 121）。真实 runtime（2026-07-17，`ADMIN_API_TOKEN` 本地注入）：无/错 token 均 401；正确 token 返回 AAPL 最新 `polygon_licensed` snapshot、66 contracts、Greeks/OI 完整但 `has_usable_quotes=false`——正是该端点要暴露的覆盖缺口（链存在但无 bid/ask）。
+  - 部署前置：Railway 注入 `ADMIN_API_TOKEN`（与 E1 同一 token）。未注入时该端点 503,不影响产品路径。
 - [x] 前端 scanner row 只渲染 backend candidate DTO。
 - [x] 删除或停用前端对 `row.option_contracts` 的依赖。
 - [x] 测试必须覆盖：
