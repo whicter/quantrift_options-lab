@@ -907,7 +907,7 @@ option_chain_snapshots + option_contract_snapshots
 **Scanner（派生，无外部 API）**
 ```text
 iv_history + gex_snapshots + option_contract_snapshots + price_history
-  → materialize_scan.py（每 300s）
+  → materialize_scan.py（每 300s；worker batch 内每轮只执行一次）
   → scanner_results_snapshots
       symbol, snapshot_ts, scan_key, iv_rank, iv_hv_diff,
       trend_score, trend_label, gex_regime, signal_score, ...
@@ -916,11 +916,20 @@ iv_history + gex_snapshots + option_contract_snapshots + price_history
 **OI Delta / Unusual（派生，无外部 API）**
 ```text
 option_contract_snapshots（最新 snapshot vs 同一来源的前一纽约交易日 snapshot 比较）
-  → materialize_oi_delta.py
+  → materialize_oi_delta.py（worker batch 内每轮只执行一次）
   → option_oi_delta_snapshots
       symbol, snapshot_ts, strike, expiry, option_right,
       oi_delta, is_unusual, status
 ```
+
+**Ingestion / derivation 边界（E3，2026-07-17）**
+
+派生成本按作用域分两类，worker 按此调度：
+
+- **Per-symbol**：`compute_gex.py` 只读刚写入的那个 snapshot，成本随 symbol 线性增长，因此在 option snapshot 落库后立即执行。
+- **Global**：`materialize_oi_delta.py` 与 `materialize_scan.py` 读全部 symbol，成本与"谁触发了它"无关。一个 batch 里 N 个 option job 各跑一次会把全局 scanner 重算 N 次，因此 job 只在 `PendingDerivations` 记录"我 invalidate 了什么"，`run_pending_derivations` 在 batch 末尾各执行一次。
+
+`scanner_materialize` job 因此不再 inline 执行：job row 保持 `running`，直到 batch 末尾的真实结果回写 `succeeded` 或 `failed`。这是刻意的——延迟执行不能让失败的物化被记成成功。两个全局派生各自独立 try/except，OI delta 失败不阻断 scanner 物化。
 
 ### 10.3 读路径（API → 前端）
 

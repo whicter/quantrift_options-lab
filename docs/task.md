@@ -38,7 +38,7 @@
 |---|---|---|---|
 | ✅ E1 | V3A-6 内部状态端点权限拆分 | 已完成（2026-07-17）：`/api/status/data` 降级为产品安全摘要，运维明细移入 `/api/admin/status/*` 与 `GET /api/heartbeat/status`，由 fail-closed 的 `ADMIN_API_TOKEN` 保护。 | 部署需注入 `ADMIN_API_TOKEN` |
 | ✅ E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 已完成（2026-07-17）：新增 `.github/workflows/ci.yml`（4 job）、前端与 API 安全响应头、`check-dist.mjs` artifact 门、`scan-secrets.sh`、provider 名披露守卫测试。CSP 暂未含 Clerk，见 V3A-9 已知边界。 | 无 |
-| E3 | P2.8.6 ingestion / derivation 解耦 | 单点改动、收益最大：一个 batch 当前最多重复跑 10 次全局 `materialize_scan`。是 P2.8 吞吐的前置。 | 无 |
+| ✅ E3 | P2.8.6 ingestion / derivation 解耦 | 已完成（2026-07-17）：`PendingDerivations` 累积一个 batch 内的全局派生请求，`run_pending_derivations` 在 batch 末尾各执行一次；per-symbol GEX 仍即时计算。 | 无 |
 | E4 | P2.8.2 `symbol_data_state` 汇总表 | P2.8.1 freshness 口径与 P2.8.8 前端体验都要读它，先建表与写入。 | 无 |
 | E5 | P2.8.1 统一 freshness 口径 | 依赖 E4 的表；Analyze 改为按 product 返回 `fresh/stale/missing/queued/failed`。 | 无 |
 | E6 | P2.8.3 queue-fill scheduler | 依赖 E4 的 priority 来源；把每轮 2 个改为按队列深度补满 + 优先级 + cooldown。 | 无 |
@@ -1161,7 +1161,7 @@ P2.3 verification：server 39/39 tests、collector 78/78 tests、Railway additiv
 - `schedule_option_refresh.py` 当前每 300 秒最多 enqueue 2 个 missing/stale symbols；78 个 symbol 一轮理论约 195 分钟。
 - `run_refresh_worker.py` 使用 `FOR UPDATE SKIP LOCKED` claim jobs，数据库层已经支持多 worker 并发领取不同 job。
 - 当前 worker 对 batch 内 jobs 仍是顺序 `for` loop；provider session/cache 只在单次进程内复用。
-- 当前每个 option job 成功后会触发 per-symbol GEX，同时还重复执行全局 `materialize_oi_delta.run()` 和 `materialize_scan.run()`；多个 symbol 连续刷新时会重复做全局派生。
+- ~~当前每个 option job 成功后会触发 per-symbol GEX，同时还重复执行全局 `materialize_oi_delta.run()` 和 `materialize_scan.run()`；多个 symbol 连续刷新时会重复做全局派生。~~ 已由 E3 修复：per-symbol GEX 仍即时计算，全局 OI delta 与 scanner 物化每个 worker batch 只执行一次。
 - Polygon option provider 当前每个 symbol 先请求 underlying prev aggregate，再分页请求 option snapshot；stock request 使用本地 file-lock pacer，不能跨 Railway replicas 共享。
 - Analyze orchestration 当前主要检查数据是否存在，freshness gate 不完整；有 stale snapshot 时可以显示旧数据，但用户提示和自动 refresh/polling 还不够统一。
 
@@ -1234,11 +1234,15 @@ PostgreSQL
     - 429 时尊重 `Retry-After` 并延长该 provider/scope 的 next allowed time。
   - 验证：两个并发 worker 同时请求时不会突破最小间隔；429 不会造成请求风暴。
 
-- [ ] **P2.8.6 ingestion 与 derivation 解耦**
-  - option snapshot 写入后只立即计算该 symbol 的 GEX。
-  - `materialize_oi_delta` 和 `materialize_scan` 从“每个 option job 执行一次”改为“每个 worker batch 或独立 derivation job 执行一次”。
-  - 新增 tests：同一 worker batch 处理 N 个 option jobs 时，global OI delta 和 scanner materialization 只执行一次。
-  - 好处：并发补齐多个 symbol 时不会重复重算全局 scanner。
+- [x] **P2.8.6 ingestion 与 derivation 解耦**（E3，2026-07-17 完成）
+  - option snapshot 写入后只立即计算该 symbol 的 GEX；GEX 失败仍按原逻辑降级为 `gex_status=skipped`，不阻断 snapshot。
+  - `materialize_oi_delta` 和 `materialize_scan` 由“每个 option job 执行一次”改为“每个 worker batch 执行一次”。`PendingDerivations` 只记录本 batch 哪些全局派生被 invalidate；`run_pending_derivations` 在 batch 末尾各执行一次。
+  - `scanner_materialize` job 不再 inline 执行：job row 保持 `running`，直到 batch 末尾的真实结果回写 `succeeded`/`failed`。失败的物化绝不会被记成成功。
+  - OI delta 失败不阻断 scanner 物化：两者独立 try/except，各自如实记录 `materialized` / `failed` / `skipped`。
+  - 无 batch accumulator 的调用方（测试、ad-hoc 调用）保持 inline 行为，签名向后兼容。
+  - Tests：`collector/tests/test_batch_derivation.py` 8 个 —— 10 个 option job 只跑一次全局派生、gex_recompute 延迟物化、空 batch 不跑派生、deferred job 仅在真实成功后 succeeded、失败物化使来源 job failed、OI delta 失败不阻断 scanner、scanner_materialize 不 inline、无 pending 时仍 inline。
+  - 验证：collector 138/138 通过（130 → 138）。
+  - Rollback：回滚本 commit；无 schema migration，无 API contract 变更。
 
 - [ ] **P2.8.7 减少每 symbol 冗余请求**
   - option provider 请求前优先使用数据库最新 price snapshot 作为 underlying spot；只有缺失或 stale 时才请求 `/v2/aggs/ticker/{symbol}/prev`。

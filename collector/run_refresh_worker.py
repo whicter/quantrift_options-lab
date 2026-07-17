@@ -206,6 +206,63 @@ def run_scanner_materialize() -> dict[str, Any]:
     return {'materialized': True, 'scan_key': materialize_scan.SCAN_KEY}
 
 
+class PendingDerivations:
+    """Global derivations requested by jobs in the current batch.
+
+    OI delta and scanner materialization read every symbol, so their cost does
+    not depend on which job asked for them. Running them per job made a batch of
+    N option snapshots recompute the whole scanner N times. Jobs record what they
+    invalidated here and the batch runs each derivation once at the end.
+    """
+
+    def __init__(self) -> None:
+        self.oi_delta = False
+        self.scan = False
+        # Explicit scanner_materialize jobs finish only once the deferred run
+        # reports its real outcome, so a failure is never recorded as success.
+        self.scan_job_ids: list[int] = []
+
+    def request_oi_delta(self) -> None:
+        self.oi_delta = True
+
+    def request_scan(self, job_id: int | None = None) -> None:
+        self.scan = True
+        if job_id is not None:
+            self.scan_job_ids.append(job_id)
+
+
+def run_pending_derivations(conn, pending: PendingDerivations) -> dict[str, Any]:
+    summary: dict[str, Any] = {'oi_delta': 'skipped', 'scan': 'skipped'}
+
+    if pending.oi_delta:
+        try:
+            materialize_oi_delta.run()
+            summary['oi_delta'] = 'materialized'
+        except Exception as exc:
+            summary['oi_delta'] = 'failed'
+            summary['oi_delta_error'] = str(exc)
+            log.error('batch OI delta materialization failed: %s', exc)
+
+    if pending.scan:
+        try:
+            materialize_scan.run()
+            summary['scan'] = 'materialized'
+        except Exception as exc:
+            summary['scan'] = 'failed'
+            summary['scan_error'] = str(exc)
+            log.error('batch scanner materialization failed: %s', exc)
+
+    for job_id in pending.scan_job_ids:
+        if summary['scan'] == 'materialized':
+            finish_job(conn, job_id, 'succeeded', summary={'materialized': True, 'scan_key': materialize_scan.SCAN_KEY})
+            log.info('job %s succeeded: scanner_materialize', job_id)
+        else:
+            finish_job(conn, job_id, 'failed', error=summary.get('scan_error', 'scanner materialization did not run'))
+            log.error('job %s failed: scanner_materialize', job_id)
+
+    return summary
+
+
 def load_chain_snapshot_by_id(conn, snapshot_id: int) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -271,7 +328,7 @@ def has_usable_option_quotes(snapshot: Any) -> bool:
     )
 
 
-def finalize_option_snapshot(conn, snapshot_id: int) -> dict[str, Any]:
+def finalize_option_snapshot(conn, snapshot_id: int, pending: PendingDerivations | None = None) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     try:
         chain_snapshot = load_chain_snapshot_by_id(conn, snapshot_id)
@@ -287,10 +344,19 @@ def finalize_option_snapshot(conn, snapshot_id: int) -> dict[str, Any]:
         summary['gex_status'] = 'skipped'
         summary['gex_error'] = str(exc)
 
-    materialize_oi_delta.run()
-    summary['oi_delta_materialized'] = True
-    materialize_scan.run()
-    summary['scanner_materialized'] = True
+    # Per-symbol GEX runs immediately above; the global OI delta and scanner
+    # derivations are deferred to one run per batch. Callers without a batch
+    # accumulator (tests, ad-hoc invocations) still get the derivations inline.
+    if pending is None:
+        materialize_oi_delta.run()
+        summary['oi_delta_materialized'] = True
+        materialize_scan.run()
+        summary['scanner_materialized'] = True
+    else:
+        pending.request_oi_delta()
+        pending.request_scan()
+        summary['oi_delta_deferred'] = True
+        summary['scanner_deferred'] = True
     return summary
 
 
@@ -299,6 +365,7 @@ def run_option_chain_snapshot(
     job: dict[str, Any],
     blocked_providers: set[str] | None = None,
     provider_cache: dict[str, Any] | None = None,
+    pending: PendingDerivations | None = None,
 ) -> dict[str, Any]:
     symbol = job['symbol']
     primary_provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
@@ -350,13 +417,13 @@ def run_option_chain_snapshot(
             'provider_status': snapshot.provider_status,
             'snapshot_ts': snapshot.snapshot_ts.isoformat(),
         }
-        summary.update(finalize_option_snapshot(conn, snapshot_id))
+        summary.update(finalize_option_snapshot(conn, snapshot_id, pending))
         return summary
 
     raise last_exc or RuntimeError(f'no supported option provider available for {symbol}')
 
 
-def run_gex_recompute(conn, job: dict[str, Any]) -> dict[str, Any]:
+def run_gex_recompute(conn, job: dict[str, Any], pending: PendingDerivations | None = None) -> dict[str, Any]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -376,13 +443,19 @@ def run_gex_recompute(conn, job: dict[str, Any]) -> dict[str, Any]:
     contracts = compute_gex.load_contracts(conn, snapshot['id'])
     metrics = compute_gex.compute_for_snapshot(snapshot, contracts)
     gex_id = compute_gex.persist_gex(conn, metrics)
-    materialize_scan.run()
-    return {
+    summary = {
         'symbol': job['symbol'],
         'snapshot_id': snapshot['id'],
         'gex_id': gex_id,
         'model_version': compute_gex.GEX_MODEL_VERSION,
     }
+    if pending is None:
+        materialize_scan.run()
+        summary['scanner_materialized'] = True
+    else:
+        pending.request_scan()
+        summary['scanner_deferred'] = True
+    return summary
 
 
 def should_retry(exc: Exception) -> bool:
@@ -479,6 +552,7 @@ def handle_job(
     job: dict[str, Any],
     blocked_providers: set[str] | None = None,
     provider_cache: dict[str, Any] | None = None,
+    pending: PendingDerivations | None = None,
 ) -> None:
     job_id = job['id']
     blocked_providers = blocked_providers if blocked_providers is not None else set()
@@ -499,11 +573,18 @@ def handle_job(
 
     try:
         if job['job_type'] == 'scanner_materialize':
-            summary = run_scanner_materialize()
+            # The materialization itself is deferred to one batch run. The job
+            # row stays 'running' until run_pending_derivations reports the real
+            # outcome, so a failed materialize is never recorded as succeeded.
+            if pending is None:
+                summary = run_scanner_materialize()
+            else:
+                pending.request_scan(job_id)
+                return
         elif job['job_type'] == 'option_chain_snapshot':
-            summary = run_option_chain_snapshot(conn, job, blocked_providers, provider_cache)
+            summary = run_option_chain_snapshot(conn, job, blocked_providers, provider_cache, pending)
         elif job['job_type'] == 'gex_recompute':
-            summary = run_gex_recompute(conn, job)
+            summary = run_gex_recompute(conn, job, pending)
         elif job['job_type'] == 'symbol_metrics_snapshot':
             summary = run_symbol_metrics_snapshot(conn, job)
         elif job['job_type'] == 'price_history_snapshot':
@@ -543,8 +624,11 @@ def run() -> None:
         log.info('Processing %s refresh jobs', len(jobs))
         blocked_providers: set[str] = {'tastytrade'} if TT_CIRCUIT_OPEN else set()
         provider_cache: dict[str, Any] = {}
+        pending = PendingDerivations()
         for job in jobs:
-            handle_job(conn, job, blocked_providers, provider_cache)
+            handle_job(conn, job, blocked_providers, provider_cache, pending)
+        derivation_summary = run_pending_derivations(conn, pending)
+        log.info('Batch derivations: %s', derivation_summary)
     finally:
         conn.close()
 
