@@ -151,6 +151,20 @@ export function getAnalyzeCandidate(symbol) {
   return getJson(`/api/analyze/${encodeURIComponent(symbol.toUpperCase())}/candidate`);
 }
 
+export function getAnalyzeSummary(symbol) {
+  return getJson(`/api/analyze/${encodeURIComponent(symbol.toUpperCase())}/summary`);
+}
+
+export function getScannerCandidates({ scanKey = '', strategy = '', family = '', symbol = '', minScore = '', limit = 100 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (scanKey) params.set('scanKey', scanKey);
+  if (strategy) params.set('strategy', strategy);
+  if (family) params.set('family', family);
+  if (symbol) params.set('symbol', symbol.toUpperCase());
+  if (minScore !== '' && minScore != null) params.set('minScore', String(minScore));
+  return getJson(`/api/v1/scanner/candidates?${params.toString()}`);
+}
+
 export function getMarketRegime() {
   return getJson('/api/market/regime');
 }

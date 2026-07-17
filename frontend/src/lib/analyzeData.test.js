@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyDerivedAnalysis, applyGex, isUsableGex } from './analyzeData.js';
+import { applyDerivedAnalysis, applyGex, applySummary, isUsableGex } from './analyzeData.js';
 
 const mockSeed = {
   symbol: 'PLTR',
@@ -205,4 +205,45 @@ test('missing derived data remains null instead of using mock values', () => {
   assert.equal(result.mfi, null);
   assert.equal(result.chainStats, null);
   assert.equal(result.volumeProfile, null);
+});
+
+const summaryBase = {
+  symbol: 'PLTR',
+  conclusion: 'local fallback conclusion',
+  scenarios: { upTrigger: 595, downTrigger: 575, extra: 'keep' },
+};
+
+test('applySummary lets the server positioning override conclusion and scenarios', () => {
+  const result = applySummary(summaryBase, {
+    data_status: { label: '数据更新于2小时前', freshness: 'fresh', is_stale: false, age_minutes: 120, refresh_status: null },
+    positioning: { available: true, conclusion: '正Gamma $348M，Call Wall $340.00 / Put Wall $330.00。' },
+    scenarios: { up_trigger: 340, up_target: 350, down_trigger: 330, down_target: 320 },
+    recommendation_ref: '/api/analyze/PLTR/candidate',
+  });
+  assert.equal(result.conclusion, '正Gamma $348M，Call Wall $340.00 / Put Wall $330.00。');
+  assert.equal(result.scenarios.upTrigger, 340);
+  assert.equal(result.scenarios.upTarget, 350);
+  assert.equal(result.scenarios.downTrigger, 330);
+  assert.equal(result.scenarios.downTarget, 320);
+  assert.equal(result.scenarios.extra, 'keep', 'unrelated scenario fields are preserved');
+  assert.equal(result.positioningSource, 'server');
+  assert.equal(result.dataStatus.label, '数据更新于2小时前');
+  assert.equal(result.recommendationRef, '/api/analyze/PLTR/candidate');
+});
+
+test('applySummary keeps the local conclusion when the server has no positioning', () => {
+  const result = applySummary(summaryBase, {
+    data_status: { label: '正在准备数据', freshness: 'missing', is_stale: false, age_minutes: null, refresh_status: null },
+    positioning: { available: false, unavailable_reason: { code: 'unusable', message: 'x' }, conclusion: 'server unavailable text' },
+    scenarios: null,
+  });
+  assert.equal(result.conclusion, 'local fallback conclusion', 'server does not overwrite when positioning is unavailable');
+  assert.deepEqual(result.scenarios, summaryBase.scenarios, 'scenarios untouched');
+  assert.equal(result.positioningSource, undefined);
+  assert.equal(result.dataStatus.freshness, 'missing');
+});
+
+test('applySummary is a no-op when the summary is absent', () => {
+  assert.equal(applySummary(summaryBase, null), summaryBase);
+  assert.equal(applySummary(null, {}), null);
 });
