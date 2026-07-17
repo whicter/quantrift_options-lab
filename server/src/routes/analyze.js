@@ -1,6 +1,8 @@
 const express = require('express');
 const pool = require('../db');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
+const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
+const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 
 const router = express.Router();
 const ON_DEMAND_ESTIMATED_WAIT = '约 1 分钟';
@@ -100,7 +102,92 @@ async function sendAnalyzeStatus(req, res) {
   }
 }
 
+async function sendAnalyzeCandidate(req, res) {
+  const symbol = normalizeSymbol(req.params.symbol);
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+
+  try {
+    const { rows: snapshots } = await pool.query(
+      `WITH latest_quote_chain AS (
+         SELECT s.id AS snapshot_id, s.snapshot_ts
+         FROM option_chain_snapshots s
+         WHERE s.symbol = $1
+           AND EXISTS (
+             SELECT 1 FROM option_contract_snapshots c
+             WHERE c.snapshot_id = s.id
+               AND c.bid IS NOT NULL AND c.ask IS NOT NULL
+               AND c.ask > 0 AND c.ask >= c.bid
+           )
+         ORDER BY s.snapshot_ts DESC
+         LIMIT 1
+       ),
+       latest_price AS (
+         SELECT close AS price_close
+         FROM price_history
+         WHERE symbol = $1
+         ORDER BY date DESC
+         LIMIT 1
+       ),
+       latest_gex AS (
+         SELECT call_wall, put_wall
+         FROM gex_snapshots
+         WHERE symbol = $1
+           AND raw_metrics->>'model_version' = $2
+         ORDER BY snapshot_ts DESC
+         LIMIT 1
+       )
+       SELECT lqc.snapshot_id, lqc.snapshot_ts, lp.price_close,
+              g.call_wall, g.put_wall
+       FROM latest_quote_chain lqc
+       LEFT JOIN latest_price lp ON TRUE
+       LEFT JOIN latest_gex g ON TRUE`,
+      [symbol, GEX_MODEL_VERSION]
+    );
+    const snapshot = snapshots[0];
+    if (!snapshot?.snapshot_id) {
+      return res.json({ symbol, status: 'missing', reason: '没有已采集且 bid/ask 完整的期权报价快照', candidate: null });
+    }
+    if (Number(snapshot.price_close) <= 0) {
+      return res.json({ symbol, status: 'missing', reason: '缺少标的现价，无法生成策略腿', candidate: null });
+    }
+
+    const { rows: contracts } = await pool.query(
+      `SELECT expiry, (expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date)::int AS dte,
+              strike, option_right AS right, bid, ask, volume,
+              open_interest AS "openInterest", delta, gamma, iv,
+              contract_symbol AS "contractSymbol"
+       FROM option_contract_snapshots
+       WHERE snapshot_id = $1
+         AND bid IS NOT NULL AND ask IS NOT NULL
+         AND ask > 0 AND ask >= bid
+       ORDER BY expiry ASC, strike ASC, option_right ASC`,
+      [snapshot.snapshot_id]
+    );
+    const candidate = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES)[0] || null;
+    if (!candidate) {
+      return res.json({
+        symbol,
+        status: 'missing',
+        reason: '已采集报价中没有同时满足 DTE、Delta、bid/ask spread 和 OI 门槛的完整策略腿',
+        candidate: null,
+      });
+    }
+    return res.json({
+      symbol,
+      status: 'ready',
+      candidate: toCandidateDto(candidate, { inputSnapshotTs: snapshot.snapshot_ts }),
+    });
+  } catch (err) {
+    if (err?.code === '42P01') return res.status(503).json({ error: 'options data migration required' });
+    console.error('GET /api/analyze/:symbol/candidate error:', err.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
+router.get('/:symbol/candidate', sendAnalyzeCandidate);
 router.get('/:symbol', sendAnalyzeStatus);
 
 module.exports = router;
 module.exports.sendAnalyzeStatus = sendAnalyzeStatus;
+module.exports.sendAnalyzeCandidate = sendAnalyzeCandidate;

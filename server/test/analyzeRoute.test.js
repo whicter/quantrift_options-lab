@@ -6,7 +6,8 @@ const refreshPath = require.resolve('../src/lib/refreshJobs');
 const routePath = require.resolve('../src/routes/analyze');
 const queryResults = [];
 const refreshCalls = [];
-const pool = { async query() { return queryResults.shift() || { rows: [] }; } };
+const queries = [];
+const pool = { async query(sql, params) { queries.push({ sql, params }); return queryResults.shift() || { rows: [] }; } };
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: pool };
 require.cache[refreshPath] = {
   id: refreshPath, filename: refreshPath, loaded: true,
@@ -19,7 +20,7 @@ function responseRecorder() {
   return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
 }
 
-test.beforeEach(() => { queryResults.length = 0; refreshCalls.length = 0; });
+test.beforeEach(() => { queryResults.length = 0; refreshCalls.length = 0; queries.length = 0; });
 
 test('unknown symbol is registered and enqueues the complete data bundle', async () => {
   queryResults.push({ rows: [] }, { rows: [{
@@ -93,4 +94,28 @@ test('malformed ticker is rejected before persistence', async () => {
   await sendAnalyzeStatus({ params: { symbol: "SS'TS'T'X" } }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(queryResults.length, 0);
+});
+
+test('Analyze candidate is built server-side from the latest quoted chain without returning that chain', async () => {
+  const { sendAnalyzeCandidate } = require(routePath);
+  queryResults.push(
+    { rows: [{ snapshot_id: 42, snapshot_ts: '2026-07-17T15:00:00.000Z', price_close: 100, call_wall: 105, put_wall: 95 }] },
+    { rows: [
+      { expiry: '2026-08-31', dte: 45, strike: 105, right: 'C', bid: 2, ask: 2.1, volume: 50, openInterest: 500, delta: 0.2, gamma: 0.02, iv: 0.3, contractSymbol: 'TESTC105' },
+      { expiry: '2026-08-31', dte: 45, strike: 110, right: 'C', bid: 0.8, ask: 0.9, volume: 50, openInterest: 500, delta: 0.1, gamma: 0.01, iv: 0.28, contractSymbol: 'TESTC110' },
+    ] },
+  );
+  const res = responseRecorder();
+
+  await sendAnalyzeCandidate({ params: { symbol: 'TEST' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.status, 'ready');
+  assert.equal(res.body.candidate.strategy, 'Bear Call Spread');
+  assert.equal(res.body.candidate.legs.length, 2);
+  assert.equal('option_contracts' in res.body, false);
+  assert.equal('contractSymbol' in res.body.candidate.legs[0], false);
+  assert.match(queries[0].sql, /latest_quote_chain/);
+  assert.match(queries[0].sql, /model_version/);
+  assert.match(queries[1].sql, /snapshot_id = \$1/);
 });

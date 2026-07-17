@@ -11,6 +11,7 @@ const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
+const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
 
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
@@ -40,46 +41,6 @@ function requestedStrategies(value) {
   const requested = String(value).split(',').map(item => item.trim()).filter(Boolean);
   if (!requested.length || requested.some(item => !ACTIONABLE_STRATEGIES.includes(item))) return null;
   return [...new Set(requested)];
-}
-
-function toCandidateDto(candidate, row = {}) {
-  const withSnapshot = model => (model ? {
-    ...model,
-    input_snapshot_ts: row.quote_snapshot_ts || null,
-  } : null);
-  return {
-    strategy: candidate.strategy,
-    summary: candidate.summary,
-    structure: candidate.structure,
-    pricing: candidate.pricing,
-    legLabels: candidate.legLabels,
-    expiry: candidate.expiry,
-    dte: candidate.dte,
-    farExpiry: candidate.farExpiry ?? null,
-    farDte: candidate.farDte ?? null,
-    score: candidate.score,
-    credit: candidate.credit,
-    debit: candidate.debit,
-    maxLoss: candidate.maxLoss,
-    returnOnRisk: candidate.returnOnRisk,
-    breakevens: candidate.breakevens,
-    riskType: candidate.riskType ?? 'defined',
-    minOpenInterest: candidate.minOpenInterest,
-    totalVolume: candidate.totalVolume,
-    avgSpreadPct: candidate.avgSpreadPct,
-    expected_move: withSnapshot(candidate.expectedMove),
-    pop: withSnapshot(candidate.pop),
-    legs: candidate.legs.map(leg => ({
-      action: leg.action,
-      expiry: leg.expiry,
-      dte: leg.dte,
-      strike: leg.strike,
-      right: leg.right,
-      bid: leg.bid,
-      ask: leg.ask,
-      delta: leg.delta,
-    })),
-  };
 }
 
 async function sendScan(req, res) {
@@ -490,7 +451,7 @@ async function sendScan(req, res) {
       return setups.map(concreteSetup => ({
         ...scannerSummary,
         gex_metadata: gexMetadata,
-        concrete_setup: toCandidateDto(concreteSetup, row),
+        concrete_setup: toCandidateDto(concreteSetup, { inputSnapshotTs: row.quote_snapshot_ts || null }),
       }));
     });
 

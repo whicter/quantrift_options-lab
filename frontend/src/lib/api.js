@@ -147,6 +147,10 @@ export function getAnalyzeStatus(symbol) {
   return getJson(`/api/analyze/${encodeURIComponent(symbol.toUpperCase())}`);
 }
 
+export function getAnalyzeCandidate(symbol) {
+  return getJson(`/api/analyze/${encodeURIComponent(symbol.toUpperCase())}/candidate`);
+}
+
 export function getMarketRegime() {
   return getJson('/api/market/regime');
 }

@@ -12,7 +12,7 @@ function Badge({ label, value, colorFn }) {
 }
 
 export default function Tab1Overview({ data }) {
-  const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, earnings,
+  const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, recommendationUnavailableReason, earnings,
     ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance, mfi } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = compactMoney(gexTotal);
@@ -21,7 +21,7 @@ export default function Tab1Overview({ data }) {
     `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}）：短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
     `值得关注的点位：上方 Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ 下方 Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）。`,
-    recommendation ? `策略候选：${recommendation.strategy}，模型估算 POP ${recommendation.params.pop}%，DTE ${recommendation.params.dte}天` : null,
+    recommendation ? `策略候选：${recommendation.strategy}${recommendation.params.pop == null ? '' : `，模型估算 POP ${recommendation.params.pop}%`}，DTE ${recommendation.params.dte}天` : null,
   ].filter(Boolean);
 
   const questions = [
@@ -145,7 +145,7 @@ export default function Tab1Overview({ data }) {
               <div className="az-rec-reason">{recommendation.reason}</div>
             </div>
             <div className="az-rec-pop">
-              <div className="az-rec-pop-val">{recommendation.params.pop}%</div>
+              <div className="az-rec-pop-val">{recommendation.params.pop == null ? '--' : `${recommendation.params.pop}%`}</div>
               <div className="az-rec-pop-label">模型估算 POP</div>
             </div>
           </div>
@@ -159,8 +159,8 @@ export default function Tab1Overview({ data }) {
               <span className="az-rec-param-val">{recommendation.params.shortDelta}</span>
             </div>
             <div className="az-rec-param">
-              <span className="az-rec-param-label">每份合约净信用额</span>
-              <span className="az-rec-param-val" style={{ color: 'var(--green)' }}>${recommendation.params.maxCredit}</span>
+              <span className="az-rec-param-label">{recommendation.params.premiumLabel}</span>
+              <span className="az-rec-param-val" style={{ color: 'var(--green)' }}>{recommendation.params.premium == null ? '--' : `$${recommendation.params.premium}`}</span>
             </div>
             <div className="az-rec-param">
               <span className="az-rec-param-label">Max Loss</span>
@@ -191,7 +191,7 @@ export default function Tab1Overview({ data }) {
         <div className="az-card" style={{ marginTop: 12 }}>
           <div className="az-card-title">策略候选 · 模型筛选结果</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            当前仅展示已采集的价格与 GEX 结构；缺少完整 IV、流动性或 POP 输入，不生成策略腿候选。
+            {recommendationUnavailableReason || '当前没有满足筛选门槛的真实策略腿。'}
           </div>
         </div>
       )}

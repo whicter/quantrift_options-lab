@@ -1,8 +1,9 @@
 import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getUnusual, getVolumeProfile } from '../lib/api';
+import { getAnalyzeCandidate, getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getUnusual, getVolumeProfile } from '../lib/api';
 import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
+import { toAnalyzeRecommendation } from '../lib/analyzeRecommendation';
 import { applyExternalFlow } from '../lib/externalFlow';
 import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Tab1Overview from './analyze/Tab1Overview';
@@ -416,7 +417,7 @@ export default function Analyze() {
     setLoading(true); setError('');
 
     try {
-      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, volumeProfile] = await Promise.all([
+      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, volumeProfile, candidateResponse] = await Promise.all([
         getAnalyzeStatus(sym).catch(() => null),
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
@@ -427,6 +428,7 @@ export default function Analyze() {
         getChainStats(sym).catch(() => null),
         getExternalFlow(sym, 30).catch(() => null),
         getVolumeProfile(sym).catch(() => null),
+        getAnalyzeCandidate(sym).catch(() => null),
       ]);
       if (status && !dataStatus) setDataStatus(status);
       setOnDemandStatus(onDemandStatus);
@@ -456,10 +458,11 @@ export default function Analyze() {
         ...withPrice,
         trend: deriveTrendFromPriceHistory(withPrice.priceHistory, withPrice.trend),
       }, gexData), unusualData);
+      const candidateState = toAnalyzeRecommendation(candidateResponse);
       const data = applyExternalFlow(applyDerivedAnalysis({
         ...dataWithSignals,
-        // Analyze only displays executable legs after a real contract candidate is attached.
-        recommendation: null,
+        recommendation: candidateState.recommendation,
+        recommendationUnavailableReason: candidateState.unavailableReason,
         onDemandStatus,
       }, supportResistance, chainStats, volumeProfile), flowData);
       setResult(data);
