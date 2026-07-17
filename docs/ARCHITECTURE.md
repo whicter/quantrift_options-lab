@@ -950,6 +950,25 @@ run_refresh_worker.handle_job
 - **错误码是粗粒度码，不是原始消息。** provider 名和请求明细不进该表，留在 `provider_fetch_jobs.last_error` 给运维。
 - **写入 best-effort。** snapshot 表仍是 source of truth；汇总表写失败不能把成功的刷新变成失败的 job。
 
+**Freshness 契约（E5，2026-07-17）**
+
+`server/src/domain/status/freshness.js` 是全部数据产品唯一的 freshness 定义。此前四个 route 各写各的规则（`prices.js` 5 天、`metrics.js` 2 天、`options.js` 180 分钟、`market.js` 30M 自有规则），E5 将其收敛为一处。新增阈值必须加到该模块，不得在 route 内重新推导。
+
+| Product | 判据 | 理由 |
+|---|---|---|
+| `price_daily` | market date + 多天容差 | 周末/假日没有 bar 可产生，上一交易日收盘仍然当前；容差用来吸收非交易日 |
+| `price_30m` | 与最新日线 market date 比较 | 落后日线的 30M 属于上一 session，不能当作当前确认（沿用 P1.4 规则） |
+| `metrics` | market date，交易日级别 | 每个 session 收盘后落一次 |
+| `option_chain` | 时钟 age | 盘中产品 |
+| `gex` | 继承其 option snapshot 的时间 | GEX 无独立 freshness |
+
+两条不变量：
+
+- **freshness 现算，不落库。** 它随 wall-clock 衰减，存下来的标签在没有任何写入时也会过期。`symbol_data_state` 记录事实，本模块给判定。
+- **真实数据优先于 refresh 状态。** stale + failed refresh 报 `stale`——用户仍看得到真实数据，报 `failed` 会暗示空白页。`queued`/`failed` 只用于"没有可展示的数据"。
+
+`GET /api/analyze/:symbol` 的 `products` 字段按此逐 product 返回 `state` / `freshness` / `is_stale` / `age_minutes` / `age_days` / `refresh_status`。`option_quotes` 是独立 product：链已落库但无可用 bid/ask 是常态，按链的 freshness 报 quotes 会谎报策略腿可用。
+
 ### 10.3 读路径（API → 前端）
 
 ```text

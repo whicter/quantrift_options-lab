@@ -40,7 +40,7 @@
 | ✅ E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 已完成（2026-07-17）：新增 `.github/workflows/ci.yml`（4 job）、前端与 API 安全响应头、`check-dist.mjs` artifact 门、`scan-secrets.sh`、provider 名披露守卫测试。CSP 暂未含 Clerk，见 V3A-9 已知边界。 | 无 |
 | ✅ E3 | P2.8.6 ingestion / derivation 解耦 | 已完成（2026-07-17）：`PendingDerivations` 累积一个 batch 内的全局派生请求，`run_pending_derivations` 在 batch 末尾各执行一次；per-symbol GEX 仍即时计算。 | 无 |
 | ✅ E4 | P2.8.2 `symbol_data_state` 汇总表 | 已完成（2026-07-17）：additive 表 + collector 写入路径 + Railway 迁移与真实 runtime 证据。API 读路径按依赖顺序留给 E5。 | 无 |
-| E5 | P2.8.1 统一 freshness 口径 | 依赖 E4 的表；Analyze 改为按 product 返回 `fresh/stale/missing/queued/failed`。 | 无 |
+| ✅ E5 | P2.8.1 统一 freshness 口径 | 已完成（2026-07-17）：`server/src/domain/status/freshness.js` 是唯一 freshness 契约；Analyze 按 product 返回 `fresh/stale/missing/queued/failed` + `is_stale` + age + refresh 状态。 | 无 |
 | E6 | P2.8.3 queue-fill scheduler | 依赖 E4 的 priority 来源；把每轮 2 个改为按队列深度补满 + 优先级 + cooldown。 | 无 |
 | E7 | P2.8.5 shared provider rate limiter | 依赖 E6 的队列深度；多 worker 前必须先有跨进程限流，否则并发直接打爆 429。 | 无 |
 | E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
@@ -1189,14 +1189,22 @@ PostgreSQL
 ```
 
 任务拆分：
-- [ ] **P2.8.1 统一 freshness 口径**
-  - 在 task/API contract 中明确各数据产品的新鲜度目标：
-    - price daily：按最新 market date；非交易日允许使用上一交易日。
-    - price 30M：盘中按 regular-session 30M market date 判断；落后最新日线时 `stale`。
-    - option chain / GEX / Wall：默认目标 60 分钟内；scanner 可接受较旧但必须标记。
-    - metrics / IV Rank：交易日级别；derived rank 未满 252 observations 时继续返回 provider/cold-start provenance。
-  - Analyze 不能只检查 existence；必须按 product 返回 `fresh | stale | missing | queued | failed`。
-  - stale 不是空白页：返回最近可用真实 snapshot + `is_stale=true` + `age_minutes` + 后台刷新状态。
+- [x] **P2.8.1 统一 freshness 口径**（E5，2026-07-17 完成）
+  - `server/src/domain/status/freshness.js` 是全部数据产品**唯一**的 freshness 契约。此前 freshness 散落在四个 route 各写各的：`prices.js`（5 天）、`metrics.js`（2 天）、`options.js`（180 分钟）、`market.js`（30M 自有规则）。
+  - Freshness 现算不落库，与 E4 的表互补：E4 记录事实，本模块给判定。
+  - 各产品口径：
+    - price daily：按 market date 判断而非时钟——周末/假日本就没有 bar 可产生，上一交易日收盘仍然当前；多天容差正是用来吸收非交易日的。
+    - price 30M：按 regular-session 30M market date 与**最新日线** market date 比较；落后即 `stale`（沿用 P1.4 既有规则，不另立第二套定义）。无日线可比时退回日线容差，不臆造判定。
+    - option chain / GEX：按时钟 age。GEX 无独立 freshness，继承其计算所依据的 option snapshot。
+    - metrics / IV Rank：交易日级别；derived rank 未满 252 observations 时继续返回 provider/cold-start provenance（未改动）。
+  - **阈值刻意保持与被替换的 route 常量完全一致**（daily 5 天、metrics 2 天、option chain 180 分钟），使"统一定义"这一步不静默移动任何端点的阈值。P2.8 的 60 分钟目标会成倍放大 stale 驱动的入队量，因此留在 E6/E7（queue-fill scheduler + shared rate limiter）落地后再收紧；`OPTIONS_STALE_MINUTES` 可提前覆盖。
+  - Analyze 不再只检查 existence：`GET /api/analyze/:symbol` 新增 `products`，逐 product 返回 `state`（`fresh|stale|missing|queued|failed`）、`freshness`、`is_stale`、`age_minutes`、`age_days`、`refresh_status`。既有 `coverage` 布尔与 `status` 保持不变，前端零改动即兼容。
+  - `option_quotes` 是独立 product：链已落库但无任何可用 bid/ask 是常态，按链的 freshness 报 quotes 会谎报"策略腿可用"。
+  - 真实数据 outranks refresh 状态：stale + failed refresh 报 `stale`（用户仍看得到真实数据），`queued`/`failed` 只描述"没有可展示的数据"。
+  - Tests：`server/test/freshness.test.js` 13 个（缺失即 missing、未知 product 抛错、周末不算 stale、30M 落后日线即 stale、时钟 age、负 age 归零、不可解析时间戳不算 fresh、真实数据优先级）+ `analyzeRoute.test.js` 新增 5 个（stale 不塌缩为 ready、queued、blocked→failed 且不压制有数据的 product、quotes 独立、products 不泄露 provider 名）。
+  - 验证：server 114/114（96 → 114）、collector 151/151。
+  - 真实 runtime 证据（2026-07-17，本地 API 直连 Railway PostgreSQL）：`GET /api/analyze/AAPL` 全 product `fresh`，option chain age 19 分钟；`GET /api/analyze/NFLX` 返回 price/metrics `fresh`、option_chain `stale`（age 764 分钟，`refresh_status=queued`，仍如实报 age 而非空白）、`gex` `missing`、`option_quotes` `queued`——五个 product 五个独立判定。单元测试用 mock pool，因此该 SQL 由真实端点驱动验证，未只靠 mock。
+  - Rollback：回滚本 commit；无 schema migration，`products` 为新增字段，移除不影响既有 `coverage` 消费方。
 
 - [x] **P2.8.2 symbol data state 汇总表**（E4，2026-07-17 完成）
   - 新增 additive table：`symbol_data_state(symbol, product, latest_snapshot_ts, latest_market_date, source, refresh_status, last_job_id, last_error_code, updated_at)`，PK `(symbol, product)`。

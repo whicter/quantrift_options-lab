@@ -186,3 +186,107 @@ test('Analyze candidate is built server-side from the latest quoted chain withou
   assert.match(queries[0].sql, /model_version/);
   assert.match(queries[1].sql, /snapshot_id = \$1/);
 });
+
+test('per-product state reports stale data as stale rather than collapsing to ready', async () => {
+  // A symbol can hold a current price and a two-week-old chain at the same
+  // time. Existence checks alone would call this 'ready' and show the old
+  // chain as if it were current.
+  const now = new Date();
+  const recent = new Date(now.getTime() - 30 * 60000).toISOString();
+  const old = new Date(now.getTime() - 14 * 24 * 60 * 60000).toISOString();
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now);
+
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: true, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false, quotes_blocked: false,
+    price_daily_date: today, price_30m_date: today, price_30m_ts: recent,
+    metrics_date: today, option_chain_ts: old, gex_ts: old,
+  }] });
+
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+
+  assert.equal(res.body.products.price_daily.state, 'fresh');
+  assert.equal(res.body.products.price_30m.state, 'fresh');
+  assert.equal(res.body.products.option_chain.state, 'stale');
+  assert.equal(res.body.products.option_chain.is_stale, true);
+  // Stale data still reports its real age so the UI can disclose it.
+  assert.ok(res.body.products.option_chain.age_minutes > 60);
+  assert.equal(res.body.products.gex.state, 'stale');
+});
+
+test('missing product with an in-flight refresh reports queued, not missing', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: false, has_metrics: false, has_options: false, has_quoted_options: false, has_gex: false,
+    active_jobs: 0, queue_depth: 1, metrics_blocked: false, quotes_blocked: false,
+    price_daily_date: null, price_30m_date: null, price_30m_ts: null,
+    metrics_date: null, option_chain_ts: null, gex_ts: null,
+  }] });
+
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'NEW1' } }, res);
+
+  assert.equal(res.body.products.price_daily.state, 'queued');
+  assert.equal(res.body.products.option_chain.state, 'queued');
+  // GEX is not enqueued while the chain it derives from is still missing.
+  assert.equal(res.body.products.gex.state, 'missing');
+});
+
+test('a blocked product reports failed rather than a permanent queued spinner', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: false, has_options: false, has_quoted_options: false, has_gex: false,
+    active_jobs: 0, queue_depth: 0,
+    metrics_blocked: true, metrics_last_error: 'device challenge required',
+    quotes_blocked: true, quotes_last_error: 'option quote unavailable: no bid/ask',
+    price_daily_date: new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date()),
+    price_30m_date: null, price_30m_ts: null, metrics_date: null, option_chain_ts: null, gex_ts: null,
+  }] });
+
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+
+  assert.equal(res.body.products.metrics.state, 'failed');
+  assert.equal(res.body.products.option_chain.state, 'failed');
+  // A blocked product must not suppress the products that do have real data.
+  assert.equal(res.body.products.price_daily.state, 'fresh');
+});
+
+test('option quotes are their own product state, not folded into the chain', async () => {
+  // A chain can land with zero usable bid/ask. Reporting quotes as fresh
+  // because the chain is fresh would claim a strategy leg we cannot build.
+  const recent = new Date(Date.now() - 5 * 60000).toISOString();
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: false, has_gex: false,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false, quotes_blocked: false,
+    price_daily_date: null, price_30m_date: null, price_30m_ts: null,
+    metrics_date: null, option_chain_ts: recent, gex_ts: null,
+  }] });
+
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+
+  assert.equal(res.body.products.option_chain.state, 'fresh');
+  assert.equal(res.body.products.option_quotes.state, 'queued');
+  assert.equal(res.body.products.option_quotes.freshness, 'missing');
+});
+
+test('product states never leak provider or internal source names', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: true, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false, quotes_blocked: false,
+    price_daily_date: '2026-07-17', price_30m_date: '2026-07-17', price_30m_ts: new Date().toISOString(),
+    metrics_date: '2026-07-17', option_chain_ts: new Date().toISOString(), gex_ts: new Date().toISOString(),
+  }] });
+
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+
+  const serialized = JSON.stringify(res.body.products);
+  for (const name of ['polygon_licensed', 'ib_internal', 'tt_internal', 'tastytrade', 'stooq']) {
+    assert.equal(serialized.includes(name), false, `products must not disclose ${name}`);
+  }
+});

@@ -3,6 +3,7 @@ const pool = require('../db');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
+const freshness = require('../domain/status/freshness');
 
 const router = express.Router();
 const ON_DEMAND_ESTIMATED_WAIT = '约 1 分钟';
@@ -10,6 +11,71 @@ const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
 
 function normalizeSymbol(value) {
   return String(value || '').trim().toUpperCase();
+}
+
+// Which enqueue decision, if any, governs each product's refresh state. The
+// option-chain job is what backfills quotes, so option_chain reports it.
+const PRODUCT_REFRESH_KEY = {
+  [freshness.PRODUCT_PRICE_DAILY]: 'price',
+  [freshness.PRODUCT_PRICE_30M]: 'price',
+  [freshness.PRODUCT_METRICS]: 'metrics',
+  [freshness.PRODUCT_OPTION_CHAIN]: 'options',
+  [freshness.PRODUCT_GEX]: 'gex',
+};
+
+/**
+ * Per-product state for one symbol.
+ *
+ * Existence alone cannot answer what a user needs to know: a symbol can hold a
+ * two-week-old chain and a current price at the same time. Each product reports
+ * its own freshness, age and refresh state so the UI can show real stale data
+ * instead of collapsing the page into one status.
+ */
+function buildProductStates(coverage, refresh, now = new Date()) {
+  const dailyDate = coverage.price_daily_date;
+  const facts = {
+    [freshness.PRODUCT_PRICE_DAILY]: { marketDate: dailyDate },
+    [freshness.PRODUCT_PRICE_30M]: {
+      marketDate: coverage.price_30m_date,
+      snapshotTs: coverage.price_30m_ts,
+      latestDailyMarketDate: dailyDate,
+    },
+    [freshness.PRODUCT_METRICS]: { marketDate: coverage.metrics_date },
+    [freshness.PRODUCT_OPTION_CHAIN]: { snapshotTs: coverage.option_chain_ts },
+    [freshness.PRODUCT_GEX]: { snapshotTs: coverage.gex_ts },
+  };
+
+  const products = {};
+  for (const product of freshness.PRODUCTS) {
+    const state = freshness.freshnessFor(product, facts[product], now);
+    const refreshStatus = refresh[PRODUCT_REFRESH_KEY[product]] ?? null;
+    products[product] = {
+      state: freshness.resolveState(state.freshness, refreshStatus),
+      freshness: state.freshness,
+      is_stale: state.is_stale,
+      age_minutes: state.age_minutes,
+      age_days: state.age_days,
+      refresh_status: refreshStatus,
+    };
+  }
+
+  // An option chain without a single usable bid/ask cannot produce a strategy
+  // leg, so quotes are their own product state rather than an attribute of the
+  // chain. Reported alongside, never folded into option_chain's freshness.
+  products.option_quotes = {
+    state: coverage.has_quoted_options
+      ? products[freshness.PRODUCT_OPTION_CHAIN].state
+      : freshness.resolveState(freshness.STATE_MISSING, refresh.options ?? null),
+    freshness: coverage.has_quoted_options
+      ? products[freshness.PRODUCT_OPTION_CHAIN].freshness
+      : freshness.STATE_MISSING,
+    is_stale: coverage.has_quoted_options ? products[freshness.PRODUCT_OPTION_CHAIN].is_stale : false,
+    age_minutes: coverage.has_quoted_options ? products[freshness.PRODUCT_OPTION_CHAIN].age_minutes : null,
+    age_days: null,
+    refresh_status: refresh.options ?? null,
+  };
+
+  return products;
 }
 
 async function sendAnalyzeStatus(req, res) {
@@ -74,7 +140,21 @@ async function sendAnalyzeStatus(req, res) {
             AND status = 'failed'
             AND request_params->>'require_quotes' = 'true'
             AND last_error LIKE 'option quote unavailable:%'
-          ORDER BY finished_at DESC LIMIT 1) AS quotes_last_error`,
+          ORDER BY finished_at DESC LIMIT 1) AS quotes_last_error,
+         -- Per-product timing. Freshness is derived from these against the
+         -- shared policy; existence alone cannot distinguish fresh from stale.
+         (SELECT MAX(date) FROM price_history WHERE symbol = $1) AS price_daily_date,
+         (SELECT MAX((bar_ts AT TIME ZONE 'America/New_York')::date)
+            FROM price_history_30m WHERE symbol = $1) AS price_30m_date,
+         (SELECT MAX(bar_ts) FROM price_history_30m WHERE symbol = $1) AS price_30m_ts,
+         GREATEST(
+           (SELECT MAX(date) FROM iv_history WHERE symbol = $1),
+           (SELECT MAX(metric_date) FROM volatility_history WHERE symbol = $1)
+         ) AS metrics_date,
+         (SELECT MAX(snapshot_ts) FROM option_chain_snapshots
+           WHERE symbol = $1 AND contract_count > 0) AS option_chain_ts,
+         (SELECT MAX(snapshot_ts) FROM gex_snapshots
+           WHERE symbol = $1 AND raw_metrics->>'model_version' = $2) AS gex_ts`,
       [symbol, GEX_MODEL_VERSION]
     );
     const coverage = rows[0];
@@ -114,6 +194,7 @@ async function sendAnalyzeStatus(req, res) {
     }
     const readyCount = [coverage.has_price, coverage.has_metrics, coverage.has_options, coverage.has_quoted_options, coverage.has_gex].filter(Boolean).length;
     const queued = Object.values(refresh).some(value => value === 'queued') || coverage.active_jobs > 0;
+    const products = buildProductStates(coverage, refresh);
     return res.json({
       symbol,
       status: readyCount === 5 ? 'ready' : queued ? 'queued' : readyCount ? 'partial' : 'missing',
@@ -125,6 +206,7 @@ async function sendAnalyzeStatus(req, res) {
         option_quotes: coverage.has_quoted_options,
         gex: coverage.has_gex,
       },
+      products,
       refresh,
       queue_depth: coverage.queue_depth,
       estimated_wait: queued ? ON_DEMAND_ESTIMATED_WAIT : null,
