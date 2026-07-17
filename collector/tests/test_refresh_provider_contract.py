@@ -1,4 +1,5 @@
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -10,6 +11,12 @@ SERVER_REFRESH_SOURCE = Path(__file__).resolve().parents[2] / 'server' / 'src' /
 
 
 class RefreshProviderContractTest(unittest.TestCase):
+    def test_option_snapshot_json_payload_serializes_provider_decimal_metadata(self):
+        import collect_options
+
+        payload = collect_options.json_payload({'quote': {'bid': Decimal('1.25')}})
+        self.assertEqual(payload.dumps(payload.adapted), '{"quote": {"bid": 1.25}}')
+
     def test_api_default_provider_is_supported_by_worker(self):
         worker_source = WORKER_SOURCE.read_text()
         server_source = SERVER_REFRESH_SOURCE.read_text()

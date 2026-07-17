@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 import os
+import json
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg2
@@ -34,6 +36,16 @@ log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
 OPTION_PROVIDER = os.getenv('OPTION_PROVIDER', 'ib_internal').strip().lower()
+
+
+def _json_default(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(f'Object of type {type(value).__name__} is not JSON serializable')
+
+
+def json_payload(value):
+    return Json(value or {}, dumps=lambda payload: json.dumps(payload, default=_json_default))
 
 
 def load_symbols() -> list[str]:
@@ -131,7 +143,7 @@ def persist_snapshot(conn, snapshot) -> int:
                 completeness_pct,
                 missing_greeks_ratio,
                 missing_oi_ratio,
-                Json(snapshot.raw_metadata or {}),
+                json_payload(snapshot.raw_metadata),
             ),
         )
         snapshot_id = cur.fetchone()[0]
@@ -169,7 +181,7 @@ def persist_snapshot(conn, snapshot) -> int:
                 contract.local_symbol,
                 contract.con_id,
                 contract.provider_contract_id,
-                Json(contract.raw or {}),
+                json_payload(contract.raw),
             )
             for contract in snapshot.contracts
         ]
