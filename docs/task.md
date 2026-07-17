@@ -447,7 +447,8 @@
 - ✅ 服务层自动切换：derived IV Rank ready 后 API/scanner 使用 derived；batch collector、on-demand API 与 refresh worker 均停止为该 symbol 调用 Tastytrade（2026-07-15）
 
 **基础设施可靠性 / 云端迁移**
-- [ ] Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job（纯 REST API，无需本地网关，可直接云端跑）
+- ⛔ **已决定不做（2026-07-17）：Tastytrade collector 长期由 Mac Studio 本机承载，放弃云端自治。** 原因：Railway runner 出口 IP 会变，TT 的 device challenge 每次都把云端识别为新设备（见下方 blocked run），人工过验证也会随 IP 轮换失效；给 Railway 挂固定出口 IP / 静态代理能根治，但为一个免费、低频、纯 REST 的 IV Rank 源不值这个成本与运维复杂度。现状即最优解：Mac Studio authenticated collector 写共享 Railway PostgreSQL，Railway metrics cron 镜像保留但永久 `TT_METRICS_ENABLED=false`。**验收依赖：本机 PM2 崩溃自动拉起 + UPS（见下条断电风险）。** 下方已完成的镜像/token-state/独立 service 工作保留作历史记录，不回收。
+- [x] ~~Tastytrade collector 迁移：从 Mac Studio 搬到 Railway Cron Job~~（放弃，见上）
   - ✅ 独立 one-shot image/config：`collector/Dockerfile.metrics` + `collector/railway.metrics.json`
   - ✅ 固定 UTC 盘后 schedule：`30 22 * * 1-5`；`restartPolicyType=NEVER`，进程完成后退出
   - ✅ Secret contract：`DATABASE_URL`、`TT_LOGIN`、bootstrap `TT_REMEMBER_TOKEN`（仅在 Railway 自己的 `provider_auth_state` 尚无记录时使用）、`TT_BASE_URL`、`TT_USER_AGENT`；镜像排除 `.env` 与本地 venv。`auth.py --login` 只会 seed 到该进程绑定的数据库；只有相同 `DATABASE_URL` 才与 Railway 共享。Railway 不需要接收 successor token。缺 `TT_LOGIN` 时 collector 必须在本地 fail closed，不能向 TT 发送请求。
@@ -455,7 +456,7 @@
   - ✅ Migration runtime：2026-07-16 `source collector/.env && node server/src/migrate.js` 成功；只读 `to_regclass('public.provider_auth_state')` 返回表存在、`row_count=0`，未读取 token 值。
   - ✅ Verification：collector `unittest discover -s tests -v` 111/111 passed；server `npm test` 65/65 passed；`docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed after PostgreSQL token-state change
   - ✅ Railway 独立 service：`quantrift-metrics-cron` 已创建，config path 为 `/collector/railway.metrics.json`，DB/TT variables 已注入，Git deployment active（2026-07-16）
-  - [ ] Railway TT metrics run（阻塞于 provider device challenge）：2026-07-16 本机以现有用户名/密码成功登录并将 fresh remember-token 写入共享 PostgreSQL；紧接着 Railway cron 使用同一 fingerprint 认证，TT 返回 `403 device_challenge_required`。确认 Railway 网络、数据库和 token state 均可达，但 TT 将 US West runner 识别为新设备。镜像现默认 `TT_METRICS_ENABLED=false`，保证后续 Railway schedule 不会读取凭据或调用 TT。当前可用路径是 Mac Studio 的 authenticated collector 写同一 Railway PostgreSQL；只有在 Railway 上完成明确的 TT device challenge 后，才将变量改为 true 并恢复此 cloud-cron task。
+  - ⛔ Railway TT metrics run（阻塞于 provider device challenge，**已决定不再推进**）：2026-07-16 本机以现有用户名/密码成功登录并将 fresh remember-token 写入共享 PostgreSQL；紧接着 Railway cron 使用同一 fingerprint 认证，TT 返回 `403 device_challenge_required`。确认 Railway 网络、数据库和 token state 均可达，但 TT 将 US West runner 识别为新设备。镜像现默认 `TT_METRICS_ENABLED=false`，保证后续 Railway schedule 不会读取凭据或调用 TT。**2026-07-17 决策：长期由 Mac Studio authenticated collector 写共享 Railway PostgreSQL，不再尝试在 Railway 过 device challenge**（IP 轮换会反复失效）。除非以后为其它原因给 Railway 上了固定出口 IP，否则此 cloud-cron task 保持关闭。
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS）并完成断电恢复演练
   - ✅ macOS 自动恢复已验证：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`；市电恢复后系统会自动重启。
   - ✅ PM2 开机恢复已验证：LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`；`~/.pm2/dump.pm2` 包含 `quantrift-options-collector`、`quantrift-options-prices`、`quantrift-reddit-trends`、`quantrift-universe-metadata`、`quantrift-unusual-whales-flow`。
@@ -1641,48 +1642,19 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - 命名差异（已接受，不再单列为未完成）：`reason` 由 `summary` / `pricing` / `structure` 承担；DTO 无单一 `reason` 字段。
   - 剩余真实缺口已移入 `V3A-4`：earnings risk 目前只返回原始 `earnings_date`，warning 判定仍在 `Scan.jsx` 前端计算。
 
-### V3A-2 Materialized Candidate Snapshots
+### ✅ V3A-2 Materialized Candidate Snapshots（E14，2026-07-17 完成，`/api/scan` 暂不切流）
 
-- [ ] 新增 PostgreSQL additive tables：
-  - `scanner_candidate_batches`
-  - `scanner_candidate_snapshots`
-- [ ] `scanner_candidate_batches` 字段：
-  - `id`
-  - `scan_key`
-  - `algorithm_version`
-  - `source_snapshot_cutoff`
-  - `universe_count`
-  - `candidate_count`
-  - `started_at`
-  - `completed_at`
-  - `status`
-  - `error`
-- [ ] `scanner_candidate_snapshots` 字段：
-  - `batch_id`
-  - `candidate_key`
-  - `symbol`
-  - `strategy`
-  - `strategy_family`
-  - `expiry`
-  - `dte`
-  - `spot`
-  - `score`
-  - `rank`
-  - `legs_json`
-  - `economics_json`
-  - `signals_json`
-  - `freshness_json`
-  - `created_at`
-- [ ] Additive migration only；不得删除现有 `scanner_results_snapshots`。
-- [ ] Materializer：
-  - 新增 `server/src/jobs/materializeScannerCandidates.js` 或 collector-side equivalent。
-  - 读取 latest option snapshot、GEX snapshot、IV/HV metrics、price trend、earnings。
-  - 写入 batch + candidate rows。
-  - `algorithm_version` 每次改变排序/评分/候选逻辑必须递增。
-- [ ] API read path：
-  - `/api/scan` 或新 `/api/v1/scanner/candidates` 读取 latest completed batch。
-  - stale batch 仍返回真实候选并标记 batch age。
-  - missing batch enqueue materialization job，不同步全市场 provider fetch。
+- [x] 新增 PostgreSQL additive tables（`server/src/migrate.js`，`CREATE TABLE IF NOT EXISTS`，不改动 `scanner_results_snapshots`）：
+  - `scanner_candidate_batches`：`id`、`scan_key`、`algorithm_version`、`source_snapshot_cutoff`、`universe_count`、`candidate_count`、`started_at`、`completed_at`、`status`、`error` + index `(scan_key, status, completed_at DESC NULLS LAST)`。
+  - `scanner_candidate_snapshots`：`id`、`batch_id`(FK ON DELETE CASCADE)、`candidate_key`、`symbol`、`strategy`、`strategy_family`、`expiry`、`dte`、`spot`、`score`、`rank`、`legs_json`、`economics_json`、`signals_json`、`freshness_json`、`created_at` + `UNIQUE (batch_id, candidate_key)` + index `(batch_id, rank)`、`(batch_id, symbol)`。
+- [x] Additive migration only；未删除、未改列 `scanner_results_snapshots`。
+- [x] Materializer（`server/src/jobs/materializeScannerCandidates.js`）：纯函数 `buildCandidateBatch`/`candidateKey`/`strategyFamily`（无 DB，可单测）+ DB 编排 `runMaterialization`。读取 latest scanner positioning rows + 各 symbol 最新可报价 option chain（复用 scan.js 的 `latest_quote_chain`/`contract_samples` 口径），对每个 symbol 跑 `buildActionableSetups`，全局按 score 排序、按 `candidate_key` 去重、赋 1-based `rank`，写 batch(running)→candidate rows→batch(completed)；出错标 `failed`，读端只服务 `completed` 批次故半成品不可见。`ALGORITHM_VERSION='candidate-v1'`，注释规定改排序/评分/候选逻辑必须递增。CLI：`node src/jobs/materializeScannerCandidates.js [scanKey]`。
+- [x] API read path（`server/src/routes/scannerCandidates.js` → `GET /api/v1/scanner/candidates`，挂 `/api/v1/scanner`，`requireEntitlement('scanner')`）：读取 latest `completed` batch；stale batch（`completed_at` 超过 `SCANNER_CANDIDATE_STALE_MINUTES`，默认 15）仍返回真实候选并带 `batch.age_seconds`/`is_stale`；stale/missing 时 enqueue `scanner_candidate_materialize` job（`__SCAN__` sentinel，`provider:internal`），**不**同步全市场 provider fetch。仅返回选中腿（`legs`），不返回原始 option chain。支持 `strategy`/`family`/`symbol`/`minScore`/`limit`(≤500) 过滤。
+- [x] `enqueueRefreshJob`：`normalizeRefreshSymbol` 扩展 `SCAN_LEVEL_JOB_TYPES`，对 `scanner_candidate_materialize` 同样放行 `__SCAN__` sentinel。
+- [x] `/api/scan` 暂不切流（rollout Step 2）：现有 `/api/scan` 行为不变，本批次为 additive、可回滚。
+- [x] Tests：`server/test/materializeScannerCandidates.test.js`（8 个：strategyFamily 映射、candidateKey 稳定/按 strike 区分、buildCandidateBatch 全局排名+universe 计数、跨行去重、无候选仍计 universe、空输入、runMaterialization mock-pool 走 running→insert→completed、失败标 failed）+ `server/test/scannerCandidatesRoute.test.js`（6 个：missing batch enqueue+空、fresh batch 返回候选不 enqueue、stale batch 返回候选+enqueue、strategy/symbol 过滤透传、非法 limit 400、缺表降级空）。
+- [x] 验证：server `node --test` 148/148（134 → 148）。全部改动文件 `node --check` 通过；模块 smoke-load 通过（materializer 导出、route `sendCandidates`、sentinel 放行/拒绝）。Server 无独立 ESLint 步骤（lint 属 frontend CI），本批次纯后端。
+- [ ] 部署/后续（未做，需 DB 或 collector-side 操作）：① Railway 跑 `node src/migrate.js` 建两张新表；② 把 `runMaterialization` 接入 collector 调度（`run_railway_refresh_cycle.py` 或消费 `scanner_candidate_materialize` job），否则 enqueue 的 job 会停留在 `queued`；③ 真实 Railway DB 跑一次批次的 runtime acceptance（本环境无 DB 连接，未执行）；④ 前端接入 `/api/v1/scanner/candidates`（与 `/api/scan` 切流一并，属 rollout 后续步骤）。
 
 ### V3A-3 Remove Raw Option Chain From Normal Scanner API
 

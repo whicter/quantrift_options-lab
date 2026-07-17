@@ -8,9 +8,11 @@ function isMissingTableError(err) {
   return err?.code === '42P01';
 }
 
+const SCAN_LEVEL_JOB_TYPES = new Set(['scanner_materialize', 'scanner_candidate_materialize']);
+
 function normalizeRefreshSymbol(symbol, jobType) {
   const normalized = String(symbol || '').trim().toUpperCase();
-  if (jobType === 'scanner_materialize' && normalized === '__SCAN__') return normalized;
+  if (SCAN_LEVEL_JOB_TYPES.has(jobType) && normalized === '__SCAN__') return normalized;
   return SYMBOL_PATTERN.test(normalized) ? normalized : null;
 }
 
