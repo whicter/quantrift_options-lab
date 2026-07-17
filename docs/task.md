@@ -1021,6 +1021,7 @@
 - ✅ PM2 全路径：`/opt/homebrew/bin/pm2`（via SSH 时 zsh 找不到 pm2）
 - ✅ option_chain_snapshot jobs succeeded（job 154/156/157）；source 从 `ib_internal` 逐渐切换为 `polygon_licensed`
 - ✅ MD5 checksum 验证：local 与 Mac Studio 上 4 个改动文件完全一致
+- ✅ Railway `quantrift-metrics-cron` 已配置服务级 `POLYGON_API_KEY` 并完成 2026-07-17 云端验收：2 个真实 `option_chain_snapshot` job 成功、写入 4,826 条 OI delta、物化 80 条 scanner rows。变量变更必须先 deploy 再手动运行 cron；缺 key 时 provider construction 会失败并误触 TT fallback。
 
 ### Polygon 数据延迟说明（纠正）
 - Polygon $29/mo Options Starter 是 **15分钟延迟**，不是 EOD

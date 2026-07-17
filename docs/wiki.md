@@ -1279,6 +1279,8 @@ After a successful local login wrote a fresh token into that shared row, Railway
 
 The Railway image now defaults `TT_METRICS_ENABLED=false`, making future scheduled Railway executions no-ops before any credential or TT request. Mac Studio's active weekday schedule is `13:30 PT`; a 2026-07-16 acceptance run wrote all 67 watchlist metric rows with zero errors and production metrics returned fresh data for AAPL, PLTR and TSLA.
 
+2026-07-17 cloud option-refresh correction: `quantrift-metrics-cron` is not a TT-first runner. Its primary option-chain provider is `polygon_licensed`, so Railway must contain the service secret `POLYGON_API_KEY` in addition to `DATABASE_URL`. A missing secret fails while constructing the Polygon provider, before an HTTP request; the configured fallback then attempted TT and encountered its separate Railway device challenge. After the secret was added and the Railway variable deployment completed, one manual cron run successfully wrote two real `option_chain_snapshot` jobs, 4,826 OI-delta rows, and 80 scanner rows. The deployment preflight is therefore: verify the secret is present, deploy variable changes, then execute cron and require `option_chain_snapshot succeeded` plus scanner materialization in logs.
+
 ### IB Gateway Cloud Boundary
 
 The evaluated target is a fixed-egress VPS, not a public Railway service. Gateway and a read-only collector share localhost/private networking; raw API ports are never internet-facing. `ops/ib-gateway/` contains the paper/read-only template and soak checklist. Mac Studio remains active until the candidate survives reconnect/reboot and data-parity checks.
