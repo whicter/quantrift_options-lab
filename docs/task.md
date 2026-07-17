@@ -25,10 +25,50 @@
 
 ### Deferred / requires a separate decision
 
-- [ ] 全路由 SSR/SSG：当前先在静态 `index.html` 放入可抓取的产品语义摘要；完整 SSR/SSG 需要单独决定框架与部署迁移。
-- [ ] 品牌名、域名和商标保护：需要产品所有者在注册商、法务和运营侧执行，不能由 repository 直接完成。
+- [ ] 全路由 SSR/SSG：当前先在静态 `index.html` 放入可抓取的产品语义摘要；完整 SSR/SSG 需要单独决定框架与部署迁移。唯一条目见 `C. Implement full SSR/SSG only after choosing the frontend migration path`；不要在多处重复登记。
+- [ ] 品牌名、域名和商标保护：需要产品所有者在注册商、法务和运营侧执行，不能由 repository 直接完成。唯一条目见 `D. External-owner prerequisites`；不要在多处重复登记。
 
 ### Post-audit remaining work (ordered)
+
+#### 执行顺序（2026-07-17 按真实代码校准）
+
+下表是本文件剩余所有未完成任务的唯一执行顺序。每行必须独立完成实现、测试、文档、commit、push。已被后续 section 实现但仍标 `[ ]` 的旧条目，已在本次校准中按代码证据改为 `[x]`，不再重复执行。
+
+| 顺序 | 任务 | 为什么是这个位置 | 外部阻塞 |
+|---|---|---|---|
+| E1 | V3A-6 内部状态端点权限拆分 | `/api/status/data`、`/api/status/options`、`/api/status/cache` 当前**完全无认证**，公开暴露 job 失败、provider 用量、覆盖率与 universe 细节。这是当前唯一正在生效的信息暴露，先修。 | 无 |
+| E2 | V3A-9 生产加固：安全响应头 + CI artifact 检查 | 仓库**没有任何 CI**（无 `.github`），也**没有任何安全响应头**。`build.sourcemap=false` 已完成但无自动校验，回归无人发现。 | 无 |
+| E3 | P2.8.6 ingestion / derivation 解耦 | 单点改动、收益最大：一个 batch 当前最多重复跑 10 次全局 `materialize_scan`。是 P2.8 吞吐的前置。 | 无 |
+| E4 | P2.8.2 `symbol_data_state` 汇总表 | P2.8.1 freshness 口径与 P2.8.8 前端体验都要读它，先建表与写入。 | 无 |
+| E5 | P2.8.1 统一 freshness 口径 | 依赖 E4 的表；Analyze 改为按 product 返回 `fresh/stale/missing/queued/failed`。 | 无 |
+| E6 | P2.8.3 queue-fill scheduler | 依赖 E4 的 priority 来源；把每轮 2 个改为按队列深度补满 + 优先级 + cooldown。 | 无 |
+| E7 | P2.8.5 shared provider rate limiter | 依赖 E6 的队列深度；多 worker 前必须先有跨进程限流，否则并发直接打爆 429。 | 无 |
+| E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
+| E9 | P2.8.7 减少每 symbol 冗余请求 | 依赖 E4 的最新 price snapshot 状态。 | 无 |
+| E10 | V3A-4 后端 Analyze DTO | GEX 结论文案与情景触发/目标价当前仍在浏览器计算（`analyzeData.js`）。依赖 E5 的 freshness 契约一并进 DTO。 | 无 |
+| E11 | P2.8.8 stale-while-refresh 前端体验 | 依赖 E5 与 E10 的 DTO 字段。 | 无 |
+| E12 | V3A-3 剩余：internal/admin chain endpoint | 复用 E1 的 admin token 机制。 | 无 |
+| E13 | A. Playwright 视觉回归 | 放在 UI 改动（E10/E11）之后，避免基线立即失效。 | 无 |
+| E14 | A. 生产 smoke 检查 | 依赖 E2 的 CI 与 E1 的端点分类。 | 需要一次真实部署 |
+| E15 | V3A-2 materialized candidate snapshots | 纯可维护性/吞吐优化，当前 `/api/scan` 已满足产品契约，优先级低于以上。 | 无 |
+| E16 | V3A-8 shared cache / rate limit | 与 E7 重叠；Redis 部分需先决定是否引入 Upstash。PostgreSQL-backed 部分已由 E7 覆盖。 | 需决定是否引入 Redis |
+| E17 | V3A-7 数据库角色边界 | 可交付 SQL + 文档；实际 role 创建需 DB 管理员。 | 需 Railway DB 管理员操作 |
+| E18 | V3A-5 auth fail-closed gate | 代码可实现，但 enforcement 必须保持 `false` 直到 Clerk/Stripe 密钥就绪，否则会锁死生产。 | Clerk/Stripe keys |
+| E19 | P2.8.9 Railway 承载验证 | 需要 E3-E9 全部落地后的真实 runtime 测量。 | 需真实运行窗口 |
+
+#### 已确认无法由本仓库完成（不要反复重排）
+
+以下任务不是排期问题，而是需要人工采购、账户操作或第三方审批。除非外部条件变化，保持未完成状态：
+
+- 域名注册/DNS/CORS/CSP/canonical、商标法务审查（D 节）
+- 已进入 Git 历史的 Polygon key rotation（需账户持有人）
+- UPS 采购与断电演练；IB Gateway VPS 采购、固定 IP、IBKR 2FA、72 小时 soak
+- SMTP / VAPID secrets → 真实收件验收
+- Reddit OAuth credentials → 真实 snapshot 验收
+- Clerk / Stripe keys → 真实 sign-in / checkout / webhook 验收
+- Railway TT device challenge（TT 将 Railway runner 识别为新设备）
+- derived IV Rank 252 个独立交易日门槛（只能随时间积累）
+- Unusual Whales API（$125/月，暂缓至有正向现金流）
 
 #### A. Release verification for the copy/model changes
 
@@ -90,7 +130,7 @@
 
 - [ ] Register and configure any replacement domain; update DNS, Vercel domain mapping, CORS allowlist, canonical URL, CSP/connect-src and email sender configuration.
 - [ ] Obtain legal review for the chosen brand/product name and register trademark protection where appropriate.
-- [ ] Rotate any provider key that has entered Git history and store replacements only in deployment secret stores. See the existing P2.8 task at line 941.
+- [ ] Rotate any provider key that has entered Git history and store replacements only in deployment secret stores. 唯一条目见 Phase 3I 的 `Rotate 曾进入 Git 历史的 Polygon key`；此处仅为索引，不重复登记。
 
 ## ✅ Done (V1 Core)
 - ✅ Project scaffolding: React + Vite + Zustand
@@ -1547,24 +1587,23 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - unique candidate key；
   - duplicate candidate elimination；
   - rank/sort default order。
-- [ ] 前端保留内容：
-  - preset selector；
-  - advanced filter inputs；
-  - display labels/tooltips；
-  - selected sort state；
-  - row navigation；
-  - UI-only formatting。
+- [x] 前端保留内容（2026-07-17 按代码校准为完成）：
+  - preset selector：`frontend/src/pages/Scan.jsx` `STRATEGY_PARAMETER_PRESETS` 只提供过滤输入默认值，不含评分权重；
+  - advanced filter inputs、display labels/tooltips、selected sort state、row navigation、UI-only formatting 均在前端；
+  - `toScanRow` 只做 server 字段到视图字段的重命名；`economicsSummary` 的 `* 100` 是展示用合约乘数，不是经济性计算；
+  - `frontend/src/lib/scanOpportunity.js` 已删除，全前端无引用。
 - [x] 前端不再包含：
   - hidden default strategy thresholds；
   - scoring weights；
   - candidate enumeration；
   - complete strategy economics engine；
   - raw option chain traversal。
-- [ ] API contract：
-  - request：`preset`, `strategyTypes[]`, optional advanced filters, pagination/sort。
-  - response：final candidate DTO only。
-  - response must include：symbol、spot、iv/hv summary、direction、positioning summary、strategy、legs、expiry/DTE、credit/debit、max loss、breakeven、score、reason、freshness、earnings risk。
-  - response must not include：complete `option_contracts` array、provider internal routing、scoring internals、raw provider payload。
+- [x] API contract（2026-07-17 按代码校准为完成，两处命名差异记录在下）：
+  - request：`preset` 展开为具体 filter、`strategies` → `strategyTypes[]`、advanced filters、`sort`、`limit` 均已实现于 `server/src/routes/scan.js`。
+  - response：`scan.js` 在序列化前 destructure 掉 `option_contracts` 与 `payload`，浏览器只收到 candidate DTO。
+  - 已包含：symbol、spot（`price_close`）、iv/hv summary、direction（trend_*）、positioning summary（GEX/wall/PCR/max pain）、strategy、legs、expiry/DTE、credit/debit、max loss、breakeven、score、freshness。
+  - 命名差异（已接受，不再单列为未完成）：`reason` 由 `summary` / `pricing` / `structure` 承担；DTO 无单一 `reason` 字段。
+  - 剩余真实缺口已移入 `V3A-4`：earnings risk 目前只返回原始 `earnings_date`，warning 判定仍在 `Scan.jsx` 前端计算。
 
 ### V3A-2 Materialized Candidate Snapshots
 
