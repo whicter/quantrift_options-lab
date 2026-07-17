@@ -41,7 +41,7 @@
 | ✅ E3 | P2.8.6 ingestion / derivation 解耦 | 已完成（2026-07-17）：`PendingDerivations` 累积一个 batch 内的全局派生请求，`run_pending_derivations` 在 batch 末尾各执行一次；per-symbol GEX 仍即时计算。 | 无 |
 | ✅ E4 | P2.8.2 `symbol_data_state` 汇总表 | 已完成（2026-07-17）：additive 表 + collector 写入路径 + Railway 迁移与真实 runtime 证据。API 读路径按依赖顺序留给 E5。 | 无 |
 | ✅ E5 | P2.8.1 统一 freshness 口径 | 已完成（2026-07-17）：`server/src/domain/status/freshness.js` 是唯一 freshness 契约；Analyze 按 product 返回 `fresh/stale/missing/queued/failed` + `is_stale` + age + refresh 状态。 | 无 |
-| E6 | P2.8.3 queue-fill scheduler | 依赖 E4 的 priority 来源；把每轮 2 个改为按队列深度补满 + 优先级 + cooldown。 | 无 |
+| ✅ E6 | P2.8.3 queue-fill scheduler | 已完成（2026-07-17）：按队列深度补满（target 20）+ 五级优先级 + cooldown；候选来源由 `watchlist.txt` 改为 `symbol_universe`。 | 无 |
 | E7 | P2.8.5 shared provider rate limiter | 依赖 E6 的队列深度；多 worker 前必须先有跨进程限流，否则并发直接打爆 429。 | 无 |
 | E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
 | E9 | P2.8.7 减少每 symbol 冗余请求 | 依赖 E4 的最新 price snapshot 状态。 | 无 |
@@ -1219,18 +1219,19 @@ PostgreSQL
   - Railway 迁移与 runtime 证据（2026-07-17）：additive migration 成功；表结构 9 列、PK + 2 索引、初始 0 行。PM2 daemon 直接运行本 repo，因此新 worker 代码在下一次 60 秒轮询即生效并写入真实状态：`IREN` job 1123 的 `option_chain` 与 `gex` 均 `ok`/`tt_internal`；`GDXJ` job 1122 的 `option_chain` 为 `ok`，而 `gex` 独立记为 `failed`（`underlying_price missing; cannot compute GEX`）—— 正是"链已落库但 GEX 未生成"必须分开记录的实证。该行的 `last_error_code` 由分类修复前的代码写成 `error`，下次 GDXJ 刷新即自动更正为 `insufficient_data`。
   - Rollback：表为 additive；无 API contract 变更，旧读路径继续直接读 snapshots。`DROP TABLE symbol_data_state` 即可完全回退。
 
-- [ ] **P2.8.3 queue-fill scheduler**
-  - 将当前“每轮只挑 2 个”改为“按目标队列深度补满”：
-    - `OPTION_REFRESH_QUEUE_TARGET`：例如 20。
-    - `OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE`：例如 20。
-    - `OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES`：失败/刚尝试过的 symbol 不重复刷。
-  - 优先级：
-    - `user_requested`：用户刚输入或点击的 symbol。
-    - `core`：SPY/QQQ/AAPL/TSLA/PLTR 等常用标的。
-    - `recent_active`：最近被用户查询或 scanner 点击的 symbol。
-    - `universe_scan`：正式 scanner universe。
-    - `cold_backfill`：低优先级补齐。
-  - 不再只读 `watchlist.txt`；watchlist 只是 seed，长期应从 `symbol_universe` + priority 字段生成 refresh candidates。
+- [x] **P2.8.3 queue-fill scheduler**（E6，2026-07-17 完成）
+  - 由"每轮只挑 2 个"改为"按目标队列深度补满"：`OPTION_REFRESH_QUEUE_TARGET=20`、`OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE=20`、`OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES=30`。
+  - 队列**深度**才是约束 provider 负载的量；per-cycle cap 只限制被抽干的队列回填速度。原先 2 个/300s 而 worker 2 个/60s，worker 约 80% 时间空转。
+  - `load_queue_depth()` 统计所有 outstanding option-chain job，**包含 on-demand**：它们消耗同一 provider 预算，用户请求高峰必须压制后台补数据，而不是叠加其上。
+  - 优先级阶梯写入 `request_params.priority`，worker 按其 claim：`user_requested=100`（API 侧）> `core=80` > `recent_active=60` > `universe_scan=40` > `cold_backfill=20`。**全部后台 tier 严格低于 100**，有测试保证——否则后台扫描会让正在等页面的用户排到冷补齐后面。
+  - Tier 表示"谁需要这份数据"，不表示"数据多旧"。staleness 只在 tier 内排序（missing 优先、最旧优先），不跨 tier 提升。
+  - 候选来源改为 `symbol_universe`（active）：`watchlist.txt` 只是 seed，universe 会因用户分析未知 symbol 而增长，继续读文件会把 on-demand symbol 永久排除在后台刷新之外。表缺失/为空时回退 watchlist。
+  - 移除已失效的 `OPTION_REFRESH_BATCH_SIZE`（PM2 config 与 `.env.example` 同步更新）——保留会变成静默无效的配置陷阱。
+  - Tests：`tests/test_option_refresh_scheduler.py` 16 个（原 4 个全部保留且未修改断言）。新增：fill 到 target、队列满不入队、超额不返回负容量、per-cycle cap、tier 分配、recent_active 优先于 universe、**后台 tier 永不超过 on-demand**、高 tier 胜过更旧数据、tier 内 missing 优先、无 tier 时保持原排序、入队携带 tier priority、无 tier 默认 universe_scan。
+  - 验证：collector 163/163（151 → 163）。
+  - 真实 runtime 证据（2026-07-17，`pm2 reload ecosystem.config.cjs --update-env` 后）：universe 读到 **80** 个 symbol（watchlist 仅 67，证明 on-demand symbol 确实会被文件路径漏掉）；tier 分布 core 5 / recent_active 4 / universe_scan 71；`recent_active` 正确识别出刚被 Analyze 驱动的 NFLX/RKLB/MUU/TSLL。queue_depth 0 → capacity 20，本轮实际入队 **20 个**（core 3、recent_active 3、universe_scan 14），且 core tier 的 job 已在 `running` 而 universe_scan 仍 `queued`——证明 worker 的 `ORDER BY priority DESC` 与 tier 阶梯实际生效。
+  - 未改动 `REFRESH_WORKER_BATCH_SIZE`：填满队列本身不提高 provider 并发，执行速率仍由 worker batch/poll 决定，提高它属于 E8 且必须在 E7 shared limiter 之后。
+  - Rollback：`OPTION_REFRESH_QUEUE_TARGET=2` 即恢复旧吞吐；无 schema migration。
 
 - [ ] **P2.8.4 bounded parallel refresh workers**
   - 利用现有 `FOR UPDATE SKIP LOCKED`，先在 Mac Studio 启 2 个 worker processes 验证，不在线程内共享 psycopg/provider session。

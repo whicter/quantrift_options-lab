@@ -20,10 +20,14 @@ module.exports = {
         COLLECTOR_RUNTIME: 'mac-refresh-daemon',
         OPTION_AUTO_REFRESH: 'true',
         OPTION_REFRESH_PROVIDER: 'polygon_licensed',
-        OPTION_REFRESH_BATCH_SIZE: '2',
         OPTION_REFRESH_MAX_AGE_MINUTES: '60',
-        OPTION_REFRESH_RETRY_COOLDOWN_MINUTES: '30',
+        OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES: '30',
         OPTION_REFRESH_SCHEDULE_SECONDS: '300',
+        // Queue depth, not per-cycle count, is what the scheduler targets. The
+        // worker's own REFRESH_WORKER_BATCH_SIZE still bounds execution rate;
+        // raising that is gated behind the shared provider limiter (E7/E8).
+        OPTION_REFRESH_QUEUE_TARGET: '20',
+        OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE: '20',
         REFRESH_WORKER_BATCH_SIZE: '2',
         COLLECTOR_HEALTH_CHECK_ENABLED: 'true',
         COLLECTOR_HEALTH_CHECK_SECONDS: '300',

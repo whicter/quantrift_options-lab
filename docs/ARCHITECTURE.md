@@ -881,7 +881,7 @@ Polygon.io  GET /v3/snapshot/options/{symbol}?limit=250  （+ next_url 分页）
   + GET /v2/aggs/ticker/{symbol}/prev  （underlying 前日 OHLCV）
   → polygon_option_chain_provider.py
   → run_refresh_worker.py（worker daemon，60s poll）
-      ← schedule_option_refresh.py（scheduler，每 300s，batch 2，max_age 60min）
+      ← schedule_option_refresh.py（scheduler，每 300s，填满至 queue target 20，max_age 60min）
   → option_chain_snapshots
       symbol, snapshot_ts, source, underlying_price,
       contract_count, completeness_pct, missing_greeks_ratio, missing_oi_ratio
@@ -949,6 +949,24 @@ run_refresh_worker.handle_job
 - **失败不擦除数据。** upsert 用 `COALESCE` 保留上一次真实 snapshot；失败只更新 `refresh_status` / `last_error_code`，数据仍可作为 stale 展示。
 - **错误码是粗粒度码，不是原始消息。** provider 名和请求明细不进该表，留在 `provider_fetch_jobs.last_error` 给运维。
 - **写入 best-effort。** snapshot 表仍是 source of truth；汇总表写失败不能把成功的刷新变成失败的 job。
+
+**Queue-fill scheduler（E6，2026-07-17）**
+
+`schedule_option_refresh.py` 按**队列深度**补满，而不是每轮固定入队 N 个：
+
+```text
+symbol_universe (active)          ← 不是 watchlist.txt；后者只是 seed
+  → assign_tiers()                ← core / recent_active / universe_scan / cold_backfill
+  → load_queue_depth()            ← 含 on-demand job，共用同一 provider 预算
+  → fill_count(depth) = min(target - depth, max_per_cycle)
+  → select_candidates()           ← tier 优先，tier 内 missing 优先、最旧优先
+  → provider_fetch_jobs (request_params.priority)
+```
+
+- **深度是约束量。** per-cycle cap 只限制被抽干的队列回填速度。原先 2 个/300s 而 worker 2 个/60s，worker 约 80% 时间空转。
+- **后台 tier 永远低于 on-demand 的 100。** worker 按 `priority DESC` claim；后台扫描若与之持平，正在等页面的用户会排到冷补齐后面。
+- **tier 表示"谁需要"，不表示"多旧"。** staleness 只在 tier 内排序，不跨 tier 提升。
+- **候选来自 universe。** universe 会因用户分析未知 symbol 而增长（实测 80 vs watchlist 67）；读文件会把 on-demand symbol 永久排除在后台刷新之外。
 
 **Freshness 契约（E5，2026-07-17）**
 
