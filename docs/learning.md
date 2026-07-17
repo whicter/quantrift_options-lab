@@ -694,3 +694,4 @@ GEX compute job：
 - **blocker 只能表达不可通过重试解决的状态**：无报价和认证失败适合短期阻断；代码或序列化错误不应被标记成数据不可用，否则部署修复后用户请求仍被旧失败记录挡住。
 - **enqueue 与执行是两个独立运行面**：API 写入 `provider_fetch_jobs` 不会自行执行 provider。Railway 若只跑 `collect.py`，按需队列和 watchlist option scheduler 都会饿死；云端 one-shot cron 必须按顺序运行 scheduler、refresh worker、scanner materialization。当前 cadence 为工作日每 5 分钟。
 - **所有 JSONB 写入边界都必须处理 Decimal**：修复 option snapshot 后，scanner materialization 从 PostgreSQL 读回 `gex.raw_metrics` 仍会重新带入 Decimal；若直接 `Json(payload)`，refresh worker 虽已完成，最终 scanner materialization 仍会失败。所有 raw/provider JSON 及其派生 payload 必须使用同一显式 Decimal-to-number encoder，并以完整 refresh cycle 覆盖回归。
+- **认证失败的作用域不能扩大为数据不存在**：Railway TT 的 device challenge 只说明该 worker 不能用 TT session；它不能阻断 Mac Studio 或 IB 的后续 quote refresh。on-demand blocker 只可用于 provider 已明确无可用报价的终态，worker-specific auth failure 必须留在队列重试路径。

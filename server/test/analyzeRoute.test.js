@@ -147,6 +147,22 @@ test('transient quote collection failure is retried instead of becoming a blocke
   assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_chain_snapshot']);
 });
 
+test('worker-specific quote authentication failure does not block a different collector', async () => {
+  queryResults.push({ rows: [] }, { rows: [{
+    has_price: true, has_metrics: true, has_options: true, has_quoted_options: false, has_gex: true,
+    active_jobs: 0, queue_depth: 0, metrics_blocked: false,
+    quotes_blocked: false,
+    quotes_last_error: 'tastytrade auth unavailable: device challenge',
+  }] });
+  const res = responseRecorder();
+  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+
+  assert.equal(res.body.status, 'queued');
+  assert.equal(refreshCalls.length, 1);
+  assert.doesNotMatch(queries[1].sql, /tastytrade auth unavailable/);
+  assert.doesNotMatch(queries[1].sql, /provider auth unavailable/);
+});
+
 test('Analyze candidate is built server-side from the latest quoted chain without returning that chain', async () => {
   const { sendAnalyzeCandidate } = require(routePath);
   queryResults.push(
