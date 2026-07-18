@@ -96,6 +96,11 @@ class OptionChainSnapshot:
     provider_status: str = 'ok'
     provider_snapshot_id: str | None = None
     raw_metadata: dict[str, Any] | None = None
+    # ATM IV per expiry across the full fetched expiry set (before DTE-bucket
+    # trimming), for the term-structure view. None when the provider does not
+    # supply it. [{expiration_date, dte, atm_strike, atm_iv, atm_call_iv,
+    # atm_put_iv, contract_count}, ...] sorted by expiry.
+    term_structure: list[dict[str, Any]] | None = None
 
 
 class OptionChainProvider(Protocol):

@@ -3,7 +3,8 @@ import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from providers.polygon_option_chain_provider import PolygonOptionChainProvider
+from providers.polygon_option_chain_provider import PolygonOptionChainProvider, build_term_structure
+from providers.base import OptionContractSnapshot
 
 
 class FakeResponse:
@@ -72,6 +73,73 @@ class PolygonOptionProviderTests(unittest.TestCase):
         option_calls = [call for call in session.calls if '/v3/snapshot/options/' in call[0]]
         self.assertEqual(len(option_calls), 2)
         self.assertEqual(option_calls[1][1]['expiration_date.gte'], (today + timedelta(days=30)).isoformat())
+
+    def test_term_structure_spans_every_fetched_expiry(self):
+        # Bucket trimming keeps 1 expiry per bucket, but the term structure must
+        # carry both fetched expiries (2 and 35 DTE), each with an ATM IV.
+        today = date.today()
+        short_expiry = today + timedelta(days=2)
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession([
+            {'status': 'OK', 'results': [{'c': 100}]},
+            {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+        ])
+        env = {
+            'POLYGON_API_KEY': 'test-key',
+            'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
+            'POLYGON_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_option_provider_test',
+        }
+        with patch.dict(os.environ, env, clear=False), \
+             patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
+            provider = PolygonOptionChainProvider()
+            snapshot = provider.fetch_option_chain('TEST')
+
+        self.assertIsNotNone(snapshot.term_structure)
+        ts_dtes = {row['dte'] for row in snapshot.term_structure}
+        self.assertEqual(ts_dtes, {2, 35})
+        for row in snapshot.term_structure:
+            self.assertGreater(row['atm_iv'], 0)
+            self.assertIn('expiration_date', row)
+
+
+class BuildTermStructureTests(unittest.TestCase):
+    def _c(self, expiry, right, strike, iv):
+        return OptionContractSnapshot(
+            symbol='T', expiry=expiry, strike=strike, right=right,
+            bid=1.0, ask=1.1, last=1.0, mark=1.05, volume=1, open_interest=1, iv=iv,
+            delta=None, gamma=None, theta=None, vega=None, rho=None,
+        )
+
+    def test_picks_nearest_strike_and_averages_call_put(self):
+        today = date.today()
+        e = today + timedelta(days=30)
+        contracts = [
+            self._c(e, 'C', 100, 0.30), self._c(e, 'P', 100, 0.34),
+            self._c(e, 'C', 120, 0.50),  # farther strike ignored for ATM
+        ]
+        rows = build_term_structure(contracts, spot=101, today=today)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['atm_strike'], 100)
+        self.assertAlmostEqual(rows[0]['atm_iv'], 0.32)
+        self.assertEqual(rows[0]['dte'], 30)
+
+    def test_skips_expiries_without_positive_iv_and_sorts(self):
+        today = date.today()
+        e1 = today + timedelta(days=10)
+        e2 = today + timedelta(days=40)
+        contracts = [
+            self._c(e2, 'C', 100, 0.40),
+            self._c(e1, 'C', 100, 0.0),  # no positive IV -> skipped
+        ]
+        rows = build_term_structure(contracts, spot=100, today=today)
+        self.assertEqual([r['dte'] for r in rows], [40])
+
+    def test_empty_inputs(self):
+        self.assertEqual(build_term_structure([], 100), [])
+        self.assertEqual(build_term_structure([self._c(date.today(), 'C', 100, 0.3)], 0), [])
 
 
 if __name__ == '__main__':

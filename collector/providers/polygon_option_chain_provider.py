@@ -152,6 +152,11 @@ class PolygonOptionChainProvider:
                 continue
             contracts.append(contract)
 
+        # Term structure from the FULL parsed set — every expiry Polygon
+        # returned — before strike-limit / DTE-bucket trimming drops most
+        # expiries. Zero extra requests: it reuses contracts already in hand.
+        term_structure = build_term_structure(contracts, spot, today)
+
         if strike_limit:
             contracts = _apply_strike_limit(contracts, spot, strike_limit)
 
@@ -188,7 +193,9 @@ class PolygonOptionChainProvider:
                 'strike_window_pct': window_pct,
                 'max_strikes_per_side': strike_limit,
                 'selected_expirations': sorted({contract.expiry.isoformat() for contract in contracts}),
+                'term_structure_expiry_count': len(term_structure),
             },
+            term_structure=term_structure,
         )
 
     def _parse_contract(self, symbol: str, item: dict) -> OptionContractSnapshot | None:
@@ -260,6 +267,50 @@ class PolygonOptionChainProvider:
             provider_contract_id=ticker or None,
             raw=item,
         )
+
+
+def build_term_structure(
+    contracts: list[OptionContractSnapshot],
+    spot: float,
+    today: date | None = None,
+) -> list[dict]:
+    """ATM IV per expiry from the full fetched contract set.
+
+    For each expiry, pick the strike nearest spot that has a positive IV, and
+    average the call and put IV at that strike. Computed BEFORE DTE-bucket
+    trimming so the term structure spans every expiry Polygon returned, not just
+    the few strikes stored for GEX. Pure and unit-testable.
+    """
+    if not contracts or spot is None or spot <= 0:
+        return []
+    today = today or date.today()
+    by_expiry: dict = {}
+    for c in contracts:
+        if c.iv is None or c.iv <= 0 or c.strike is None:
+            continue
+        by_expiry.setdefault(c.expiry, []).append(c)
+
+    rows: list[dict] = []
+    for expiry in sorted(by_expiry):
+        legs = by_expiry[expiry]
+        nearest = min(abs(c.strike - spot) for c in legs)
+        atm = [c for c in legs if abs(c.strike - spot) == nearest]
+        atm_strike = atm[0].strike
+        call_iv = next((c.iv for c in atm if c.right == 'C'), None)
+        put_iv = next((c.iv for c in atm if c.right == 'P'), None)
+        ivs = [v for v in (call_iv, put_iv) if v is not None and v > 0]
+        if not ivs:
+            continue
+        rows.append({
+            'expiration_date': expiry.isoformat(),
+            'dte': (expiry - today).days,
+            'atm_strike': atm_strike,
+            'atm_iv': sum(ivs) / len(ivs),
+            'atm_call_iv': call_iv,
+            'atm_put_iv': put_iv,
+            'contract_count': len(legs),
+        })
+    return rows
 
 
 def _apply_strike_limit(

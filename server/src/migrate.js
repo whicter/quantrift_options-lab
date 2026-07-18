@@ -630,6 +630,13 @@ async function migrate() {
       ADD COLUMN IF NOT EXISTS market_cap NUMERIC(20,2),
       ADD COLUMN IF NOT EXISTS optionable BOOLEAN;
 
+    -- Full-expiry ATM IV term structure, computed at collection from every
+    -- expiry the provider returned (before DTE-bucket trimming). Additive; the
+    -- server prefers it over the 3-expiry term structure derived from the
+    -- trimmed stored chain.
+    ALTER TABLE option_chain_snapshots
+      ADD COLUMN IF NOT EXISTS term_structure JSONB;
+
     -- Per-symbol, per-product freshness summary. One row per (symbol, product).
     -- Records only observed facts: what landed, when, from where, and what the
     -- last refresh attempt did. Freshness itself is NOT stored -- it decays with

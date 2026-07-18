@@ -28,17 +28,33 @@ function deriveChainStats(snapshot, contracts) {
     open_interest: row.open_interest == null ? null : Number(row.open_interest),
   })).filter(row => Number.isFinite(row.strike) && Number.isFinite(row.iv) && row.iv > 0);
   const expiries = [...new Set(valid.map(row => row.expiry))].sort();
-  const term_structure = expiries.map(expiry => {
-    const rows = valid.filter(row => row.expiry === expiry);
-    const minDistance = Math.min(...rows.map(row => Math.abs(row.strike - spot)));
-    const atm = rows.filter(row => Math.abs(row.strike - spot) === minDistance);
-    return {
-      expiry,
-      atm_strike: atm[0]?.strike ?? null,
-      atm_iv: atm.length ? atm.reduce((sum, row) => sum + row.iv, 0) / atm.length : null,
-      contract_count: rows.length,
-    };
-  });
+
+  // Prefer the stored full-expiry term structure (computed at collection from
+  // every expiry the provider returned, before DTE-bucket trimming). Fall back
+  // to deriving from the trimmed stored chain — which only carries ~3 expiries —
+  // when the snapshot predates this field.
+  const stored = Array.isArray(snapshot.term_structure) ? snapshot.term_structure : null;
+  const term_structure = stored && stored.length
+    ? stored
+      .map(point => ({
+        expiry: toDateString(point.expiration_date || point.expiry),
+        atm_strike: point.atm_strike == null ? null : Number(point.atm_strike),
+        atm_iv: point.atm_iv == null ? null : Number(point.atm_iv),
+        contract_count: point.contract_count ?? null,
+      }))
+      .filter(point => point.expiry && Number.isFinite(point.atm_iv) && point.atm_iv > 0)
+      .sort((a, b) => (a.expiry < b.expiry ? -1 : 1))
+    : expiries.map(expiry => {
+      const rows = valid.filter(row => row.expiry === expiry);
+      const minDistance = Math.min(...rows.map(row => Math.abs(row.strike - spot)));
+      const atm = rows.filter(row => Math.abs(row.strike - spot) === minDistance);
+      return {
+        expiry,
+        atm_strike: atm[0]?.strike ?? null,
+        atm_iv: atm.length ? atm.reduce((sum, row) => sum + row.iv, 0) / atm.length : null,
+        contract_count: rows.length,
+      };
+    });
   const skewExpiry = expiries[0] || null;
   const skewMap = new Map();
   valid.filter(row => row.expiry === skewExpiry).forEach(row => {

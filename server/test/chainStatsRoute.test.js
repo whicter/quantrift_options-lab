@@ -40,6 +40,30 @@ test('derives ATM term structure and call/put skew from actual contracts', () =>
   assert.equal(result.iv_contract_count, 5);
 });
 
+test('prefers the stored full-expiry term structure over deriving from the trimmed chain', () => {
+  const withStored = {
+    ...snapshot,
+    term_structure: [
+      { expiration_date: '2026-08-21', atm_strike: 100, atm_iv: 0.31, contract_count: 40 },
+      { expiration_date: '2026-08-28', atm_strike: 100, atm_iv: 0.33, contract_count: 38 },
+      { expiration_date: '2026-09-18', atm_strike: 100, atm_iv: 0.35, contract_count: 36 },
+    ],
+  };
+  const result = deriveChainStats(withStored, contracts);
+  // 3 stored expiries, not the 2 that the trimmed contract set would derive
+  assert.equal(result.term_structure.length, 3);
+  assert.equal(result.term_structure[0].expiry, '2026-08-21');
+  assert.equal(result.term_structure[1].expiry, '2026-08-28');
+  assert.equal(result.term_structure[2].atm_iv, 0.35);
+  // skew still comes from the contract set
+  assert.equal(result.skew.expiry, '2026-08-21');
+});
+
+test('falls back to deriving term structure when stored is empty or absent', () => {
+  assert.equal(deriveChainStats({ ...snapshot, term_structure: [] }, contracts).term_structure.length, 2);
+  assert.equal(deriveChainStats(snapshot, contracts).term_structure.length, 2);
+});
+
 test('serializes PostgreSQL Date expiries as sortable ISO dates', () => {
   const dated = contracts.map(row => ({ ...row, expiry: new Date(`${row.expiry}T00:00:00Z`) }));
   const result = deriveChainStats(snapshot, dated);
