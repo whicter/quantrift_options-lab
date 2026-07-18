@@ -1138,6 +1138,7 @@ Current Analyze uses real `price_history` to compute:
 - Analyze Tab1 展示 Focus / VRP / Gamma Flip / Local Gamma；Tab2/Tab4 展示技术 S/R；Tab3 展示 IV skew/term structure。
 - Volume Profile：`GET /api/vp/:symbol?interval=30m&days=20&bins=40` 使用 regular-session 30M OHLCV；`interval=1d` 使用最多 250 根日线，供 Confluence 历史结构计算。每根 bar 以典型价 `(high + low + close) / 3` 归入价格区间并累加成交量；返回前 5 个高成交节点、成交量最高的 POC、由 POC 向两侧扩展至至少 70% 成交量的 Value Area，以及局部低成交 LVN。它可辅助确认 S/R，但不是 S/R、Call Wall 或 Put Wall。
 - Confluence Zones：`GET /api/analyze/:symbol/confluence` 在服务端将日线 VP、历史 pivot、ATR/EMA/SMA、可选 GEX 墙与 Gamma Flip、250/90 日 Fib 层位，按 `0.5 × ATR14` 半径聚成价格区间。每个区间返回 0–100 的固定先验强度分、`极强/强/中/弱` 标签与逐模块理由。`40/25/15/10/5/5` 是待 G5 回放验证的冷启动权重，不是拟合概率、交易信号或对做市商实际持仓的断言。
+- Confluence G5：2026-07-18 对 72 个可回放标的做 5 日前瞻评分，Gamma 置零，控制组是现有单点 pivot S/R 的 `+/-0.5%` 区间。候选模型的守住率较高，但反转召回较低，综合相对变化为 `-2.07%`，没有达到 `>=15%` 且两项均改善的门槛。因此不在 Analyze UI 展示；详细可复现证据见 `docs/validation/CONFLUENCE_G5_2026-07-18.md`。
 - OBV（On-Balance Volume）：`GET /api/sr/:symbol` 使用日线 close 与 volume。close 上涨时累加 volume、下跌时扣减、收平不变；Tab2 的小图展示累计序列与最近 20 日方向。OBV 的方向用于验证价格走势是否有成交量配合，不是买卖资金金额，也不代表机构净买卖。
 - MFI（Money Flow Index）：`GET /api/sr/:symbol` 以典型价 `(high + low + close) / 3` 乘以 volume 取得 raw money flow，典型价上涨归为 positive flow、下跌归为 negative flow，使用最近 14 个变化计算 `MFI = 100 - 100 / (1 + positive/negative)`。`>=80` 是超买区、`<=20` 是超卖区，表示价格与成交量的相对极端状态，不是单独的买卖指令。
 - 数据缺失规则：不生成示例价格，不从 spot/wall 构造期权 legs，不把 mock 作为 fallback。

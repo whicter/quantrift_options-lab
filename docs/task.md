@@ -7,7 +7,7 @@
 1. `2026-07-17 — IV Rank 自给自足` — 4 项：Phase 2.5 修 weekly-dense ETF 欠填（root cause 已实测坐实）、Phase 3 前向口径统一、Phase 4 TT 对比 harness、Phase 5 cutover。（Phase 2 收尾全量回填已跑两批、标 🟡，剩余验收顺延到 Phase 2.5 之后。）
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
-2c. `2026-07-18 — Confluence 支撑阻力引擎` — 5 项（CF-1 基础指标、CF-2 合成引擎、CF-3 G5 回放验证、CF-4 UI 融合、CF-5 搁置项）：SPEC 评审完成、7 点修正已记录，待用户开发指令。
+2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -186,9 +186,9 @@
 **分阶段计划**:
 - [x] **CF-1 基础指标**(纯函数+单测,无 IO):`server/src/domain/confluence/indicators.js`——ATR14(Wilder)、EMA20/50/100、SMA200、Fib 层位(23.6/38.2/50/61.8/78.6+ext 127/161.8);扩展 `deriveVolumeProfile` 加 POC/Value Area(70%)/LVN(additive 字段);新增日线 VP(250 天)。**验证**：`cd server && npm test`（163 passed）；本地 `GET /api/vp/SPY?interval=1d&bins=40` 返回 250 日、POC、70.32% Value Area 与 LVN。
 - [x] **CF-2 合成引擎**:`server/src/domain/confluence/engine.js`——六路信号收集 → ATR 半径聚类 Zone → `CONFLUENCE_WEIGHTS_V1` 打分 → reasons → 分侧;挂 `GET /api/analyze/:symbol/confluence`。**验证**：纯函数与 route 单测；本地 `GET /api/analyze/SPY/confluence` 用 250 日真实日线与最新 GEX 快照返回区间、逐模块分数与理由。该分数是固定先验模型，不是拟合结果或价格预测。
-- [ ] **CF-3 G5 回放验证 harness(先于 UI)**:历史回放脚本——逐日用"截至当日"数据算 Zone(gamma 置零),指标 = Zone 触及后 5 日未收破"守住率" + 反转点召回,对照单点 S/R ±0.5% 带。**验收线:相对提升 ≥15% 才进 UI**;不达标则 Zone 仅留 API 供研究 repo 调用,不动生产 UI。
-- [ ] **CF-4 UI 融合(G5 通过后)**:上表前三个接入点。
-- [ ] **CF-5 搁置(同 spec v2)**:权重拟合(有标注数据后让手工值退休)、双顶双底形态、Anchored VWAP、Market Profile/TPO、Order Flow。
+- [x] **CF-3 G5 回放验证 harness(先于 UI)**:历史回放脚本——逐日用"截至当日"数据算 Zone(gamma 置零),指标 = Zone 触及后 5 日未收破"守住率" + 反转点召回,对照单点 S/R ±0.5% 带。**验收线:相对提升 ≥15% 才进 UI**;不达标则 Zone 仅留 API 供研究 repo 调用,不动生产 UI。**结果**：72 个标的、2024-10-02 至 2026-07-16、`min-history=90` / `horizon=5`；Confluence 守住率 `50.07%`（control `46.44%`），反转召回 `22.14%`（control `27.30%`），综合相对变化 `-2.07%`，G5 **failed**。可复现记录：`docs/validation/CONFLUENCE_G5_2026-07-18.md`。
+- [x] **CF-4 UI 融合(G5 通过后)**:上表前三个接入点。**Gate decision**：未通过 G5，按规格不实现或部署 UI；read-only API 仅供研究调用。
+- [x] **CF-5 搁置(同 spec v2)**:权重拟合(有标注数据后让手工值退休)、双顶双底形态、Anchored VWAP、Market Profile/TPO、Order Flow。**状态**：作为明确的非本次实现范围归档；不得绕过 G5 以 UI 形式上线。
 
 工作量估计:CF-1+CF-2 约一个工作会话,CF-3 半个,CF-4 半个。
 

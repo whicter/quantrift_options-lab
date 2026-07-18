@@ -1677,6 +1677,8 @@ Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R（含 Focus/OB
 
 Confluence 是独立的只读派生 API：`GET /api/analyze/:symbol/confluence`。route 只读取最多 250 根 `price_history` 和最新兼容模型的 `gex_snapshots`；`server/src/domain/confluence/engine.js` 保持纯函数，收集 Volume Profile、Market Structure、ATR、Moving Average、Gamma 与 Fibonacci 六类信号，再按 `0.5 × ATR14` 聚类。它使用版本化的固定先验 `confluence-v1-prior`，每个 Zone 返回 `reasons` 和原始输入摘要，尚不写入 scanner 或 UI，直到 CF-3 G5 回放通过。
 
+`server/scripts/replay-confluence.js` 是 G5 的可复现只读 harness。它对每个日线前缀分别调用 Confluence 和现有单点 pivot S/R `+/-0.5%` 控制组，后续 5 个日线只做评分；历史 Gamma 始终为零。当前全样本 G5 未达标，故该 API 不被前端调用，部署层无新增表、job 或权限。
+
 前端不再生成示例价格序列。Analyze 的推荐腿也不再由 spot、wall 与固定 width 合成；真实 candidate 尚未附加时 fail closed。该 section 无 schema migration，回滚仅需回滚对应 commit。
 | HV 自算 | stddev(log_return) × √252，替代 Tastytrade HV 字段 |
 
