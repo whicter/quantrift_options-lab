@@ -131,31 +131,31 @@
 **修复计划(按 A→C→D→B 开发,每步实现→测试→文档→commit)**:
 
 ### A. 纯 bug(各 <10 行,先清障)
-- [ ] A1 净信用额 $0:`numberOrNull` 加 `value==null` 提前返回 null;debit 策略显示"每份合约成本 $X"。
-- [ ] A2 OI 图顶部红块:条厚设上限(min(邻距,~10px)),首尾条不延伸到图表边缘。
-- [ ] A3 "Trend Spread"截断:改 `textAlign='left'` 画在图内。
-- [ ] A4 OI 图左侧 strike 标签堆叠:只标每 N 个 strike + wall/现价。
-- [ ] A5 技术信号空卡:signals 为空不渲染该卡。
+- [x] A1（5b66867） 净信用额 $0:`numberOrNull` 加 `value==null` 提前返回 null;debit 策略显示"每份合约成本 $X"。
+- [x] A2（5b66867） OI 图顶部红块:条厚设上限(min(邻距,~10px)),首尾条不延伸到图表边缘。
+- [x] A3（5b66867） "Trend Spread"截断:改 `textAlign='left'` 画在图内。
+- [x] A4（5b66867） OI 图左侧 strike 标签堆叠:只标每 N 个 strike + wall/现价。
+- [x] A5（5b66867） 技术信号空卡:signals 为空不渲染该卡。
 
 ### C. Synthesis 结论引擎(服务端规则,一次建成供全站;价值最高)
-- [ ] C1 全局/局部 GEX 结论 2×2 规则表(数据已有 `global_gex`+`local_gamma`):++双重减震/区间;+−突破时波动骤增;−+整体放大但现价附近临时减震(竞品 MU 那句);−−最易放大。附加:`|spot-gamma_flip|<1.5%` → "接近 Gamma 翻转位,环境随时切换"。
-- [ ] C2 PCR 白话:`PCR(OI)>1.5` → "看跌持仓是看涨 X 倍,避险偏重";`<0.6` 反向;比较 PCR(Vol) vs PCR(OI) → "今天新增交易比存量更防御/进攻"。
-- [ ] C3 IV→预期波动:复用 candidateEngine 已有的 `expectedMoveForExpiry`,Analyze 页展示"IV X%(Rank Y)→ 到期波动 ±Z%、日波动 ±W%"(竞品的 ±23.4%)。
-- [ ] C4 一致/分歧检测器(竞品图7那句):三支柱各出方向票——趋势(spread 符号+动量)、期权结构(gamma regime+ΔIV)、量能(RVol+OBV)。三票一致 → 倾向单边;分歧 → "X 与 Y 分歧,价格容易反复,不是单边行情"(点名分歧的两方)。
-- [ ] C5 今日核心结论:从 C1–C4 + 波动归因按优先级(事件临近>环境切换/翻转位>全局局部背离>一致性)选一条做 Tab1 头条 + 三问导航。
-- [ ] C6 Q2 重写为波动来源:挂上面 6 测试归因算法输出。
-- [ ] C7 期权大单异动进结论池:`unusualActivity` 已有,top1 并入 C5 可选头条。
+- [x] C1（d08702f） 全局/局部 GEX 结论 2×2 规则表(数据已有 `global_gex`+`local_gamma`):++双重减震/区间;+−突破时波动骤增;−+整体放大但现价附近临时减震(竞品 MU 那句);−−最易放大。附加:`|spot-gamma_flip|<1.5%` → "接近 Gamma 翻转位,环境随时切换"。
+- [x] C2（d08702f） PCR 白话:`PCR(OI)>1.5` → "看跌持仓是看涨 X 倍,避险偏重";`<0.6` 反向;比较 PCR(Vol) vs PCR(OI) → "今天新增交易比存量更防御/进攻"。
+- [x] C3（d08702f） IV→预期波动:复用 candidateEngine 已有的 `expectedMoveForExpiry`,Analyze 页展示"IV X%(Rank Y)→ 到期波动 ±Z%、日波动 ±W%"(竞品的 ±23.4%)。
+- [x] C4（d08702f） 一致/分歧检测器(竞品图7那句):三支柱各出方向票——趋势(spread 符号+动量)、期权结构(gamma regime+ΔIV)、量能(RVol+OBV)。三票一致 → 倾向单边;分歧 → "X 与 Y 分歧,价格容易反复,不是单边行情"(点名分歧的两方)。
+- [x] C5（d08702f） 今日核心结论:从 C1–C4 + 波动归因按优先级(事件临近>环境切换/翻转位>全局局部背离>一致性)选一条做 Tab1 头条 + 三问导航。
+- [x] C6（d08702f） Q2 重写为波动来源:挂上面 6 测试归因算法输出。
+- [x] C7（d08702f） 期权大单异动进结论池:`unusualActivity` 已有,top1 并入 C5 可选头条。
 
 ### D. 策略候选方向化(图1 根因)
-- [ ] D1 方向矩阵过滤:`scoreCandidate` 前加环境层(trend regime, gamma regime, IV rank)→ 策略族权重(多头高 IV 提 Bull Put、多头低 IV 提 Long Call、中性高 IV 正 Gamma 提 Iron Condor/Butterfly、空头负 Gamma 提 Long Put/Bear Call);方向冲突策略 score×0.3 并标注"与当前趋势方向相反",不硬删。
-- [ ] D2 期限结构结论行:斜率分类——升水(contango 常态)/贴水(backwardation 近期事件溢价)/驼峰,一句话。
+- [x] D1（6df5366） 方向矩阵过滤:`scoreCandidate` 前加环境层(trend regime, gamma regime, IV rank)→ 策略族权重(多头高 IV 提 Bull Put、多头低 IV 提 Long Call、中性高 IV 正 Gamma 提 Iron Condor/Butterfly、空头负 Gamma 提 Long Put/Bear Call);方向冲突策略 score×0.3 并标注"与当前趋势方向相反",不硬删。
+- [x] D2（64be27c） 期限结构结论行:斜率分类——升水(contango 常态)/贴水(backwardation 近期事件溢价)/驼峰,一句话。
 - [ ] D3 主力筹码标尺:OI 图上方加极简价格尺(现价+双 wall+光带),ChipRuler 降为详情。
 
 ### B. 数据采集/计算补强(有依赖,放后)
 - [ ] B1 期限结构只 3 到期日:新增轻量 ATM-only 采集(每到期日只取 ATM call+put,8 到期=16 合约/symbol),专供期限结构。
 - [ ] B2 假 Kalman:实现真标量 Kalman(状态=[水平,斜率],~20 行,服务端 derive 层),顺便把趋势计算从前端挪到服务端;或诚实改名"EMA 平滑"。倾向前者。
 - [ ] B3 趋势图加周线共振层:价格重采样为周线算 spread,作第二层(竞品图7 Layer 2.1)。
-- [ ] B4 POP 无上下文显得"胜率低":按策略类型加基线说明("买方 POP 通常<50%,用盈亏比补偿概率;卖方反之")。
+- [x] B4（64be27c） POP 无上下文显得"胜率低":按策略类型加基线说明("买方 POP 通常<50%,用盈亏比补偿概率;卖方反之")。
 
 **覆盖核对**:图1→A1/B4/D1;图2→A3/B2/B3;图3→A5/C4;图4→B1/D2;图5→A2/A4;Q2→C6+归因算法;图7结论→C4;图8结论→C1/C2/C3/C7;今日核心结论→C5。
 
