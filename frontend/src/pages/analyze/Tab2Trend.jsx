@@ -136,8 +136,10 @@ function TrendCanvas({ prices, dates, kf, spread, levels }) {
 
       ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
-      ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'right';
-      ctx.fillText('Trend Spread', PAD.left - 2, PAD.top + 10);
+      // Left-align inside the plot area; right-aligning at PAD.left-2 pushed the
+      // label off the left edge so it rendered as "nd Spread".
+      ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText('Trend Spread', PAD.left + 2, PAD.top + 8);
     };
 
     drawMain(); drawSpread();
@@ -362,19 +364,22 @@ export default function Tab2Trend({ data }) {
         </div>
       </div>
 
-      {/* Direction signals */}
-      <div className="az-card" style={{ marginTop: 12 }}>
-        <div className="az-card-title">技术信号</div>
-        <div className="az-signals">
-          {direction.signals.map((s, i) => (
-            <div key={i} className="az-signal">
-              <span className="az-signal-name">{s.name}</span>
-              <span className="az-signal-val">{s.value}</span>
-              <span className={s.bullish ? 'az-signal-bull' : 'az-signal-bear'}>{s.bullish ? '▲' : '▼'}</span>
-            </div>
-          ))}
+      {/* Direction signals — skip the card entirely when there are no signals,
+          rather than rendering an empty titled shell. */}
+      {direction.signals.length > 0 && (
+        <div className="az-card" style={{ marginTop: 12 }}>
+          <div className="az-card-title">技术信号</div>
+          <div className="az-signals">
+            {direction.signals.map((s, i) => (
+              <div key={i} className="az-signal">
+                <span className="az-signal-name">{s.name}</span>
+                <span className="az-signal-val">{s.value}</span>
+                <span className={s.bullish ? 'az-signal-bull' : 'az-signal-bear'}>{s.bullish ? '▲' : '▼'}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <InsightCarousel insights={insights} />
     </div>
   );

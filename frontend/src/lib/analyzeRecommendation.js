@@ -1,4 +1,8 @@
 function numberOrNull(value) {
+  // Number(null) and Number('') are both 0, which would turn a debit strategy's
+  // credit:null into a real 0 and mislabel it as a "$0 net credit". Reject the
+  // empty cases before coercing so null stays null.
+  if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }

@@ -48,12 +48,17 @@ function ChipRuler({ oiByStrike, putWall, callWall, price }) {
       ctx.rect(PAD.left, PAD.top, cW, cH);
       ctx.clip();
 
+      // Cap each bar's thickness at the spacing to its neighbours (never the
+      // full chart edge). The first/last strike used to stretch to PAD.top /
+      // chart bottom, which painted one huge block above the top strike.
+      const MAX_BAR_H = 14;
       visible.forEach((d, i) => {
         const y = sy(d.strike);
-        const yAbove = i === 0 ? PAD.top : (sy(visible[i - 1].strike) + y) / 2;
-        const yBelow = i === visible.length - 1 ? H - PAD.bottom : (y + sy(visible[i + 1].strike)) / 2;
-        const barTop = yAbove;
-        const barH = Math.max(1, yBelow - yAbove - 0.5);
+        const gapAbove = i === 0 ? Infinity : (y - sy(visible[i - 1].strike)) / 2;
+        const gapBelow = i === visible.length - 1 ? Infinity : (sy(visible[i + 1].strike) - y) / 2;
+        const half = Math.min(MAX_BAR_H / 2, gapAbove, gapBelow);
+        const barTop = y - half;
+        const barH = Math.max(1, half * 2 - 0.5);
 
         const totalOi = Number(d.total_oi || 0);
         const callOi = Number(d.call_oi || 0);
@@ -72,9 +77,18 @@ function ChipRuler({ oiByStrike, putWall, callWall, price }) {
           ? `rgba(34,197,94,${0.55 + ratio * 0.45})`
           : `rgba(239,68,68,${0.55 + ratio * 0.45})`;
         ctx.fillRect(PAD.left, barTop, 3, barH);
+      });
 
-        // Strike label inside bar, near left
-        ctx.fillStyle = theme.text;
+      // Strike labels: one per ~14px of vertical room so they never stack into
+      // an unreadable wall. Walls and the current price get their own labels
+      // below, so this is only the ambient grid of strike prices.
+      const labelStepPx = 14;
+      let lastLabelY = -Infinity;
+      visible.forEach(d => {
+        const y = sy(d.strike);
+        if (y - lastLabelY < labelStepPx) return;
+        lastLabelY = y;
+        ctx.fillStyle = theme.axis;
         ctx.font = '8px monospace'; ctx.textAlign = 'left';
         ctx.fillText(`$${d.strike}`, PAD.left + 6, y + 3);
       });

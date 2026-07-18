@@ -2,10 +2,11 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **94 项** `- [ ]`，按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **113 项** `- [ ]`，按文档出现顺序分布如下：
 
 1. `2026-07-17 — IV Rank 自给自足` — 4 项：Phase 2.5 修 weekly-dense ETF 欠填（root cause 已实测坐实）、Phase 3 前向口径统一、Phase 4 TT 对比 harness、Phase 5 cutover。（Phase 2 收尾全量回填已跑两批、标 🟡，剩余验收顺延到 Phase 2.5 之后。）
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
+2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — 19 项：A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4（按 A→C→D→B 开发中；含竞品图8结论=全局/局部 GEX 对话、波动来源归因算法、今日核心结论）。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -106,7 +107,57 @@
 - [ ] **按用户的自选清单(per-user watchlist)**:当前 watchlist 是全局 `symbol_universe`,没有让付费用户自定义盯盘清单的入口,是订阅分层里"Pro"价值主张的一个自然缺口。
 - [ ] **已采集但未被产品充分使用的数据**:期限结构(term structure)、skew、OI density、30 分钟动量等字段已经在采集/派生链路里存在或可以低成本派生,但目前没有对应的用户可见展示。属于"不用新采集就能加功能"的低成本机会。
 
+## 2026-07-18 — Analyze 页 synthesis 层 + bug 修复（本地 review,竞品对标,开发中）
 
+**背景**:用户本地跑 `127.0.0.1:5173`,对比竞品(华尔街咖啡馆式"美股盘中日报")逐图 review Analyze 页,发现根本问题不是缺数据,而是**缺一个 synthesis 层**——所有指标各自展示、互不对话,没有"今日核心结论"、没有跨信号一致/分歧判断、没有全局/局部 GEX 对话、没有波动来源归因。竞品能给出"全局 GEX 为负但局部 Gamma 转正,当前区域有减震"这类结论,而我们 `local_gamma` 一直在算(`compute_gex.py:154`)、进了 DTO、甚至 Tab1 显示了数字,就是没让它说话。
+
+**根因诊断(逐图,已核代码)**:
+- 图1 策略卡"每份合约净信用额 $0":`analyzeRecommendation.js` 的 `numberOrNull` 用 `Number(null)===0`,把 debit 策略的 `credit:null` 变成 0,误判为有 credit。且 `scoreCandidate`(candidateEngine.cjs:138)**打分完全不看方向**,多头格局却推 Long Put,自相矛盾。
+- 图2 Kalman:`calcKF` 其实是 α=0.12 的 EMA,标签"KALMAN FILTER"名不副实;"Trend Spread"标签 `textAlign='right'` 画在 x=50 被裁成"nd Spread";无周线共振层;三 badge 与期权/量能各自展示不对话。
+- 图3 多周期动量:三数字无结论;下方"技术信号"卡 signals 为空仍渲染空壳。
+- 图4 IV 期限结构:只 3 个到期日(collector 按 DTE bucket 每桶最多 2 个到期采集);裸数字无斜率/无 contango 结论。
+- 图5 OI 分布顶部红色大块:`Tab4Signals.jsx:51-56` 条厚=到相邻 strike 中点距离,首条直接取 `PAD.top`(图表顶边),Y 轴又外扩 32%,最高 strike 的条从顶部糊下来。
+- Q2"价格趋势与期权结构如何同时出现"只是并排念动量+PCR,应改为**波动来源归因**。
+
+**波动来源归因算法(可算,非拍脑袋)**:归因 = 6 个有明确输入/阈值/结论的顺序测试,输出标注"模型归因"。
+1. 幅度测试:`surprise = |日收益| / (IV_atm/√252)`。`<0.7` 波动在定价内(止);`>1.3` 异常(继续)。
+2. 事件测试:`earnings_date`(已采,collect.py:144) ≤3 天 → "事件驱动",最高权重。
+3. 跳空分解:用 30 分钟 K 线拆当日波动为隔夜跳空 vs 盘中区间;`gap/(gap+range)>0.6` → 隔夜信息主导(消息面/外盘),`<0.3` → 盘中驱动。
+4. 量能确认:`RVol>1.3` 且 OBV 同向 → 真实资金流确认;`<0.8` → 缩量,波动更可能来自对冲盘等结构而非新增资金。
+5. Gamma 放大/压制:`local_gamma<0 且 surprise>1.3` → 负 Gamma 放大;`local_gamma>0 且 surprise<0.7` → 正 Gamma 压制。**这是竞品图8结论的定量版**。
+6. IV 响应:ΔIV↑+价↓ → 避险定价;ΔIV↓+价↑ → 事件落地 vol crush;ΔIV↑+价↑ → 事件前抢筹。
+诚实边界:无新闻源,"消息面"只能归因到"隔夜跳空/事件日历"层级,不点具体新闻,写进文案。
+
+**修复计划(按 A→C→D→B 开发,每步实现→测试→文档→commit)**:
+
+### A. 纯 bug(各 <10 行,先清障)
+- [ ] A1 净信用额 $0:`numberOrNull` 加 `value==null` 提前返回 null;debit 策略显示"每份合约成本 $X"。
+- [ ] A2 OI 图顶部红块:条厚设上限(min(邻距,~10px)),首尾条不延伸到图表边缘。
+- [ ] A3 "Trend Spread"截断:改 `textAlign='left'` 画在图内。
+- [ ] A4 OI 图左侧 strike 标签堆叠:只标每 N 个 strike + wall/现价。
+- [ ] A5 技术信号空卡:signals 为空不渲染该卡。
+
+### C. Synthesis 结论引擎(服务端规则,一次建成供全站;价值最高)
+- [ ] C1 全局/局部 GEX 结论 2×2 规则表(数据已有 `global_gex`+`local_gamma`):++双重减震/区间;+−突破时波动骤增;−+整体放大但现价附近临时减震(竞品 MU 那句);−−最易放大。附加:`|spot-gamma_flip|<1.5%` → "接近 Gamma 翻转位,环境随时切换"。
+- [ ] C2 PCR 白话:`PCR(OI)>1.5` → "看跌持仓是看涨 X 倍,避险偏重";`<0.6` 反向;比较 PCR(Vol) vs PCR(OI) → "今天新增交易比存量更防御/进攻"。
+- [ ] C3 IV→预期波动:复用 candidateEngine 已有的 `expectedMoveForExpiry`,Analyze 页展示"IV X%(Rank Y)→ 到期波动 ±Z%、日波动 ±W%"(竞品的 ±23.4%)。
+- [ ] C4 一致/分歧检测器(竞品图7那句):三支柱各出方向票——趋势(spread 符号+动量)、期权结构(gamma regime+ΔIV)、量能(RVol+OBV)。三票一致 → 倾向单边;分歧 → "X 与 Y 分歧,价格容易反复,不是单边行情"(点名分歧的两方)。
+- [ ] C5 今日核心结论:从 C1–C4 + 波动归因按优先级(事件临近>环境切换/翻转位>全局局部背离>一致性)选一条做 Tab1 头条 + 三问导航。
+- [ ] C6 Q2 重写为波动来源:挂上面 6 测试归因算法输出。
+- [ ] C7 期权大单异动进结论池:`unusualActivity` 已有,top1 并入 C5 可选头条。
+
+### D. 策略候选方向化(图1 根因)
+- [ ] D1 方向矩阵过滤:`scoreCandidate` 前加环境层(trend regime, gamma regime, IV rank)→ 策略族权重(多头高 IV 提 Bull Put、多头低 IV 提 Long Call、中性高 IV 正 Gamma 提 Iron Condor/Butterfly、空头负 Gamma 提 Long Put/Bear Call);方向冲突策略 score×0.3 并标注"与当前趋势方向相反",不硬删。
+- [ ] D2 期限结构结论行:斜率分类——升水(contango 常态)/贴水(backwardation 近期事件溢价)/驼峰,一句话。
+- [ ] D3 主力筹码标尺:OI 图上方加极简价格尺(现价+双 wall+光带),ChipRuler 降为详情。
+
+### B. 数据采集/计算补强(有依赖,放后)
+- [ ] B1 期限结构只 3 到期日:新增轻量 ATM-only 采集(每到期日只取 ATM call+put,8 到期=16 合约/symbol),专供期限结构。
+- [ ] B2 假 Kalman:实现真标量 Kalman(状态=[水平,斜率],~20 行,服务端 derive 层),顺便把趋势计算从前端挪到服务端;或诚实改名"EMA 平滑"。倾向前者。
+- [ ] B3 趋势图加周线共振层:价格重采样为周线算 spread,作第二层(竞品图7 Layer 2.1)。
+- [ ] B4 POP 无上下文显得"胜率低":按策略类型加基线说明("买方 POP 通常<50%,用盈亏比补偿概率;卖方反之")。
+
+**覆盖核对**:图1→A1/B4/D1;图2→A3/B2/B3;图3→A5/C4;图4→B1/D2;图5→A2/A4;Q2→C6+归因算法;图7结论→C4;图8结论→C1/C2/C3/C7;今日核心结论→C5。
 
 ## ✅ 2026-07-16 — Page Copy Audit Remediation
 
