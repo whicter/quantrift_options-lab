@@ -55,6 +55,8 @@ class PolygonOptionProviderTests(unittest.TestCase):
             {'status': 'OK', 'results': [{'c': 100}]},
             {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            # dedicated ATM term-structure fetch (last call)
+            {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
         ])
         env = {
             'POLYGON_API_KEY': 'test-key',
@@ -71,16 +73,54 @@ class PolygonOptionProviderTests(unittest.TestCase):
         dtes = {(contract.expiry - today).days for contract in snapshot.contracts}
         self.assertEqual(dtes, {2, 35})
         option_calls = [call for call in session.calls if '/v3/snapshot/options/' in call[0]]
-        self.assertEqual(len(option_calls), 2)
+        # main chain, 30-45 supplement, then the term-structure fetch
+        self.assertEqual(len(option_calls), 3)
         self.assertEqual(option_calls[1][1]['expiration_date.gte'], (today + timedelta(days=30)).isoformat())
 
-    def test_term_structure_spans_every_fetched_expiry(self):
-        # Bucket trimming keeps 1 expiry per bucket, but the term structure must
-        # carry both fetched expiries (2 and 35 DTE), each with an ATM IV.
+    def test_term_structure_uses_a_narrow_dedicated_fetch(self):
+        # The dedicated ATM fetch uses a narrow strike window and spans every
+        # expiry it returns, independent of the bucket-trimmed stored chain.
         today = date.today()
         short_expiry = today + timedelta(days=2)
         atm_expiry = today + timedelta(days=35)
+        far_expiry = today + timedelta(days=60)
         session = FakeSession([
+            {'status': 'OK', 'results': [{'c': 100}]},
+            {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            # dedicated term-structure fetch returns THREE expiries at the ATM strike
+            {'status': 'OK', 'results': [
+                option_item(short_expiry, 'C'), option_item(short_expiry, 'P'),
+                option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P'),
+                option_item(far_expiry, 'C'), option_item(far_expiry, 'P'),
+            ]},
+        ])
+        env = {
+            'POLYGON_API_KEY': 'test-key',
+            'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
+            'OPTION_TERM_STRUCTURE_STRIKE_PCT': '4',
+            'POLYGON_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_option_provider_test',
+        }
+        with patch.dict(os.environ, env, clear=False), \
+             patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
+            provider = PolygonOptionChainProvider()
+            snapshot = provider.fetch_option_chain('TEST')
+
+        ts_dtes = {row['dte'] for row in snapshot.term_structure}
+        self.assertEqual(ts_dtes, {2, 35, 60})
+        # the dedicated fetch used the narrow ±4% window, not the ±15% chain window
+        ts_call = [call for call in session.calls if '/v3/snapshot/options/' in call[0]][-1]
+        self.assertEqual(ts_call[1]['strike_price.gte'], round(100 * 0.96, 4))
+
+    def test_term_structure_falls_back_to_main_chain_on_fetch_error(self):
+        # If the dedicated fetch fails, the snapshot still ships with a term
+        # structure derived from the main chain rather than failing.
+        today = date.today()
+        short_expiry = today + timedelta(days=2)
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession([  # no term-structure response queued -> fetch raises
             {'status': 'OK', 'results': [{'c': 100}]},
             {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
@@ -97,12 +137,8 @@ class PolygonOptionProviderTests(unittest.TestCase):
             provider = PolygonOptionChainProvider()
             snapshot = provider.fetch_option_chain('TEST')
 
-        self.assertIsNotNone(snapshot.term_structure)
-        ts_dtes = {row['dte'] for row in snapshot.term_structure}
-        self.assertEqual(ts_dtes, {2, 35})
-        for row in snapshot.term_structure:
-            self.assertGreater(row['atm_iv'], 0)
-            self.assertIn('expiration_date', row)
+        # fallback derives from the main-chain parsed contracts (2 and 35 DTE)
+        self.assertEqual({row['dte'] for row in snapshot.term_structure}, {2, 35})
 
 
 class BuildTermStructureTests(unittest.TestCase):
@@ -170,6 +206,7 @@ class SpotHintTests(unittest.TestCase):
         # hand back the option page and the test would fail on the DTE window.
         session = FakeSession([
             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
         ])
         provider = self._provider(session)
         snapshot = provider.fetch_option_chain('TEST', spot_hint=100.0)
@@ -184,6 +221,7 @@ class SpotHintTests(unittest.TestCase):
         atm_expiry = today + timedelta(days=35)
         session = FakeSession([
             {'status': 'OK', 'results': [{'c': 100}]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
         ])
         provider = self._provider(session)

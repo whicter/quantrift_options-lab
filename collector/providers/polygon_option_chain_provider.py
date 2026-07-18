@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -9,6 +10,8 @@ import requests
 
 from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapshot
 from .polygon_rate_limit import PolygonStockRequestPacer
+
+log = logging.getLogger(__name__)
 
 
 class PolygonOptionChainProvider:
@@ -34,6 +37,12 @@ class PolygonOptionChainProvider:
         self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,15-29,30-45,46-60,61-90'))
         self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '2'))
         self.page_limit = min(int(os.getenv('POLYGON_PAGE_LIMIT', '250')), 250)
+        # Term structure uses a narrow ATM strike window so even a weekly-dense
+        # ETF (SPY/QQQ) returns few contracts per expiry and pagination reaches
+        # every expiry in a handful of pages, instead of the main ±15% chain
+        # exhausting its contract cap around DTE ~30.
+        self.term_structure_strike_pct = float(os.getenv('OPTION_TERM_STRUCTURE_STRIKE_PCT', '4'))
+        self.term_structure_max_pages = int(os.getenv('OPTION_TERM_STRUCTURE_MAX_PAGES', '10'))
         self.request_delay = float(os.getenv('POLYGON_REQUEST_DELAY', '0.12'))
         self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
         self._session = requests.Session()
@@ -152,10 +161,15 @@ class PolygonOptionChainProvider:
                 continue
             contracts.append(contract)
 
-        # Term structure from the FULL parsed set — every expiry Polygon
-        # returned — before strike-limit / DTE-bucket trimming drops most
-        # expiries. Zero extra requests: it reuses contracts already in hand.
-        term_structure = build_term_structure(contracts, spot, today)
+        # Term structure via a dedicated narrow-window ATM fetch that reaches
+        # every expiry even for weekly-dense ETFs. Best-effort: on any failure,
+        # fall back to deriving it from the (contract-capped) main chain rather
+        # than failing the snapshot.
+        try:
+            term_structure = self.fetch_atm_term_structure(symbol, spot)
+        except Exception as exc:  # noqa: BLE001 - enrichment must never break the snapshot
+            log.warning('%s: ATM term-structure fetch failed (%s); using main-chain fallback', symbol, exc)
+            term_structure = build_term_structure(contracts, spot, today)
 
         if strike_limit:
             contracts = _apply_strike_limit(contracts, spot, strike_limit)
@@ -197,6 +211,44 @@ class PolygonOptionChainProvider:
             },
             term_structure=term_structure,
         )
+
+    def fetch_atm_term_structure(self, symbol: str, spot: float) -> list[dict]:
+        """ATM IV per expiry across 0-max_dte, via a narrow strike window.
+
+        A ±`term_structure_strike_pct` window keeps each expiry to a few dozen
+        contracts, so pagination covers every expiry in a few pages even for
+        weekly-dense ETFs — unlike the main ±15% chain, whose contract cap stops
+        it around DTE ~30 for SPY/QQQ. One extra snapshot request per symbol.
+        """
+        symbol = symbol.upper()
+        if spot is None or spot <= 0:
+            return []
+        today = date.today()
+        exp_min = today + timedelta(days=self.min_dte)
+        exp_max = today + timedelta(days=self.max_dte)
+        params: dict[str, Any] = {
+            'expiration_date.gte': exp_min.isoformat(),
+            'expiration_date.lte': exp_max.isoformat(),
+            'strike_price.gte': round(spot * (1 - self.term_structure_strike_pct / 100), 4),
+            'strike_price.lte': round(spot * (1 + self.term_structure_strike_pct / 100), 4),
+            'limit': self.page_limit,
+        }
+        raw: list[dict] = []
+        url: str | None = f'{self.base_url}/v3/snapshot/options/{symbol}'
+        current_params: dict | None = params
+        pages = 0
+        while url and pages < self.term_structure_max_pages:
+            resp = self._session.get(url, params=current_params, timeout=self.timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            raw.extend(data.get('results') or [])
+            url = data.get('next_url') or None
+            current_params = None
+            pages += 1
+            if url and self.request_delay > 0:
+                time.sleep(self.request_delay)
+        contracts = [c for c in (self._parse_contract(symbol, item) for item in raw) if c is not None]
+        return build_term_structure(contracts, spot, today)
 
     def _parse_contract(self, symbol: str, item: dict) -> OptionContractSnapshot | None:
         details = item.get('details') or {}
