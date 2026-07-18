@@ -1,5 +1,27 @@
 # Task Tracker
 
+## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
+
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **94 项** `- [ ]`，按文档出现顺序分布如下：
+
+1. `2026-07-17 — IV Rank 自给自足` — 4 项：Phase 2.5 修 weekly-dense ETF 欠填（root cause 已实测坐实）、Phase 3 前向口径统一、Phase 4 TT 对比 harness、Phase 5 cutover。（Phase 2 收尾全量回填已跑两批、标 🟡，剩余验收顺延到 Phase 2.5 之后。）
+2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
+3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
+4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
+5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
+6. `📋 Phase 3J — 功能对标、竞品分析与下一步路线图`（`实施优先级（执行顺序）`小节）— 6 项：P2.8.4 bounded parallel workers、P2.8.8 stale-while-refresh 前端、P2.8.9 Railway 承载验证、derived IV Rank 252 天门槛（2 处）、Reddit API credentials。
+7. **`🛡️ V3A — Product Protection Architecture` — 46 项，全文档占比最大（约一半）**，细分：
+   - 当前已确认的问题：5　　·　V3A-2 Materialized Candidate Snapshots：6　　·　V3A-4 Backend Analyze DTO：1
+   - V3A-5 Auth/Entitlement Gate：4　　·　V3A-6 部署前置残留：1　　·　V3A-7 Database Permission Boundary：4
+   - V3A-8 Shared Cache And Rate Limit：5　　·　V3A-10 Worker And Runtime Boundaries：5　　·　V3A-11 Rollout Plan：6
+   - V3A-12 Verification Requirements：4　　·　V3A-13 Rollback：4　　·　V3A-14 Deployment Readiness：1
+   - ⚠️ **重要**：本文件"Post-audit remaining work → 执行顺序（E1–E19）"表（在上面第 3 节"2026-07-16 — Page Copy Audit Remediation"内）明确自称是"本文件剩余所有未完成任务的唯一执行顺序"，并已把 V3A 里多项旧 checkbox 对应的实际工作按代码证据标记为完成（E1/E2/E6/E7/E9/E12 等）。也就是说 V3A 这 46 项里有相当一部分是规划期写的细粒度条目，后来被 E 表格核销，但原始 checkbox 从未逐条勾掉——这正是"看起来还有很多没做"这种错觉的来源之一。**判断真实进度请以 E1–E19 表为准**，V3A 原始 checkbox 只作为该表的展开细节保留，不再重复视为独立待办。
+8. `🏗️ V3 — Product` — 6 项：Clerk/Stripe 生产密钥注入 ×2、entitlement enforcement 切换 ×1，均等待外部密钥就绪后验收。
+
+**已 100% 完成的早期阶段章节**（V1 Core / V2 Scaffold / Phase 1 UI / Phase 2 Weekly / Infrastructure / Phase 3A / Phase 3B-1 / Phase 3B-2 / Phase 3B-3 / V1 Backlog，共 9 节，零未完成项）已整体移至文末 `🗄️ 已完成归档`，内容原样保留，只是挪出文档前部，不再与进行中的工作混杂。
+
+---
+
 ## 2026-07-17 — Option refresh starvation + 架构 review（进行中，回家继续）
 
 **症状**：生产 Analyze 页（如 STX）显示期权快照过期 ~409 分钟、永远"后台补全中"。STX $745 价格经核实**是对的**（Seagate 2026 AI 存储暴涨，回调自 $1,100，web 核实），不是 bug。
@@ -33,17 +55,58 @@
 - **历史 IV/greeks 不提供**(只 current snapshot 有)→ 回填必须**从历史期权价格 BS 反解 IV**(Polygon options 无历史 IV 端点,web + 实测均确认)。
 
 **分阶段计划(带验收)**：
-- [x] **Phase 1 — IV 数学核心(Python,纯函数,可单测)**（E19，2026-07-17 完成)
+- ✅ **Phase 1 — IV 数学核心(Python,纯函数,可单测)**（E19，2026-07-17 完成)
   - 新增 `collector/implied_vol.py`:`norm_cdf/pdf`、`bs_price(spot,strike,t,r,sigma,is_call)`、`implied_vol_from_price(...)`(二分反解;越界/低于内在价值/超过理论上限返回 None;用二分而非 Newton,对噪声 EOD 价稳健、不需 vega)、`constant_maturity_iv(points, target_days=30)`(按总方差 var=iv²·dte 线性插值到 30 天,范围外持平最近点)、`atm_iv_from_call_put(call_iv,put_iv)`。
   - 验收:`collector/tests/test_implied_vol.py` 12 个（norm_cdf 已知值、put-call parity、反解对 4 个 sigma×call/put round-trip recover 到 4 位、低于内在价值/超上限/非正输入返回 None、constant-maturity 总方差插值/单点/边界 clamp/空输入、call+put 平均）。collector `unittest discover` 200/200（188 → 200）。
   - 真实数据交叉校验(BS 反解 vs Polygon 自报 IV)留到 Phase 2:收盘后延迟快照的 per-contract quote/close 字段稀疏跑不出;Phase 2 取历史 EOD bar(有收盘价)时自然跑上。
-- [x] **Phase 2 — Polygon 历史回填器（机器完成，E20，2026-07-17）**：`collector/backfill_iv_history.py`。纯 helper(`occ_ticker`、`nearest_strike`、`strikes_by_distance`、`select_bracketing_expiries`、`volatility_row`)+ `PolygonHistory`(reference 合并 expired true/false、underlying/option aggs)+ `compute_day_iv30`(选 30 天两侧到期 → 从 ATM 向外走最近 strike 直到取到有成交价那张 → BS 反解 call+put → constant-30d)+ `upsert_backfill_rows`(写 `volatility_history`,`iv_source='polygon_backfill_bs'`)+ `backfill_symbol`/`run` CLI。
+- ✅ **Phase 2 — Polygon 历史回填器（机器完成，E20，2026-07-17）**：`collector/backfill_iv_history.py`。纯 helper(`occ_ticker`、`nearest_strike`、`strikes_by_distance`、`select_bracketing_expiries`、`volatility_row`)+ `PolygonHistory`(reference 合并 expired true/false、underlying/option aggs)+ `compute_day_iv30`(选 30 天两侧到期 → 从 ATM 向外走最近 strike 直到取到有成交价那张 → BS 反解 call+put → constant-30d)+ `upsert_backfill_rows`(写 `volatility_history`,`iv_source='polygon_backfill_bs'`)+ `backfill_symbol`/`run` CLI。
   - 关键坑修复:①reference 的 `expired` 只返回一侧,回填跨越 now 需合并 true+false;②精确 ATM 的 $0.50 strike 常无日 bar,须从 ATM 向外走到有成交的整数 strike。
   - 验收:`test_backfill_iv_history.py` 9 个(occ 格式、strike 排序/限量、bracketing、row shape);collector `unittest` 209/209(200 → 209)。**真实数据端到端**:AAPL IV30 recent 0.2954 / 6mo 0.2752 / 1yr 0.2960(均 ~0.28,合理);**DB 写入**:AAPL 14 天 → 10 交易日全部落 `volatility_history`。
-- [ ] **Phase 2 收尾 — 全量回填 RUN(待执行)**:`python backfill_iv_history.py <全部 symbol> --days 400`(~252 交易日)。这是长跑任务(81 symbol × ~252 日 × 数次调用,Polygon 无限但耗时),建议在 Mac/Railway 起后台跑。验收:回填后各 symbol `iv_observation_count` 达 252、`update_iv_rank_readiness` 后 `iv_rank_ready=true`。真实交叉校验(反解 IV vs Polygon 自报 IV)可在盘中现价 snapshot 上补做。
+- 🟡 **Phase 2 收尾 — 全量回填 RUN(已跑两批,部分标的欠填,待 Phase 2.5 修)**:
+  - 第一批(2026-07-17,PID 46654,~6.5h):81 symbol → 写入 80(VIX 无期权 aggs 跳过)、18,131 行;其中 **43 达到 252+**(iv_rank ready)、**37 欠 252**。
+  - 第二批(2026-07-17,PID 63275):watchlist.txt 从 81 扩到 201,对 130 个新 symbol 起后台回填(日志 `logs/iv_backfill_batch2.log`)。
+  - **发现的数据缺口**:37 个欠 252 里,一部分是真·流动性差的小盘/新 ETF(`MUU:2`、`KLAC:21`、`SPCX:27` 等,数据本身限制、非 bug);但**混着本该全市场最流动的 ETF**(`SPY:67`、`QQQ:70`、`IWM:76`、`GLD:150`),这些是 Phase 2.5 要修的 bug。剩余验收(各 symbol 达 252、`update_iv_rank_readiness` 后 `iv_rank_ready=true`)顺延到 Phase 2.5 修复并对 weekly-dense ETF 重跑之后。
+- [ ] **Phase 2.5 — 修 weekly-dense ETF 欠填(root cause 已实测坐实,2026-07-17)**:高流动 ETF(SPY/QQQ/IWM/GLD/大部分 XL* 板块 ETF)IV30 历史大面积缺失,不是数据缺,是回填逻辑两个 bug 叠加。
+  - **实测证据(SPY 2026-03-02,spot 686)**:那天被跳过是因为——SPY 686C **周期权** `2026-04-01`(DTE 30)该天**单日 bar 为 None**(该合约最早 bar 要到 `2026-03-19` 才出现,即历史那天它还没挂牌);而 SPY 685C **月期权** `2026-04-17`(DTE 46)该天有 bar(close 27.63,自 2026-02-02 就有历史)。对照 AAPL 同期月期权正常。
+  - **Bug A — `/v3/reference/options/contracts` 撞 `limit=1000` 截断**:SPY 周期权 + 密集 strike,1000 条在 **DTE 17 就耗尽**,30-DTE 及更远的**月期权全被切掉**。实测 `true` 侧正好返回 1000 且带 `next_url`。翻页(`full_grid` follow `next_url`)确实能拿到 DTE 10–53 的完整到期集。
+  - **Bug B(真正的杀手,截断只是暴露它)— 周期权在历史某天尚未挂牌**:截断后 grid 只剩近月**周期权**(DTE 10–17),而周期权提前 ~4–8 周才挂牌,历史那天 `option_close` 全 None → `no_priced_strike` → 整天跳过。**关键**:实测证明**光翻页也修不好**——翻页拿到真 30-DTE 到期后其 ATM strike `option_close` 依然 None,因为那批仍是没历史挂牌的周期权。
+  - **为什么 AAPL 没事**:AAPL 周期权密度低,1000 条能覆盖到 DTE 54、**包含长期挂牌的月期权**,所以能定价;SPY 唯一能用的月期权(4/17)恰好被截断切掉。
+  - **修复方向(两条一起,缺一不可)**:①**翻页**(follow `next_url`)让 grid 能看到远月;②**优先月期权(3rd-Friday)做历史反解**——月期权提前 6–12 月挂牌、有长期价格历史,周期权对历史回填天生不可靠。等价实现:给 `compute_day_iv30` 加**到期回退(expiry-walk)**——当前只有 strike-walk,一旦 bracketing 到期取不到价就放弃;应像 strike 一样向外再试其它到期(优先有历史 bar 的月期权)直到取到。
+  - **注意**:正在跑的第二批(PID 63275)带同样 bug,里面 weekly-dense ETF(`QQQM/TQQQ/SOXL/SOXS/VTI/SCHD` 等)会同样欠填;流动性好的个股仍能正常填,不必中断,修好后对受影响 ETF 单独重跑即可。
+  - **验收**:修复后对 SPY/QQQ/IWM/GLD + 各 XL* 板块 ETF 重跑 `--days 400`,`iv_observation_count` 达 252(容许真·稀疏小盘标的仍欠);单测覆盖"截断/翻页拼接"与"bracketing 到期无 bar 时回退到月期权"两个路径。
 - [ ] **Phase 3 — 前向口径统一**:把每日 `atm_iv` 采集也改成 constant-30-day 口径(而非现在浮动 30–45 DTE 的单张 ATM),与回填口径一致,避免序列方法噪声。跑 `derive_volatility` 出 iv_rank。
 - [ ] **Phase 4 — TT 对比验证 harness**:重叠 symbol-日上比 ①IV 水平(自算 atm_iv vs TT `iv_history.iv30`)②IV Rank(自算 vs TT `iv_rank`)。指标 MAE + 相关系数。参考验收线:IV 水平 MAE < ~2 vol 点 & corr > 0.95;IV Rank MAE < ~5–8 点。水平对但 rank 偏 = 方法差异(可修);水平就偏 = 数据/反解问题。
 - [ ] **Phase 5 — cutover**:TT 保持并行跑攒重叠样本;Phase 4 达标后各处 `TT_METRICS_ENABLED=false` 下线 TT;从 option provider fallback 序列移除 IB(产品路径)。结果:options-lab = Railway(DB+API+Polygon+derive)+ Vercel,Mac 可关机。
+
+## 2026-07-17 — 全项目 review：架构 / 算法 / 功能（任务间隙,暂不开发)
+
+趁 Phase 2 全量回填后台跑的间隙做的一次全项目复盘,按用户三个问题分类。**全部未开始实现**,遵照"暂时不要继续开发"指令,仅记录待用户后续排优先级。
+
+### 架构（尤其数据获取 / 用户体验)
+
+- [ ] **REFRESH_WORKER_BATCH_SIZE=2 过于保守**:81 symbol 的 watchlist 在低并发下补队列耗时长,是"analyze 页面长期 stale/后台补全中"体验的直接成因之一(STX 事故的邻近病灶,非同一根因)。现在 E7 的共享 provider rate limiter 已经是硬限速闸门,batch size 本身不再是 429 风险来源,可以安全调大。需要先跑一次真实吞吐测量再定具体数字。
+- [ ] **on-demand 首次访问延迟**:未采集过的 symbol 首次 analyze 请求要等一整轮 provider fetch,用户体感是"卡住"。可选优化方向:乐观 UI(先显示排队态 + 预计时间)、或提高该 symbol 在 scheduler 里的临时优先级(已有五级优先级机制,只是 on-demand 请求当前未必接到最高档)。
+- [ ] **Mac Studio 单点故障**:即便 Option B 消除了预算互抢,产品刷新链路仍 100% 依赖 Mac Studio 常开。断电/重启/网络中断 = 全站数据停摆,且此前确认过恢复要靠人工 PM2 reload。IV Rank 自算(本节上方进行中的项目)是解决这个的唯一路径,而不是加更多本地容灾。
+- [ ] **"15 分钟延迟数据"定位**:目前产品文案已经把这个说清楚了,但没有一处告诉用户"下一次刷新还要多久"。可以用 `symbol_data_state` 里已有的字段直接算出下次预计刷新时间展示给用户,成本很低。
+- [ ] **回填/历史类任务的 API 调用效率**:Phase 2 回填对每个 symbol-day 要走"expiry grid → strike walk → 逐 strike 逐 call/put 请求"，Polygon 调用量随 symbol 数线性增长但单次不便宜(strike walk 最多 5 次 × call+put = 10 次请求 fallback 路径)。当前 81 symbol × 400 天量级尚可接受,但如果 symbol universe 扩大到几百个,应考虑批量端点或缓存 expiry grid 以外的额外优化。
+
+### 算法
+
+- [ ] **口径接缝(method seam)是最高优先级算法问题**:Phase 2 回填用的是 constant-30-day(总方差插值),但当前前向每日采集(`fetch_atm_observations`)用的是浮动 30–45 DTE 单张 ATM,两段拼接的 252 天序列方法不一致,会在拼接点附近产生人为的 IV 跳变,直接污染 IV Rank(一个对序列噪声敏感的相对指标)。**这使 Phase 3(前向口径统一)从"锦上添花"变成"上线前必须完成项"**,而不是原计划里可以延后的独立阶段。
+- [ ] **BS 反解的已知系统性偏差**:`implied_vol.py` 未建模股息(dividend yield)也未处理美式期权提前行权溢价,对高股息标的或深度 ITM 美式期权,反解出的 IV 会系统性偏离真实值。多数 tech/growth 标的股息可忽略,但组合里若含 SPY/QQQ 之外的高股息 ETF 或个股需要留意。
+- [ ] **IV Rank 对离群尖峰的敏感性**:标准 IV Rank(区间归一化,`(current - min) / (max - min)`)会被 252 天内单次极端事件(财报/黑天鹅)永久性拉低后续所有读数,直到该尖峰滚出窗口。更稳健的替代或补充指标是 IV Percentile(百分位排名,不受单点极值支配)。可以两个都算,给用户看差异。
+- [ ] **候选打分权重未经验证**:candidate engine 的评分权重(DTE/Delta/spread/OI/Volume 等)目前是手工设定,没有做过历史回测或统计校准。Phase 4 的 TT 对比 harness 之后,应该考虑对 scoring weights 做类似的验证。
+- [ ] **Scanner 候选多样性问题(有生产实据)**:实测 4768 个候选里 59% 是 time_spread 结构,排名前三全部是 MSFT Diagonal。当前排序纯按分数,没有跨策略类型/跨 symbol 的多样性约束,导致用户看到的"Top N"事实上是同一结构同一标的的重复展示,信息量低。需要引入多样性重排(如按策略类型/symbol 分桶后再取每桶 top-K)。
+
+### 功能
+
+- [ ] **历史 IV Rank / IV30 走势图(评估为性价比最高的新功能)**:Phase 2 回填的数据已经完整躺在 `volatility_history` 里,前端加一个折线图基本是纯展示层工作,不需要新的数据管道。应该排在其它新功能之前。
+- [ ] **Alert 投递闭环未完工**:SMTP/VAPID secrets 仍待用户配置和真实收件验收(已在"已确认无法由本仓库完成"清单中),这意味着当前 alert 功能生成了触发但用户实际收不到通知,是功能闭环的缺口而非纯运维遗留项。
+- [ ] **候选卡片上的策略回测**:目前候选策略只展示当下静态经济性(credit/debit、POP 估算),没有"这个结构在历史上类似 setup 下表现如何"的回看视角。可以用已有的历史期权价格数据做简化回测。
+- [ ] **按用户的自选清单(per-user watchlist)**:当前 watchlist 是全局 `symbol_universe`,没有让付费用户自定义盯盘清单的入口,是订阅分层里"Pro"价值主张的一个自然缺口。
+- [ ] **已采集但未被产品充分使用的数据**:期限结构(term structure)、skew、OI density、30 分钟动量等字段已经在采集/派生链路里存在或可以低成本派生,但目前没有对应的用户可见展示。属于"不用新采集就能加功能"的低成本机会。
+
+
 
 ## ✅ 2026-07-16 — Page Copy Audit Remediation
 
@@ -77,7 +140,7 @@
 
 #### 执行顺序（2026-07-17 按真实代码校准）
 
-下表是本文件剩余所有未完成任务的唯一执行顺序。每行必须独立完成实现、测试、文档、commit、push。已被后续 section 实现但仍标 `[ ]` 的旧条目，已在本次校准中按代码证据改为 `[x]`，不再重复执行。
+下表是本文件剩余所有未完成任务的唯一执行顺序。每行必须独立完成实现、测试、文档、commit、push。已被后续 section 实现但仍标 `[ ]` 的旧条目，已在本次校准中按代码证据改为 `✅`，不再重复执行。
 
 | 顺序 | 任务 | 为什么是这个位置 | 外部阻塞 |
 |---|---|---|---|
@@ -128,13 +191,13 @@
 
 #### B. GEX and research-model governance
 
-- [x] Add a versioned model metadata contract to every GEX-derived product DTO.
+- ✅ Add a versioned model metadata contract to every GEX-derived product DTO.
   - Implemented in four independently deployable steps: (1) API adapter and persisted scan payload, (2) shared `DataDetails` UI, (3) deterministic GEX/Flip/Wall fixture validation, (4) versioned POP/Expected Move inputs and validation.
   - Step 1 completed: `/api/options/:symbol/gex`, `/api/scan`, and `/api/weekly/:symbol` expose `gex_metadata` with model, data state, coverage and calculation parameters.
   - `gex_metadata.model` carries metric, model version, unit, formula ID, positioning model and public-OI limitation. `data_state` carries status, snapshot time, age, refresh state, confidence and a public source label. `coverage` carries contract/quality and expiry-window fields. `parameters` carries move size, multiplier, local window, flip grid and risk-free rate.
   - Scanner materialization persists this metadata in its existing JSON payload, so it is tied to the GEX snapshot that generated the scanner row. Old rows without that payload are explicitly `partial`, never backfilled with invented assumptions.
   - The UI must render a compact user-facing data-details view and retain a richer admin/debug view.
-- [x] Establish a reproducible GEX validation suite.
+- ✅ Establish a reproducible GEX validation suite.
   - Step 3 plan: freeze option-chain fixtures with a known valuation timestamp; verify contract exposure, strike aggregation, Global/Local GEX, Wall selection, Gamma Flip interpolation and no-crossing behavior. Recompute the same fixture twice and require byte-stable output.
   - Add a fixture manifest containing model version, valuation date, multiplier, expiry range, expected outputs and tolerances. A separate replay command will load the fixture through the collector calculation path and emit a machine-readable result.
   - Add a real-snapshot comparison report for one ETF and one single stock: snapshot ID/time, option count, missing data ratios, formula inputs, output values and changed-field diff. It is validation of calculation consistency, not a trading-performance claim.
@@ -143,19 +206,19 @@
   - Read-only production-snapshot comparison: `cd collector && .venv/bin/python compare_gex_snapshots.py --symbols SPY,AAPL`. 2026-07-16 result: SPY snapshot `757` (27 usable contracts, missing Greeks `25.00%`) and AAPL snapshot `815` (72 usable contracts, missing Greeks/OI `0.00%`) matched all stored Global/Local GEX, Gamma Flip, Call/Put Wall and Max Pain values within `0.0001` tolerance.
   - Fixed option-chain fixtures must verify per-contract GEX, aggregate GEX, Gamma Flip interpolation, Call/Put Wall selection, 1%-move units and sign-assumption labeling.
   - Run a historical comparison across at least one ETF and one single-stock chain before making any performance or market-structure claim.
-- [x] Define and document expected-move and POP inputs per strategy.
+- ✅ Define and document expected-move and POP inputs per strategy.
   - Implemented on every concrete Scanner candidate as versioned `expected_move` and `pop` objects. The public DTO does not expose the full chain; it exposes only the selected setup, declared model inputs and the originating quote-snapshot timestamp.
   - Expected Move is `expected-move-v1-atm-iv-sqrt-time`: spot × the mean IV of the nearest same-expiry Call/Put × sqrt(calendar DTE / 365). It declares `contract_iv`, `nearest_atm_call_put_mean`, one standard deviation, calendar-day convention, expiry/DTE, input contracts and lower/upper range.
   - POP is `pop-v1-lognormal-breakeven`: risk-neutral lognormal terminal-price probability at the candidate expiry using that declared IV, `SCAN_RISK_FREE_RATE` (default `4.5%`), zero dividend-yield assumption and executable bid/ask-derived break-evens. It supports static-expiry Bear Call, Bull Put, Iron Condor, Iron Butterfly, Strangle, long/short single-leg and Jade Lizard payoff shapes. Calendar/Diagonal are explicitly unavailable because they do not have one static expiry payoff model.
   - Required inputs are fail-closed. Missing same-expiry ATM IV, non-positive DTE, absent static break-evens or an unsupported payoff shape return `status: unavailable` with a reason; the system never substitutes a fixed POP, mark price or fallback IV. Missing leg quotes prevent candidate construction.
   - Scanner UI renders compact `EM` / `POP` state with an in-context tooltip; EM/POP are model estimates, not a prediction, tradable quote or return guarantee.
   - Verification: `cd server && npm test` covers credit spread, debit strategy, Iron Condor, absent IV and missing quote behavior; route tests assert the public DTO includes the declared fields and contract-IV sample input. Frontend test/lint/build verify the compact rendering path.
-- [x] Reconcile stored watchlist GEX after a model-version upgrade.
+- ✅ Reconcile stored watchlist GEX after a model-version upgrade.
   - Root cause observed 2026-07-16: option-chain snapshots existed for 67 watchlist symbols, but 64 latest GEX rows were calculated with the legacy unversioned formula. The API correctly rejected those rows because it requires `gex-v2-1pct-positioning-proxy`, causing Analyze to say GEX/Wall unavailable.
   - `collector/reconcile_gex_models.py` now reads only the latest persisted chain per watchlist symbol, finds missing or version-mismatched GEX rows, and recomputes GEX/Wall/Flip locally from PostgreSQL. It never requests market data.
   - `run_collector_daemon.py` runs that reconciliation at startup and every hour by default (`GEX_MODEL_RECONCILE_SECONDS=3600`). This makes a model upgrade an automatic derived-data backfill rather than a user-visible coverage outage.
   - 2026-07-16 repair: 66 of 67 symbols recomputed successfully. `SRVR` stayed unavailable because its latest chain had a 44.44% missing-Greeks ratio, above the model's 25% quality threshold.
-- [x] Make Analyze-triggered missing-data collection immediate and priority-aware.
+- ✅ Make Analyze-triggered missing-data collection immediate and priority-aware.
   - Analyze already polls `/api/analyze/:symbol`; it now enqueues its missing price, metrics and option-chain jobs with priority `100`. The refresh worker consumes queued jobs by priority before the background watchlist schedule, so an interactive request is not delayed behind cold-start coverage work.
   - Current option chain but missing/current-version-rejected GEX enqueues `gex_recompute` with provider `internal`. The worker reads the latest persisted chain, recalculates GEX/Wall/Flip, and rematerializes Scanner without making an external provider request.
   - Truly missing chains still enqueue `polygon_licensed` option collection. After the worker persists a chain, its existing finalization path computes GEX, materializes OI delta and Scanner output; Analyze's existing five-second poll reloads the page data.
@@ -163,7 +226,7 @@
 
 #### C. Product architecture and disclosure follow-through
 
-- [x] Implement a reusable `DataDetails` component across Analyze, Scan and Weekly.
+- ✅ Implement a reusable `DataDetails` component across Analyze, Scan and Weekly.
   - `frontend/src/components/DataDetails.jsx` is collapsed by default. Analyze shows the selected GEX snapshot; each Scanner row offers a compact expandable detail; Weekly follows its selected historical GEX point.
   - It shows public snapshot/model context without emitting provider/internal implementation names: model version and unit, snapshot time, contract coverage/completeness, expiry window, positioning proxy and Local/Flip parameters.
   - State vocabulary is rendered as `fresh` / `delayed` / `stale` / `partial` / `unavailable` / `historical`. The detail disclosure is intentionally secondary to the opportunity/analysis result.
@@ -176,287 +239,6 @@
 - [ ] Register and configure any replacement domain; update DNS, Vercel domain mapping, CORS allowlist, canonical URL, CSP/connect-src and email sender configuration.
 - [ ] Obtain legal review for the chosen brand/product name and register trademark protection where appropriate.
 - [ ] Rotate any provider key that has entered Git history and store replacements only in deployment secret stores. 唯一条目见 Phase 3I 的 `Rotate 曾进入 Git 历史的 Polygon key`；此处仅为索引，不重复登记。
-
-## ✅ Done (V1 Core)
-- ✅ Project scaffolding: React + Vite + Zustand
-- ✅ Documentation: CLAUDE.md, README.md, wiki.md, learning.md, task.md
-- ✅ Black-Scholes engine: pricing + Delta/Gamma/Theta/Vega/Rho + POP + BEP
-- ✅ Strategy data: 86 strategies, 7 categories, 9-field notes each（系统按卖方框架补强）
-- ✅ App layout: 3-column dark theme (sidebar / main / right panel)
-- ✅ Sidebar: search, category filter, strategy list, ↑↓ keyboard navigation
-- ✅ Payoff chart: Canvas, expiry + scenario lines, BEP markers, fill zones
-- ✅ Greeks six-chart: Risk/Theta/Delta/Vega/Gamma/Rho with DTE slider (4 time lines)
-- ✅ Scenario panel: spot / IV shift / rate / div / range / contracts
-- ✅ Risk metrics: Max P/L, BEP, POP, Delta, Theta, Vega, Gamma, Rho (12 metrics)
-- ✅ Leg editor: add/edit/remove legs, real-time chart update
-- ✅ Strategy notes: 9-card grid (build/when/strike/IV/DTE/delta/TP/SL/adj)
-- ✅ Unlimited profit/loss detection for naked options
-- ✅ Greeks 知识库页面（5大 Greek + 6个 Interaction 卡片）
-- ✅ 知识库扩展：GEX、Gamma Squeeze 实战案例、Vanna/Charm、OpEx Pin Risk、Vol Skew、期权卖方系统化框架
-- ✅ 期权实战交易框架记录（卖方哲学、Tastytrade 规则、Vol Risk Premium）→ learning.md
-- ✅ 数据库/基础设施决策：PostgreSQL on Railway（放弃 DuckDB）
-
-## ✅ Done (V2 Scaffold — historical, superseded by the real-data paths below)
-- ✅ React Router 多页路由：/learn、/analyze、/scan
-- ✅ NavBar 组件：页面导航
-- ✅ /learn：V1 所有组件完整保留（Learn.jsx）
-- ✅ /analyze：标的分析页的初始 UI scaffold（当时使用示例数据；现已由真实数据路径与 fail-closed 状态取代）
-- ✅ /scan：扫描器页的初始 UI scaffold（当时使用示例数据；现已由 `/api/scan` 候选 DTO 取代）
-- ✅ 历史示例数据：9 个标的；不再作为生产 Analyze/Scan 的 fallback
-- ✅ Analyze ↔ Scan 联动：扫描器点击行自动填入并分析
-
-## ✅ Done (Phase 1 — /analyze 4-Tab UI)
-- ✅ /analyze 重构为 4-tab 布局（Tab 导航 + URL 状态 ?tab=0-3）
-- ✅ Tab 1 今日概览：sector chips、3个 Q&A 卡片、conclusion card、badge 组（格局/动量/信号/GEX）、剧本 playbook、推荐卡
-- ✅ Tab 2 日内变化：Kalman Filter 趋势图 Canvas、Trend Spread 动量柱、输出 badge、3格辅助信息（趋势格局/期权结构/RVol）
-- ✅ Tab 3 数据解读：GEX by Strike Canvas（带 Put/Call Wall 竖线、当前价箭头）、3 核心数字（GEX Total/PCR/IV ATM）、Unusual Activity 列表、结论文本
-- ✅ Tab 4 信号追踪：筹码标尺 Canvas（竖向密度图）、上方压力/下方支撑卡、观察结论
-- ✅ mockAnalysis.js 扩展：9 标的增加 sector/gexTotal/gexByStrike/putWall/callWall/pcr/unusualActivity/trend/conclusion/scenarios 字段
-- ✅ Canvas 全部支持 devicePixelRatio + ResizeObserver（Retina 适配）
-
-## ✅ Done (Phase 2 — /weekly Weekly Recap UI)
-- ✅ /weekly 路由 + /weekly/:symbol 参数路由（App.jsx + NavBar）
-- ✅ Weekly.jsx：5段导航（?sec=0-4）、prev/next 按钮、进度计数；`/weekly` 默认加载 SPY，顶部保留常用标的快捷入口并支持输入任意有效标的代码。
-- ✅ Weekly 真实数据：`/api/weekly/:symbol` 返回 rolling 5-session OHLC、每日实际 GEX history、Max Pain、ΔOI 与条件剧本；`weeklyMock.js` 已删除
-- ✅ Sec1 本周定调：K线图 Canvas（5根OHLC）+ CME Gauge Canvas（半圆弧仪表盘）、定调文字
-- ✅ Sec2 Gamma迁徙：星期选择器、GEX 日内图 Canvas（随天切换）、Call/Put Wall 迁移表
-- ✅ Sec3 交割偏离：MaxPain vs FridayClose 偏离条形图、偏离 badge（中性/警告/空方）
-- ✅ Sec4 仓位变化：真实 ΔOI 日汇总；明确不将 OI 变化伪装成美元资金流或机构方向
-- ✅ Sec5 下周分叉：多头/空头剧本卡片（触发条件/价格目标/观察重点）
-- ✅ index.css：新增 ~170行 Phase 1 样式 + ~200行 Phase 2 样式（.wk-* 类）
-- ✅ /weekly 全量数据化：不再按 symbol fallback mock；每个 module 对真实字段独立 fail closed
-
-## ✅ Done (Infrastructure)
-- ✅ Git repo 初始化，branch: master
-- ✅ GitHub repo: whicter/quantrift_options-lab
-- ✅ Mac Studio: /Users/congrenhan/Documents/quantrift_options-lab（SSH push）
-- ✅ 本机: /Users/cohan/Documents/quantrift_options-lab（HTTPS pull）
-- ✅ 工作流确认：本机开发 → rsync → Mac Studio push
-- ✅ 项目结构重组：frontend/ + server/ + collector/ 单 repo
-- ✅ server/：Node.js Express API（/api/metrics, /api/scan, /health）
-- ✅ collector/：Python IV 采集脚本（auth.py + collect.py，Tastytrade → PostgreSQL）
-- ✅ 代码已同步至 GitHub（本机 → Mac Studio → push）
-- ✅ .claude/settings.json：Bash(*) 全放行白名单
-- ✅ .claude_session：session UUID 固化，`cr` 命令一键恢复对话
-
-## ✅ Done (Phase 3A — UI Polish)
-
-> 参考截图：华尔街咖啡馆 MRVL/META 盘中即时分析 + Nokia 周复盘
-> 完成于 2026-07-13
-
-- ✅ **GEX 发散柱图**：已确认 Tab3Options + Sec2Gamma 均已是从零轴向两侧延伸的发散柱，无需修改
-- ✅ **时间轴滑块（/weekly Sec2）**：Mon-Fri 按钮改为横向轨道 + 5个节点，当前日期蓝色高亮，CSS `.wk-timeline-*`
-- ✅ **底部解读条**：Tab1/2/3/4 底部均加 `InsightCarousel`，新建 `components/InsightCarousel.jsx`，静态全部展示，黄色高亮
-- ✅ **PCR 拆分（Tab3）**：mockAnalysis.js 加 `pcrVol`（9个标的），Tab3 数字格从3格扩展为4格（GEX/PCR OI/PCR Vol/IV），CSS `.az-gex-numbers-4`
-- ✅ **公司信息增强**：新建 `data/companyInfo.js`（12个标的，含中文名/英文全称/logo/tagline）；/analyze header 显示 logo + 中文名；/weekly Sec1 显示大 logo + 中文名
-- ✅ **价格区间 chip（Tab4）**：顶部显示 `$putWall ~ $callWall` 金色圆角徽章，CSS `.az-price-range-chip`
-- ✅ **Tab4 筹码标尺重做**：bar 高度改为动态适配（相邻 strike 间距一半），bars 连续填充无空隙，渐变填色 + 左边accent，形成真正的 OI 密度分布侧面图
-- ✅ **InsightCarousel 改静态**：去除自动轮播/定时器，所有条目一次性全部展示
-
----
-
-## ✅ Phase 3B-1 — Provider-first 价格历史闭环（IB internal + Tastytrade）
-
-> 前置条件：Mac Studio PM2 直接运行当前 repo 的 collector
-> 本 phase 最初以 `PRICE_PROVIDER=ib_internal` 建立 provider-first 闭环；2026-07-15 scheduled default 已由 P0.1 切为 `polygon`，IB/Stooq 仅保留显式 fallback。yfinance 不作为默认路径。
-
-### 真实价格历史（趋势图）
-- ✅ **collector 新增每日价格采集**：symbol → 60 天 OHLCV
-  - 写入 Railway PostgreSQL 新表 `price_history (symbol, date, open, high, low, close, volume, source, created_at)`
-  - 存储位置：数据库，不放前端 mock、不放本地 CSV；collector 每天按 watchlist upsert 最近 60 个交易日
-  - ✅ `server/src/migrate.js` 新增建表语句；2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`
-  - ✅ `collector/common.py`：共享 `watchlist.txt` loader
-  - ✅ `collector/providers/base.py`：`PriceProvider` / `PriceBar` contract
-  - ✅ `collector/providers/ib_price_provider.py`：IB Gateway internal adapter，source=`ib_internal`
-  - ✅ `collector/providers/stooq_price_provider.py`：显式 dev/backfill adapter，source=`stooq`
-  - ✅ `collector/collect_prices.py`：读取 watchlist 或 `SYMBOLS` override，按 provider upsert `price_history`
-  - ✅ `collector/requirements.txt`：加入 `ibapi`
-  - ✅ `collector/.env.example`：加入 `PRICE_PROVIDER`、`PRICE_HISTORY_LIMIT`、`IB_HOST`、`IB_PORT`、`IB_PRICE_CLIENT_ID`、`IB_TIMEOUT`、`SYMBOLS`
-- ✅ **server 新增 `/api/prices/:symbol`** 端点：返回最近 60 天 OHLCV
-  - ✅ `server/src/routes/prices.js`
-  - ✅ `server/src/index.js` 挂载 `/api/prices`
-  - ✅ `frontend/src/lib/api.js` 新增 `getPrices(symbol, limit)`
-- ✅ **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
-  - KF 计算逻辑不变，输入换成真实价格数组
-  - RVol = 当日成交量 / 20日均量（从 price_history 算）
-- ✅ **Weekly Sec1 改用真实价格**：`/weekly/:symbol` 优先读取 `/api/prices/:symbol`
-  - AAPL/SPY/QQQ 仍保留完整 5-section mock/GEX/flow 结构
-  - 若有真实价格历史，则覆盖 Sec1 的 weekClose / prevClose / weekHigh / weekLow / 5日 K线
-  - GEX / flow / Max Pain 仍需授权 options data，不能用 mock 伪装成真实
-
-### 真实 IV（Tastytrade）
-- ✅ **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入
-  - Analyze.jsx 调用真实 API
-  - 真实 IV Rank / IV30 / HV / earnings 覆盖 mock shell
-- ✅ Analyze 缺失数据 UX：输入未采集标的不再提示固定 AAPL/SPY/QQQ；区分“在 watchlist 但尚未写入”和“不在 watchlist”
-- ✅ Analyze 使用真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings；GEX/趋势结构暂用现有展示壳
-- ✅ Analyze price-only fallback：当 symbol 已有 `/api/prices/:symbol` 但 `/api/metrics` 缺失时，不再整页显示“暂无真实数据”
-  - 2026-07-14 case：`PLTR`
-  - Confirmed from production API：`/api/metrics?symbols=PLTR` 返回 `{}`，但 `/api/prices/PLTR?limit=3` 返回 `source=ib_internal`、`freshness=fresh`
-  - UI behavior：显示真实价格、price history 趋势、`IV Rank 暂不可用`，并明确提示 IV / GEX / Walls / option chain 暂未接入
-  - 不生成期权策略结论，不把 mock option analysis 伪装成真实数据
-- ✅ Analyze button click bug fixed：`onClick={handleAnalyze}` 会把 click event 当成 symbol 传入，导致 `.trim()` 报错；改为 `onClick={() => handleAnalyze()}` 并防御非字符串参数
-  - 2026-07-14 local UI smoke verified：输入 `AAPL` 点击分析显示 IVR；输入 `PLTR` 点击分析显示 price-only 结果
-
-### 真实 RVol（price_history 量能）
-- ✅ 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）
-
-### Phase 3B-1 验证记录
-- ✅ Python syntax verified：`collector/venv311/bin/python -m py_compile collector/collect.py collector/collect_prices.py collector/common.py collector/providers/base.py collector/providers/ib_price_provider.py collector/providers/stooq_price_provider.py`
-- ✅ Node syntax verified：`node --check server/src/index.js`、`node --check server/src/routes/prices.js`
-- ✅ Frontend build verified：`npm run build` in `frontend/`
-- ✅ Collector runtime verified with IB Gateway：`SYMBOLS=AAPL collector/venv311/bin/python collector/collect_prices.py`，写入 60 rows，source=`ib_internal`
-- ✅ Database verified：AAPL `price_history` = 60 rows，date range 2026-04-17 → 2026-07-14，source=`ib_internal`
-- ✅ Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 3 rows，source=`ib_internal`
-- ✅ Production API verified after deploy：2026-07-15 `GET /api/prices/AAPL?limit=3` 返回 HTTP 200、`freshness=fresh`
-
----
-
-## ✅ Phase 3B-2 — 价格历史生产化与 UI 数据状态
-
-### Collector 调度
-- ✅ 在 Mac Studio 安装 `collect_prices.py` 定时任务
-  - 当前实现：PM2 直接运行 `/Users/congrenhan/Documents/quantrift_options-lab/collector`，不维护第二份 runtime，不需要同步代码。
-  - PM2 config：`collector/ecosystem.config.cjs`
-  - App：`quantrift-options-prices`
-  - Script：repo 内 `collector/collect_prices.py`
-  - Python：repo 内 `collector/venv311/bin/python`
-  - Schedule：Monday-Friday 13:35 PT / 16:35 ET
-  - Environment：直接读取 repo 内 `collector/.env`
-  - 旧 `com.quantrift.collect-prices` LaunchAgent、plist 和 `/Users/congrenhan/.quantrift_options_collector` 运行副本已停止并删除。
-  - 启动命令：`pm2 start collector/ecosystem.config.cjs && pm2 save`
-  - 验证命令：`pm2 status quantrift-options-prices`
-- ✅ 跑完整 watchlist 一次 `collect_prices.py`
-  - 成功 symbols 数量：67 / 67
-  - 写入 rows：4020
-  - 失败 symbols：无
-  - 失败分类：无 IB contract 解析失败、无权限、pacing/timeout、symbol 格式问题
-  - Railway DB 验证：`price_history` source=`ib_internal`，date range 2026-04-17 → 2026-07-14，所有 symbol 均 >=60 rows
-- ✅ 为 `BRK.B` 等特殊 ticker 建立 symbol normalization 规则
-  - 输入 symbol
-  - IB contract symbol/localSymbol
-  - UI display symbol
-  - DB canonical symbol
-  - 规则：DB/UI canonical symbol 保持原样；IB `Contract.symbol` 将 `.` 映射为空格，例如 `BRK.B` → `BRK B`
-
-### Backend/API
-- ✅ 部署 server 后验证生产 `/api/prices/:symbol`
-  - `curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"`
-  - 返回字段必须包括 `symbol`、`source`、`count`、`latest_date`、`prices[]`
-  - 2026-07-14 验证结果：HTTP 200，返回 `source=ib_internal`、`count=3`、`freshness=fresh`、`is_stale=false`
-- ✅ `/api/status/data` 增加 price coverage 细节
-  - watchlist 总数
-  - `price_history` covered symbols
-  - missing price symbols
-  - stale price symbols
-  - latest price date
-  - source distribution
-  - 2026-07-14 生产验证：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
-- ✅ `/api/prices/:symbol` 增加 freshness 字段
-  - `snapshot_ts` 或 `latest_date`
-  - `freshness`
-  - `is_stale`
-  - `source`
-
-### Frontend
-- ✅ Analyze header 显示价格数据状态
-  - `price ib_internal 2026-07-14`
-  - stale 时显示 `price stale`
-  - missing 时不显示真实价格标记
-- ✅ Tab2Trend 增加真实/示例走势标识
-  - real：`price_history`
-  - fallback：`示例走势`
-  - 不把 fallback 说成真实数据
-- ✅ Weekly Sec1 增加价格来源标识
-  - real：显示 `price_history source + latest_date`
-  - fallback：显示当前为示例 weekly shell
-- ✅ Scan 结果增加 price coverage 状态
-  - 已有 price_history
-  - 缺失 price_history
-  - stale price_history
-
-### Verification
-- ✅ Syntax verified：Python collector files
-- ✅ Syntax verified：Node server routes
-- ✅ Frontend build verified：`npm run build`
-- ✅ Collector runtime verified：完整 watchlist run
-- ✅ Historical LaunchAgent run verified on 2026-07-14；current runtime has migrated to PM2 direct-repository execution（见 Phase 3D-2B）
-- ✅ Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 `freshness=fresh`、`is_stale=false`
-- ✅ Local API verified：`curl -f "http://localhost:3002/api/status/data"` 返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
-- ✅ Production API verified：Railway `/api/prices/AAPL?limit=3`
-  - 2026-07-14 结果：HTTP 200，`freshness=fresh`、`is_stale=false`
-- ✅ Production status verified：Railway `/api/status/data`
-  - 2026-07-14 结果：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
-- ✅ UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势（Playwright 自动化因环境报错未完成，功能已在生产手动验证）
-- ✅ UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV（同上）
-
----
-
-## ✅ Phase 3B-3 — Scanner 接入真实 IV + Price Coverage
-
-### Backend/API
-- ✅ `/api/scan` 限定 collector watchlist
-  - 使用 `server/watchlist.txt` fallback，避免 Railway server-only 部署读不到 `collector/watchlist.txt`
-  - 不再扫描 `iv_history` 中的 extra symbols
-- ✅ `/api/scan` 返回 latest `price_history` 字段
-  - `price_close`
-  - `price_date`
-  - `price_source`
-  - `price_status`
-- ✅ `/api/scan` 继续按真实 IV 数据筛选
-  - `minIvr`
-  - `maxIvr`
-  - `minIvHv`
-  - `limit`
-
-### Frontend
-- ✅ `frontend/src/lib/api.js` 新增 `getScan()`
-- ✅ `Scan.jsx` 从 mock scanner 改为调用真实 `/api/scan`
-- ✅ Scanner watchlist 显示来自 `/api/status/data`
-- ✅ Scanner table 使用真实 price close 和 price coverage status
-- ✅ Strategy filter 仍在前端基于 current recommendation 过滤
-- ✅ Direction column 接入真实 `price_history` 派生趋势，不再显示 `待接入趋势`
-  - `collector/materialize_scan.py` 从 `price_history` 计算 trend_score、trend_label、trend_signal、5D change、RSI14、MA20/50/200
-  - `/api/scan` 从 `scanner_results_snapshots` 返回趋势字段，前端只读 materialized result
-
-### Current Scanner Logic
-- ✅ 当前 scanner 是 IV + price trend + GEX/OI snapshot 版，不是完整 options chain selector
-  - `IV Rank >= 50` + bullish trend：`Bull Put Spread`
-  - `IV Rank >= 50` + bearish trend：`Bear Call Spread`
-  - `IV Rank >= 50` + neutral/missing trend：`Iron Condor`
-  - `30 <= IV Rank < 50`：默认 `Iron Condor`，小仓位/定义风险
-  - `IV Rank < 30`：默认 `Long Straddle`，只表示低 IV 适合观察买方波动结构，不代表已有事件催化
-  - Historical behavior：POP 曾为规则占位值，不来自真实 option chain；Phase 3H-1 已从 scanner 表格删除该字段，改为明确标注的候选质量“机会分”
-- ✅ 已写入文档：`docs/wiki.md`、`docs/learning.md`
-
-### Verification
-- ✅ Node syntax verified：`node --check server/src/routes/scan.js`
-- ✅ Frontend build verified：`npm run build`
-- ✅ Local API verified：`curl -f "http://localhost:3002/api/scan?minIvr=0&maxIvr=100&limit=10"`
-  - 返回真实 Tastytrade IV rows
-  - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
-  - 结果限定在 watchlist 内
-- ✅ Production API verified after deploy：Railway `/api/scan?minIvr=0&maxIvr=100&limit=5`
-  - 2026-07-14 verified HTTP 200
-  - 返回 rows 限定在 watchlist 内，不再包含 extra symbols such as `NFLX`
-  - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
-- ✅ UI verified：`/scan` 点击立即扫描显示真实 rows
-  - 2026-07-14 Playwright Core + local Chrome smoke verified `https://www.quantrift.io/scan`
-  - 操作：打开 `/scan` → 点击 `立即扫描`
-  - 页面显示 `找到 8 个标的`，可见 rows 包含 `AMD` / `META` / `GOOGL`
-  - `/api/scan` response row count = 8，payload 包含 `source=tastytrade`、`price_source=ib_internal`、`price_status=covered`
-
----
-
-## 📋 V1 Backlog (Polish)
-- ✅ Strategy comparison mode (side by side, 2 strategies)（策略库可选择任意两个策略，并排展示方向、风险级别、DTE、IV、TP/SL 与实际 legs；不会改变当前主策略）
-- ✅ IV Rank badge per strategy in sidebar (Low/Med/High indicator)（根据每个策略 notes 中首个明确 IV 条件标识 `IV LOW` / `IV MED` / `IV HIGH`；表示适用波动率环境，不是实时标的 IV Rank）
-- ✅ Probability cone on payoff chart (shaded distribution band)（Payoff 图按策略腿加权 IV 和最长 DTE 画出 68% 对数正态终值价格区间；该蓝色区间是价格分布，不是 POP）
-- ✅ Export payoff chart as PNG（`PayoffChart` 导出当前 canvas 为命名 PNG；`canvasExport` 单元测试覆盖 PNG mime、下载文件名和缺失 canvas）
-- ✅ Mobile-responsive layout (stack panels vertically)（策略库在 ≤900px 将 sidebar / 主内容 / 参数面板垂直排列；≤560px 将图表、notes、Greeks 网格收为单列并避免标题与操作按钮溢出）
-- ✅ Payoff chart: show multiple DTE snapshots (not just current + expiry)（自动生成 75% / 50% / 25% 剩余 DTE 曲线；跨期结构按每条 leg 的实际剩余时间定价）
-- ✅ Add 10 more strategies (exotic, FX, index-specific)（策略库增至 88 个模板：Call/Put Ladder、比例日历、Calendar Condor、Double Diagonal Condor、FX Risk Reversal / Seagull、Index Iron Condor / Broken-Wing Butterfly；catalog 测试校验数量、ID 唯一和新增模板存在）
-- ✅ 策略 notes 进一步标准化（所有 88 个策略的 `iv` / `dte` / `tp` / `sl` 均展示至少一个数字阈值；模板本身已有数字时保留原规则，缺失项补入统一的 IV Rank 30-60、30-60 DTE/45 DTE、50% 止盈和 50% 最大风险止损基准；单元测试逐策略校验）
 
 ## 🚀 V2 — Real Data
 
@@ -1178,18 +960,18 @@ P2.6 verification：Railway 只读重放 AAPL 250 daily + 200 regular-session 30
 > 数据来源：`price_history`（日线）+ `price_history_30m`（30M）；无需新订阅。
 > Unusual Whales 暂不接入（API $125/月），OI Delta 异动已覆盖期权层异常检测。
 
-- [x] **Volume Profile**（2026-07-16）：从 `price_history_30m` 按价格区间聚合成交量，返回 VP by price level
+- ✅ **Volume Profile**（2026-07-16）：从 `price_history_30m` 按价格区间聚合成交量，返回 VP by price level
   - `GET /api/vp/:symbol?interval=30m&days=20&bins=40`；`days=1..60`、`bins=10..80`，仅取 regular-session 30M bars
   - 每根 bar 用 `(high + low + close) / 3` 归入价格桶并累加真实 volume；返回完整 nodes 与前 5 个 high-volume nodes
   - Analyze Tab2 显示横向 volume bars、成交量、相对现价距离；无至少两根有 volume 的 bar 或无价格区间时明确返回 `missing`，不显示模拟节点
   - 可与 S/R zones 并列用于确认成交密集价位，但不把 volume node 冒充为 S/R 或期权 Wall
   - 验证：server 69/69、frontend 40/40、full ESLint、Vite production build passed
-- [x] **OBV（On-Balance Volume）**（2026-07-16）：从 `price_history` 日线计算累计量价关系
+- ✅ **OBV（On-Balance Volume）**（2026-07-16）：从 `price_history` 日线计算累计量价关系
   - `GET /api/sr/:symbol` 的 `obv` 字段返回每日累计序列、最新值、20 日变化和 `inflow` / `outflow` / `flat`
   - 公式：上涨日加 volume，下跌日减 volume，收平不变；至少需两根有真实 volume 的日线，否则 `missing`
   - 前端：Analyze Tab2 趋势图下方独立小图；不与价格轴混用
   - 验证：server 70/70、frontend 40/40、full ESLint、Vite production build passed
-- [x] **MFI（Money Flow Index）**（2026-07-16）：OHLCV + volume 14日窗口，0-100 超买超卖
+- ✅ **MFI（Money Flow Index）**（2026-07-16）：OHLCV + volume 14日窗口，0-100 超买超卖
   - `GET /api/sr/:symbol` 的 `mfi` 字段以近 14 个典型价变化计算正/负 money flow；至少需 15 根有效日线
   - `MFI = 100 - 100 / (1 + positive_flow / negative_flow)`；`>=80` 为 overbought，`<=20` 为 oversold，其余 neutral
   - 与 RSI 并列但不合成单一信号：RSI 表示价格动量，MFI 用价格和成交量确认资金流方向
@@ -1234,7 +1016,7 @@ PostgreSQL
 ```
 
 任务拆分：
-- [x] **P2.8.1 统一 freshness 口径**（E5，2026-07-17 完成）
+- ✅ **P2.8.1 统一 freshness 口径**（E5，2026-07-17 完成）
   - `server/src/domain/status/freshness.js` 是全部数据产品**唯一**的 freshness 契约。此前 freshness 散落在四个 route 各写各的：`prices.js`（5 天）、`metrics.js`（2 天）、`options.js`（180 分钟）、`market.js`（30M 自有规则）。
   - Freshness 现算不落库，与 E4 的表互补：E4 记录事实，本模块给判定。
   - 各产品口径：
@@ -1251,7 +1033,7 @@ PostgreSQL
   - 真实 runtime 证据（2026-07-17，本地 API 直连 Railway PostgreSQL）：`GET /api/analyze/AAPL` 全 product `fresh`，option chain age 19 分钟；`GET /api/analyze/NFLX` 返回 price/metrics `fresh`、option_chain `stale`（age 764 分钟，`refresh_status=queued`，仍如实报 age 而非空白）、`gex` `missing`、`option_quotes` `queued`——五个 product 五个独立判定。单元测试用 mock pool，因此该 SQL 由真实端点驱动验证，未只靠 mock。
   - Rollback：回滚本 commit；无 schema migration，`products` 为新增字段，移除不影响既有 `coverage` 消费方。
 
-- [x] **P2.8.2 symbol data state 汇总表**（E4，2026-07-17 完成）
+- ✅ **P2.8.2 symbol data state 汇总表**（E4，2026-07-17 完成）
   - 新增 additive table：`symbol_data_state(symbol, product, latest_snapshot_ts, latest_market_date, source, refresh_status, last_job_id, last_error_code, updated_at)`，PK `(symbol, product)`。
   - **与原计划的一处刻意偏离**：不落 `freshness` 列。freshness 随 wall-clock 衰减，一旦没有写入就立刻变成错的（60 分钟目标的行在第 61 分钟仍写着 `fresh`）。表只记录观测事实；freshness 由读方用 `latest_snapshot_ts` + product policy 在读取时计算。E5 定义该 policy。
   - Products 独立跟踪：`price_daily` / `price_30m` / `metrics` / `option_chain` / `gex`。一个 symbol 可以价格 fresh 而期权链 missing，绝不塌缩成单一 per-symbol 状态。
@@ -1264,7 +1046,7 @@ PostgreSQL
   - Railway 迁移与 runtime 证据（2026-07-17）：additive migration 成功；表结构 9 列、PK + 2 索引、初始 0 行。PM2 daemon 直接运行本 repo，因此新 worker 代码在下一次 60 秒轮询即生效并写入真实状态：`IREN` job 1123 的 `option_chain` 与 `gex` 均 `ok`/`tt_internal`；`GDXJ` job 1122 的 `option_chain` 为 `ok`，而 `gex` 独立记为 `failed`（`underlying_price missing; cannot compute GEX`）—— 正是"链已落库但 GEX 未生成"必须分开记录的实证。该行的 `last_error_code` 由分类修复前的代码写成 `error`，下次 GDXJ 刷新即自动更正为 `insufficient_data`。
   - Rollback：表为 additive；无 API contract 变更，旧读路径继续直接读 snapshots。`DROP TABLE symbol_data_state` 即可完全回退。
 
-- [x] **P2.8.3 queue-fill scheduler**（E6，2026-07-17 完成）
+- ✅ **P2.8.3 queue-fill scheduler**（E6，2026-07-17 完成）
   - 由"每轮只挑 2 个"改为"按目标队列深度补满"：`OPTION_REFRESH_QUEUE_TARGET=20`、`OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE=20`、`OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES=30`。
   - 队列**深度**才是约束 provider 负载的量；per-cycle cap 只限制被抽干的队列回填速度。原先 2 个/300s 而 worker 2 个/60s，worker 约 80% 时间空转。
   - `load_queue_depth()` 统计所有 outstanding option-chain job，**包含 on-demand**：它们消耗同一 provider 预算，用户请求高峰必须压制后台补数据，而不是叠加其上。
@@ -1292,7 +1074,7 @@ PostgreSQL
     - Railway 可以单独创建 `polygon-collector` service；Mac Studio 继续跑 IB/TT/internal collector。
     - TT/IB 不跟 Polygon 共用 worker 池；provider adapter 独立限流。
 
-- [x] **P2.8.5 shared provider rate limiter**（E7，2026-07-17 完成）
+- ✅ **P2.8.5 shared provider rate limiter**（E7，2026-07-17 完成）
   - 新增 additive table `provider_rate_limits(provider, scope, next_allowed_at, last_status, updated_at)`，PK `(provider, scope)`。
   - 新增 `collector/providers/provider_rate_limit.py::DatabaseRequestPacer`。`PolygonStockRequestPacer` 改为 facade：有 `DATABASE_URL` 走共享后端，无 DB 时降级为原 file lock 并明确 warn，不静默发出不受限请求。
   - **原子 slot 认领**：一条语句 `INSERT ... ON CONFLICT DO UPDATE SET next_allowed_at = GREATEST(next_allowed_at, NOW()) + delay RETURNING (next_allowed_at - delay - NOW())`。调用方认领"下一个空位"并被告知还要等多久；两个 worker 竞争会拿到两个**不同**的 slot，不可能撞在同一时刻。
@@ -1306,7 +1088,7 @@ PostgreSQL
   - 真实 runtime 证据（2026-07-17，真 SQL + Railway 数据库时钟，探针行已清理）：worker A 等待 `0.0s`；worker B 等待 `15.8s`（独立 slot，按 16s delay 间隔）；另一 scope 等待 `0.0s`（预算独立）；`penalize(120)` 后**另一个** worker 等待 `119.8s`（证明退避是共享的，不是本进程 sleep）；随后 `penalize(5)` 未缩短既有退避。
   - Rollback：`PROVIDER_RATE_LIMIT_BACKEND=file` 立即回到旧行为；表为 additive。
 
-- [x] **P2.8.6 ingestion 与 derivation 解耦**（E3，2026-07-17 完成）
+- ✅ **P2.8.6 ingestion 与 derivation 解耦**（E3，2026-07-17 完成）
   - option snapshot 写入后只立即计算该 symbol 的 GEX；GEX 失败仍按原逻辑降级为 `gex_status=skipped`，不阻断 snapshot。
   - `materialize_oi_delta` 和 `materialize_scan` 由“每个 option job 执行一次”改为“每个 worker batch 执行一次”。`PendingDerivations` 只记录本 batch 哪些全局派生被 invalidate；`run_pending_derivations` 在 batch 末尾各执行一次。
   - `scanner_materialize` job 不再 inline 执行：job row 保持 `running`，直到 batch 末尾的真实结果回写 `succeeded`/`failed`。失败的物化绝不会被记成成功。
@@ -1316,7 +1098,7 @@ PostgreSQL
   - 验证：collector 138/138 通过（130 → 138）。
   - Rollback：回滚本 commit；无 schema migration，无 API contract 变更。
 
-- [x] **P2.8.7 减少每 symbol 冗余请求**（E9，2026-07-17 完成）
+- ✅ **P2.8.7 减少每 symbol 冗余请求**（E9，2026-07-17 完成）
   - `PolygonOptionChainProvider.fetch_option_chain/fetch_underlying` 新增 `spot_hint`：给定时用它构造 underlying（`endpoint=db_spot_hint`）并跳过整个 `/prev` 请求；未给定时行为不变,照打 `/prev`。
   - worker 新增 `latest_db_spot(conn, symbol)`：取 `price_history` 最新 `polygon_licensed` daily close,且 market date 在 `OPTION_SPOT_HINT_MAX_AGE_DAYS`(默认 4,覆盖周末/假日)内;缺失或过旧返回 None → 回退 `/prev`,不会用陈旧价格居中期权链。
   - 只对 `polygon_licensed` 传 hint:tt/ib 的 spot 本就在各自 chain payload 里,不查 DB、不加 kwarg。
@@ -1612,7 +1394,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### Immediate Priority（现在就应先做）
 
-- [x] **V3A immediate core**：已把 `frontend/src/lib/scanOpportunity.js` 的推荐算法迁到后端，并让 `/api/scan` 停止返回完整合约链。
+- ✅ **V3A immediate core**：已把 `frontend/src/lib/scanOpportunity.js` 的推荐算法迁到后端，并让 `/api/scan` 停止返回完整合约链。
   - 先做范围：`V3A-1 Backend Scanner Candidate Engine` + `V3A-3 Remove Raw Option Chain From Normal Scanner API`。
   - 暂缓范围：认证、限流、数据库角色、审计和更完整的商业化安全边界可在高度商业化前按 `V3A-5` 到 `V3A-8` 分阶段完成。
   - 完成标准：普通 scanner response 只返回最终 candidate DTO；前端不再包含候选枚举、评分权重和完整策略经济性算法；浏览器拿不到完整 raw option contract chain。
@@ -1621,11 +1403,11 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### 当前已确认的问题
 
-- [x] Scanner 候选生成仍在前端暴露：
+- ✅ Scanner 候选生成仍在前端暴露：
   - Historical evidence：`frontend/src/pages/Scan.jsx` 曾调用 `frontend/src/lib/scanOpportunity.js`。
   - 已修复：算法已迁到 `server/src/domain/scanner/candidateEngine.cjs`，前端模块已删除。
   - 结果：策略枚举、评分权重和经济性筛选不再随前端 bundle 发送。
-- [x] `/api/scan` 仍向浏览器返回过多原始合约数据：
+- ✅ `/api/scan` 仍向浏览器返回过多原始合约数据：
   - Historical evidence：`server/src/routes/scan.js` 曾聚合并返回 `option_contracts`。
   - 已修复：route 内部使用该数据生成候选后，在 response 前删除完整链。
   - 结果：普通 scanner 用户只收到具体候选单、legs、收益风险、解释和数据新鲜度。
@@ -1644,20 +1426,20 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - [ ] API memory cache 是单实例缓存：
   - 当前证据：`server/src/lib/cache.js` 使用进程内 `Map`。
   - 当前问题：商业化后多实例部署、rate limit、stale-while-refresh、provider budget accounting 需要共享状态。
-- [x] Vite sourcemap 与前端 bundle 保护需要显式配置：
+- ✅ Vite sourcemap 与前端 bundle 保护需要显式配置：
   - 当前证据：`frontend/vite.config.js` 未显式声明 production sourcemap policy。
   - 当前问题：商业化前应明确 `build.sourcemap=false` 并在 CI 中验证。
 
 ### V3A-1 Backend Scanner Candidate Engine
 
-- [x] 新增后端 candidate engine：
+- ✅ 新增后端 candidate engine：
   - `server/src/domain/scanner/candidateEngine.cjs`
   - 说明：当前先用一个受测模块完成 immediate core；`candidateRules`、`candidateScoring`、`candidateEconomics`、`candidateDto` 的内部拆分作为后续可维护性重构，不阻塞浏览器隔离。
   - `server/src/domain/scanner/candidateRules.js`
   - `server/src/domain/scanner/candidateScoring.js`
   - `server/src/domain/scanner/candidateEconomics.js`
   - `server/src/domain/scanner/candidateDto.js`
-- [x] 从 `frontend/src/lib/scanOpportunity.js` 迁移以下逻辑到后端：
+- ✅ 从 `frontend/src/lib/scanOpportunity.js` 迁移以下逻辑到后端：
   - supported strategy list；
   - preset → DTE/Delta/spread/OI/Volume/liquidity/risk 参数映射；
   - actual contract enumeration；
@@ -1668,18 +1450,18 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - unique candidate key；
   - duplicate candidate elimination；
   - rank/sort default order。
-- [x] 前端保留内容（2026-07-17 按代码校准为完成）：
+- ✅ 前端保留内容（2026-07-17 按代码校准为完成）：
   - preset selector：`frontend/src/pages/Scan.jsx` `STRATEGY_PARAMETER_PRESETS` 只提供过滤输入默认值，不含评分权重；
   - advanced filter inputs、display labels/tooltips、selected sort state、row navigation、UI-only formatting 均在前端；
   - `toScanRow` 只做 server 字段到视图字段的重命名；`economicsSummary` 的 `* 100` 是展示用合约乘数，不是经济性计算；
   - `frontend/src/lib/scanOpportunity.js` 已删除，全前端无引用。
-- [x] 前端不再包含：
+- ✅ 前端不再包含：
   - hidden default strategy thresholds；
   - scoring weights；
   - candidate enumeration；
   - complete strategy economics engine；
   - raw option chain traversal。
-- [x] API contract（2026-07-17 按代码校准为完成，两处命名差异记录在下）：
+- ✅ API contract（2026-07-17 按代码校准为完成，两处命名差异记录在下）：
   - request：`preset` 展开为具体 filter、`strategies` → `strategyTypes[]`、advanced filters、`sort`、`limit` 均已实现于 `server/src/routes/scan.js`。
   - response：`scan.js` 在序列化前 destructure 掉 `option_contracts` 与 `payload`，浏览器只收到 candidate DTO。
   - 已包含：symbol、spot（`price_close`）、iv/hv summary、direction（trend_*）、positioning summary（GEX/wall/PCR/max pain）、strategy、legs、expiry/DTE、credit/debit、max loss、breakeven、score、freshness。
@@ -1731,17 +1513,17 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-3 Remove Raw Option Chain From Normal Scanner API
 
-- [x] 普通 scanner API 不返回 `option_contracts`。
-- [x] 新增 internal/admin chain endpoint（E12，2026-07-17 完成）：
+- ✅ 普通 scanner API 不返回 `option_contracts`。
+- ✅ 新增 internal/admin chain endpoint（E12，2026-07-17 完成）：
   - `server/src/routes/adminChain.js` → `GET /api/admin/chain/:symbol`，挂在 `/api/admin/chain`，复用 `requireAdminToken`（未配置 `ADMIN_API_TOKEN` 返回 503、无/错 token 401、`timingSafeEqual` 比较）。
   - 返回最新 snapshot metadata + 全量原始 contract（`bid/ask/greeks/oi/con_id/provider_contract_id`，limit 1-5000，默认 1000）+ **从返回行重算的诊断**：`quoted_contract_count`、`has_usable_quotes`、missing greeks/oi count+ratio、expiry 列表。诊断按响应实际内容算，不只复述 stored summary。
   - 用途：debug、coverage、data-quality inspection——普通 `/api/scan`、`/api/analyze` 已不返回完整链，运维需要一个认证入口看原始数据。
   - Tests：`server/test/adminChainRoute.test.js` 7 个（未配 token→503、错 token→401、返回原始链+重算诊断、无可用报价显式标记、missing snapshot、非法 symbol 400、limit 封顶）。
   - 验证：server 121/121（114 → 121）。真实 runtime（2026-07-17，`ADMIN_API_TOKEN` 本地注入）：无/错 token 均 401；正确 token 返回 AAPL 最新 `polygon_licensed` snapshot、66 contracts、Greeks/OI 完整但 `has_usable_quotes=false`——正是该端点要暴露的覆盖缺口（链存在但无 bid/ask）。
   - 部署前置：Railway 注入 `ADMIN_API_TOKEN`（与 E1 同一 token）。未注入时该端点 503,不影响产品路径。
-- [x] 前端 scanner row 只渲染 backend candidate DTO。
-- [x] 删除或停用前端对 `row.option_contracts` 的依赖。
-- [x] 测试必须覆盖：
+- ✅ 前端 scanner row 只渲染 backend candidate DTO。
+- ✅ 删除或停用前端对 `row.option_contracts` 的依赖。
+- ✅ 测试必须覆盖：
   - `/api/scan` response body 不包含 `option_contracts`。
   - candidate legs 均来自真实 persisted contract snapshot。
   - 不存在实际合约时不生成策略。
@@ -1750,16 +1532,16 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-4 Backend Analyze DTO（E10，后端 2026-07-17 完成；前端切流与 E11 一并）
 
-- [x] 新增后端 analyze domain：
+- ✅ 新增后端 analyze domain：
   - `server/src/domain/analyze/positioningSummary.js`：GEX/Wall 结论文案 + 结构化字段 + unavailable 原因。`compactMoney`/`isUsableGex` 逐字移植自 `analyzeData.js`，usable 情况下结论字符串与旧客户端**逐字节一致**（已交叉验证）。
   - `server/src/domain/analyze/scenarioEngine.js`：从 walls + price 生成 up/down trigger/target，含 3% 最小距离下限（防止 wall 贴现价时情景塌缩为零宽）。
   - `server/src/domain/analyze/analyzeDto.js`：组装统一 DTO；普通用户降级 provider 名，admin 保留 provenance。
   - recommendation 复用已在服务端的 `GET /api/analyze/:symbol/candidate`（不重复造引擎），DTO 以 `recommendation_ref` 指向它。
-- [x] `GET /api/analyze/:symbol/summary` 返回统一 product DTO：`data_status`（用户向标签）、`positioning`（结论/regime/walls/pcr/max_pain/gamma_flip 或 unavailable_reason）、`scenarios`、`recommendation_ref`；admin token 额外带 `provenance`。freshness 走 E5 的 `freshness.js`,与其他端点口径一致。
-- [x] provider/source 对普通用户降级：`dataStatusLabel` 输出 `数据更新于11分钟前` / `延迟行情 · 3小时前` / `刷新中` / `正在准备数据`,**不含任何 provider 名**;有测试断言 `polygon_licensed`/`ib_internal`/`tt_internal`/`tastytrade` 均不出现。
-- [x] 保留 admin/debug provenance：合法 `ADMIN_API_TOKEN` 时 DTO 带 `provenance`（source、provider_status、snapshot_ts、confidence、model_version）。
-- [x] Tests：`server/test/analyzeSummary.test.js` 11 个（compactMoney 与客户端一致、legacy model 不 usable、结论逐字节、unusable 给原因不造 wall、legacy 与 unusable 区分、情景 wall 触发 + 距离下限、缺 wall 返回 null、标签不泄露 provider、normal 隐藏/admin 保留 provenance、recommendation_ref）+ `analyzeRoute.test.js` 新增 2 个（route 组装、无 GEX 返回 unavailable）。
-- [x] 验证：server 134/134（121 → 134）。真实 runtime（2026-07-17，直连 Railway）：`GET /api/analyze/AAPL/summary` 普通用户返回 `正Gamma $348M，Call Wall $340.00 / Put Wall $330.00…`、scenarios `{340,350,330,320}`、`data_status=数据更新于2小时前`、无 provenance;带 admin token 额外返回 `provenance.source=polygon_licensed`。
+- ✅ `GET /api/analyze/:symbol/summary` 返回统一 product DTO：`data_status`（用户向标签）、`positioning`（结论/regime/walls/pcr/max_pain/gamma_flip 或 unavailable_reason）、`scenarios`、`recommendation_ref`；admin token 额外带 `provenance`。freshness 走 E5 的 `freshness.js`,与其他端点口径一致。
+- ✅ provider/source 对普通用户降级：`dataStatusLabel` 输出 `数据更新于11分钟前` / `延迟行情 · 3小时前` / `刷新中` / `正在准备数据`,**不含任何 provider 名**;有测试断言 `polygon_licensed`/`ib_internal`/`tt_internal`/`tastytrade` 均不出现。
+- ✅ 保留 admin/debug provenance：合法 `ADMIN_API_TOKEN` 时 DTO 带 `provenance`（source、provider_status、snapshot_ts、confidence、model_version）。
+- ✅ Tests：`server/test/analyzeSummary.test.js` 11 个（compactMoney 与客户端一致、legacy model 不 usable、结论逐字节、unusable 给原因不造 wall、legacy 与 unusable 区分、情景 wall 触发 + 距离下限、缺 wall 返回 null、标签不泄露 provider、normal 隐藏/admin 保留 provenance、recommendation_ref）+ `analyzeRoute.test.js` 新增 2 个（route 组装、无 GEX 返回 unavailable）。
+- ✅ 验证：server 134/134（121 → 134）。真实 runtime（2026-07-17，直连 Railway）：`GET /api/analyze/AAPL/summary` 普通用户返回 `正Gamma $348M，Call Wall $340.00 / Put Wall $330.00…`、scenarios `{340,350,330,320}`、`data_status=数据更新于2小时前`、无 provenance;带 admin token 额外返回 `provenance.source=polygon_licensed`。
 - [ ] **前端切流（与 E11 一并，受 E13 同一 visual-verification 限制）**：`analyzeData.js` 的 `applyGex` 目前同时产出图表数据（gexByStrike/walls/gexMeta）和结论/情景,二者交织在同一函数;把结论/情景改读 `/summary` 需跨 4 个调用点重构,且 Analyze 页渲染无法在本环境自动截图验证。故前端切流与 E11 stale-while-refresh 一并做,按项目既有标准（ESLint + 单测 + 生产 build + 人工浏览器验证）交付。后端逻辑已就绪且可调用——IP 保护的实质（结论逻辑离开浏览器）在服务端已成立。
 
 ### V3A-5 Auth, Entitlement, And Fail-Closed Production Gate
@@ -1787,19 +1569,19 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### ✅ V3A-6 Internal Status And Operational API Separation（E1，2026-07-17 完成）
 
-- [x] 保留 `/health` 为 minimal public health：仍只返回 `{status:'ok'}`，无 provider、job 或 row count 细节。
-- [x] 新增 `/api/admin/status/{data,options,cache}`（`server/src/routes/adminStatus.js`）：provider usage、recent failures、job backlog、scanner batch age、option snapshot coverage 与 stale/running job 诊断全部保留在此，需 `ADMIN_API_TOKEN`。
-- [x] Existing 端点分类：
+- ✅ 保留 `/health` 为 minimal public health：仍只返回 `{status:'ok'}`，无 provider、job 或 row count 细节。
+- ✅ 新增 `/api/admin/status/{data,options,cache}`（`server/src/routes/adminStatus.js`）：provider usage、recent failures、job backlog、scanner batch age、option snapshot coverage 与 stale/running job 诊断全部保留在此，需 `ADMIN_API_TOKEN`。
+- ✅ Existing 端点分类：
   - public product-safe summary：`/api/status/data` 只返回 `status`、`generated_at`、`latest_date`、`expected_count`、`expected_symbols`、`universe.scan_enabled_count`。审计前端后确认只有 `expected_symbols` 被 Scan/Weekly/Analyze 真正消费。
   - admin-only operational detail：`/api/admin/status/*` 与 `GET /api/heartbeat/status`。`POST /api/heartbeat` 继续用 collector 的 `HEARTBEAT_TOKEN`，与 `ADMIN_API_TOKEN` 是不同密钥、不同调用方。
-- [x] 实现边界：`server/src/domain/status/statusReports.js` 提供 admin/public 共用的 builder；`toPublicDataStatus()` 是降级给未认证客户端的唯一通道，移除 `source_counts`、逐 symbol `source`、`missing/stale_symbols`、`price_history` 覆盖明细与 `extra_symbols`。
-- [x] `requireAdminToken`（`server/src/lib/adminAuth.js`）fail closed：未配置 `ADMIN_API_TOKEN` 返回 503 而非放行；`crypto.timingSafeEqual` 比较；接受 `Authorization: Bearer` 或 `X-Admin-Token`。
-- [x] Tests（`server/test/adminStatusRoute.test.js`，5 个）：
+- ✅ 实现边界：`server/src/domain/status/statusReports.js` 提供 admin/public 共用的 builder；`toPublicDataStatus()` 是降级给未认证客户端的唯一通道，移除 `source_counts`、逐 symbol `source`、`missing/stale_symbols`、`price_history` 覆盖明细与 `extra_symbols`。
+- ✅ `requireAdminToken`（`server/src/lib/adminAuth.js`）fail closed：未配置 `ADMIN_API_TOKEN` 返回 503 而非放行；`crypto.timingSafeEqual` 比较；接受 `Authorization: Bearer` 或 `X-Admin-Token`。
+- ✅ Tests（`server/test/adminStatusRoute.test.js`，5 个）：
   - public status 不泄露 `tastytrade` / `polygon_licensed` / `ib_internal` / `tt_internal`，且不含 6 个运维字段。
   - admin status 未配置 token → 503；无 token / 错 token / 等长错 token → 401。
   - admin status 正确 token（两种 header）→ 通过。
   - admin report 仍保留 public 视图丢弃的运维明细。
-- [x] 验证：server 94/94 通过（89 → 94）；frontend 40/40、full ESLint 0 errors/0 warnings、Vite production build 通过（仅既有 chunk-size 警告）。前端无改动即兼容，因为它只读 `expected_symbols`。
+- ✅ 验证：server 94/94 通过（89 → 94）；frontend 40/40、full ESLint 0 errors/0 warnings、Vite production build 通过（仅既有 chunk-size 警告）。前端无改动即兼容，因为它只读 `expected_symbols`。
 - [ ] 部署前置：Railway 注入 `ADMIN_API_TOKEN`（`openssl rand -hex 32`，勿复用 `HEARTBEAT_TOKEN`）。未注入时运维端点返回 503，产品路径不受影响。
 
 ### V3A-7 Database Permission Boundary
@@ -1848,27 +1630,27 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### ✅ V3A-9 Frontend Production Hardening（E2，2026-07-17 完成）
 
-- [x] `frontend/vite.config.js` production build explicitly sets `build.sourcemap=false`。
-- [x] CI/build verification checks no `.map` files in production artifact：
+- ✅ `frontend/vite.config.js` production build explicitly sets `build.sourcemap=false`。
+- ✅ CI/build verification checks no `.map` files in production artifact：
   - `frontend/scripts/check-dist.mjs`（`npm run check:dist`）断言 artifact 本身，不信任配置：拒绝 `.map` 文件、内联 `sourceMappingURL=data:` 以及 8 类 provider secret pattern（Polygon/Clerk/Stripe/TT/DB URL/VAPID/admin token）。
   - 反向验证：注入伪造 `.map` 与伪造 `POLYGON_API_KEY` 后均正确 exit 1；干净 artifact exit 0。门必须能失败才算门。
-- [x] Remove unused mock modules from production import graph：
+- ✅ Remove unused mock modules from production import graph：
   - 全仓已无 `*mock*` 文件；`mockAnalysis` / `weeklyMock` 均已删除。
   - `Mock` 字样只出现在两个测试文件中，不进入生产 import graph。
-- [x] Security headers（`frontend/vercel.json` + `server/src/lib/securityHeaders.js`）：
+- ✅ Security headers（`frontend/vercel.json` + `server/src/lib/securityHeaders.js`）：
   - 前端：CSP、`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`、HSTS。
   - API：`default-src 'none'; frame-ancestors 'none'; base-uri 'none'`（只出 JSON，不加载任何资源、不该被 frame）、nosniff、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、`Cross-Origin-Resource-Policy: same-site`；移除 `X-Powered-By`；HSTS 仅 production。
   - Runtime 验证：`NODE_ENV=production` 起服务 curl `/health`，六个 header 全部实际下发，`X-Powered-By` 不存在。
-- [x] Do not display internal source names in normal product UI：
+- ✅ Do not display internal source names in normal product UI：
   - 审计结论：目前**没有任何** provider 名被渲染。所有 `source` 字段都只写进 view model 后无人读取，或只用于 `freshness`/`isStale` 等兄弟字段的条件判断。
   - 已移除 `Scan.jsx` 中完全无消费者的 `dataMeta`（携带 `row.source`、`row.price_source`、`row.quote_source` 三个原始 provider 字符串进入组件 props）。
-- [x] Tests:
+- ✅ Tests:
   - production build contains no source maps → `check:dist`，CI 强制。
   - `frontend/src/lib/providerDisclosure.test.js`：生产代码不得硬编码 `polygon_licensed` / `ib_internal` / `tt_internal` / `tastytrade` / `stooq`；`DataDetails` 不得读取 `data_state.source`；scanner row 不得携带原始 provider 字符串。
   - `server/test/securityHeaders.test.js`：baseline header 齐全；HSTS 仅在 production 下发。
-- [x] CI（`.github/workflows/ci.yml`，此前仓库完全没有 CI）：四个 job —— server tests、frontend lint/test/build/check:dist、collector unittest（Python 3.11，环境置空以确保不读 `.env`、不触达 provider）、`scripts/scan-secrets.sh`。
+- ✅ CI（`.github/workflows/ci.yml`，此前仓库完全没有 CI）：四个 job —— server tests、frontend lint/test/build/check:dist、collector unittest（Python 3.11，环境置空以确保不读 `.env`、不触达 provider）、`scripts/scan-secrets.sh`。
   - `scan-secrets.sh` 保留 docs 在扫描范围内（Polygon key 曾进入 Git 历史，正是文档类泄露），改为过滤占位符而不是跳过文件。反向验证：4 类真实 secret 全部捕获，`YOUR_PASSWORD@` 占位符正确放行。
-- [x] 验证：server 96/96（94 → 96）；frontend 43/43（40 → 43）；full ESLint 0 errors/0 warnings；production build 通过（仅既有 chunk-size 警告）；collector 130/130。
+- ✅ 验证：server 96/96（94 → 96）；frontend 43/43（40 → 43）；full ESLint 0 errors/0 warnings；production build 通过（仅既有 chunk-size 警告）；collector 130/130。
 
 **已知边界（不要当作已完成）**：
 
@@ -1903,11 +1685,11 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-11 Rollout Plan
 
-- [x] Step 1：后端实现 candidate engine；以迁移后的同一回归测试集验证行为一致。未新增独立 shadow compare job。
+- ✅ Step 1：后端实现 candidate engine；以迁移后的同一回归测试集验证行为一致。未新增独立 shadow compare job。
 - [ ] Step 2：写入 `scanner_candidate_snapshots`，但 `/api/scan` 暂不切流。
-- [x] Step 3：增加 API contract tests，确保 candidate DTO 完整且不返回 raw chain。
-- [x] Step 4：前端 Scanner 改读 backend candidate DTO。
-- [x] Step 5：删除前端 candidate enumeration/scoring 依赖。
+- ✅ Step 3：增加 API contract tests，确保 candidate DTO 完整且不返回 raw chain。
+- ✅ Step 4：前端 Scanner 改读 backend candidate DTO。
+- ✅ Step 5：删除前端 candidate enumeration/scoring 依赖。
 - [ ] Step 6：Analyze recommendation/narrative 迁移到 backend DTO。
 - [ ] Step 7：internal status/admin endpoint 拆分。
 - [ ] Step 8：production auth fail-closed gate。
@@ -1916,15 +1698,15 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ### V3A-12 Verification Requirements
 
-- [x] Unit tests（immediate core scope）：`server/test/candidateEngine.test.js` covers DTE/Delta/spread/OI/Volume gates、same-expiry validation、credit/debit economics、scoring order and fail-closed missing legs. Candidate dedupe persistence remains V3A-2 work.
-- [x] API tests（immediate core scope）：scanner returns candidate DTO and never returns `option_contracts`.
+- ✅ Unit tests（immediate core scope）：`server/test/candidateEngine.test.js` covers DTE/Delta/spread/OI/Volume gates、same-expiry validation、credit/debit economics、scoring order and fail-closed missing legs. Candidate dedupe persistence remains V3A-2 work.
+- ✅ API tests（immediate core scope）：scanner returns candidate DTO and never returns `option_contracts`.
 - [ ] API tests still required for stale batch behavior, missing-batch materialization and auth/entitlement paid gates.
 - [ ] Frontend tests：
   - scanner renders backend DTO；
   - sorting works after repeated clicks；
   - no raw source names in normal UI；
   - stale/queued/missing UX stays user-friendly。
-- [x] Build/security tests（immediate core scope）：no source maps in production artifact；no frontend import of candidate scoring engine。
+- ✅ Build/security tests（immediate core scope）：no source maps in production artifact；no frontend import of candidate scoring engine。
 - [ ] Build/security tests still required: no secrets in bundle；route entitlement matrix passes。
 - [ ] Runtime evidence：
   - command；
@@ -1989,3 +1771,289 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - ✅ Tests/build：server 56/56、frontend 21/21、Vite build passed
   - [ ] 提供 `STRIPE_SECRET_KEY`、`STRIPE_WEBHOOK_SECRET`、`STRIPE_PRO_PRICE_ID` 并完成 test-mode checkout/webhook/portal 验收
 - ✅ Custom domain 配置：`quantrift.io` 308 → `www.quantrift.io`，www HTTP 200
+
+---
+
+## 🗄️ 已完成归档（早期阶段，全部完成 — 内容原样保留，仅挪至文末以减少与进行中工作混杂）
+
+## ✅ Done (V1 Core)
+- ✅ Project scaffolding: React + Vite + Zustand
+- ✅ Documentation: CLAUDE.md, README.md, wiki.md, learning.md, task.md
+- ✅ Black-Scholes engine: pricing + Delta/Gamma/Theta/Vega/Rho + POP + BEP
+- ✅ Strategy data: 86 strategies, 7 categories, 9-field notes each（系统按卖方框架补强）
+- ✅ App layout: 3-column dark theme (sidebar / main / right panel)
+- ✅ Sidebar: search, category filter, strategy list, ↑↓ keyboard navigation
+- ✅ Payoff chart: Canvas, expiry + scenario lines, BEP markers, fill zones
+- ✅ Greeks six-chart: Risk/Theta/Delta/Vega/Gamma/Rho with DTE slider (4 time lines)
+- ✅ Scenario panel: spot / IV shift / rate / div / range / contracts
+- ✅ Risk metrics: Max P/L, BEP, POP, Delta, Theta, Vega, Gamma, Rho (12 metrics)
+- ✅ Leg editor: add/edit/remove legs, real-time chart update
+- ✅ Strategy notes: 9-card grid (build/when/strike/IV/DTE/delta/TP/SL/adj)
+- ✅ Unlimited profit/loss detection for naked options
+- ✅ Greeks 知识库页面（5大 Greek + 6个 Interaction 卡片）
+- ✅ 知识库扩展：GEX、Gamma Squeeze 实战案例、Vanna/Charm、OpEx Pin Risk、Vol Skew、期权卖方系统化框架
+- ✅ 期权实战交易框架记录（卖方哲学、Tastytrade 规则、Vol Risk Premium）→ learning.md
+- ✅ 数据库/基础设施决策：PostgreSQL on Railway（放弃 DuckDB）
+
+## ✅ Done (V2 Scaffold — historical, superseded by the real-data paths below)
+- ✅ React Router 多页路由：/learn、/analyze、/scan
+- ✅ NavBar 组件：页面导航
+- ✅ /learn：V1 所有组件完整保留（Learn.jsx）
+- ✅ /analyze：标的分析页的初始 UI scaffold（当时使用示例数据；现已由真实数据路径与 fail-closed 状态取代）
+- ✅ /scan：扫描器页的初始 UI scaffold（当时使用示例数据；现已由 `/api/scan` 候选 DTO 取代）
+- ✅ 历史示例数据：9 个标的；不再作为生产 Analyze/Scan 的 fallback
+- ✅ Analyze ↔ Scan 联动：扫描器点击行自动填入并分析
+
+## ✅ Done (Phase 1 — /analyze 4-Tab UI)
+- ✅ /analyze 重构为 4-tab 布局（Tab 导航 + URL 状态 ?tab=0-3）
+- ✅ Tab 1 今日概览：sector chips、3个 Q&A 卡片、conclusion card、badge 组（格局/动量/信号/GEX）、剧本 playbook、推荐卡
+- ✅ Tab 2 日内变化：Kalman Filter 趋势图 Canvas、Trend Spread 动量柱、输出 badge、3格辅助信息（趋势格局/期权结构/RVol）
+- ✅ Tab 3 数据解读：GEX by Strike Canvas（带 Put/Call Wall 竖线、当前价箭头）、3 核心数字（GEX Total/PCR/IV ATM）、Unusual Activity 列表、结论文本
+- ✅ Tab 4 信号追踪：筹码标尺 Canvas（竖向密度图）、上方压力/下方支撑卡、观察结论
+- ✅ mockAnalysis.js 扩展：9 标的增加 sector/gexTotal/gexByStrike/putWall/callWall/pcr/unusualActivity/trend/conclusion/scenarios 字段
+- ✅ Canvas 全部支持 devicePixelRatio + ResizeObserver（Retina 适配）
+
+## ✅ Done (Phase 2 — /weekly Weekly Recap UI)
+- ✅ /weekly 路由 + /weekly/:symbol 参数路由（App.jsx + NavBar）
+- ✅ Weekly.jsx：5段导航（?sec=0-4）、prev/next 按钮、进度计数；`/weekly` 默认加载 SPY，顶部保留常用标的快捷入口并支持输入任意有效标的代码。
+- ✅ Weekly 真实数据：`/api/weekly/:symbol` 返回 rolling 5-session OHLC、每日实际 GEX history、Max Pain、ΔOI 与条件剧本；`weeklyMock.js` 已删除
+- ✅ Sec1 本周定调：K线图 Canvas（5根OHLC）+ CME Gauge Canvas（半圆弧仪表盘）、定调文字
+- ✅ Sec2 Gamma迁徙：星期选择器、GEX 日内图 Canvas（随天切换）、Call/Put Wall 迁移表
+- ✅ Sec3 交割偏离：MaxPain vs FridayClose 偏离条形图、偏离 badge（中性/警告/空方）
+- ✅ Sec4 仓位变化：真实 ΔOI 日汇总；明确不将 OI 变化伪装成美元资金流或机构方向
+- ✅ Sec5 下周分叉：多头/空头剧本卡片（触发条件/价格目标/观察重点）
+- ✅ index.css：新增 ~170行 Phase 1 样式 + ~200行 Phase 2 样式（.wk-* 类）
+- ✅ /weekly 全量数据化：不再按 symbol fallback mock；每个 module 对真实字段独立 fail closed
+
+## ✅ Done (Infrastructure)
+- ✅ Git repo 初始化，branch: master
+- ✅ GitHub repo: whicter/quantrift_options-lab
+- ✅ Mac Studio: /Users/congrenhan/Documents/quantrift_options-lab（SSH push）
+- ✅ 本机: /Users/cohan/Documents/quantrift_options-lab（HTTPS pull）
+- ✅ 工作流确认：本机开发 → rsync → Mac Studio push
+- ✅ 项目结构重组：frontend/ + server/ + collector/ 单 repo
+- ✅ server/：Node.js Express API（/api/metrics, /api/scan, /health）
+- ✅ collector/：Python IV 采集脚本（auth.py + collect.py，Tastytrade → PostgreSQL）
+- ✅ 代码已同步至 GitHub（本机 → Mac Studio → push）
+- ✅ .claude/settings.json：Bash(*) 全放行白名单
+- ✅ .claude_session：session UUID 固化，`cr` 命令一键恢复对话
+
+## ✅ Done (Phase 3A — UI Polish)
+
+> 参考截图：华尔街咖啡馆 MRVL/META 盘中即时分析 + Nokia 周复盘
+> 完成于 2026-07-13
+
+- ✅ **GEX 发散柱图**：已确认 Tab3Options + Sec2Gamma 均已是从零轴向两侧延伸的发散柱，无需修改
+- ✅ **时间轴滑块（/weekly Sec2）**：Mon-Fri 按钮改为横向轨道 + 5个节点，当前日期蓝色高亮，CSS `.wk-timeline-*`
+- ✅ **底部解读条**：Tab1/2/3/4 底部均加 `InsightCarousel`，新建 `components/InsightCarousel.jsx`，静态全部展示，黄色高亮
+- ✅ **PCR 拆分（Tab3）**：mockAnalysis.js 加 `pcrVol`（9个标的），Tab3 数字格从3格扩展为4格（GEX/PCR OI/PCR Vol/IV），CSS `.az-gex-numbers-4`
+- ✅ **公司信息增强**：新建 `data/companyInfo.js`（12个标的，含中文名/英文全称/logo/tagline）；/analyze header 显示 logo + 中文名；/weekly Sec1 显示大 logo + 中文名
+- ✅ **价格区间 chip（Tab4）**：顶部显示 `$putWall ~ $callWall` 金色圆角徽章，CSS `.az-price-range-chip`
+- ✅ **Tab4 筹码标尺重做**：bar 高度改为动态适配（相邻 strike 间距一半），bars 连续填充无空隙，渐变填色 + 左边accent，形成真正的 OI 密度分布侧面图
+- ✅ **InsightCarousel 改静态**：去除自动轮播/定时器，所有条目一次性全部展示
+
+---
+
+## ✅ Phase 3B-1 — Provider-first 价格历史闭环（IB internal + Tastytrade）
+
+> 前置条件：Mac Studio PM2 直接运行当前 repo 的 collector
+> 本 phase 最初以 `PRICE_PROVIDER=ib_internal` 建立 provider-first 闭环；2026-07-15 scheduled default 已由 P0.1 切为 `polygon`，IB/Stooq 仅保留显式 fallback。yfinance 不作为默认路径。
+
+### 真实价格历史（趋势图）
+- ✅ **collector 新增每日价格采集**：symbol → 60 天 OHLCV
+  - 写入 Railway PostgreSQL 新表 `price_history (symbol, date, open, high, low, close, volume, source, created_at)`
+  - 存储位置：数据库，不放前端 mock、不放本地 CSV；collector 每天按 watchlist upsert 最近 60 个交易日
+  - ✅ `server/src/migrate.js` 新增建表语句；2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`
+  - ✅ `collector/common.py`：共享 `watchlist.txt` loader
+  - ✅ `collector/providers/base.py`：`PriceProvider` / `PriceBar` contract
+  - ✅ `collector/providers/ib_price_provider.py`：IB Gateway internal adapter，source=`ib_internal`
+  - ✅ `collector/providers/stooq_price_provider.py`：显式 dev/backfill adapter，source=`stooq`
+  - ✅ `collector/collect_prices.py`：读取 watchlist 或 `SYMBOLS` override，按 provider upsert `price_history`
+  - ✅ `collector/requirements.txt`：加入 `ibapi`
+  - ✅ `collector/.env.example`：加入 `PRICE_PROVIDER`、`PRICE_HISTORY_LIMIT`、`IB_HOST`、`IB_PORT`、`IB_PRICE_CLIENT_ID`、`IB_TIMEOUT`、`SYMBOLS`
+- ✅ **server 新增 `/api/prices/:symbol`** 端点：返回最近 60 天 OHLCV
+  - ✅ `server/src/routes/prices.js`
+  - ✅ `server/src/index.js` 挂载 `/api/prices`
+  - ✅ `frontend/src/lib/api.js` 新增 `getPrices(symbol, limit)`
+- ✅ **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
+  - KF 计算逻辑不变，输入换成真实价格数组
+  - RVol = 当日成交量 / 20日均量（从 price_history 算）
+- ✅ **Weekly Sec1 改用真实价格**：`/weekly/:symbol` 优先读取 `/api/prices/:symbol`
+  - AAPL/SPY/QQQ 仍保留完整 5-section mock/GEX/flow 结构
+  - 若有真实价格历史，则覆盖 Sec1 的 weekClose / prevClose / weekHigh / weekLow / 5日 K线
+  - GEX / flow / Max Pain 仍需授权 options data，不能用 mock 伪装成真实
+
+### 真实 IV（Tastytrade）
+- ✅ **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入
+  - Analyze.jsx 调用真实 API
+  - 真实 IV Rank / IV30 / HV / earnings 覆盖 mock shell
+- ✅ Analyze 缺失数据 UX：输入未采集标的不再提示固定 AAPL/SPY/QQQ；区分“在 watchlist 但尚未写入”和“不在 watchlist”
+- ✅ Analyze 使用真实 `/api/metrics` 覆盖 IV Rank / IV30 / HV / earnings；GEX/趋势结构暂用现有展示壳
+- ✅ Analyze price-only fallback：当 symbol 已有 `/api/prices/:symbol` 但 `/api/metrics` 缺失时，不再整页显示“暂无真实数据”
+  - 2026-07-14 case：`PLTR`
+  - Confirmed from production API：`/api/metrics?symbols=PLTR` 返回 `{}`，但 `/api/prices/PLTR?limit=3` 返回 `source=ib_internal`、`freshness=fresh`
+  - UI behavior：显示真实价格、price history 趋势、`IV Rank 暂不可用`，并明确提示 IV / GEX / Walls / option chain 暂未接入
+  - 不生成期权策略结论，不把 mock option analysis 伪装成真实数据
+- ✅ Analyze button click bug fixed：`onClick={handleAnalyze}` 会把 click event 当成 symbol 传入，导致 `.trim()` 报错；改为 `onClick={() => handleAnalyze()}` 并防御非字符串参数
+  - 2026-07-14 local UI smoke verified：输入 `AAPL` 点击分析显示 IVR；输入 `PLTR` 点击分析显示 price-only 结果
+
+### 真实 RVol（price_history 量能）
+- ✅ 从 `price_history` 的 volume 字段计算 RVol，替换 Tab2 中的 mock RVol（0.2x）
+
+### Phase 3B-1 验证记录
+- ✅ Python syntax verified：`collector/venv311/bin/python -m py_compile collector/collect.py collector/collect_prices.py collector/common.py collector/providers/base.py collector/providers/ib_price_provider.py collector/providers/stooq_price_provider.py`
+- ✅ Node syntax verified：`node --check server/src/index.js`、`node --check server/src/routes/prices.js`
+- ✅ Frontend build verified：`npm run build` in `frontend/`
+- ✅ Collector runtime verified with IB Gateway：`SYMBOLS=AAPL collector/venv311/bin/python collector/collect_prices.py`，写入 60 rows，source=`ib_internal`
+- ✅ Database verified：AAPL `price_history` = 60 rows，date range 2026-04-17 → 2026-07-14，source=`ib_internal`
+- ✅ Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 3 rows，source=`ib_internal`
+- ✅ Production API verified after deploy：2026-07-15 `GET /api/prices/AAPL?limit=3` 返回 HTTP 200、`freshness=fresh`
+
+---
+
+## ✅ Phase 3B-2 — 价格历史生产化与 UI 数据状态
+
+### Collector 调度
+- ✅ 在 Mac Studio 安装 `collect_prices.py` 定时任务
+  - 当前实现：PM2 直接运行 `/Users/congrenhan/Documents/quantrift_options-lab/collector`，不维护第二份 runtime，不需要同步代码。
+  - PM2 config：`collector/ecosystem.config.cjs`
+  - App：`quantrift-options-prices`
+  - Script：repo 内 `collector/collect_prices.py`
+  - Python：repo 内 `collector/venv311/bin/python`
+  - Schedule：Monday-Friday 13:35 PT / 16:35 ET
+  - Environment：直接读取 repo 内 `collector/.env`
+  - 旧 `com.quantrift.collect-prices` LaunchAgent、plist 和 `/Users/congrenhan/.quantrift_options_collector` 运行副本已停止并删除。
+  - 启动命令：`pm2 start collector/ecosystem.config.cjs && pm2 save`
+  - 验证命令：`pm2 status quantrift-options-prices`
+- ✅ 跑完整 watchlist 一次 `collect_prices.py`
+  - 成功 symbols 数量：67 / 67
+  - 写入 rows：4020
+  - 失败 symbols：无
+  - 失败分类：无 IB contract 解析失败、无权限、pacing/timeout、symbol 格式问题
+  - Railway DB 验证：`price_history` source=`ib_internal`，date range 2026-04-17 → 2026-07-14，所有 symbol 均 >=60 rows
+- ✅ 为 `BRK.B` 等特殊 ticker 建立 symbol normalization 规则
+  - 输入 symbol
+  - IB contract symbol/localSymbol
+  - UI display symbol
+  - DB canonical symbol
+  - 规则：DB/UI canonical symbol 保持原样；IB `Contract.symbol` 将 `.` 映射为空格，例如 `BRK.B` → `BRK B`
+
+### Backend/API
+- ✅ 部署 server 后验证生产 `/api/prices/:symbol`
+  - `curl -f "https://quantriftoptions-lab-production.up.railway.app/api/prices/AAPL?limit=3"`
+  - 返回字段必须包括 `symbol`、`source`、`count`、`latest_date`、`prices[]`
+  - 2026-07-14 验证结果：HTTP 200，返回 `source=ib_internal`、`count=3`、`freshness=fresh`、`is_stale=false`
+- ✅ `/api/status/data` 增加 price coverage 细节
+  - watchlist 总数
+  - `price_history` covered symbols
+  - missing price symbols
+  - stale price symbols
+  - latest price date
+  - source distribution
+  - 2026-07-14 生产验证：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
+- ✅ `/api/prices/:symbol` 增加 freshness 字段
+  - `snapshot_ts` 或 `latest_date`
+  - `freshness`
+  - `is_stale`
+  - `source`
+
+### Frontend
+- ✅ Analyze header 显示价格数据状态
+  - `price ib_internal 2026-07-14`
+  - stale 时显示 `price stale`
+  - missing 时不显示真实价格标记
+- ✅ Tab2Trend 增加真实/示例走势标识
+  - real：`price_history`
+  - fallback：`示例走势`
+  - 不把 fallback 说成真实数据
+- ✅ Weekly Sec1 增加价格来源标识
+  - real：显示 `price_history source + latest_date`
+  - fallback：显示当前为示例 weekly shell
+- ✅ Scan 结果增加 price coverage 状态
+  - 已有 price_history
+  - 缺失 price_history
+  - stale price_history
+
+### Verification
+- ✅ Syntax verified：Python collector files
+- ✅ Syntax verified：Node server routes
+- ✅ Frontend build verified：`npm run build`
+- ✅ Collector runtime verified：完整 watchlist run
+- ✅ Historical LaunchAgent run verified on 2026-07-14；current runtime has migrated to PM2 direct-repository execution（见 Phase 3D-2B）
+- ✅ Local API verified：`curl -f "http://localhost:3002/api/prices/AAPL?limit=3"` 返回 `freshness=fresh`、`is_stale=false`
+- ✅ Local API verified：`curl -f "http://localhost:3002/api/status/data"` 返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
+- ✅ Production API verified：Railway `/api/prices/AAPL?limit=3`
+  - 2026-07-14 结果：HTTP 200，`freshness=fresh`、`is_stale=false`
+- ✅ Production status verified：Railway `/api/status/data`
+  - 2026-07-14 结果：`expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`
+- ✅ UI verified：`/analyze?symbol=AAPL&tab=1` 显示真实趋势（Playwright 自动化因环境报错未完成，功能已在生产手动验证）
+- ✅ UI verified：`/weekly/AAPL?sec=0` 显示真实 5日 OHLCV（同上）
+
+---
+
+## ✅ Phase 3B-3 — Scanner 接入真实 IV + Price Coverage
+
+### Backend/API
+- ✅ `/api/scan` 限定 collector watchlist
+  - 使用 `server/watchlist.txt` fallback，避免 Railway server-only 部署读不到 `collector/watchlist.txt`
+  - 不再扫描 `iv_history` 中的 extra symbols
+- ✅ `/api/scan` 返回 latest `price_history` 字段
+  - `price_close`
+  - `price_date`
+  - `price_source`
+  - `price_status`
+- ✅ `/api/scan` 继续按真实 IV 数据筛选
+  - `minIvr`
+  - `maxIvr`
+  - `minIvHv`
+  - `limit`
+
+### Frontend
+- ✅ `frontend/src/lib/api.js` 新增 `getScan()`
+- ✅ `Scan.jsx` 从 mock scanner 改为调用真实 `/api/scan`
+- ✅ Scanner watchlist 显示来自 `/api/status/data`
+- ✅ Scanner table 使用真实 price close 和 price coverage status
+- ✅ Strategy filter 仍在前端基于 current recommendation 过滤
+- ✅ Direction column 接入真实 `price_history` 派生趋势，不再显示 `待接入趋势`
+  - `collector/materialize_scan.py` 从 `price_history` 计算 trend_score、trend_label、trend_signal、5D change、RSI14、MA20/50/200
+  - `/api/scan` 从 `scanner_results_snapshots` 返回趋势字段，前端只读 materialized result
+
+### Current Scanner Logic
+- ✅ 当前 scanner 是 IV + price trend + GEX/OI snapshot 版，不是完整 options chain selector
+  - `IV Rank >= 50` + bullish trend：`Bull Put Spread`
+  - `IV Rank >= 50` + bearish trend：`Bear Call Spread`
+  - `IV Rank >= 50` + neutral/missing trend：`Iron Condor`
+  - `30 <= IV Rank < 50`：默认 `Iron Condor`，小仓位/定义风险
+  - `IV Rank < 30`：默认 `Long Straddle`，只表示低 IV 适合观察买方波动结构，不代表已有事件催化
+  - Historical behavior：POP 曾为规则占位值，不来自真实 option chain；Phase 3H-1 已从 scanner 表格删除该字段，改为明确标注的候选质量“机会分”
+- ✅ 已写入文档：`docs/wiki.md`、`docs/learning.md`
+
+### Verification
+- ✅ Node syntax verified：`node --check server/src/routes/scan.js`
+- ✅ Frontend build verified：`npm run build`
+- ✅ Local API verified：`curl -f "http://localhost:3002/api/scan?minIvr=0&maxIvr=100&limit=10"`
+  - 返回真实 Tastytrade IV rows
+  - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
+  - 结果限定在 watchlist 内
+- ✅ Production API verified after deploy：Railway `/api/scan?minIvr=0&maxIvr=100&limit=5`
+  - 2026-07-14 verified HTTP 200
+  - 返回 rows 限定在 watchlist 内，不再包含 extra symbols such as `NFLX`
+  - 返回 `price_close` / `price_source=ib_internal` / `price_status=covered`
+- ✅ UI verified：`/scan` 点击立即扫描显示真实 rows
+  - 2026-07-14 Playwright Core + local Chrome smoke verified `https://www.quantrift.io/scan`
+  - 操作：打开 `/scan` → 点击 `立即扫描`
+  - 页面显示 `找到 8 个标的`，可见 rows 包含 `AMD` / `META` / `GOOGL`
+  - `/api/scan` response row count = 8，payload 包含 `source=tastytrade`、`price_source=ib_internal`、`price_status=covered`
+
+---
+
+## 📋 V1 Backlog (Polish)
+- ✅ Strategy comparison mode (side by side, 2 strategies)（策略库可选择任意两个策略，并排展示方向、风险级别、DTE、IV、TP/SL 与实际 legs；不会改变当前主策略）
+- ✅ IV Rank badge per strategy in sidebar (Low/Med/High indicator)（根据每个策略 notes 中首个明确 IV 条件标识 `IV LOW` / `IV MED` / `IV HIGH`；表示适用波动率环境，不是实时标的 IV Rank）
+- ✅ Probability cone on payoff chart (shaded distribution band)（Payoff 图按策略腿加权 IV 和最长 DTE 画出 68% 对数正态终值价格区间；该蓝色区间是价格分布，不是 POP）
+- ✅ Export payoff chart as PNG（`PayoffChart` 导出当前 canvas 为命名 PNG；`canvasExport` 单元测试覆盖 PNG mime、下载文件名和缺失 canvas）
+- ✅ Mobile-responsive layout (stack panels vertically)（策略库在 ≤900px 将 sidebar / 主内容 / 参数面板垂直排列；≤560px 将图表、notes、Greeks 网格收为单列并避免标题与操作按钮溢出）
+- ✅ Payoff chart: show multiple DTE snapshots (not just current + expiry)（自动生成 75% / 50% / 25% 剩余 DTE 曲线；跨期结构按每条 leg 的实际剩余时间定价）
+- ✅ Add 10 more strategies (exotic, FX, index-specific)（策略库增至 88 个模板：Call/Put Ladder、比例日历、Calendar Condor、Double Diagonal Condor、FX Risk Reversal / Seagull、Index Iron Condor / Broken-Wing Butterfly；catalog 测试校验数量、ID 唯一和新增模板存在）
+- ✅ 策略 notes 进一步标准化（所有 88 个策略的 `iv` / `dte` / `tp` / `sl` 均展示至少一个数字阈值；模板本身已有数字时保留原规则，缺失项补入统一的 IV Rank 30-60、30-60 DTE/45 DTE、50% 止盈和 50% 最大风险止损基准；单元测试逐策略校验）
+
