@@ -5,6 +5,7 @@ import os
 import time
 
 import materialize_scan
+import materialize_scanner_candidates
 import reconcile_gex_models
 import run_refresh_worker
 import schedule_option_refresh
@@ -70,6 +71,10 @@ def run() -> None:
                 evaluate_scanner_alerts.run()
             except Exception:
                 log.exception('scanner materialization cycle failed')
+            try:
+                materialize_scanner_candidates.run()
+            except Exception:
+                log.exception('scanner candidate materialization cycle failed')
             next_scan_at = started_at + SCAN_SECONDS
 
         if HEALTH_CHECK_ENABLED and started_at >= next_health_check_at:

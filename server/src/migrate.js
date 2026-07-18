@@ -667,6 +667,52 @@ async function migrate() {
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (provider, scope)
     );
+
+    -- Pre-computed scanner candidate batches. The candidate engine runs in the
+    -- materializer, not in the request path, so no product API needs the raw
+    -- option chain to produce actionable setups. One batch per materialization
+    -- run; readers serve the latest 'completed' batch. Additive only -- does not
+    -- replace scanner_results_snapshots (which still carries positioning rows).
+    CREATE TABLE IF NOT EXISTS scanner_candidate_batches (
+      id                     BIGSERIAL   PRIMARY KEY,
+      scan_key               TEXT        NOT NULL DEFAULT 'watchlist_v1',
+      algorithm_version      TEXT        NOT NULL,
+      source_snapshot_cutoff TIMESTAMPTZ,
+      universe_count         INTEGER     NOT NULL DEFAULT 0,
+      candidate_count        INTEGER     NOT NULL DEFAULT 0,
+      started_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at           TIMESTAMPTZ,
+      status                 TEXT        NOT NULL DEFAULT 'running',
+      error                  TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS scanner_candidate_batches_key_status_completed
+      ON scanner_candidate_batches (scan_key, status, completed_at DESC NULLS LAST);
+
+    CREATE TABLE IF NOT EXISTS scanner_candidate_snapshots (
+      id              BIGSERIAL   PRIMARY KEY,
+      batch_id        BIGINT      NOT NULL REFERENCES scanner_candidate_batches(id) ON DELETE CASCADE,
+      candidate_key   TEXT        NOT NULL,
+      symbol          TEXT        NOT NULL,
+      strategy        TEXT        NOT NULL,
+      strategy_family TEXT,
+      expiry          DATE,
+      dte             INTEGER,
+      spot            NUMERIC(14,4),
+      score           NUMERIC(10,2),
+      rank            INTEGER,
+      legs_json       JSONB       NOT NULL DEFAULT '[]',
+      economics_json  JSONB       NOT NULL DEFAULT '{}',
+      signals_json    JSONB       NOT NULL DEFAULT '{}',
+      freshness_json  JSONB       NOT NULL DEFAULT '{}',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (batch_id, candidate_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS scanner_candidate_snapshots_batch_rank
+      ON scanner_candidate_snapshots (batch_id, rank);
+    CREATE INDEX IF NOT EXISTS scanner_candidate_snapshots_batch_symbol
+      ON scanner_candidate_snapshots (batch_id, symbol);
   `);
 
   console.log('Migrations complete.');

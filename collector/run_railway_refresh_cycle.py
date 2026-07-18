@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import materialize_scan
+import materialize_scanner_candidates
 import run_refresh_worker
 import schedule_option_refresh
 
@@ -23,6 +24,10 @@ def run() -> None:
     log.info('Scheduled refresh work: %s', scheduled)
     run_refresh_worker.run()
     materialize_scan.run()
+    try:
+        materialize_scanner_candidates.run()
+    except Exception:
+        log.exception('scanner candidate materialization failed')
     log.info('=== Railway option refresh cycle complete ===')
 
 

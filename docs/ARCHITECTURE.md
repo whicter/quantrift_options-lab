@@ -174,6 +174,22 @@ The default `不限` selector applies no hidden preset: it enumerates qualifying
 
 Vite production configuration explicitly sets `build.sourcemap=false`. Verification for commit `9fd90e9`: server tests 82/82, frontend tests 36/36, production build passed, and no `.map` file existed in `frontend/dist`.
 
+### Materialized Candidate Batches (V3A-2, 2026-07-17)
+
+The candidate engine can also run **ahead of** the request path so no product API needs the raw chain to produce actionable setups. `server/src/jobs/materializeScannerCandidates.js` reads the latest positioning rows plus each symbol's latest usable quoted chain, runs `buildActionableSetups` per symbol, ranks all setups globally by score, dedupes by `candidate_key` (`symbol|strategy|legs`), and writes:
+
+```text
+scanner_candidate_batches   (id, scan_key, algorithm_version, source_snapshot_cutoff,
+                             universe_count, candidate_count, started_at, completed_at, status, error)
+scanner_candidate_snapshots (batch_id FK, candidate_key, symbol, strategy, strategy_family,
+                             expiry, dte, spot, score, rank,
+                             legs_json, economics_json, signals_json, freshness_json)
+```
+
+Both tables are **additive** — they do not replace `scanner_results_snapshots`, which still carries positioning rows. `runMaterialization` writes batch(`running`) → candidate rows → batch(`completed`); on error it marks `failed`. Readers serve only `completed` batches, so a partially written run is never visible. `ALGORITHM_VERSION` (`candidate-v1`) must increase whenever enumeration/scoring/dedupe changes, so a stored batch can be told apart from one built by a different algorithm.
+
+`GET /api/v1/scanner/candidates` serves the latest `completed` batch for a `scan_key`, returns only selected legs (never the raw chain), flags a batch older than `SCANNER_CANDIDATE_STALE_MINUTES` (default 15) as stale, and on stale/missing enqueues a `scanner_candidate_materialize` job (`__SCAN__` sentinel) without a synchronous provider fetch. `/api/scan` is intentionally **not** switched to this batch yet (rollout Step 2): this is additive and reversible. The collector materializes a batch every scan cycle through `collector/materialize_scanner_candidates.py` — a thin wrapper that shells out to `node server/src/jobs/materializeScannerCandidates.js` so the candidate engine stays one JS source rather than a drifting Python re-implementation. It is wired into `run_collector_daemon.py` and `run_railway_refresh_cycle.py` right after `materialize_scan.run()`, and degrades safely (node or `DATABASE_URL` absent → warn and skip). The Railway `python:3.11-slim` cron has no node and skips it; the node-equipped Mac Studio daemon is the runtime that writes batches (every `SCAN_MATERIALIZE_SECONDS`, default 300s). Verification: server `node --test` 148/148; collector `unittest` 194/194; migration + two real batches (81 symbols, 4768 candidates) confirmed against production Railway PostgreSQL. Remaining follow-up: the frontend cutover to `/api/v1/scanner/candidates`.
+
 API response 应统一携带数据状态：
 
 ```json
@@ -482,6 +498,7 @@ Railway
 | GET | `/health` | 服务存活检查 |
 | GET | `/api/metrics` | 查询一个或多个 symbol 的指标 |
 | GET | `/api/scan` | 按 IV Rank 等条件扫描 |
+| GET | `/api/v1/scanner/candidates` | 读取最新 `completed` candidate batch（V3A-2 预物化），只出选中腿，不跑引擎、不出原始链 |
 | GET | `/api/status/data` | 公开的产品安全摘要：symbol 注册表、整体 ok/degraded 与 latest_date |
 | GET | `/api/admin/status/data` | 运维明细：source 分布、逐 symbol provenance、缺失/stale 标的、extra symbols |
 | GET | `/api/admin/status/options` | 运维明细：option snapshot 覆盖率、completeness、provider_status |
