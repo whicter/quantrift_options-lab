@@ -1666,14 +1666,14 @@ Alerting is observational：它不暂停 collector、不改变 provider fallback
 | Scanner 趋势信号 | `materialize_scan.py` 计算 trend_score、RSI14、MA20/50/200 |
 | S/R 支撑压力（已实现） | `/api/sr/:symbol` 从最多 250 天 OHLCV 计算 2-bar pivots 并按 ±1% 聚合 zone |
 | Focus Score（已实现） | MA20/50/200 + RSI14 + 5日动量 + 完整日线 RVol 组成 0–100 评分 |
-| Volume Profile（已实现） | `/api/vp/:symbol` 只读 regular-session `price_history_30m`；典型价 `(H+L+C)/3` 分桶累加 volume，返回 price nodes 与前 5 个高成交节点 |
+| Volume Profile（已实现） | `/api/vp/:symbol` 的 `30m` 模式只读 regular-session `price_history_30m`；`1d` 模式读取最多 250 根 `price_history`，两者均以典型价 `(H+L+C)/3` 分桶累加 volume，返回 nodes、前 5 个高成交节点、POC、70% Value Area 与 LVN |
 | OBV（已实现） | `/api/sr/:symbol` 基于日线 close 与 volume 计算累计 OBV；上涨日加量、下跌日减量、收平不变，返回完整序列与 20 日方向 |
 | MFI-14（已实现） | `/api/sr/:symbol` 基于 15 根日线的典型价和 volume 计算 14 期 Money Flow Index；返回 0–100 与 overbought/oversold/neutral |
 | Chain stats（已实现） | `/api/chain/stats/:symbol` 从最新含 IV 的真实 contract snapshot 派生 skew 和 ATM term structure |
 
 ### 15.8 Analyze derived-data path（2026-07-15）
 
-Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R（含 Focus/OBV/MFI）、Volume Profile 和 chain stats。S/R/Focus/OBV/MFI 只读取 `price_history`；Volume Profile 只读取 regular-session `price_history_30m`，默认近 20 天、40 个价格桶；IV skew/term structure 只读取 `option_contract_snapshots` 中实际存在且 `iv > 0` 的合约。PostgreSQL `DATE` 在 API 边界统一序列化为 `YYYY-MM-DD`，DTE/当日完整性使用 `America/New_York`。
+Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R（含 Focus/OBV/MFI）、Volume Profile 和 chain stats。S/R/Focus/OBV/MFI 只读取 `price_history`；Volume Profile 的 `30m` 模式读取 regular-session `price_history_30m`（默认近 20 天），`1d` 模式读取最多 250 根 `price_history`，两种模式默认 40 个价格桶，并返回 POC、70% Value Area 与 LVN；IV skew/term structure 只读取 `option_contract_snapshots` 中实际存在且 `iv > 0` 的合约。PostgreSQL `DATE` 在 API 边界统一序列化为 `YYYY-MM-DD`，DTE/当日完整性使用 `America/New_York`。
 
 前端不再生成示例价格序列。Analyze 的推荐腿也不再由 spot、wall 与固定 width 合成；真实 candidate 尚未附加时 fail closed。该 section 无 schema migration，回滚仅需回滚对应 commit。
 | HV 自算 | stddev(log_return) × √252，替代 Tastytrade HV 字段 |

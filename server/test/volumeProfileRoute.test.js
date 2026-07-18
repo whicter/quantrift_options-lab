@@ -34,6 +34,9 @@ test('volume profile aggregates real bar volume into bounded price nodes', () =>
   assert.equal(profile.nodes.reduce((sum, node) => sum + node.volume, 0), 600);
   assert.equal(profile.high_volume_nodes[0].volume, 300);
   assert.equal(profile.bin_count, 4);
+  assert.equal(profile.poc.volume, 300);
+  assert.equal(profile.value_area.target_pct, 70);
+  assert.ok(profile.value_area.volume_pct >= 70);
 });
 
 test('volume profile fails closed for missing volume bars', () => {
@@ -52,6 +55,18 @@ test('route uses 30m history with bounded days and bins', async () => {
   assert.equal(res.body.days, 20);
   assert.match(queries.at(-1).sql, /FROM price_history_30m/);
   assert.deepEqual(queries.at(-1).values, ['AAPL', 20]);
+});
+
+test('daily profile defaults to 250 daily bars and identifies its source', async () => {
+  queryResults.push({ rows: bars() });
+  const res = responseRecorder();
+  await sendVolumeProfile({ params: { symbol: 'aapl' }, query: { interval: '1d', bins: '40' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.interval, '1d');
+  assert.equal(res.body.days, 250);
+  assert.equal(res.body.source, 'price_history');
+  assert.match(queries.at(-1).sql, /FROM price_history/);
+  assert.deepEqual(queries.at(-1).values, ['AAPL', 250]);
 });
 
 test('route rejects unsupported profile parameters', async () => {

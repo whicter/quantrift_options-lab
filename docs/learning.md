@@ -503,7 +503,7 @@ GEX compute job：
 - **当日日线 volume 不是完整日成交量**：收盘前将它与过去完整日均量计算 RVol，会得到极低假信号。纽约当前交易日的 daily RVol 保持 null；30M 参与度应在独立 intraday 信号中计算。
 - **最新 chain snapshot 未必适合所有派生指标**：chain stats 应选择最新“至少有真实 IV contract”的 snapshot，而不是无条件最新 row；source/time/freshness 跟随被选择的 snapshot。
 - **S/R zone 与 Wall 是不同证据**：S/R 来自历史价格 pivot；Call/Put Wall 来自期权持仓结构。UI 可以并列比较，但不能合并成同一来源或互相冒充。
-- **Volume Profile 不是逐笔成交归因**：当前实现将每根 30M bar 的典型价 `(H+L+C)/3` 归入一个价格桶并累加该 bar 全部成交量。因此它表示窗口内的近似成交密集价位，不能被表述为精确的逐价逐笔 volume，也不能自动等同于支撑、压力或期权 Wall。
+- **Volume Profile 不是逐笔成交归因**：当前实现将每根 30M 或日线 bar 的典型价 `(H+L+C)/3` 归入一个价格桶并累加该 bar 全部成交量。因此 POC、70% Value Area 和 LVN 都是该聚合方法下的近似成交结构，不能被表述为精确的逐价逐笔 volume，也不能自动等同于支撑、压力或期权 Wall。
 - **OBV 是方向性累计，不是资金流金额**：收盘高于前一日时加上该日成交量，低于前一日时减去，收平时不变。它适合用来检查价格方向和成交量是否同步；不能据此推断买方金额、卖方金额、机构持仓或逐笔订单方向。
 - **MFI 的“资金流”是技术指标口径**：它由典型价和成交量的正负变化得出，并不追踪现金从谁流向谁。高于 80 或低于 20 只说明过去 14 个变化中的价格-成交量关系极端；应与 RSI、趋势和结构位共同判断，不能自动视为反转交易信号。
 - **没有真实合约候选就不显示策略腿**：用 spot ± width 或 wall ± width 合成腿会制造不存在、无报价或错 expiry 的订单。Analyze 只展示结构数据，具体腿必须来自 scanner/contract candidate attachment。

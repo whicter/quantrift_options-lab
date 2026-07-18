@@ -14,6 +14,56 @@ function parseBoundedInteger(value, fallback, minimum, maximum) {
   return parsed;
 }
 
+function percentile(values, quantile) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * quantile;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  return sorted[lower] + ((sorted[upper] - sorted[lower]) * (index - lower));
+}
+
+function deriveValueArea(nodes, poc, targetPct = 70) {
+  if (!nodes.length || !poc) return null;
+  const totalVolume = nodes.reduce((sum, node) => sum + node.volume, 0);
+  const targetVolume = totalVolume * (targetPct / 100);
+  const pocIndex = nodes.findIndex(node => node === poc);
+  let left = pocIndex;
+  let right = pocIndex;
+  let volume = poc.volume;
+
+  while (volume < targetVolume && (left > 0 || right < nodes.length - 1)) {
+    const below = left > 0 ? nodes[left - 1] : null;
+    const above = right < nodes.length - 1 ? nodes[right + 1] : null;
+    if (!above || (below && below.volume >= above.volume)) {
+      left -= 1;
+      volume += below.volume;
+    } else {
+      right += 1;
+      volume += above.volume;
+    }
+  }
+  return {
+    low: nodes[left].low,
+    high: nodes[right].high,
+    volume,
+    volume_pct: totalVolume ? (volume / totalVolume) * 100 : 0,
+    target_pct: targetPct,
+    node_count: right - left + 1,
+  };
+}
+
+function deriveLowVolumeNodes(nodes) {
+  if (nodes.length < 3) return [];
+  const threshold = percentile(nodes.map(node => node.volume), 0.25);
+  return nodes.filter((node, index) => {
+    if (index === 0 || index === nodes.length - 1) return false;
+    return node.volume <= threshold
+      && node.volume <= nodes[index - 1].volume
+      && node.volume <= nodes[index + 1].volume;
+  });
+}
+
 function deriveVolumeProfile(rows, bins = 40) {
   const bars = rows.map(row => ({
     high: Number(row.high),
@@ -49,6 +99,8 @@ function deriveVolumeProfile(rows, bins = 40) {
     volume_pct: totalVolume ? (volume / totalVolume) * 100 : 0,
   })).filter(node => node.volume > 0);
 
+  const orderedNodes = [...nodes].sort((a, b) => a.price - b.price);
+  const poc = [...orderedNodes].sort((a, b) => b.volume - a.volume || a.price - b.price)[0] || null;
   return {
     status: 'ready',
     bar_count: bars.length,
@@ -56,32 +108,44 @@ function deriveVolumeProfile(rows, bins = 40) {
     price_high: high,
     bin_count: bins,
     total_volume: totalVolume,
-    nodes,
-    high_volume_nodes: [...nodes].sort((a, b) => b.volume - a.volume || a.price - b.price).slice(0, 5),
+    nodes: orderedNodes,
+    high_volume_nodes: [...orderedNodes].sort((a, b) => b.volume - a.volume || a.price - b.price).slice(0, 5),
+    poc,
+    value_area: deriveValueArea(orderedNodes, poc),
+    low_volume_nodes: deriveLowVolumeNodes(orderedNodes),
   };
 }
 
 async function sendVolumeProfile(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   const interval = String(req.query.interval || '30m').trim().toLowerCase();
-  const days = parseBoundedInteger(req.query.days, 20, 1, 60);
+  const defaultDays = interval === '1d' ? 250 : 20;
+  const days = parseBoundedInteger(req.query.days, defaultDays, 1, interval === '1d' ? 250 : 60);
   const bins = parseBoundedInteger(req.query.bins, 40, 10, 80);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
-  if (interval !== '30m') return res.status(400).json({ error: 'invalid interval' });
+  if (!['30m', '1d'].includes(interval)) return res.status(400).json({ error: 'invalid interval' });
   if (days == null) return res.status(400).json({ error: 'invalid days' });
   if (bins == null) return res.status(400).json({ error: 'invalid bins' });
 
   try {
-    const { rows } = await pool.query(`SELECT high, low, close, volume
-      FROM price_history_30m
-      WHERE symbol = $1
-        AND bar_ts >= NOW() - ($2::int * INTERVAL '1 day')
-        AND (bar_ts AT TIME ZONE 'America/New_York')::time >= TIME '09:30'
-        AND (bar_ts AT TIME ZONE 'America/New_York')::time < TIME '16:00'
-      ORDER BY bar_ts ASC`, [symbol, days]);
+    const query = interval === '1d'
+      ? `SELECT high, low, close, volume
+           FROM price_history
+           WHERE symbol = $1
+           ORDER BY date DESC
+           LIMIT $2`
+      : `SELECT high, low, close, volume
+           FROM price_history_30m
+           WHERE symbol = $1
+             AND bar_ts >= NOW() - ($2::int * INTERVAL '1 day')
+             AND (bar_ts AT TIME ZONE 'America/New_York')::time >= TIME '09:30'
+             AND (bar_ts AT TIME ZONE 'America/New_York')::time < TIME '16:00'
+           ORDER BY bar_ts ASC`;
+    const { rows: rawRows } = await pool.query(query, [symbol, days]);
+    const rows = interval === '1d' ? [...rawRows].reverse() : rawRows;
     const profile = deriveVolumeProfile(rows, bins);
-    return res.json({ symbol, interval, days, source: 'price_history_30m', ...profile });
+    return res.json({ symbol, interval, days, source: interval === '1d' ? 'price_history' : 'price_history_30m', ...profile });
   } catch (err) {
     console.error('GET /api/vp/:symbol error:', err.message);
     return res.status(500).json({ error: 'database error' });
@@ -90,4 +154,4 @@ async function sendVolumeProfile(req, res) {
 
 router.get('/:symbol', sendVolumeProfile);
 
-module.exports = { router, sendVolumeProfile, deriveVolumeProfile };
+module.exports = { router, sendVolumeProfile, deriveVolumeProfile, deriveValueArea, deriveLowVolumeNodes };

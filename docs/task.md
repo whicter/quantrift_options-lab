@@ -184,7 +184,7 @@
 架构:合成层放 `server/src/domain/confluence/`(纯函数+单测),route 只做 IO——与 `analyzeDto`/`positioningSummary` 同模式,后续可物化进 scanner。
 
 **分阶段计划**:
-- [ ] **CF-1 基础指标**(纯函数+单测,无 IO):`server/src/domain/confluence/indicators.js`——ATR14(Wilder)、EMA20/50/100、SMA200、Fib 层位(23.6/38.2/50/61.8/78.6+ext 127/161.8);扩展 `deriveVolumeProfile` 加 POC/Value Area(70%)/LVN(additive 字段);新增日线 VP(250 天)。
+- [x] **CF-1 基础指标**(纯函数+单测,无 IO):`server/src/domain/confluence/indicators.js`——ATR14(Wilder)、EMA20/50/100、SMA200、Fib 层位(23.6/38.2/50/61.8/78.6+ext 127/161.8);扩展 `deriveVolumeProfile` 加 POC/Value Area(70%)/LVN(additive 字段);新增日线 VP(250 天)。**验证**：`cd server && npm test`（163 passed）；本地 `GET /api/vp/SPY?interval=1d&bins=40` 返回 250 日、POC、70.32% Value Area 与 LVN。
 - [ ] **CF-2 合成引擎**:`server/src/domain/confluence/engine.js`——六路信号收集 → ATR 半径聚类 Zone → `CONFLUENCE_WEIGHTS_V1` 打分 → reasons → 分侧;挂 `GET /api/analyze/:symbol/confluence`。
 - [ ] **CF-3 G5 回放验证 harness(先于 UI)**:历史回放脚本——逐日用"截至当日"数据算 Zone(gamma 置零),指标 = Zone 触及后 5 日未收破"守住率" + 反转点召回,对照单点 S/R ±0.5% 带。**验收线:相对提升 ≥15% 才进 UI**;不达标则 Zone 仅留 API 供研究 repo 调用,不动生产 UI。
 - [ ] **CF-4 UI 融合(G5 通过后)**:上表前三个接入点。
@@ -2140,4 +2140,3 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - ✅ Payoff chart: show multiple DTE snapshots (not just current + expiry)（自动生成 75% / 50% / 25% 剩余 DTE 曲线；跨期结构按每条 leg 的实际剩余时间定价）
 - ✅ Add 10 more strategies (exotic, FX, index-specific)（策略库增至 88 个模板：Call/Put Ladder、比例日历、Calendar Condor、Double Diagonal Condor、FX Risk Reversal / Seagull、Index Iron Condor / Broken-Wing Butterfly；catalog 测试校验数量、ID 唯一和新增模板存在）
 - ✅ 策略 notes 进一步标准化（所有 88 个策略的 `iv` / `dte` / `tp` / `sl` 均展示至少一个数字阈值；模板本身已有数字时保留原规则，缺失项补入统一的 IV Rank 30-60、30-60 DTE/45 DTE、50% 止盈和 50% 最大风险止损基准；单元测试逐策略校验）
-
