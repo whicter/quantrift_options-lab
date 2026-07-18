@@ -29,6 +29,26 @@ Configuration: `min_history=90`, `horizon_days=5`, daily OHLCV from the configur
 - G5 threshold: `>=15%` composite lift **and** both component metrics improve.
 - Gate: **failed**.
 
+## Methodological Caveats (recorded 2026-07-18 post-review; must be fixed before any v2 rerun)
+
+Two geometry confounds are inherent to this zone-vs-point comparison. They bias the two
+component metrics in opposite directions, and since the gate outcome was the conservative
+one (do not ship), neither invalidates this run's decision — but a v2 rerun must not
+inherit them:
+
+1. **Zone-count asymmetry (favors the control on reversal recall).** The replay evaluated
+   Confluence with `maxZones: 1` per side, while the control used every pivot S/R level
+   (up to 3 bands per side). More bands mean more chances to be credited with a touch and
+   a subsequent reversal, so the control was structurally advantaged on `reversal_recall`
+   — exactly the metric Confluence lost. A rerun must align zone counts (e.g. top-3 vs
+   top-3).
+2. **Zone-width confound (favors Confluence on hold rate).** An ATR-wide zone has a lower
+   `zone.low` than a ±0.5% band around the same level, so "every close stays above
+   zone.low" is easier to satisfy for wider zones. Part of Confluence's hold-rate edge
+   (50.07% vs 46.44%) is therefore a width artifact, not evidence of better level
+   selection. A rerun should either normalize widths or score on a width-independent
+   outcome (e.g. reversal from first touch only).
+
 ## Deployment Decision
 
 Do not expose Confluence Zones in the production Analyze UI. The read-only API remains available for research. Improving or fitting the weights requires a separately approved v2 effort and a fresh replay; this result must not be reinterpreted as predictive validation.

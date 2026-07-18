@@ -17,6 +17,13 @@
 > `>=15%` 且两项指标均改善的门槛。因此 Confluence 不进入 Analyze UI；只读研究 API 为
 > `GET /api/analyze/:symbol/confluence`。完整可复现记录见
 > `docs/validation/CONFLUENCE_G5_2026-07-18.md`。
+>
+> **复核 caveat 2026-07-18(v2 重跑前必修,详见验证文档)**:本次 G5 存在两个方向相反的几何
+> 混杂——① Zone 数量不对等(confluence 只取 top-1,对照组用最多 3 条带;对照在"反转召回"上
+> 结构性占优,恰是 confluence 输掉的那项);② Zone 宽度混杂(ATR 宽 Zone 天然更易"守住",
+> confluence 守住率优势部分是宽度 artifact)。因 gate 结论是保守方向(未上线),本次判定不受
+> 影响;但任何 v2 权重拟合后的重跑必须对齐 Zone 数量(top-3 vs top-3)并做宽度归一,
+> 否则结果不可采信。
 
 ---
 

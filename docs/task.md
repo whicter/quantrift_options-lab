@@ -187,8 +187,9 @@
 - [x] **CF-1 基础指标**(纯函数+单测,无 IO):`server/src/domain/confluence/indicators.js`——ATR14(Wilder)、EMA20/50/100、SMA200、Fib 层位(23.6/38.2/50/61.8/78.6+ext 127/161.8);扩展 `deriveVolumeProfile` 加 POC/Value Area(70%)/LVN(additive 字段);新增日线 VP(250 天)。**验证**：`cd server && npm test`（163 passed）；本地 `GET /api/vp/SPY?interval=1d&bins=40` 返回 250 日、POC、70.32% Value Area 与 LVN。
 - [x] **CF-2 合成引擎**:`server/src/domain/confluence/engine.js`——六路信号收集 → ATR 半径聚类 Zone → `CONFLUENCE_WEIGHTS_V1` 打分 → reasons → 分侧;挂 `GET /api/analyze/:symbol/confluence`。**验证**：纯函数与 route 单测；本地 `GET /api/analyze/SPY/confluence` 用 250 日真实日线与最新 GEX 快照返回区间、逐模块分数与理由。该分数是固定先验模型，不是拟合结果或价格预测。
 - [x] **CF-3 G5 回放验证 harness(先于 UI)**:历史回放脚本——逐日用"截至当日"数据算 Zone(gamma 置零),指标 = Zone 触及后 5 日未收破"守住率" + 反转点召回,对照单点 S/R ±0.5% 带。**验收线:相对提升 ≥15% 才进 UI**;不达标则 Zone 仅留 API 供研究 repo 调用,不动生产 UI。**结果**：72 个标的、2024-10-02 至 2026-07-16、`min-history=90` / `horizon=5`；Confluence 守住率 `50.07%`（control `46.44%`），反转召回 `22.14%`（control `27.30%`），综合相对变化 `-2.07%`，G5 **failed**。可复现记录：`docs/validation/CONFLUENCE_G5_2026-07-18.md`。
+  - **复核 caveat（2026-07-18，已记入验证文档与 SPEC）**：本次 G5 存在两个方向相反的几何混杂——①**Zone 数量不对等**：confluence 只取 `maxZones:1`,对照组用最多 3 条带/侧,对照在"反转召回"上结构性占优（恰是 confluence 输掉的那项）;②**宽度混杂**：ATR 宽 Zone 天然比 ±0.5% 窄带更易"守住",confluence 守住率优势部分是宽度 artifact。gate 结论是保守方向（未上线）,本次判定不受影响;**v2 重跑必须对齐 Zone 数量（top-3 vs top-3）并做宽度归一**,否则结果不可采信。
 - [x] **CF-4 UI 融合(G5 通过后)**:上表前三个接入点。**Gate decision**：未通过 G5，按规格不实现或部署 UI；read-only API 仅供研究调用。
-- [x] **CF-5 搁置(同 spec v2)**:权重拟合(有标注数据后让手工值退休)、双顶双底形态、Anchored VWAP、Market Profile/TPO、Order Flow。**状态**：作为明确的非本次实现范围归档；不得绕过 G5 以 UI 形式上线。
+- [x] **CF-5 搁置(同 spec v2)**:权重拟合(有标注数据后让手工值退休)、双顶双底形态、Anchored VWAP、Market Profile/TPO、Order Flow。**状态**：作为明确的非本次实现范围归档；不得绕过 G5 以 UI 形式上线。**v2 重跑前置**：修复 CF-3 复核 caveat 的两个几何混杂（Zone 数量对齐 + 宽度归一）。
 
 工作量估计:CF-1+CF-2 约一个工作会话,CF-3 半个,CF-4 半个。
 
