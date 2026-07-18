@@ -149,12 +149,12 @@
 ### D. 策略候选方向化(图1 根因)
 - [x] D1（6df5366） 方向矩阵过滤:`scoreCandidate` 前加环境层(trend regime, gamma regime, IV rank)→ 策略族权重(多头高 IV 提 Bull Put、多头低 IV 提 Long Call、中性高 IV 正 Gamma 提 Iron Condor/Butterfly、空头负 Gamma 提 Long Put/Bear Call);方向冲突策略 score×0.3 并标注"与当前趋势方向相反",不硬删。
 - [x] D2（64be27c） 期限结构结论行:斜率分类——升水(contango 常态)/贴水(backwardation 近期事件溢价)/驼峰,一句话。
-- [ ] D3 主力筹码标尺:OI 图上方加极简价格尺(现价+双 wall+光带),ChipRuler 降为详情。
+- [x] D3（b4729f4） 主力筹码标尺:OI 图上方加极简价格尺(现价+双 wall+光带,div/CSS),ChipRuler 降为详情。
 
 ### B. 数据采集/计算补强(有依赖,放后)
-- [ ] B1 期限结构只 3 到期日:新增轻量 ATM-only 采集(每到期日只取 ATM call+put,8 到期=16 合约/symbol),专供期限结构。
-- [ ] B2 假 Kalman:实现真标量 Kalman(状态=[水平,斜率],~20 行,服务端 derive 层),顺便把趋势计算从前端挪到服务端;或诚实改名"EMA 平滑"。倾向前者。
-- [ ] B3 趋势图加周线共振层:价格重采样为周线算 spread,作第二层(竞品图7 Layer 2.1)。
+- [ ] **B1 期限结构只 3 到期日——root cause 已改判,需 live collector 验证再动手(未做,不宜盲改生产采集路径)**:原以为是"到期数不够、需加 ATM-only 采集"。实测代码后改判:collector 的 DTE bucket 采样本来就取 ~10 个到期(`_select_dte_bucket_contracts`,5 bucket × 2),但 `server/src/routes/chain.js::deriveChainStats` 对 `iv > 0` 过滤,**只有 3 个到期的 ATM 合约从 Polygon 回来时带了有效 IV**,其余到期虽采集了合约但 IV 缺失被滤掉。所以这是**采集完整性问题**(Polygon 对部分到期/稀疏合约不返 greeks/IV),不是到期数或展示问题。真修法:在 Polygon provider 里为期限结构专门补一条"ATM-only 且确保带 IV"的采集(snapshot 端点逐到期取最近 ATM call+put 并要 greeks)。**为什么没做**:①要改生产 option 采集路径,②须 live Polygon key 实测哪些到期缺 IV、snapshot 端点能否补齐,③效果要等 collector 下一轮才可见——不宜在用户离线时盲改生产数据管道。留待用户在场时做。
+- [x] B2（b16cef4） 假 Kalman → 真 Kalman:新增 `frontend/src/lib/kalman.js`(2 状态 local-linear-trend/constant-velocity 标量滤波,自适应增益,后验方差给置信带),Tab2Trend 接入,"Kalman Filter"标签名副其实。7 单测。
+- [x] B3（b1c9493） 趋势图加周线共振层:新增 `frontend/src/lib/trendSeries.js`(`dailySpread`+`weeklySpread`,按 ISO 周重采样再展开回日 x 轴),Tab2Trend 渲染为日 spread 下方更细的第二行。6 单测。
 - [x] B4（64be27c） POP 无上下文显得"胜率低":按策略类型加基线说明("买方 POP 通常<50%,用盈亏比补偿概率;卖方反之")。
 
 **覆盖核对**:图1→A1/B4/D1;图2→A3/B2/B3;图3→A5/C4;图4→B1/D2;图5→A2/A4;Q2→C6+归因算法;图7结论→C4;图8结论→C1/C2/C3/C7;今日核心结论→C5。
