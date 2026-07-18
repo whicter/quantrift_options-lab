@@ -1,5 +1,6 @@
 import InsightCarousel from '../../components/InsightCarousel';
 import { compactMoney } from '../../lib/scannerPresentation';
+import { buildSynthesis } from '../../lib/synthesis';
 
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
@@ -17,6 +18,11 @@ export default function Tab1Overview({ data }) {
   const gexPositive = gexTotal > 0;
   const gexStr = compactMoney(gexTotal);
 
+  // Synthesis layer: core conclusion, cross-signal agreement, GEX environment
+  // reading, PCR/IV plain language and volatility attribution. All model
+  // readings of public data, never position claims.
+  const synth = buildSynthesis(data);
+
   const insights = [
     `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}）：短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
@@ -27,21 +33,27 @@ export default function Tab1Overview({ data }) {
   const questions = [
     {
       q: '当前期权结构是正Gamma还是负Gamma？',
-      a: gexPositive
-        ? `当前模型显示正 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格靠近关键行权价时，短线波动通常较容易收窄或被拉回。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`
-        : `当前模型显示负 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格一旦向上或向下加速，短线波动更可能被放大。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`,
+      // Prefer the global/local reading (it says whether the current zone
+      // damps or amplifies) over a single global-sign sentence.
+      a: synth.gexEnv.available
+        ? `${synth.gexEnv.text}${synth.pcr.available ? ` ${synth.pcr.text}` : ''} ${synth.gexEnv.note}`
+        : gexPositive
+          ? `当前模型显示正 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格靠近关键行权价时，短线波动通常较容易收窄或被拉回。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`
+          : `当前模型显示负 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格一旦向上或向下加速，短线波动更可能被放大。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`,
       type: gexPositive ? 'bull' : 'bear',
     },
     {
-      q: '价格趋势与期权结构当前如何同时出现？',
-      a: gexPositive
-        ? `当前价格动量为${trend.momentum}，同时处在正 Gamma 环境。盘面上，波动通常更容易收窄，价格可能更倾向围绕关键行权价来回波动。`
-        : `当前价格动量为${trend.momentum}，同时处在负 Gamma 环境。若走势继续向同一方向发展，短线波动可能更容易放大；向下延续时跌幅可能更急，转强时反弹也可能更快。`,
+      q: '今天的波动主要来自哪里？',
+      // Q2 rewritten as volatility attribution (competitor "波动来源"): a
+      // sequence of measurable tests, not a restatement of momentum + PCR.
+      a: synth.attribution.available
+        ? `${synth.attribution.text} ${synth.attribution.note}`
+        : `当前价格历史不足以归因今日波动来源；动量为${trend.momentum}，${gexPositive ? '正' : '负'} Gamma 环境。`,
       type: 'neutral',
     },
     {
       q: '接下来的关键位置是什么？',
-      a: `上方 $${callWall}（Call Wall，+${((callWall / price - 1) * 100).toFixed(1)}%）和下方 $${putWall}（Put Wall，${((putWall / price - 1) * 100).toFixed(1)}%）是接下来值得重点关注的价位。它们是期权持仓集中的模型参考位，不是价格一定会触及或反转的位置。`,
+      a: `上方 $${callWall}（Call Wall，+${((callWall / price - 1) * 100).toFixed(1)}%）和下方 $${putWall}（Put Wall，${((putWall / price - 1) * 100).toFixed(1)}%）是接下来值得重点关注的价位。它们是期权持仓集中的模型参考位，不是价格一定会触及或反转的位置。${synth.expectedMove.available ? ` ${synth.expectedMove.text}` : ''}`,
       type: 'neutral',
     },
   ];
@@ -52,6 +64,19 @@ export default function Tab1Overview({ data }) {
       <div className="az-sector-chips">
         {sector.map((s, i) => <span key={i} className="az-chip">{s}</span>)}
       </div>
+
+      {/* Today's core conclusion — one headline the reader should remember,
+          plus the cross-signal agreement read. */}
+      {synth.core.available && (
+        <div className="az-core-conclusion">
+          <div className="az-core-conclusion-label">今日核心结论</div>
+          <div className="az-core-conclusion-headline">{synth.core.headline}</div>
+          {synth.consistency.available && (
+            <div className="az-core-conclusion-sub">{synth.consistency.text}</div>
+          )}
+          <div className="az-core-conclusion-note">{synth.core.note}</div>
+        </div>
+      )}
 
       <div className="az-analysis-metrics">
         <div className="az-analysis-metric">

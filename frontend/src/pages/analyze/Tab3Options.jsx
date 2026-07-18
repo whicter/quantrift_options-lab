@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 import { compactMoney } from '../../lib/scannerPresentation';
+import { gexEnvironmentConclusion, pcrConclusion, expectedMoveConclusion } from '../../lib/synthesis';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -113,15 +114,26 @@ function money(value) {
 }
 
 export default function Tab3Options({ data }) {
-  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, unusualActivity, unusualMeta, externalFlow, conclusion, chainStats } = data;
+  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, ivRank, localGamma, gammaFlip, unusualActivity, unusualMeta, externalFlow, conclusion, chainStats } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = compactMoney(gexTotal);
 
+  // Synthesis reads reused on the options tab: global/local GEX, PCR plain
+  // language, and IV-to-expected-move.
+  const gexEnv = gexEnvironmentConclusion({ globalGex: gexTotal, localGamma, gammaFlip, price });
+  const pcrRead = pcrConclusion({ pcrOi: pcr, pcrVol });
+  const expMove = expectedMoveConclusion({ iv30Pct: iv30, price, ivRank });
+
   const insights = [
-    `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}），短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
-    `PCR(OI) ${pcr?.toFixed(2) ?? '--'}，表示 Put/Call 未平仓量比例；它不单独代表看多或看空` +
-      (pcrVol ? `。PCR(Vol) ${pcrVol.toFixed(2)} 表示当日 Put/Call 成交量比例` : ''),
-    `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，绝对水平较高；需结合自身历史、实现波动率和事件风险判断' : iv30 > 20 ? '，处于中间区间' : '，绝对水平较低；不等于期权被低估'}`,
+    gexEnv.available
+      ? `${gexEnv.text} ${gexEnv.note}`
+      : `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}），短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
+    pcrRead.available
+      ? pcrRead.text
+      : `PCR(OI) ${pcr?.toFixed(2) ?? '--'}，表示 Put/Call 未平仓量比例；它不单独代表看多或看空`,
+    expMove.available
+      ? expMove.text
+      : `IV ATM ${iv30?.toFixed(1) ?? '--'}%${iv30 > 40 ? '，绝对水平较高；需结合自身历史、实现波动率和事件风险判断' : iv30 > 20 ? '，处于中间区间' : '，绝对水平较低；不等于期权被低估'}`,
     unusualActivity?.length
       ? unusualActivity[0].status === 'confirmed'
         ? `OI异动：${unusualActivity[0].type} $${unusualActivity[0].strike} ΔOI ${unusualActivity[0].oiDelta?.toLocaleString() ?? '--'}，需要结合价格与成交确认`
