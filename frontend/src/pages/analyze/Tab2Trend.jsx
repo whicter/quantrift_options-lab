@@ -1,18 +1,7 @@
 import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
-
-function calcKF(prices, alpha = 0.12) {
-  const smooth = [];
-  let s = prices[0];
-  for (const p of prices) { s = alpha * p + (1 - alpha) * s; smooth.push(s); }
-  const bw = 0.016;
-  return {
-    smooth,
-    upper: smooth.map((v, i) => v + prices[i] * bw),
-    lower: smooth.map((v, i) => v - prices[i] * bw),
-  };
-}
+import { kalmanTrend } from '../../lib/kalman';
 
 function calcSpread(prices) {
   return prices.map((p, i) => {
@@ -266,7 +255,7 @@ export default function Tab2Trend({ data }) {
   }
   const prices = realHistory.map(bar => bar.close);
   const dates = realHistory.map(bar => bar.date);
-  const kf = calcKF(prices);
+  const kf = kalmanTrend(prices);
   const spread = calcSpread(prices);
   const levels = [
     ...(data.supportResistance?.support || []).map(level => ({ ...level, type: 'support' })),
