@@ -2,11 +2,12 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **113 项** `- [ ]`，按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **99 项** `- [ ]`，按文档出现顺序分布如下：
 
 1. `2026-07-17 — IV Rank 自给自足` — 4 项：Phase 2.5 修 weekly-dense ETF 欠填（root cause 已实测坐实）、Phase 3 前向口径统一、Phase 4 TT 对比 harness、Phase 5 cutover。（Phase 2 收尾全量回填已跑两批、标 🟡，剩余验收顺延到 Phase 2.5 之后。）
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
-2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — 19 项：A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4（按 A→C→D→B 开发中；含竞品图8结论=全局/局部 GEX 对话、波动来源归因算法、今日核心结论）。
+2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
+2c. `2026-07-18 — Confluence 支撑阻力引擎` — 5 项（CF-1 基础指标、CF-2 合成引擎、CF-3 G5 回放验证、CF-4 UI 融合、CF-5 搁置项）：SPEC 评审完成、7 点修正已记录，待用户开发指令。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -158,6 +159,38 @@
 - [x] B4（64be27c） POP 无上下文显得"胜率低":按策略类型加基线说明("买方 POP 通常<50%,用盈亏比补偿概率;卖方反之")。
 
 **覆盖核对**:图1→A1/B4/D1;图2→A3/B2/B3;图3→A5/C4;图4→B1/D2;图5→A2/A4;Q2→C6+归因算法;图7结论→C4;图8结论→C1/C2/C3/C7;今日核心结论→C5。
+
+## 2026-07-18 — Confluence 支撑阻力引擎（SPEC 评审完成,待开发,详见 docs/SPEC_CONFLUENCE.md）
+
+**来源**:另一项目讨论产出 `docs/SPEC_CONFLUENCE.md`(六模块加权共振 → 支撑/阻力 Zone + 强度分 + reasons)。2026-07-18 对照本仓库代码逐条核实其"现状对照"**全部属实**(VP 缺 POC/VA/LVN、S/R 有 pivot 聚类、无 ATR、MA 仅 SMA、GEX 墙全有、无 Fib、无合成层、Focus Score 是动量分与价位正交)。所有输入(250 天日线、30m K 线、GEX)已在库,**零新采集**,纯 serving 计算,与 IV Rank Phase 3-5 完全并行不抢资源。
+
+**评审结论(7 点,已回写 SPEC 修订记录)**:
+1. 🔴 **命名合规必改**:"机构级/Institutional" 分档违反 Page Copy Audit 原则(我们删过"机构身份"类断言)。改中性词:极强/强/中/弱,文案"多信号共振强度(模型估算)"+ 注脚。
+2. 🔴 **每模块 lookback 未定义(spec 最大遗漏)**:定死——日线 250 天主窗口(S/R/MA/ATR/Fib/日线 VP);Fib anchor = 250 日 max/min + 近 90 日 max/min 两组(重叠加分),Fib 的 swing 选择是全引擎最大主观性来源必须规则化;现有 VP 是 30m 短窗,需**新增日线 VP(250 天)**,30m VP 保留作短线视角。
+3. 🟡 **Zone 聚类算法具体化**:`0.5×ATR(14)` 半径贪心聚类;Zone 宽度 = max(成员跨度, `0.25×ATR`)——天然"高波动→宽 Zone"。
+4. 🟡 **模块内评分映射要有明确数表**(POC=40/HVN=25/… 类),不能只有权重上限。
+5. 🟡 **G5 对照组选错**:不能和 Focus Score 比(动量分,正交);对照 = 现有单点 S/R ±0.5% 带。且**不用等前瞻**——用 250+ 天日线做历史回放(gamma 模块置零,历史 OI 拿不到,spec 已注明),当天出 G5 结论。
+6. 🟢 分侧规则:Zone 中心 < 现价 → 支撑侧;跌破收盘确认后整体重算(不复用旧 Zone)。
+7. 🟢 权重 40/25/15/10/5/5 仅作冷启动先验(spec 自警与我们"候选打分权重未经验证"审查结论一致),常量表 `CONFLUENCE_WEIGHTS_V1` + 算法版本号 `confluence-v1-prior-weights`。
+
+**与现有项目的融合点(四个,spec 未展开)**:
+| 接入点 | 现状 | 接入后 |
+|---|---|---|
+| Tab4 关键价位 | 观察区间= `putWall~callWall` 两单点 | Zone 表(区间+强度+reasons),walls 降为 Zone 的 reason 之一 |
+| scenarioEngine | target = wall+wall 距离(3% floor 拍脑袋) | trigger/target 改用相邻 Zone 边界 |
+| coreConclusion 头条池 | 事件/翻转位/背离/一致性 | 新增"价格正测试极强支撑 Zone(HVN+Put Wall+Fib 61.8 共振)" |
+| candidateEngine(后期) | strike 只看 delta/wall | 短腿放强 Zone 之外——G5 通过后才做 |
+
+架构:合成层放 `server/src/domain/confluence/`(纯函数+单测),route 只做 IO——与 `analyzeDto`/`positioningSummary` 同模式,后续可物化进 scanner。
+
+**分阶段计划**:
+- [ ] **CF-1 基础指标**(纯函数+单测,无 IO):`server/src/domain/confluence/indicators.js`——ATR14(Wilder)、EMA20/50/100、SMA200、Fib 层位(23.6/38.2/50/61.8/78.6+ext 127/161.8);扩展 `deriveVolumeProfile` 加 POC/Value Area(70%)/LVN(additive 字段);新增日线 VP(250 天)。
+- [ ] **CF-2 合成引擎**:`server/src/domain/confluence/engine.js`——六路信号收集 → ATR 半径聚类 Zone → `CONFLUENCE_WEIGHTS_V1` 打分 → reasons → 分侧;挂 `GET /api/analyze/:symbol/confluence`。
+- [ ] **CF-3 G5 回放验证 harness(先于 UI)**:历史回放脚本——逐日用"截至当日"数据算 Zone(gamma 置零),指标 = Zone 触及后 5 日未收破"守住率" + 反转点召回,对照单点 S/R ±0.5% 带。**验收线:相对提升 ≥15% 才进 UI**;不达标则 Zone 仅留 API 供研究 repo 调用,不动生产 UI。
+- [ ] **CF-4 UI 融合(G5 通过后)**:上表前三个接入点。
+- [ ] **CF-5 搁置(同 spec v2)**:权重拟合(有标注数据后让手工值退休)、双顶双底形态、Anchored VWAP、Market Profile/TPO、Order Flow。
+
+工作量估计:CF-1+CF-2 约一个工作会话,CF-3 半个,CF-4 半个。
 
 ## ✅ 2026-07-16 — Page Copy Audit Remediation
 
