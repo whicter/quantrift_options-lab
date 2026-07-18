@@ -11,6 +11,12 @@
 > Audit 边界),改为中性分档"极强/强/中/弱"+"多信号共振强度(模型估算)"表述;
 > ② G5 的对照组由 Focus Score(动量分,与价位正交,不可比)改为**现有单点 S/R ±0.5% 带**,
 > 且用 250+ 天日线历史回放(gamma 置零)验证,不必等待前瞻窗口。
+>
+> **实现与 Gate 结果 2026-07-18**:`confluence-v1-prior` 与 `confluence-g5-v1` 已实现。G5 在
+> 72 个标的、2024-10-02 至 2026-07-16 的日线数据上运行，综合相对变化为 `-2.07%`，未达到
+> `>=15%` 且两项指标均改善的门槛。因此 Confluence 不进入 Analyze UI；只读研究 API 为
+> `GET /api/analyze/:symbol/confluence`。完整可复现记录见
+> `docs/validation/CONFLUENCE_G5_2026-07-18.md`。
 
 ---
 
@@ -112,7 +118,7 @@ Resistance Zones
 Volume Profile(①)、MA(④)全在 options-lab 的 server/collector 里,是**serving 逻辑不是
 研究逻辑**。研究 repo 需要时通过 API 调它。
 
-落地形态:新增 `GET /api/confluence/:symbol`,内部:
+落地形态:新增 `GET /api/analyze/:symbol/confluence`,内部:
 1. 复用 `/sr`(pivot)、`/vp`(volume profile)、`compute_gex`(墙)的现有产出
 2. 新建 ATR 模块、Fibonacci 模块、EMA(补 MA)、POC/VA/LVN(补 VP)
 3. **新建 confluence 合成层**:聚类成 Zone → 加权 → reasons → 分档

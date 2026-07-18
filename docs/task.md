@@ -160,7 +160,7 @@
 
 **覆盖核对**:图1→A1/B4/D1;图2→A3/B2/B3;图3→A5/C4;图4→B1/D2;图5→A2/A4;Q2→C6+归因算法;图7结论→C4;图8结论→C1/C2/C3/C7;今日核心结论→C5。
 
-## 2026-07-18 — Confluence 支撑阻力引擎（SPEC 评审完成,待开发,详见 docs/SPEC_CONFLUENCE.md）
+## 2026-07-18 — Confluence 支撑阻力引擎（CF-1 至 CF-5 已结案；G5 failed，详见 docs/SPEC_CONFLUENCE.md）
 
 **来源**:另一项目讨论产出 `docs/SPEC_CONFLUENCE.md`(六模块加权共振 → 支撑/阻力 Zone + 强度分 + reasons)。2026-07-18 对照本仓库代码逐条核实其"现状对照"**全部属实**(VP 缺 POC/VA/LVN、S/R 有 pivot 聚类、无 ATR、MA 仅 SMA、GEX 墙全有、无 Fib、无合成层、Focus Score 是动量分与价位正交)。所有输入(250 天日线、30m K 线、GEX)已在库,**零新采集**,纯 serving 计算,与 IV Rank Phase 3-5 完全并行不抢资源。
 
