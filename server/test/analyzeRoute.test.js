@@ -14,7 +14,7 @@ require.cache[refreshPath] = {
   exports: { enqueueRefreshJob: async job => { refreshCalls.push(job); return 'queued'; } },
 };
 delete require.cache[routePath];
-const { sendAnalyzeStatus } = require(routePath);
+const { sendAnalyzeStatus, sendConfluence } = require(routePath);
 
 function responseRecorder() {
   return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
@@ -323,4 +323,28 @@ test('summary endpoint returns an unavailable positioning when no GEX exists', a
   assert.equal(res.body.positioning.available, false);
   assert.equal(res.body.scenarios, null);
   assert.equal(res.body.data_status.freshness, 'missing');
+});
+
+test('confluence endpoint returns server-side zones without requiring a GEX snapshot', async () => {
+  const bars = Array.from({ length: 30 }, (_, index) => {
+    const close = 100 + index + ((index % 4) - 2);
+    return {
+      date: `2026-06-${String(index + 1).padStart(2, '0')}`,
+      high: close + 2,
+      low: close - 2,
+      close,
+      volume: 1_000_000 + index * 1_000,
+    };
+  });
+  queryResults.push({ rows: bars }, { rows: [] });
+  const res = responseRecorder();
+
+  await sendConfluence({ params: { symbol: 'TEST' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.status, 'ready');
+  assert.equal(res.body.model_type, 'deterministic_prior');
+  assert.equal(res.body.input_summary.gamma, false);
+  assert.ok(Array.isArray(res.body.support));
+  assert.ok(Array.isArray(res.body.resistance));
 });

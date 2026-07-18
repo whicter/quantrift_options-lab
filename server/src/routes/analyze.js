@@ -6,6 +6,9 @@ const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 const freshness = require('../domain/status/freshness');
 const { buildAnalyzeSummary } = require('../domain/analyze/analyzeDto');
 const { tokenMatches, requestToken } = require('../lib/adminAuth');
+const { deriveSupportResistance } = require('./supportResistance');
+const { deriveVolumeProfile } = require('./volumeProfile');
+const { buildConfluence } = require('../domain/confluence/engine');
 
 const router = express.Router();
 const ON_DEMAND_ESTIMATED_WAIT = '约 1 分钟';
@@ -423,6 +426,52 @@ async function sendAnalyzeSummary(req, res) {
   }
 }
 
+/**
+ * GET /api/analyze/:symbol/confluence
+ *
+ * A read-only, deterministic aggregation of daily price structure and the
+ * latest usable positioning snapshot. The score is a documented cold-start
+ * prior, never a forecast or an assertion of dealer positioning.
+ */
+async function sendConfluence(req, res) {
+  const symbol = normalizeSymbol(req.params.symbol);
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+
+  try {
+    const [dailyResult, gexResult] = await Promise.all([
+      pool.query(`SELECT date, high, low, close, volume
+        FROM (
+          SELECT date, high, low, close, volume
+          FROM price_history
+          WHERE symbol = $1
+          ORDER BY date DESC
+          LIMIT 250
+        ) recent
+        ORDER BY date ASC`, [symbol]),
+      pool.query(`SELECT g.call_wall, g.put_wall, g.gamma_flip, c.underlying_price
+        FROM gex_snapshots g
+        JOIN option_chain_snapshots c ON c.id = g.snapshot_id
+        WHERE g.symbol = $1 AND g.raw_metrics->>'model_version' = $2
+        ORDER BY g.snapshot_ts DESC
+        LIMIT 1`, [symbol, GEX_MODEL_VERSION]),
+    ]);
+    const bars = dailyResult.rows;
+    const structure = deriveSupportResistance(bars);
+    const profile = deriveVolumeProfile(bars, 40);
+    const snapshot = gexResult.rows[0];
+    const gex = snapshot ? {
+      spot: Number(snapshot.underlying_price), call_wall: Number(snapshot.call_wall),
+      put_wall: Number(snapshot.put_wall), gamma_flip: Number(snapshot.gamma_flip),
+    } : null;
+    const confluence = buildConfluence({ bars, volumeProfile: profile, structure, gex });
+    return res.json({ symbol, ...confluence });
+  } catch (err) {
+    console.error('GET /api/analyze/:symbol/confluence error:', err.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
 function isAdminRequest(req) {
   const expected = process.env.ADMIN_API_TOKEN || '';
   return Boolean(expected) && tokenMatches(requestToken(req), expected);
@@ -430,9 +479,11 @@ function isAdminRequest(req) {
 
 router.get('/:symbol/candidate', sendAnalyzeCandidate);
 router.get('/:symbol/summary', sendAnalyzeSummary);
+router.get('/:symbol/confluence', sendConfluence);
 router.get('/:symbol', sendAnalyzeStatus);
 
 module.exports = router;
 module.exports.sendAnalyzeStatus = sendAnalyzeStatus;
 module.exports.sendAnalyzeCandidate = sendAnalyzeCandidate;
 module.exports.sendAnalyzeSummary = sendAnalyzeSummary;
+module.exports.sendConfluence = sendConfluence;
