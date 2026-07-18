@@ -32,6 +32,67 @@ const ACTIONABLE_STRATEGIES = [
 ];
 
 const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
+
+// Directional stance of each strategy, used to weight candidates by the market
+// environment so a bull regime does not surface a Long Put as its top pick.
+// 'bullish'/'bearish' profit when the underlying rises/falls; 'neutral' profits
+// from range/time; 'vol_long' profits from a large move in either direction.
+const STRATEGY_STANCE = {
+  'Bull Put Spread': 'bullish',
+  'Long Call': 'bullish',
+  'Short Put': 'bullish',
+  'Jade Lizard': 'bullish',
+  'Bear Call Spread': 'bearish',
+  'Long Put': 'bearish',
+  'Short Call': 'bearish',
+  'Iron Condor': 'neutral',
+  'Iron Butterfly': 'neutral',
+  'Short Strangle': 'neutral',
+  'Calendar Spread': 'neutral',
+  'Diagonal Spread': 'neutral',
+  'Long Straddle': 'vol_long',
+};
+
+/**
+ * Directional weight for a candidate given the market environment. Returns a
+ * score multiplier and, when the strategy fights the trend, a conflict flag +
+ * label so the UI can show it rather than silently drop it.
+ *
+ * environment = { trendRegime: 'bull'|'bear'|'neutral', gammaRegime, ivRank }.
+ * Absent or partial environment leaves scoring unchanged (weight 1), which keeps
+ * callers that pass no environment byte-for-byte identical.
+ */
+function directionalWeight(strategy, environment) {
+  if (!environment || !environment.trendRegime) return { weight: 1, conflict: false, note: null };
+  const stance = STRATEGY_STANCE[strategy] || 'neutral';
+  const trend = environment.trendRegime;
+  const ivRank = num(environment.ivRank);
+  let weight = 1;
+  let conflict = false;
+  let note = null;
+
+  if (trend === 'bull') {
+    if (stance === 'bullish') weight *= 1.15;
+    else if (stance === 'bearish') { weight *= 0.3; conflict = true; note = '与当前多头趋势方向相反'; }
+  } else if (trend === 'bear') {
+    if (stance === 'bearish') weight *= 1.15;
+    else if (stance === 'bullish') { weight *= 0.3; conflict = true; note = '与当前空头趋势方向相反'; }
+  } else if (trend === 'neutral' && stance === 'neutral') {
+    weight *= 1.1;
+  }
+
+  // IV rank tilts premium-selling vs premium-buying. High IV favors credit
+  // (short-premium) structures; low IV favors debit (long-premium) ones.
+  if (ivRank != null) {
+    const shortPremium = ['Bull Put Spread', 'Bear Call Spread', 'Iron Condor', 'Iron Butterfly', 'Short Strangle', 'Short Put', 'Short Call', 'Jade Lizard'].includes(strategy);
+    const longPremium = ['Long Call', 'Long Put', 'Long Straddle', 'Calendar Spread', 'Diagonal Spread'].includes(strategy);
+    if (ivRank >= 60 && shortPremium) weight *= 1.1;
+    else if (ivRank <= 30 && longPremium) weight *= 1.1;
+    else if (ivRank >= 60 && longPremium) weight *= 0.9;
+  }
+
+  return { weight, conflict, note };
+}
 const POP_MODEL_VERSION = 'pop-v1-lognormal-breakeven';
 const EXPECTED_MOVE_MODEL_VERSION = 'expected-move-v1-atm-iv-sqrt-time';
 const configuredRiskFreeRate = Number(process.env.SCAN_RISK_FREE_RATE ?? 0.045);
@@ -305,7 +366,7 @@ function verticalCandidates({ side, contracts, spot, wall, rules }) {
 }
 
 function bestCandidate(candidates) {
-  return [...candidates].sort((a, b) => b.score - a.score || b.returnOnRisk - a.returnOnRisk)[0] || null;
+  return [...candidates].sort((a, b) => (b.effectiveScore ?? b.score) - (a.effectiveScore ?? a.score) || b.returnOnRisk - a.returnOnRisk)[0] || null;
 }
 
 function formatVerticalCandidate(strategy, candidate) {
@@ -642,7 +703,7 @@ function missingSetup(rules, candidate = null) {
   };
 }
 
-function buildActionableSetups(rawContracts, row, overrides = {}, strategies = ACTIONABLE_STRATEGIES) {
+function buildActionableSetups(rawContracts, row, overrides = {}, strategies = ACTIONABLE_STRATEGIES, environment = null) {
   const contracts = normalizeContracts(rawContracts);
   const spot = num(row.price_close);
   if (!contracts.length || spot == null || spot <= 0) return [];
@@ -669,10 +730,22 @@ function buildActionableSetups(rawContracts, row, overrides = {}, strategies = A
   return candidates
     .map(candidate => attachResearchModels(candidate, contracts, spot))
     .filter(candidate => candidate.score >= MIN_ACTIONABLE_SCORE)
-    .sort((a, b) => b.score - a.score || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0));
+    .map(candidate => {
+      // Directional weighting deprioritizes (but never hides) a candidate that
+      // fights the trend. effectiveScore drives ordering; raw score is kept for
+      // the score badge and the MIN_ACTIONABLE_SCORE gate above.
+      const bias = directionalWeight(candidate.strategy, environment);
+      return {
+        ...candidate,
+        effectiveScore: candidate.score * bias.weight,
+        directionConflict: bias.conflict,
+        directionNote: bias.note,
+      };
+    })
+    .sort((a, b) => b.effectiveScore - a.effectiveScore || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0));
 }
 
-function buildActionableSetup(strategy, rawContracts, row, overrides = {}) {
+function buildActionableSetup(strategy, rawContracts, row, overrides = {}, environment = null) {
   const contracts = normalizeContracts(rawContracts);
   if (!contracts.length) {
     return { status: 'missing', summary: '没有可报价合约', reason: '期权链待采集或 bid/ask 不完整' };
@@ -682,12 +755,12 @@ function buildActionableSetup(strategy, rawContracts, row, overrides = {}) {
     return { status: 'missing', summary: '缺少标的现价', reason: '无法判断 OTM strike 或计算盈亏平衡点' };
   }
   const rules = selectionRules(overrides);
-  const allCandidates = buildActionableSetups(rawContracts, row, overrides, [strategy]);
+  const allCandidates = buildActionableSetups(rawContracts, row, overrides, [strategy], environment);
   const candidate = bestCandidate(allCandidates);
   return candidate || missingSetup(rules);
 }
 
 module.exports = {
-  ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, buildActionableSetups, buildActionableSetup,
-  expectedMoveForExpiry, popForCandidate,
+  ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, STRATEGY_STANCE, buildActionableSetups, buildActionableSetup,
+  directionalWeight, expectedMoveForExpiry, popForCandidate,
 };

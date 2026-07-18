@@ -15,6 +15,37 @@ function normalizeSymbol(value) {
   return String(value || '').trim().toUpperCase();
 }
 
+/**
+ * Classify the trend regime from recent daily closes: 10-bar vs 30-bar SMA.
+ * A ±1% band around parity is treated as neutral so noise does not flip the
+ * regime. Returns 'bull' | 'bear' | 'neutral' | null (null when too few bars).
+ * This is a directional-weighting proxy for candidate ordering, not the exact
+ * frontend Kalman trend, and it never blocks a candidate.
+ */
+async function deriveTrendRegime(symbol) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT close FROM price_history WHERE symbol = $1 ORDER BY date DESC LIMIT 30`,
+      [symbol]
+    );
+    const closes = rows.map(r => Number(r.close)).filter(Number.isFinite);
+    if (closes.length < 12) return null;
+    const sma = n => {
+      const slice = closes.slice(0, Math.min(n, closes.length));
+      return slice.reduce((sum, v) => sum + v, 0) / slice.length;
+    };
+    const fast = sma(10);
+    const slow = sma(30);
+    if (slow <= 0) return null;
+    const spreadPct = (fast - slow) / slow;
+    if (spreadPct > 0.01) return 'bull';
+    if (spreadPct < -0.01) return 'bear';
+    return 'neutral';
+  } catch {
+    return null; // never let a weighting input break candidate generation
+  }
+}
+
 // Which enqueue decision, if any, governs each product's refresh state. The
 // option-chain job is what backfills quotes, so option_chain reports it.
 const PRODUCT_REFRESH_KEY = {
@@ -252,18 +283,26 @@ async function sendAnalyzeCandidate(req, res) {
          LIMIT 1
        ),
        latest_gex AS (
-         SELECT call_wall, put_wall
+         SELECT call_wall, put_wall, gamma_regime
          FROM gex_snapshots
          WHERE symbol = $1
            AND raw_metrics->>'model_version' = $2
          ORDER BY snapshot_ts DESC
          LIMIT 1
+       ),
+       latest_ivr AS (
+         SELECT iv_rank
+         FROM volatility_history
+         WHERE symbol = $1 AND iv_rank_ready = TRUE AND iv_rank IS NOT NULL
+         ORDER BY metric_date DESC
+         LIMIT 1
        )
        SELECT lqc.snapshot_id, lqc.snapshot_ts, lp.price_close,
-              g.call_wall, g.put_wall
+              g.call_wall, g.put_wall, g.gamma_regime, ivr.iv_rank
        FROM latest_quote_chain lqc
        LEFT JOIN latest_price lp ON TRUE
-       LEFT JOIN latest_gex g ON TRUE`,
+       LEFT JOIN latest_gex g ON TRUE
+       LEFT JOIN latest_ivr ivr ON TRUE`,
       [symbol, GEX_MODEL_VERSION]
     );
     const snapshot = snapshots[0];
@@ -286,7 +325,17 @@ async function sendAnalyzeCandidate(req, res) {
        ORDER BY expiry ASC, strike ASC, option_right ASC`,
       [snapshot.snapshot_id]
     );
-    const candidate = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES)[0] || null;
+    // Market environment for directional weighting: trend regime (from a short
+    // vs long SMA of recent closes), the GEX gamma regime and the derived IV
+    // rank. Used only to reorder candidates, so a partial environment (any field
+    // null) simply softens the weighting; it never blocks a candidate.
+    const trendRegime = await deriveTrendRegime(symbol);
+    const environment = {
+      trendRegime,
+      gammaRegime: snapshot.gamma_regime || null,
+      ivRank: snapshot.iv_rank == null ? null : Number(snapshot.iv_rank),
+    };
+    const candidate = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES, environment)[0] || null;
     if (!candidate) {
       return res.json({
         symbol,

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildActionableSetup, buildActionableSetups } = require('../src/domain/scanner/candidateEngine.cjs');
+const { buildActionableSetup, buildActionableSetups, directionalWeight } = require('../src/domain/scanner/candidateEngine.cjs');
 
 function contract({ expiry, dte, strike, right, bid, ask, delta, iv, oi = 500, volume = 50 }) {
   return { expiry, dte, strike, right, bid, ask, delta, iv, openInterest: oi, volume };
@@ -203,4 +203,44 @@ test('expected move and POP declare inputs for credit, debit and iron-condor can
     contract({ expiry: '2026-08-29', dte: 45, strike: 115, right: 'C', bid: 0.8, ask: null, delta: 0.1, iv: 0.25 }),
   ];
   assert.equal(buildActionableSetups(missingQuote, { price_close: 100 }, {}, ['Bear Call Spread']).length, 0);
+});
+
+test('directionalWeight leaves scoring unchanged when no environment is given', () => {
+  const w = directionalWeight('Long Put', null);
+  assert.equal(w.weight, 1);
+  assert.equal(w.conflict, false);
+  assert.equal(w.note, null);
+});
+
+test('directionalWeight deprioritizes and flags a trend-opposed strategy', () => {
+  const bearInBull = directionalWeight('Long Put', { trendRegime: 'bull' });
+  assert.ok(bearInBull.weight < 0.5);
+  assert.equal(bearInBull.conflict, true);
+  assert.match(bearInBull.note, /多头趋势方向相反/);
+
+  const bullInBull = directionalWeight('Long Call', { trendRegime: 'bull' });
+  assert.ok(bullInBull.weight > 1);
+  assert.equal(bullInBull.conflict, false);
+});
+
+test('directionalWeight tilts premium selling vs buying by IV rank', () => {
+  const sellHighIv = directionalWeight('Bull Put Spread', { trendRegime: 'bull', ivRank: 80 });
+  const buyHighIv = directionalWeight('Long Call', { trendRegime: 'bull', ivRank: 80 });
+  // both are bullish (aligned x1.15), but high IV further rewards the credit
+  // structure and discounts the debit one
+  assert.ok(sellHighIv.weight > buyHighIv.weight);
+});
+
+test('environment reorders the top pick away from a trend-opposed candidate', () => {
+  // A bull regime: a Long Call and a Long Put both qualify; the Put must not win.
+  const contracts = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 105, right: 'C', bid: 2.0, ask: 2.1, delta: 0.30, iv: 0.28 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 95, right: 'P', bid: 2.0, ask: 2.1, delta: -0.30, iv: 0.28 }),
+  ];
+  const withEnv = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Long Call', 'Long Put'], { trendRegime: 'bull' });
+  assert.ok(withEnv.length >= 1);
+  assert.equal(withEnv[0].strategy, 'Long Call');
+  // the Long Put still appears, flagged as conflicting, not dropped
+  const put = withEnv.find(c => c.strategy === 'Long Put');
+  if (put) assert.equal(put.directionConflict, true);
 });
