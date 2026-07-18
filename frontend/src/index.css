@@ -1751,6 +1751,31 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-chain-row strong { color: var(--text); }
 .az-chain-row small, .az-empty-copy { color: var(--text-muted); font-size: 10px; }
 .az-chain-conclusion { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); line-height: 1.55; }
+
+/* ─── 主力筹码标尺 / Integrated Price Axis ──────────────────────── */
+.az-price-ruler { padding: 20px 6px 6px; }
+.az-pr-track { position: relative; height: 6px; border-radius: 3px; background: var(--bg-hover); margin: 22px 0 10px; }
+.az-pr-band {
+  position: absolute; top: 0; height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(34,197,94,0.28), rgba(239,68,68,0.28));
+}
+.az-pr-tick { position: absolute; top: -5px; width: 3px; height: 16px; border-radius: 2px; transform: translateX(-50%); }
+.az-pr-put { background: var(--green); }
+.az-pr-call { background: var(--red); }
+.az-pr-spot {
+  position: absolute; top: -7px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--spot, #3b82f6); border: 2px solid var(--bg-card); transform: translateX(-50%);
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
+}
+.az-pr-labels { display: flex; justify-content: space-between; gap: 8px; }
+.az-pr-label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.az-pr-label-spot { align-items: center; }
+.az-pr-label-call { align-items: flex-end; text-align: right; }
+.az-pr-cap { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.az-pr-label strong { font-size: 14px; color: var(--text); }
+.az-pr-label-put strong { color: var(--green); }
+.az-pr-label-call strong { color: var(--red); }
+.az-pr-dist { font-size: 10px; color: var(--text-dim); }
 @media (max-width: 760px) {
   .az-analysis-metrics, .az-chain-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

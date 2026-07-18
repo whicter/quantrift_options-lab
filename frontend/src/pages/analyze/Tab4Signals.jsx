@@ -150,6 +150,57 @@ function ChipRuler({ oiByStrike, putWall, callWall, price }) {
   return <canvas ref={canvasRef} style={{ display: 'block' }} />;
 }
 
+/**
+ * 主力筹码标尺 / Integrated Price Axis — a compact "conclusion" ruler that shows
+ * only the three things that matter at a glance: current price between the Put
+ * Wall (support) and Call Wall (resistance), with the band between them shaded.
+ * The full OI-by-strike chart stays below as the detail view.
+ */
+function PriceRuler({ putWall, callWall, price }) {
+  const lo = Math.min(putWall, callWall, price);
+  const hi = Math.max(putWall, callWall, price);
+  const span = Math.max(hi - lo, Math.abs(price) * 0.02, 0.01);
+  const pad = span * 0.18;
+  const min = lo - pad;
+  const max = hi + pad;
+  const pos = v => ((v - min) / (max - min)) * 100;
+
+  const putX = pos(putWall);
+  const callX = pos(callWall);
+  const priceX = pos(price);
+  const bandLeft = Math.min(putX, callX);
+  const bandWidth = Math.abs(callX - putX);
+  const pctToCall = ((callWall / price - 1) * 100).toFixed(2);
+  const pctToPut = ((price / putWall - 1) * 100).toFixed(2);
+
+  return (
+    <div className="az-price-ruler">
+      <div className="az-pr-track">
+        <div className="az-pr-band" style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }} />
+        <div className="az-pr-tick az-pr-put" style={{ left: `${putX}%` }} />
+        <div className="az-pr-tick az-pr-call" style={{ left: `${callX}%` }} />
+        <div className="az-pr-spot" style={{ left: `${priceX}%` }} />
+      </div>
+      <div className="az-pr-labels">
+        <div className="az-pr-label az-pr-label-put">
+          <span className="az-pr-cap">Put Wall · 支撑</span>
+          <strong>${putWall}</strong>
+          <span className="az-pr-dist">-{pctToPut}%</span>
+        </div>
+        <div className="az-pr-label az-pr-label-spot">
+          <span className="az-pr-cap">现价</span>
+          <strong>${price}</strong>
+        </div>
+        <div className="az-pr-label az-pr-label-call">
+          <span className="az-pr-cap">Call Wall · 阻力</span>
+          <strong>${callWall}</strong>
+          <span className="az-pr-dist">+{pctToCall}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Tab4Signals({ data }) {
   const { putWall, callWall, price, scenarios, supportResistance, chainStats } = data;
   const oiDensity = chainStats?.oiDensity;
@@ -178,6 +229,12 @@ export default function Tab4Signals({ data }) {
           <span>S/R 基于 {supportResistance.barCount} 根价格日线</span>
           <span>S {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
           <span>R {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+        </div>
+      )}
+      {Number.isFinite(putWall) && Number.isFinite(callWall) && Number.isFinite(price) && (
+        <div className="az-card az-price-ruler-card">
+          <div className="az-card-title">主力筹码标尺 · Integrated Price Axis</div>
+          <PriceRuler putWall={putWall} callWall={callWall} price={price} />
         </div>
       )}
       <div className="az-signals-layout">
