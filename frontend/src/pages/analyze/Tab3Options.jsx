@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 import { compactMoney } from '../../lib/scannerPresentation';
-import { gexEnvironmentConclusion, pcrConclusion, expectedMoveConclusion } from '../../lib/synthesis';
+import { gexEnvironmentConclusion, pcrConclusion, expectedMoveConclusion, termStructureConclusion } from '../../lib/synthesis';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -178,15 +178,21 @@ export default function Tab3Options({ data }) {
         <div className="az-card">
           <div className="az-card-title">IV Term Structure · 期限结构</div>
           {chainStats?.termStructure?.length ? (
-            <div className="az-chain-table">
-              {chainStats.termStructure.slice(0, 8).map(point => (
-                <div key={point.expiry} className="az-chain-row">
-                  <span>{point.expiry}</span>
-                  <strong>{(Number(point.atm_iv) * 100).toFixed(1)}%</strong>
-                  <small>ATM ${Number(point.atm_strike).toFixed(2)}</small>
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="az-chain-table">
+                {chainStats.termStructure.slice(0, 8).map(point => (
+                  <div key={point.expiry} className="az-chain-row">
+                    <span>{point.expiry}</span>
+                    <strong>{(Number(point.atm_iv) * 100).toFixed(1)}%</strong>
+                    <small>ATM ${Number(point.atm_strike).toFixed(2)}</small>
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const ts = termStructureConclusion(chainStats.termStructure);
+                return ts.available ? <div className="az-chain-conclusion">{ts.text}</div> : null;
+              })()}
+            </>
           ) : <div className="az-empty-copy">当前期权快照没有可用 ATM IV 期限结构。</div>}
         </div>
         <div className="az-card">

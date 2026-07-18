@@ -426,6 +426,67 @@ export function coreConclusion({ symbol, gexEnv, consistency, attribution, earni
 }
 
 /**
+ * D2 — IV term-structure conclusion. Classifies the ATM-IV-by-expiry slope:
+ * contango (near < far, the normal upward term), backwardation (near > far,
+ * usually a near-dated event premium) or a hump/flat. `points` is an ordered
+ * list of { expiry, atm_iv } with atm_iv as a decimal (0.14) or percent — both
+ * are handled by comparing relative levels.
+ */
+export function termStructureConclusion(points) {
+  const clean = (Array.isArray(points) ? points : [])
+    .map(p => ({ expiry: p?.expiry, iv: num(p?.atm_iv) }))
+    .filter(p => p.expiry && p.iv != null && p.iv > 0);
+  if (clean.length < 2) return { available: false, reason: '期限结构数据不足。' };
+
+  const near = clean[0].iv;
+  const far = clean[clean.length - 1].iv;
+  const mid = clean[Math.floor(clean.length / 2)].iv;
+  const rel = (far - near) / near;
+
+  let shape;
+  let text;
+  if (mid > near * 1.03 && mid > far * 1.03) {
+    shape = 'hump';
+    text = '期限结构中段隆起，中期到期日 IV 相对更高，可能对应某个特定到期日附近的事件预期。';
+  } else if (rel > 0.03) {
+    shape = 'contango';
+    text = '期限结构升水（近低远高），属常态，暂无明显的近期事件溢价。';
+  } else if (rel < -0.03) {
+    shape = 'backwardation';
+    text = '期限结构贴水（近高远低），近端 IV 更贵，通常意味着近期有事件（财报/宏观）被定价。';
+  } else {
+    shape = 'flat';
+    text = '期限结构大致平坦，各到期 IV 接近，未见明显的近期事件溢价。';
+  }
+
+  return { available: true, shape, near_iv: near, far_iv: far, text, note: 'IV 期限结构是期权定价的相对水平，不预测方向。' };
+}
+
+/**
+ * B4 — POP context. A raw POP looks "low" without saying that long-premium
+ * strategies are supposed to have sub-50% POP (paid for by payoff), while
+ * short-premium strategies run high POP with capped upside. Returns a one-line
+ * baseline note keyed off the strategy stance.
+ */
+export function popContext(strategy) {
+  const stance = {
+    'Long Call': 'debit', 'Long Put': 'debit', 'Long Straddle': 'debit',
+    'Bull Put Spread': 'credit', 'Bear Call Spread': 'credit', 'Iron Condor': 'credit',
+    'Iron Butterfly': 'credit', 'Short Strangle': 'credit', 'Short Put': 'credit',
+    'Short Call': 'credit', 'Jade Lizard': 'credit',
+    'Calendar Spread': 'spread', 'Diagonal Spread': 'spread',
+  }[strategy] || 'other';
+
+  if (stance === 'debit') {
+    return { available: true, text: '买方策略 POP 通常低于 50%，用较高的盈亏比来补偿较低的胜率——低 POP 是这类结构的常态，不代表劣势。' };
+  }
+  if (stance === 'credit') {
+    return { available: true, text: '卖方策略 POP 通常较高，但盈利上限被权利金封顶、风险相对更大；高 POP 不等于低风险。' };
+  }
+  return { available: false, reason: null };
+}
+
+/**
  * Assemble the full synthesis bundle from the Analyze `data` object. One call
  * the view layer can consume; each field is independently { available }.
  */

@@ -1,6 +1,6 @@
 import InsightCarousel from '../../components/InsightCarousel';
 import { compactMoney } from '../../lib/scannerPresentation';
-import { buildSynthesis } from '../../lib/synthesis';
+import { buildSynthesis, popContext } from '../../lib/synthesis';
 
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
@@ -213,6 +213,10 @@ export default function Tab1Overview({ data }) {
               </div>
             ))}
           </div>
+          {(() => {
+            const ctx = popContext(recommendation.strategy);
+            return ctx.available ? <div className="az-data-note">{ctx.text}</div> : null;
+          })()}
           <div className="az-data-note">POP 基于当前模型和输入，不是实际胜率保证；未必包含滑点、手续费、提前指派和波动率变化。</div>
         </div>
       ) : (

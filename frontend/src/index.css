@@ -1750,6 +1750,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-chain-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 10px; }
 .az-chain-row strong { color: var(--text); }
 .az-chain-row small, .az-empty-copy { color: var(--text-muted); font-size: 10px; }
+.az-chain-conclusion { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); line-height: 1.55; }
 @media (max-width: 760px) {
   .az-analysis-metrics, .az-chain-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

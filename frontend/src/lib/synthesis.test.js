@@ -8,6 +8,8 @@ import {
   consistencyDetector,
   volatilityAttribution,
   coreConclusion,
+  termStructureConclusion,
+  popContext,
   buildSynthesis,
 } from './synthesis.js';
 
@@ -129,6 +131,32 @@ test('C5 falls back to the plain gamma read when nothing higher fires', () => {
   const gexEnv = gexEnvironmentConclusion({ globalGex: 5e6, localGamma: 5e6 });
   const r = coreConclusion({ symbol: 'AAPL', gexEnv, consistency: { available: true, state: 'inconclusive' } });
   assert.equal(r.headline_key, 'gex_plain');
+});
+
+test('D2 term structure classifies contango, backwardation and flat', () => {
+  const contango = termStructureConclusion([
+    { expiry: '2026-07-23', atm_iv: 0.128 }, { expiry: '2026-07-24', atm_iv: 0.131 }, { expiry: '2026-08-21', atm_iv: 0.142 },
+  ]);
+  assert.equal(contango.shape, 'contango');
+
+  const back = termStructureConclusion([
+    { expiry: '2026-07-23', atm_iv: 0.60 }, { expiry: '2026-08-21', atm_iv: 0.40 },
+  ]);
+  assert.equal(back.shape, 'backwardation');
+  assert.match(back.text, /贴水/);
+
+  const flat = termStructureConclusion([
+    { expiry: '2026-07-23', atm_iv: 0.30 }, { expiry: '2026-08-21', atm_iv: 0.303 },
+  ]);
+  assert.equal(flat.shape, 'flat');
+
+  assert.equal(termStructureConclusion([{ expiry: 'x', atm_iv: 0.3 }]).available, false);
+});
+
+test('B4 popContext explains low POP for debit and high POP for credit', () => {
+  assert.match(popContext('Long Put').text, /买方策略 POP 通常低于 50%/);
+  assert.match(popContext('Bull Put Spread').text, /卖方策略 POP 通常较高/);
+  assert.equal(popContext('Calendar Spread').available, false);
 });
 
 test('buildSynthesis assembles every block from an Analyze data object', () => {
