@@ -2,18 +2,12 @@ import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 import { kalmanTrend } from '../../lib/kalman';
+import { dailySpread, weeklySpread } from '../../lib/trendSeries';
 
-function calcSpread(prices) {
-  return prices.map((p, i) => {
-    const w = prices.slice(Math.max(0, i - 4), i + 1);
-    const avg = w.reduce((a, b) => a + b, 0) / w.length;
-    return (p - avg) / avg * 100;
-  });
-}
-
-function TrendCanvas({ prices, dates, kf, spread, levels }) {
+function TrendCanvas({ prices, dates, kf, spread, weekly, levels }) {
   const mainRef = useRef(null);
   const spreadRef = useRef(null);
+  const weeklyRef = useRef(null);
 
   useEffect(() => {
     const drawMain = () => {
@@ -131,17 +125,54 @@ function TrendCanvas({ prices, dates, kf, spread, levels }) {
       ctx.fillText('Trend Spread', PAD.left + 2, PAD.top + 8);
     };
 
-    drawMain(); drawSpread();
-    const obs = new ResizeObserver(() => { drawMain(); drawSpread(); });
+    // Weekly resonance layer: the weekly spread expanded to the daily x-axis, a
+    // slimmer second row under the daily Trend Spread (competitor Layer 2.1).
+    const drawWeekly = () => {
+      const canvas = weeklyRef.current;
+      if (!canvas || !weekly?.length) return;
+      const dpr = window.devicePixelRatio || 1;
+      const W = canvas.parentElement.getBoundingClientRect().width;
+      const H = 34;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
+      const PAD = { top: 5, right: 16, bottom: 10, left: 52 };
+      const cW = W - PAD.left - PAD.right;
+      const cH = H - PAD.top - PAD.bottom;
+      const maxS = Math.max(...weekly.map(Math.abs)) || 1;
+      const zero = PAD.top + cH / 2;
+      const bW = cW / weekly.length;
+      weekly.forEach((v, i) => {
+        const x = PAD.left + i * bW;
+        const h = (Math.abs(v) / maxS) * (cH / 2);
+        // Muted vs the daily row so the daily bars stay the focus.
+        ctx.fillStyle = v >= 0 ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)';
+        if (v >= 0) ctx.fillRect(x, zero - h, bW - 0.5, h);
+        else ctx.fillRect(x, zero, bW - 0.5, h);
+      });
+      ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
+      ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
+      ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText('Weekly Spread', PAD.left + 2, PAD.top + 8);
+    };
+
+    drawMain(); drawSpread(); drawWeekly();
+    const obs = new ResizeObserver(() => { drawMain(); drawSpread(); drawWeekly(); });
     const el = mainRef.current?.parentElement;
     if (el) obs.observe(el);
     return () => obs.disconnect();
-  }, [prices, dates, kf, spread, levels]);
+  }, [prices, dates, kf, spread, weekly, levels]);
 
   return (
     <>
       <div style={{ position: 'relative' }}><canvas ref={mainRef} style={{ display: 'block' }} /></div>
       <div style={{ position: 'relative', marginTop: 4 }}><canvas ref={spreadRef} style={{ display: 'block' }} /></div>
+      {weekly?.length ? (
+        <div style={{ position: 'relative', marginTop: 2 }}><canvas ref={weeklyRef} style={{ display: 'block' }} /></div>
+      ) : null}
     </>
   );
 }
@@ -256,7 +287,8 @@ export default function Tab2Trend({ data }) {
   const prices = realHistory.map(bar => bar.close);
   const dates = realHistory.map(bar => bar.date);
   const kf = kalmanTrend(prices);
-  const spread = calcSpread(prices);
+  const spread = dailySpread(prices);
+  const weekly = weeklySpread(realHistory);
   const levels = [
     ...(data.supportResistance?.support || []).map(level => ({ ...level, type: 'support' })),
     ...(data.supportResistance?.resistance || []).map(level => ({ ...level, type: 'resistance' })),
@@ -284,7 +316,7 @@ export default function Tab2Trend({ data }) {
             {trend.regime}
           </span>
         </div>
-        <TrendCanvas prices={prices} dates={dates} kf={kf} spread={spread} levels={levels} />
+        <TrendCanvas prices={prices} dates={dates} kf={kf} spread={spread} weekly={weekly} levels={levels} />
       </div>
 
       <VolumeProfile profile={volumeProfile} spot={data.price} />
