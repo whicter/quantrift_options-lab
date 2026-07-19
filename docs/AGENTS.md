@@ -20,6 +20,10 @@ server/src/                ← Express API
 collector/                 ← Python collectors, GEX compute, refresh worker
 ```
 
+## Documentation Completion Rule
+- Every completed task must update every affected source-of-truth document before it is reported complete: at minimum `docs/task.md`, plus the relevant sections of `docs/ARCHITECTURE.md`, `docs/wiki.md`, `docs/learning.md`, and a reproducible record under `docs/validation/` when runtime or data behavior changed.
+- The task checkbox may be marked complete only after implementation, appropriate tests/runtime evidence, documentation updates, an intentional commit, and push. Disclose genuine external/data-source exceptions rather than marking them as complete.
+
 ## Current Architecture
 - See `docs/ARCHITECTURE.md` first.
 - Phase 3C is complete: API reads PostgreSQL snapshots/cache; user requests do not synchronously call IB, TT, or any provider.

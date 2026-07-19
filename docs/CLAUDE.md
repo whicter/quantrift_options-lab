@@ -28,6 +28,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 ```
 
 ## Current Architecture
+- **Documentation completion is mandatory**: before reporting any task done, update `docs/task.md` and every affected section of `docs/ARCHITECTURE.md`, `docs/wiki.md`, and `docs/learning.md`; add a reproducible `docs/validation/` record for runtime/data changes. Only then commit and push. Do not wait for a reminder.
 - Read `docs/ARCHITECTURE.md` before changing data flow.
 - Phase 3C is complete.
 - Browser requests go to Railway API, then PostgreSQL snapshots/cache.

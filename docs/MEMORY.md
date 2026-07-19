@@ -28,6 +28,7 @@
 - **Bash 直接跑**，不问确认（.claude/settings.json 已配 `Bash(*)`）
 - **参数改动必须先问用户确认**，不能自己决定
 - **不能输出模棱两可的猜测**，只说能从代码/日志中证明的事实
+- **任务完成即更新文档**：不等待提醒。更新 `docs/task.md` 与所有受影响的 `ARCHITECTURE.md`、`wiki.md`、`learning.md`；运行或数据行为变更还必须新增/更新 `docs/validation/` 的可复现记录。完成标准含验证、文档、commit、push。
 
 ## 技术栈
 - **Frontend**: React 19 + Vite，部署 Vercel，根目录 `frontend/`
