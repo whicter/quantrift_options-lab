@@ -48,7 +48,7 @@
 - PM2 app `quantrift-options-collector` 每 300 秒 bounded enqueue 最多 2 个 missing/stale option symbols、每 60 秒处理 queue、每 300 秒 materialize scanner；`quantrift-options-prices` 工作日 13:35 PT 跑 OHLCV。
 - IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
 - 2026-07-16 real-data integrity repair is deployed: `mockAnalysis.js` was deleted and Analyze uses a null-initialized real-data model only. Railway scanner SQL now qualifies `latest_rows.source` and `latest_rows.snapshot_ts`; production `/api/scan` returned HTTP 200, while `/analyze?symbol=NFLX` rendered actual `$73.68`, Polygon GEX and $75/$73 Walls.
-- `IB_MARKET_DATA_TYPE=3` 接受延迟行情。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
+- PM2 collector 当前使用 `IB_MARKET_DATA_TYPE=1` 请求实时行情。常规交易时，缺报价的 Polygon option-chain job 必须回退 `ib_internal`；休市时保留真实结构字段但不将无 bid/ask 的快照当作可执行报价。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
 - Analyze 已接入真实 S/R、Focus Score、VRP、Gamma Flip、Local Gamma、IV skew 与 term structure。旧 target fallback 推荐腿已移除；没有 actual contract candidate 时不显示策略腿。
 - Production option collection uses `polygon_licensed`; `ib_internal` / `tt_internal` remain fallback/research adapters. API 与前端只读取 PostgreSQL snapshot。
 - Provider credentials只允许存在于 `collector/.env` 或部署 secret store，不得写入 PM2 config、文档、测试或 Git。

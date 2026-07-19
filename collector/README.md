@@ -194,12 +194,12 @@ pm2 status quantrift-options-collector quantrift-options-prices
 pm2 logs quantrift-options-collector --lines 50 --nostream
 ```
 
-- `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects at most two missing/old watchlist symbols, enqueues option refreshes, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds.
+- `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects missing/old universe symbols to the bounded queue, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds. During the US regular session it requires executable bid/ask: Polygon remains primary and a quote-less snapshot falls back to IB.
 - Auto-refresh uses `polygon_licensed`. A recent failed attempt gets a 30-minute cooldown, so provider failures do not create a request storm.
 - `quantrift-options-prices`: runs `collect_prices.py` at `13:35 America/Los_Angeles` Monday-Friday.
 - `quantrift-universe-metadata`: runs `collect_universe_metadata.py` as a Sunday 12:15 one-shot cron; it is normally stopped between runs while PM2 keeps the cron active.
 - Both processes use this repository's `collector/venv311` and `collector/.env`.
-- `IB_MARKET_DATA_TYPE=3` accepts delayed market data for the current pipeline.
+- `IB_MARKET_DATA_TYPE=1` requests real-time IB market data. Outside the regular session, no bid/ask is expected and the collector persists only the actual structural fields returned.
 
 ## Files
 

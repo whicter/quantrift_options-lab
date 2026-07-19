@@ -898,7 +898,8 @@ Polygon.io  GET /v3/snapshot/options/{symbol}?limit=250  （+ next_url 分页）
   + GET /v2/aggs/ticker/{symbol}/prev  （underlying 前日 OHLCV）
   → polygon_option_chain_provider.py
   → run_refresh_worker.py（worker daemon，60s poll）
-      ← schedule_option_refresh.py（scheduler，每 300s，填满至 queue target 20，max_age 60min）
+      ← schedule_option_refresh.py（scheduler，每 300s，填满至 queue target 20，max_age 60min；常规交易时 `require_quotes=true`）
+      → 无有效 bid/ask 时回退 IB Gateway（`ib_internal`，实时类型 1）
   → option_chain_snapshots
       symbol, snapshot_ts, source, underlying_price,
       contract_count, completeness_pct, missing_greeks_ratio, missing_oi_ratio

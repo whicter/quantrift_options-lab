@@ -692,7 +692,7 @@ GEX compute job：
 - **模型边界不能盖过产品解释**：先说“当前是正/负 Gamma 环境”和可能的盘面含义；公开 OI 的估算限制用一句放在后面。把“代理符号假设”放进答案主句，只会让用户读不懂结论。
 - **策略候选不可在最后一层被清空**：期权链、报价和 GEX 都 ready 时，前端把 `recommendation` 设成 `null` 会伪装成数据缺失。完整链只应在后端候选引擎读取，Analyze 只消费服务端筛出的策略腿 DTO 和真实的无候选原因。
 - **期权链完整度与可交易报价是不同条件**：GEX 只需要 Greeks/OI，策略腿还必须有有效 bid/ask。刷新调度若仅检查 `contract_count > 0`，会把无报价快照误判为完成，导致用户永远拿不到具体策略腿。
-- **无报价快照必须走定向回退，不是重复同源刷新**：`require_quotes` 的 Polygon job 若没有有效 bid/ask，保留该快照供 GEX/OI 使用，再在同一 job 尝试 TT；所有 provider 仍无报价时以 non-retryable blocker 结束。不能用 mark、last 或收盘价补成假 bid/ask。
+- **无报价快照必须走定向回退，不是重复同源刷新**：`require_quotes` 的 Polygon job 若没有有效 bid/ask，保留该快照供 GEX/OI 使用，再在同一 job 尝试 IB；所有 provider 仍无报价时以 non-retryable blocker 结束。不能用 mark、last 或收盘价补成假 bid/ask。
 - **provider 原始 JSON 也属于采集事务的一部分**：TT/DXLink 事件可能含 `Decimal`。数据库列可以正常适配 Decimal，但 JSONB 不会；raw metadata 与 raw contract 必须在持久化边界统一转成 JSON 数字，否则“数据已获取”仍会因审计字段失败而整单回滚。
 - **blocker 只能表达不可通过重试解决的状态**：无报价和认证失败适合短期阻断；代码或序列化错误不应被标记成数据不可用，否则部署修复后用户请求仍被旧失败记录挡住。
 - **enqueue 与执行是两个独立运行面**：API 写入 `provider_fetch_jobs` 不会自行执行 provider。Railway 若只跑 `collect.py`，按需队列和 watchlist option scheduler 都会饿死；云端 one-shot cron 必须按顺序运行 scheduler、refresh worker、scanner materialization。当前 cadence 为工作日每 5 分钟。
@@ -729,3 +729,9 @@ GEX compute job：
 - **已验证的恢复范围**：2026-07-18 的 bounded SPY diagnostic 成功拿到 delayed last、volume、OI 和 tick 83 model Greeks，证明 Gateway 连通、历史 fallback 与 option 数据回调正常。
 - **不能过度解读**：同一请求的 bid/ask 仍为 null，IB `10091/10167` 明确指向 API market-data subscription 限制。必须把它记录为 quote-quality 限制，而不是把 historical farm 恢复误写成“所有期权字段恢复”。
 - **产品规则不变**：GEX/结构页面可标注延迟来源；策略候选的可执行价格仍只接受实际 bid/ask，不能用 last 或 model price 代替。
+
+### 18. 有“缺报价检测”不等于会触发报价回退
+
+- **根因（2026-07-19）**：scheduler 的 freshness query 正确地只把有有效 bid/ask 的 snapshot 视为 quote-ready；但它创建的 background job 没有 `request_params.require_quotes`。worker 因此把 quote-less Polygon snapshot 作为成功结果结束，永远不尝试 fallback。
+- **修复**：仅在美股常规交易时 scheduler 写入 `require_quotes=true`；worker 将 `polygon_licensed → ib_internal` 作为默认顺序。休市不要求报价，避免把真实但无 bid/ask 的结构快照错误标记为失败。
+- **运行证据**：2026-07-19（周末）重载后的 collector 写入了 1,876 条 Polygon option-contract structural rows，bid/ask 为 0；这证明“无报价”是休市状态，不能据此判断 IB 订阅无效。开盘后必须再次验证 IB 真实 bid/ask、Greeks 与 fallback 写入。

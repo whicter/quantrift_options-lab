@@ -49,6 +49,11 @@ class RefreshProviderContractTest(unittest.TestCase):
             RuntimeError('option quote unavailable: polygon_licensed returned no usable bid/ask quotes')
         ))
 
+    def test_default_quote_fallback_is_ib(self):
+        import run_refresh_worker
+
+        self.assertEqual(run_refresh_worker.DEFAULT_OPTION_FALLBACK_PROVIDERS, 'ib_internal')
+
     def test_exhausted_budget_is_non_retryable(self):
         import run_refresh_worker
 

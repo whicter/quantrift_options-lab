@@ -8,7 +8,7 @@ module.exports = {
       autorestart: true,
       restart_delay: 5000,
       env: {
-        IB_MARKET_DATA_TYPE: '3',
+        IB_MARKET_DATA_TYPE: '1',
         IB_OPTION_STREAM_TIMEOUT: '4',
         OPTION_MAX_CONTRACTS: '120',
         OPTION_MAX_CONTRACTS_PER_EXPIRATION: '40',
@@ -20,6 +20,7 @@ module.exports = {
         COLLECTOR_RUNTIME: 'mac-refresh-daemon',
         OPTION_AUTO_REFRESH: 'true',
         OPTION_REFRESH_PROVIDER: 'polygon_licensed',
+        OPTION_FALLBACK_PROVIDERS: 'ib_internal',
         OPTION_REFRESH_MAX_AGE_MINUTES: '60',
         OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES: '30',
         OPTION_REFRESH_SCHEDULE_SECONDS: '300',

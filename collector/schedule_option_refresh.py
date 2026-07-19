@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg2
 from dotenv import load_dotenv
@@ -55,6 +56,21 @@ TIER_NAMES = {
     PRIORITY_UNIVERSE_SCAN: 'universe_scan',
     PRIORITY_COLD_BACKFILL: 'cold_backfill',
 }
+
+NEW_YORK = ZoneInfo('America/New_York')
+
+
+def require_live_quotes(now: datetime) -> bool:
+    """Require executable quotes only during the US regular session.
+
+    After-hours and weekend snapshots still carry valid positioning inputs, but
+    cannot honestly satisfy a strategy-leg quote request.
+    """
+    market_time = now.astimezone(NEW_YORK)
+    return (
+        market_time.weekday() < 5
+        and time(9, 30) <= market_time.time() < time(16, 0)
+    )
 
 
 def assign_tiers(symbols: list[str], scan_enabled: set[str], recent_active: set[str]) -> dict[str, int]:
@@ -256,7 +272,13 @@ def load_refresh_state(conn, symbols: list[str]) -> tuple[dict[str, datetime], s
     return latest_snapshots, recent_jobs
 
 
-def enqueue_candidates(conn, symbols: list[str], tiers: dict[str, int] | None = None) -> int:
+def enqueue_candidates(
+    conn,
+    symbols: list[str],
+    tiers: dict[str, int] | None = None,
+    *,
+    require_quotes: bool = False,
+) -> int:
     tiers = tiers or {}
     inserted = 0
     with conn.cursor() as cur:
@@ -283,6 +305,7 @@ def enqueue_candidates(conn, symbols: list[str], tiers: dict[str, int] | None = 
                         'reason': 'universe_auto_refresh',
                         'priority': priority,
                         'tier': TIER_NAMES.get(priority, 'universe_scan'),
+                        'require_quotes': require_quotes,
                     }),
                     symbol,
                 ),
@@ -325,7 +348,8 @@ def run() -> dict[str, Any]:
             capacity,
             tiers,
         )
-        inserted = enqueue_candidates(conn, candidates, tiers)
+        quote_required = require_live_quotes(datetime.now(timezone.utc))
+        inserted = enqueue_candidates(conn, candidates, tiers, require_quotes=quote_required)
     finally:
         conn.close()
 
@@ -333,6 +357,7 @@ def run() -> dict[str, Any]:
         'selected': candidates,
         'inserted': inserted,
         'provider': REFRESH_PROVIDER,
+        'require_quotes': quote_required,
         'queue_depth': queue_depth,
         'capacity': capacity,
         'remaining_budget': remaining_budget,

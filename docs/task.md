@@ -100,6 +100,7 @@
 ### 架构（尤其数据获取 / 用户体验)
 
 - [ ] **REFRESH_WORKER_BATCH_SIZE=2 过于保守**:81 symbol 的 watchlist 在低并发下补队列耗时长,是"analyze 页面长期 stale/后台补全中"体验的直接成因之一(STX 事故的邻近病灶,非同一根因)。现在 E7 的共享 provider rate limiter 已经是硬限速闸门,batch size 本身不再是 429 风险来源,可以安全调大。需要先跑一次真实吞吐测量再定具体数字。
+  - **已先修复报价链路（2026-07-19，待开盘验收）**：后台 refresh job 过去只把无报价 Polygon snapshot 写为成功，虽然 scheduler 以“最新有 bid/ask”判定覆盖，却未写入 `require_quotes`，因此不会触发 fallback。现在仅在美股常规交易时 job 写入 `require_quotes=true`；worker 按 `polygon_licensed → ib_internal` 尝试，直到拿到有效 bid/ask。休市时仍保存真实 OI/Greeks/结构快照，但不把它当作可执行报价。PM2 改为 `IB_MARKET_DATA_TYPE=1` 并已重载。collector 229/229 通过；2026-07-19 休市实测 Polygon 已写 1,876 条结构合约、0 条 bid/ask，符合休市预期，开盘后需用两合约 IB diagnostic 和实际 refresh job 验收。
 - [ ] **on-demand 首次访问延迟**:未采集过的 symbol 首次 analyze 请求要等一整轮 provider fetch,用户体感是"卡住"。可选优化方向:乐观 UI(先显示排队态 + 预计时间)、或提高该 symbol 在 scheduler 里的临时优先级(已有五级优先级机制,只是 on-demand 请求当前未必接到最高档)。
 - [ ] **Mac Studio 单点故障**:即便 Option B 消除了预算互抢,产品刷新链路仍 100% 依赖 Mac Studio 常开。断电/重启/网络中断 = 全站数据停摆,且此前确认过恢复要靠人工 PM2 reload。IV Rank 自算(本节上方进行中的项目)是解决这个的唯一路径,而不是加更多本地容灾。
 - [ ] **"15 分钟延迟数据"定位**:目前产品文案已经把这个说清楚了,但没有一处告诉用户"下一次刷新还要多久"。可以用 `symbol_data_state` 里已有的字段直接算出下次预计刷新时间展示给用户,成本很低。
@@ -241,7 +242,7 @@
   - 2026-07-17 copy pass：Q2 直接说明动量与 Gamma 环境组合下可能出现的波动表现；Q3 改为明确的上方/下方关注价位，模型边界仅保留为句末一句。
   - 2026-07-17 strategy-candidate repair：Analyze 改为调用后端的 `/api/analyze/:symbol/candidate`；服务端从最新已报价链生成并只返回入选策略腿，前端不再把 `recommendation` 硬编码为 `null`，也不再接收完整合约链。
   - 2026-07-17 quote-readiness repair：期权链存在不再等于策略腿可用。Analyze 与 watchlist refresh 均把至少一条有效 bid/ask 视为独立完成条件；无报价链按高优先级排队补取，避免 GEX/OI 已有但策略候选永久为空。
-  - 2026-07-17 quote fallback repair：`require_quotes` 任务若 Polygon 快照没有有效 bid/ask，worker 自动尝试 `tt_internal`；两个 provider 都无报价则写入明确的 non-retryable blocker。不会把 mark、last 或日线价格伪装成策略腿报价。
+  - 2026-07-17 quote fallback repair：`require_quotes` 任务若 Polygon 快照没有有效 bid/ask，worker 自动尝试 fallback；自 2026-07-19 起当前默认 fallback 为 `ib_internal`。两个 provider 都无报价则写入明确的 non-retryable blocker。不会把 mark、last 或日线价格伪装成策略腿报价。
   - 2026-07-17 TT persistence repair：provider 原始 DXLink 元数据可能含 Python `Decimal`；snapshot 写入层统一 JSON 编码为数值，避免 TT 已拿到报价却在 `raw_metadata/raw_contract` 持久化时失败。
   - 2026-07-17 retry classification repair：仅“所有报价 provider 无有效 bid/ask”及认证不可用会阻断 24 小时；序列化等代码故障保留为可重新入队的失败，修复部署后可立即恢复。
   - 2026-07-17 Railway refresh execution repair：原 cloud cron 只执行 `collect.py`，而 API 入队由 `run_refresh_worker.py` 消费，造成 on-demand jobs 永远不执行。cron 现每 5 分钟运行 `run_railway_refresh_cycle.py`：watchlist scheduler → refresh worker → scanner materialization；TT metrics 仍保持禁用，不在该云任务中登录或拉取 IV metrics。
@@ -913,7 +914,7 @@
     - 每个 `expiry + CALL/PUT` 使用无 strike 的 `reqContractDetails` 请求实际 contract definitions。
     - 只接受 IB 返回、`conId > 0`、expiry/right 精确匹配的 contract。
     - 按真实 contract 的 strike 距 spot 排序和截断；不生成任何缺失组合。
-    - market data 默认 `IB_MARKET_DATA_TYPE=3`，当前过渡阶段接受 delayed quote/Greeks/OI。
+    - 历史实现曾默认 `IB_MARKET_DATA_TYPE=3` 接受 delayed quote/Greeks/OI；自 2026-07-19 的 IB 订阅启用后，PM2 当前设为实时类型 `1`。
   - Persistence invariants：
     - `option_contract_snapshots.con_id` 必须来自 IB actual contract details。
     - 同一采集结果按 `conId` 去重。
@@ -999,7 +1000,7 @@
 
 ### run_refresh_worker.py
 - ✅ `SUPPORTED_OPTION_PROVIDERS` 加入 `'polygon_licensed'`（之前遗漏导致 `unsupported option provider for worker: polygon_licensed` 错误）
-- ✅ `DEFAULT_OPTION_FALLBACK_PROVIDERS` 当前为 `'tt_internal'`：当 `require_quotes` 的 Polygon 快照没有有效 bid/ask 时，worker 才尝试 TT，避免无报价链被误判为策略候选可用。
+- ✅ `DEFAULT_OPTION_FALLBACK_PROVIDERS` 当前为 `'ib_internal'`：当 `require_quotes` 的 Polygon 快照没有有效 bid/ask 时，worker 尝试 IB，避免无报价链被误判为策略候选可用。
 
 ### ecosystem.config.cjs
 - ✅ `OPTION_REFRESH_PROVIDER: 'polygon_licensed'`
