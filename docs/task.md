@@ -122,7 +122,7 @@
 - [ ] **按用户的自选清单(per-user watchlist)**:当前 watchlist 是全局 `symbol_universe`,没有让付费用户自定义盯盘清单的入口,是订阅分层里"Pro"价值主张的一个自然缺口。
 - [ ] **已采集但未被产品充分使用的数据**:期限结构(term structure)、skew、OI density、30 分钟动量等字段已经在采集/派生链路里存在或可以低成本派生,但目前没有对应的用户可见展示。属于"不用新采集就能加功能"的低成本机会。
 
-## 2026-07-18 — 本地全站逐页体检 bug 修复（API + 源码,dev server 连生产 DB）
+## ✅ 2026-07-18 — 本地全站逐页体检 bug 修复（API + 源码,dev server 连生产 DB；已完成）
 
 浏览器导航被 Remote Control 挡住,改用 API 响应 + 源码逐页(Home/Learn/Analyze/Scan/Weekly/Account/Portfolio)体检。Home/Learn/Weekly 正常;Account/Portfolio 无 Clerk key 返回 503「authentication not configured」为预期降级。发现两个 bug:
 - [x] **🔴 Scan payload bomb(严重)**:`/api/scan` 无视 `limit` 返回 **3759 行 / 18.7 MB**。根因(`scan.js:434` `rows.flatMap`):SQL `LIMIT` 限的是**标的数**,但每个标的被 `buildActionableSetups` 炸开成全部枚举腿(GOOGL 615 / MSFT 601),25 个标的 → 3759 行 × ~2.9KB;前端 `displayedResults` 不切片全部灌进 DOM。**同时是"少数标的霸屏"多样性问题的同一处**。修:每标的按分数封顶 `SCAN_MAX_SETUPS_PER_SYMBOL=5`,全局按分数取 top `SCAN_MAX_CANDIDATES=150`。**验证**:18.7MB→0.55MB、3759→113 行、MSFT 601→5;`scanRoute.test.js` +1(每标的≤5 且按分数降序)。
@@ -130,7 +130,7 @@
 - 次要:`status/data` 的 `expected_count 201`(universe 全量)vs `scan_enabled_count 81` 并列易误读,可后续加注「仅 81 scan-enabled」;非阻塞,未改。
 - 验证汇总:server `node --test` 171/171(+2)。
 
-## 2026-07-18 — Analyze 页 synthesis 层 + bug 修复（本地 review,竞品对标,开发中）
+## ✅ 2026-07-18 — Analyze 页 synthesis 层 + bug 修复（本地 review,竞品对标；19/19 已完成）
 
 **背景**:用户本地跑 `127.0.0.1:5173`,对比竞品(华尔街咖啡馆式"美股盘中日报")逐图 review Analyze 页,发现根本问题不是缺数据,而是**缺一个 synthesis 层**——所有指标各自展示、互不对话,没有"今日核心结论"、没有跨信号一致/分歧判断、没有全局/局部 GEX 对话、没有波动来源归因。竞品能给出"全局 GEX 为负但局部 Gamma 转正,当前区域有减震"这类结论,而我们 `local_gamma` 一直在算(`compute_gex.py:154`)、进了 DTO、甚至 Tab1 显示了数字,就是没让它说话。
 
@@ -182,7 +182,7 @@
 
 **覆盖核对**:图1→A1/B4/D1;图2→A3/B2/B3;图3→A5/C4;图4→B1/D2;图5→A2/A4;Q2→C6+归因算法;图7结论→C4;图8结论→C1/C2/C3/C7;今日核心结论→C5。
 
-## 2026-07-18 — Confluence 支撑阻力引擎（CF-1 至 CF-5 已结案；G5 failed，详见 docs/SPEC_CONFLUENCE.md）
+## ✅ 2026-07-18 — Confluence 支撑阻力引擎（CF-1 至 CF-5 已结案；G5 failed，详见 docs/SPEC_CONFLUENCE.md）
 
 **来源**:另一项目讨论产出 `docs/SPEC_CONFLUENCE.md`(六模块加权共振 → 支撑/阻力 Zone + 强度分 + reasons)。2026-07-18 对照本仓库代码逐条核实其"现状对照"**全部属实**(VP 缺 POC/VA/LVN、S/R 有 pivot 聚类、无 ATR、MA 仅 SMA、GEX 墙全有、无 Fib、无合成层、Focus Score 是动量分与价位正交)。所有输入(250 天日线、30m K 线、GEX)已在库,**零新采集**,纯 serving 计算,与 IV Rank Phase 3-5 完全并行不抢资源。
 
@@ -2171,7 +2171,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 
 ---
 
-## 📋 V1 Backlog (Polish)
+## ✅ V1 Backlog (Polish)
 - ✅ Strategy comparison mode (side by side, 2 strategies)（策略库可选择任意两个策略，并排展示方向、风险级别、DTE、IV、TP/SL 与实际 legs；不会改变当前主策略）
 - ✅ IV Rank badge per strategy in sidebar (Low/Med/High indicator)（根据每个策略 notes 中首个明确 IV 条件标识 `IV LOW` / `IV MED` / `IV HIGH`；表示适用波动率环境，不是实时标的 IV Rank）
 - ✅ Probability cone on payoff chart (shaded distribution band)（Payoff 图按策略腿加权 IV 和最长 DTE 画出 68% 对数正态终值价格区间；该蓝色区间是价格分布，不是 POP）
