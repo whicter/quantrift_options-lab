@@ -109,11 +109,21 @@ function spreadPct(contract) {
   return ((contract.ask - contract.bid) / mid) * 100;
 }
 
+// Coerce an expiry to a YYYY-MM-DD string. A Postgres DATE column arrives as a
+// JS Date, whose String() is "Fri Aug 14 2026 ..." — slicing that to 10 chars
+// yields "Fri Aug 14", which later `.slice(5)` mangles into "ug 14". Format
+// Dates via ISO; leave already-ISO strings untouched.
+function toIsoDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 function normalizeContracts(rawContracts) {
   if (!Array.isArray(rawContracts)) return [];
   return rawContracts
     .map(contract => ({
-      expiry: contract.expiry ? String(contract.expiry).slice(0, 10) : null,
+      expiry: toIsoDate(contract.expiry),
       dte: num(contract.dte),
       strike: num(contract.strike),
       right: String(contract.right || '').toUpperCase(),
@@ -762,5 +772,5 @@ function buildActionableSetup(strategy, rawContracts, row, overrides = {}, envir
 
 module.exports = {
   ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, STRATEGY_STANCE, buildActionableSetups, buildActionableSetup,
-  directionalWeight, expectedMoveForExpiry, popForCandidate,
+  directionalWeight, expectedMoveForExpiry, popForCandidate, toIsoDate,
 };

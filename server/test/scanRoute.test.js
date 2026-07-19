@@ -113,3 +113,26 @@ test('universe filters are bound without provider calls', async () => {
   assert.equal(queries[0].params[35], 'exclude');
   assert.equal(refreshCalls[0].jobType, 'scanner_materialize');
 });
+
+test('caps setups per symbol and bounds the total payload', async () => {
+  // One very liquid symbol whose chain enumerates far more than 5 setups.
+  const strikes = [];
+  for (let k = 80; k <= 130; k += 1) {
+    strikes.push({ expiry: '2026-08-21', dte: 36, strike: k, right: 'C', bid: 2, ask: 2.1, delta: 0.2, openInterest: 500, volume: 50 });
+    strikes.push({ expiry: '2026-08-21', dte: 36, strike: k, right: 'P', bid: 2, ask: 2.1, delta: -0.2, openInterest: 500, volume: 50 });
+  }
+  queryResults.push({ rows: [{
+    symbol: 'FLOOD', iv_rank: 60, quote_source: 'ib_internal',
+    quote_snapshot_ts: '2026-07-15T20:00:00.000Z', quote_freshness: 'fresh',
+    price_close: 105, option_contracts: strikes, freshness: 'fresh', is_stale: false,
+  }] });
+  const res = responseRecorder();
+  await sendScan({ query: { scanKey: 'cap-test', allowUndefinedRisk: 'true' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  const perSymbol = res.body.filter(row => row.symbol === 'FLOOD').length;
+  assert.ok(perSymbol <= 5, `expected <=5 setups per symbol, got ${perSymbol}`);
+  // results are ranked by candidate score (best first)
+  const scores = res.body.map(row => row.concrete_setup.score);
+  for (let i = 1; i < scores.length; i += 1) assert.ok(scores[i - 1] >= scores[i]);
+});

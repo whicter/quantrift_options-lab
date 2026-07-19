@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildActionableSetup, buildActionableSetups, directionalWeight } = require('../src/domain/scanner/candidateEngine.cjs');
+const { buildActionableSetup, buildActionableSetups, directionalWeight, toIsoDate } = require('../src/domain/scanner/candidateEngine.cjs');
 
 function contract({ expiry, dte, strike, right, bid, ask, delta, iv, oi = 500, volume = 50 }) {
   return { expiry, dte, strike, right, bid, ask, delta, iv, openInterest: oi, volume };
@@ -243,4 +243,26 @@ test('environment reorders the top pick away from a trend-opposed candidate', ()
   // the Long Put still appears, flagged as conflicting, not dropped
   const put = withEnv.find(c => c.strategy === 'Long Put');
   if (put) assert.equal(put.directionConflict, true);
+});
+
+test('normalizes a Postgres Date expiry to ISO instead of mangling it', () => {
+  // A DATE column arrives as a JS Date; String(Date).slice(0,10) used to yield
+  // "Fri Aug 14", which .slice(5) turned into "ug 14".
+  assert.equal(toIsoDate(new Date('2026-08-14T00:00:00Z')), '2026-08-14');
+  assert.equal(toIsoDate('2026-08-14'), '2026-08-14');
+  assert.equal(toIsoDate(null), null);
+  assert.equal(toIsoDate(new Date('invalid')), null);
+
+  // End-to-end: a calendar spread built from Date-typed expiries must render clean labels.
+  const near = new Date('2026-08-14T00:00:00Z');
+  const far = new Date('2026-09-18T00:00:00Z');
+  const contracts = [
+    { expiry: near, dte: 27, strike: 100, right: 'C', bid: 3.0, ask: 3.1, delta: 0.5, iv: 0.28, openInterest: 500, volume: 50 },
+    { expiry: far, dte: 62, strike: 100, right: 'C', bid: 5.0, ask: 5.1, delta: 0.5, iv: 0.28, openInterest: 500, volume: 50 },
+  ];
+  const setups = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Calendar Spread']);
+  assert.ok(setups.length >= 1);
+  assert.match(setups[0].structure, /08-14/);
+  assert.doesNotMatch(setups[0].structure, /ug 14/);
+  assert.match(setups[0].summary, /2026-08-14/);
 });

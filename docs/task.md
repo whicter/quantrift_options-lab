@@ -118,6 +118,14 @@
 - [ ] **按用户的自选清单(per-user watchlist)**:当前 watchlist 是全局 `symbol_universe`,没有让付费用户自定义盯盘清单的入口,是订阅分层里"Pro"价值主张的一个自然缺口。
 - [ ] **已采集但未被产品充分使用的数据**:期限结构(term structure)、skew、OI density、30 分钟动量等字段已经在采集/派生链路里存在或可以低成本派生,但目前没有对应的用户可见展示。属于"不用新采集就能加功能"的低成本机会。
 
+## 2026-07-18 — 本地全站逐页体检 bug 修复（API + 源码,dev server 连生产 DB）
+
+浏览器导航被 Remote Control 挡住,改用 API 响应 + 源码逐页(Home/Learn/Analyze/Scan/Weekly/Account/Portfolio)体检。Home/Learn/Weekly 正常;Account/Portfolio 无 Clerk key 返回 503「authentication not configured」为预期降级。发现两个 bug:
+- [x] **🔴 Scan payload bomb(严重)**:`/api/scan` 无视 `limit` 返回 **3759 行 / 18.7 MB**。根因(`scan.js:434` `rows.flatMap`):SQL `LIMIT` 限的是**标的数**,但每个标的被 `buildActionableSetups` 炸开成全部枚举腿(GOOGL 615 / MSFT 601),25 个标的 → 3759 行 × ~2.9KB;前端 `displayedResults` 不切片全部灌进 DOM。**同时是"少数标的霸屏"多样性问题的同一处**。修:每标的按分数封顶 `SCAN_MAX_SETUPS_PER_SYMBOL=5`,全局按分数取 top `SCAN_MAX_CANDIDATES=150`。**验证**:18.7MB→0.55MB、3759→113 行、MSFT 601→5;`scanRoute.test.js` +1(每标的≤5 且按分数降序)。
+- [x] **🟡 Analyze 策略卡日期截断成乱码**:`/api/analyze/:symbol/candidate` 显示「到期 Fri Aug 14」、structure「Sell ug 14 / Buy ep 18 750C」。根因(`candidateEngine.cjs:116`):`String(contract.expiry).slice(0,10)`——analyze raw 路径 expiry 是 node-pg 的 **Date 对象**,`String(Date)`=「Fri Aug 14 2026...」slice 成「Fri Aug 14」,再被日历/对角的 `.slice(5)` 砍成「ug 14」。Scanner 路径存 ISO 不受影响。修:新增 `toIsoDate()`(Date→`toISOString().slice(0,10)`,ISO 字符串原样)。**验证**:「到期 2026-08-14」「Sell 08-14 / Buy 09-18 750C」;`candidateEngine.test.js` +1。
+- 次要:`status/data` 的 `expected_count 201`(universe 全量)vs `scan_enabled_count 81` 并列易误读,可后续加注「仅 81 scan-enabled」;非阻塞,未改。
+- 验证汇总:server `node --test` 171/171(+2)。
+
 ## 2026-07-18 — Analyze 页 synthesis 层 + bug 修复（本地 review,竞品对标,开发中）
 
 **背景**:用户本地跑 `127.0.0.1:5173`,对比竞品(华尔街咖啡馆式"美股盘中日报")逐图 review Analyze 页,发现根本问题不是缺数据,而是**缺一个 synthesis 层**——所有指标各自展示、互不对话,没有"今日核心结论"、没有跨信号一致/分歧判断、没有全局/局部 GEX 对话、没有波动来源归因。竞品能给出"全局 GEX 为负但局部 Gamma 转正,当前区域有减震"这类结论,而我们 `local_gamma` 一直在算(`compute_gex.py:154`)、进了 DTO、甚至 Tab1 显示了数字,就是没让它说话。

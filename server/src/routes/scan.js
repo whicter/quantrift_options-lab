@@ -16,6 +16,12 @@ const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
 
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
 const SCANNER_CACHE_SECONDS = parseInt(process.env.SCANNER_CACHE_SECONDS ?? 60, 10);
+// Each qualifying symbol enumerates every valid strike/expiry setup — a liquid
+// name like GOOGL can produce 600+. Without a cap, /api/scan flattened to 3700+
+// rows / ~19 MB and a handful of symbols crowded out everyone else. Keep the
+// best few per symbol (diversity) and bound the total payload.
+const SCAN_MAX_SETUPS_PER_SYMBOL = parseInt(process.env.SCAN_MAX_SETUPS_PER_SYMBOL ?? 5, 10);
+const SCAN_MAX_CANDIDATES = parseInt(process.env.SCAN_MAX_CANDIDATES ?? 150, 10);
 const SCANNER_QUOTE_STALE_MINUTES = parseInt(process.env.SCANNER_QUOTE_STALE_MINUTES ?? 1440, 10);
 const COMMUNITY_STALE_MINUTES = parseInt(process.env.COMMUNITY_STALE_MINUTES ?? 90, 10);
 const DEFAULT_SCAN_KEY = process.env.SCAN_KEY || 'watchlist_v1';
@@ -432,7 +438,10 @@ async function sendScan(req, res) {
       allowUndefinedRisk,
     };
     const candidates = rows.flatMap(row => {
-      const setups = buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies);
+      // buildActionableSetups returns setups sorted best-first; keep only the top
+      // few per symbol so no single liquid name floods the scanner.
+      const setups = buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies)
+        .slice(0, SCAN_MAX_SETUPS_PER_SYMBOL);
       const { option_contracts: _rawContracts, payload, ...scannerSummary } = row;
       const gexModel = payload?.gex_model || {};
       const gexMetadata = buildGexMetadata({
@@ -455,7 +464,13 @@ async function sendScan(req, res) {
       }));
     });
 
-    res.json(setCache(key, candidates, SCANNER_CACHE_SECONDS));
+    // Bound the total payload: rank across symbols by candidate score and keep
+    // the strongest SCAN_MAX_CANDIDATES. The client sorts for display, so this
+    // ordering only decides what makes the cut.
+    candidates.sort((a, b) => (b.concrete_setup?.score ?? 0) - (a.concrete_setup?.score ?? 0));
+    const bounded = candidates.slice(0, SCAN_MAX_CANDIDATES);
+
+    res.json(setCache(key, bounded, SCANNER_CACHE_SECONDS));
   } catch (err) {
     if (isMissingTableError(err)) return res.json([]);
     console.error('GET /api/scan error:', err.message);
