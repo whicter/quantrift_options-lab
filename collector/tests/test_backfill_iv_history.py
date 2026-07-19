@@ -134,6 +134,37 @@ class ExpiryFallbackTest(unittest.TestCase):
         self.assertEqual(len(points), 1)
 
 
+class BackfillPersistenceTest(unittest.TestCase):
+    def test_writes_completed_batches_before_symbol_finishes(self):
+        original_compute = bf.compute_day_iv30
+        original_upsert = bf.upsert_backfill_rows
+        original_batch_size = bf.BACKFILL_WRITE_BATCH_DAYS
+        written_batches = []
+
+        class FakePolygon:
+            def underlying_closes(self, symbol, start, end):
+                return {
+                    date(2026, 3, 2): 100.0,
+                    date(2026, 3, 3): 101.0,
+                    date(2026, 3, 4): 102.0,
+                }
+
+        try:
+            bf.BACKFILL_WRITE_BATCH_DAYS = 2
+            bf.compute_day_iv30 = lambda poly, symbol, spot, day: (
+                0.25, (date(2026, 4, 17), 100.0, 46), [(46, 0.25)],
+            )
+            bf.upsert_backfill_rows = lambda conn, rows: (written_batches.append(list(rows)) or len(rows))
+            result = bf.backfill_symbol(object(), FakePolygon(), 'SPY', date(2026, 3, 2), date(2026, 3, 4))
+        finally:
+            bf.compute_day_iv30 = original_compute
+            bf.upsert_backfill_rows = original_upsert
+            bf.BACKFILL_WRITE_BATCH_DAYS = original_batch_size
+
+        self.assertEqual([len(batch) for batch in written_batches], [2, 1])
+        self.assertEqual(result, {'symbol': 'SPY', 'days': 3, 'computed': 3, 'written': 3})
+
+
 class VolatilityRowTest(unittest.TestCase):
     def test_row_shape(self):
         row = bf.volatility_row('AAPL', date(2026, 3, 2), 0.28, date(2026, 4, 1), 340.0, 30)

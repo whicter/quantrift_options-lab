@@ -43,6 +43,7 @@ BACKFILL_SOURCE = 'polygon_backfill_bs'
 GRID_MAX_PAGES = int(os.getenv('IV_BACKFILL_GRID_MAX_PAGES', '10'))
 EXPIRY_WALK_LIMIT = int(os.getenv('IV_BACKFILL_EXPIRY_WALK_LIMIT', '8'))
 GRID_CACHE_BUCKET_DAYS = int(os.getenv('IV_BACKFILL_GRID_CACHE_BUCKET_DAYS', '3'))
+BACKFILL_WRITE_BATCH_DAYS = int(os.getenv('IV_BACKFILL_WRITE_BATCH_DAYS', '25'))
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +276,7 @@ def backfill_symbol(conn, poly: PolygonHistory, symbol: str, start: date, end: d
     underlying bar -> skipped)."""
     closes = poly.underlying_closes(symbol, start, end)
     rows = []
+    written = 0
     days = sorted(closes)
     log.info('%s: backfilling %d trading days (%s to %s)', symbol, len(days), start, end)
     for index, day in enumerate(days, start=1):
@@ -289,8 +291,12 @@ def backfill_symbol(conn, poly: PolygonHistory, symbol: str, start: date, end: d
         if iv30 and chosen:
             expiry, strike, dte = chosen
             rows.append(volatility_row(symbol, day, round(iv30, 6), expiry, strike, dte))
-    written = upsert_backfill_rows(conn, rows) if conn is not None else 0
-    return {'symbol': symbol, 'days': len(closes), 'computed': len(rows), 'written': written}
+        if conn is not None and len(rows) >= max(1, BACKFILL_WRITE_BATCH_DAYS):
+            written += upsert_backfill_rows(conn, rows)
+            rows = []
+    if conn is not None and rows:
+        written += upsert_backfill_rows(conn, rows)
+    return {'symbol': symbol, 'days': len(closes), 'computed': written if conn is not None else len(rows), 'written': written}
 
 
 def run(symbols: list, days: int) -> None:
