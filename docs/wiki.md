@@ -1375,6 +1375,10 @@ IV Rank 需要 252 个交易日的 ATM IV，不把短历史的 min/max 当作一
 
 某个标的仍未 ready 不等于回填器可以补零。2026-07-18 核对发现 XLB/XLE/XLK/XLU/XLY/XSD 的 Polygon EOD option-bar 历史不足 252 天；页面和 API 必须保留 `iv_rank_ready=false`，并让来源和 observation count 可追溯。
 
+### IB Historical Farm 与报价字段
+
+IB historical farm 恢复只证明历史 close/fallback 及请求链路可用，不等于 API 获得实时 bid/ask。2026-07-18 的 SPY 诊断收到 delayed last、volume、OI 与 model Greeks，但 IB `10091/10167` 表示 API quote entitlement 不足，bid/ask 仍为空。产品可以把这些字段用于研究性 GEX/结构输入；任何需要可执行报价的策略腿仍须等待真实 bid/ask。
+
 ### 策略对比
 
 策略库提供 side-by-side 模式，可从全部策略中选择两个模板。对比视图列出方向、风险级别、DTE、IV 适用环境、止盈/止损规则和每条实际腿。该视图仅读取策略模板，不会覆盖主页面中正在编辑的策略或情景参数。

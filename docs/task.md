@@ -548,10 +548,9 @@
   - Verification：
     - Syntax verified：`venv311/bin/python -m py_compile collect_options.py debug_ib_option_ticks.py providers/ib_option_chain_provider.py`
     - Runtime diagnostic attempted：`OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 IB_OPTION_CLIENT_ID=44 IB_TIMEOUT=30 IB_OPTION_SNAPSHOT_GRACE_SECONDS=3 venv311/bin/python debug_ib_option_ticks.py`
-    - Result：IB Gateway connection timed out at `127.0.0.1:4001`；需要 Gateway/TWS API 端口在线后重跑 raw tick diagnostic
+    - ✅ Runtime diagnostic rerun（2026-07-18，IB historical farm 恢复后）：以 `SPY`、2 个实际合约、client id 45 运行成功（exit 0）。Delayed tick 83 返回 IV/Delta/Gamma/Theta/Vega；tick 27/28 返回 OI；tick 74 返回 volume；tick 68 返回 last。Gateway、historical fallback 和 option tick 解析均已验证。
   - Remaining risk：
-    - 若 raw tick 仍无 quote / Greeks / OI，需要确认 IB market data subscription / delayed options data / generic tick permissions
-    - 若 TWS 自身看不到同一 contract 的 bid/ask/IV/Greeks/OI，API socket 也不会提供这些字段
+    - 已确认 quote 限制：同次诊断收到了 IB `10091` / `10167`（API 未订阅实时 market data，显示 delayed），bid/ask 为 null、last/Greeks/OI 仍可用。需要完整 bid/ask 时，仍需启用对应的 IB API quote entitlement；这不是 historical farm 故障。
 
 **Phase 3D-3 — GEX / Wall / Gamma Flip Calculation**
 - ✅ Transition provider decision：

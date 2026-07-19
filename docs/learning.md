@@ -723,3 +723,9 @@ GEX compute job：
 - **分页和月期权回退解决的是代码缺口，不会创造历史行情**：密集 ETF 的 reference contracts 会跨多页；周到期在早期历史日可能尚未挂牌。回填必须同时跟随 `next_url`，优先第三个星期五的月期权，再计算 constant-30-day IV。
 - **回填必须增量落库**：把一个 symbol 的数百天结果只在最后一次 commit，会让中断丢失全部进度。每 25 个交易日幂等 upsert 后，可从任何已写日期安全重跑。
 - **252 天 readiness 是数据事实**：2026-07-18 的 Phase 2.5 验证使 SPY/QQQ/IWM/GLD/TLT/TSLA/XLC/XHB 达到 252+；XLB/XLE/XLK/XLU/XLY/XSD 的 Polygon EOD option-bar 历史在 2025-12 前不连续，因此继续显示 not-ready，而不是填充或推断缺失 IV。
+
+### 17. IB historical farm 恢复不等于完整 quote entitlement
+
+- **已验证的恢复范围**：2026-07-18 的 bounded SPY diagnostic 成功拿到 delayed last、volume、OI 和 tick 83 model Greeks，证明 Gateway 连通、历史 fallback 与 option 数据回调正常。
+- **不能过度解读**：同一请求的 bid/ask 仍为 null，IB `10091/10167` 明确指向 API market-data subscription 限制。必须把它记录为 quote-quality 限制，而不是把 historical farm 恢复误写成“所有期权字段恢复”。
+- **产品规则不变**：GEX/结构页面可标注延迟来源；策略候选的可执行价格仍只接受实际 bid/ask，不能用 last 或 model price 代替。

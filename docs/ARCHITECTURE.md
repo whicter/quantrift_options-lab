@@ -1713,6 +1713,8 @@ Historical option snapshots do not supply a complete historical IV series. `coll
 
 The readiness boundary remains factual: 252 non-null `atm_iv` observations are required. On 2026-07-18, SPY/QQQ/IWM/GLD/TLT/TSLA/XLC/XHB reached it after replay. XLB/XLE/XLK/XLU/XLY/XSD did not, because Polygon's available EOD option-bar history for those symbols is materially shorter; they remain `iv_rank_ready=false`, rather than receiving manufactured observations.
 
+IB Gateway diagnostic evidence is separate from this Polygon history path. On 2026-07-18, after the IB historical farm recovered, a bounded SPY diagnostic returned delayed option last, volume, OI and model Greeks. API bid/ask remained null with IB messages `10091`/`10167`, which identify a quote-entitlement limitation rather than a broken historical farm. Quote-dependent strategy construction must continue to require a usable bid/ask snapshot.
+
 ## 27. Scanner Positioning and Quote Planes
 
 同一 symbol 的“最新 positioning snapshot”和“最新 usable quote snapshot”不是同一个概念：
