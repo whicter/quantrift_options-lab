@@ -1369,6 +1369,12 @@ Scanner 对每个具体候选单返回两个可复核的模型对象，而不是
 
 若原始期权链已存在、只是 GEX 缺失或模型版本不一致，系统不会浪费一次外部请求：它建立内部 `gex_recompute` 任务，从最新 PostgreSQL 链直接重算 GEX、Wall、Gamma Flip 和 Scanner 行。真正没有期权链时才会调用 option provider。链质量未达到 GEX 阈值时，状态仍为 unavailable 并给出质量原因。
 
+### IV Rank 历史回填
+
+IV Rank 需要 252 个交易日的 ATM IV，不把短历史的 min/max 当作一年期排名。回填器使用 Polygon 历史 option EOD bars：先完整分页 contract reference，并优先选择挂牌历史更长的第三个星期五月期权；对同日 Call/Put 收盘价作 BS 反解，再插值为 constant-30-day IV。每 25 个交易日持久化一次，所以重跑不会丢失已完成部分。
+
+某个标的仍未 ready 不等于回填器可以补零。2026-07-18 核对发现 XLB/XLE/XLK/XLU/XLY/XSD 的 Polygon EOD option-bar 历史不足 252 天；页面和 API 必须保留 `iv_rank_ready=false`，并让来源和 observation count 可追溯。
+
 ### 策略对比
 
 策略库提供 side-by-side 模式，可从全部策略中选择两个模板。对比视图列出方向、风险级别、DTE、IV 适用环境、止盈/止损规则和每条实际腿。该视图仅读取策略模板，不会覆盖主页面中正在编辑的策略或情景参数。

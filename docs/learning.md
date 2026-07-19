@@ -717,3 +717,9 @@ GEX compute job：
 - **不要把已经发生过泄露的路径排除出扫描范围**：Polygon key 是通过文档进入 Git 历史的。secret 扫描一开始因为文档里的 `postgresql://postgres:PASSWORD@...` 占位符误报，最省事的做法是 `':!*.md'`——那等于把唯一一条已被证实的泄露路径永久设为盲区。正确做法是过滤占位符（`:PASSWORD@`、`YOUR_*`、`${...}`），保留文件在范围内。
 - **宁可留下明确前置，也不要猜一个会静默失败的配置**：CSP 若猜错 Clerk 的 host，登录会被静默阻断，且只有浏览器控制台有线索。当前 Clerk 未配置、实例域名无法验证，因此 CSP 只覆盖真实运行的应用，并把"启用 Clerk 前先扩展 CSP"写成 V3A-5 的显式前置。未验证的安全配置不是保守，是把故障推迟到最难排查的时刻。
 - **无人读取不是一种保障机制**：审计发现没有任何 provider 名被渲染，但这只是因为恰好没有组件读那些字段——`Scan.jsx` 的 `dataMeta` 把三个原始 provider 字符串送进 props 却无人消费。删掉死字段能减少暴露面，但真正的保障必须是服务端不下发，而不是前端恰好不显示。
+
+### 16. 历史 IV 回填要按“可用 EOD bar”验收
+
+- **分页和月期权回退解决的是代码缺口，不会创造历史行情**：密集 ETF 的 reference contracts 会跨多页；周到期在早期历史日可能尚未挂牌。回填必须同时跟随 `next_url`，优先第三个星期五的月期权，再计算 constant-30-day IV。
+- **回填必须增量落库**：把一个 symbol 的数百天结果只在最后一次 commit，会让中断丢失全部进度。每 25 个交易日幂等 upsert 后，可从任何已写日期安全重跑。
+- **252 天 readiness 是数据事实**：2026-07-18 的 Phase 2.5 验证使 SPY/QQQ/IWM/GLD/TLT/TSLA/XLC/XHB 达到 252+；XLB/XLE/XLK/XLU/XLY/XSD 的 Polygon EOD option-bar 历史在 2025-12 前不连续，因此继续显示 not-ready，而不是填充或推断缺失 IV。

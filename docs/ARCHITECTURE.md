@@ -1707,6 +1707,12 @@ metrics API + scanner materializer (per-field provenance)
 
 2026-07-15 runtime：历史回填 24,738 HV rows；最新 watchlist HV 67/67、ATM IV 67/67、ATM DTE 30–43；IV Rank 0/67 ready（每 symbol 1–2 market-day observations）。Tastytrade HV 对比 median absolute difference 为 14.97pp/8.39pp/6.40pp（30/60/90），因此 TT 数值不能作为同公式 `<1%` parity oracle。
 
+### 26.1 Historical IV Backfill (Phase 2.5)
+
+Historical option snapshots do not supply a complete historical IV series. `collector/backfill_iv_history.py` reconstructs a constant-30-day ATM IV from Polygon EOD option bars: it merges paginated expired and active reference contracts, tries third-Friday monthly expiries before weeklies, BS-inverts traded call/put closes, and interpolates total variance to 30 DTE. It uses a bounded rolling contract-grid cache and commits every 25 trading days; retries are therefore idempotent and interruption-safe.
+
+The readiness boundary remains factual: 252 non-null `atm_iv` observations are required. On 2026-07-18, SPY/QQQ/IWM/GLD/TLT/TSLA/XLC/XHB reached it after replay. XLB/XLE/XLK/XLU/XLY/XSD did not, because Polygon's available EOD option-bar history for those symbols is materially shorter; they remain `iv_rank_ready=false`, rather than receiving manufactured observations.
+
 ## 27. Scanner Positioning and Quote Planes
 
 同一 symbol 的“最新 positioning snapshot”和“最新 usable quote snapshot”不是同一个概念：

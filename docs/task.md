@@ -4,7 +4,7 @@
 
 这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **104 项** `- [ ]`，按文档出现顺序分布如下：
 
-1. `2026-07-17 — IV Rank 自给自足` — 4 项，**当前主线、下一个开发项 = Phase 2.5**：Phase 2.5 修 weekly-dense 欠填（root cause 坐实、实施计划已排定：翻页+到期回退优先月期权，修后对 ~69 个欠填 symbol 重跑）→ Phase 3 前向口径统一（上线前必须项，设计已写）→ Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。回填两批已全部完成：195 symbol / 45,905 行 / 126 个达 252+。
+1. `2026-07-17 — IV Rank 自给自足` — 3 项，**当前主线、下一个开发项 = Phase 3**：Phase 2.5 已完成（分页 + 月期权回退 + 滚动 grid cache + 分批持久化；核心 SPY/QQQ/IWM/GLD/TLT/TSLA 均达 252+）→ Phase 3 前向口径统一（上线前必须项，设计已写）→ Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
 2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
@@ -70,7 +70,7 @@
   - 第二批(2026-07-17 启动,2026-07-18 04:25 完成,PID 63275):watchlist.txt 从 81 扩到 201,对 130 个新 symbol 回填(日志 `logs/iv_backfill_batch2.log`)。
   - **两批合计终态(2026-07-18 复核)**:库中 **195 symbol、45,905 行**,其中 **126 个达 252+**(iv_rank ready)、**69 个欠 252**。
   - **欠填 69 个的分类**:①**Phase 2.5 要修的 weekly-dense 标的**——`SPY:67 QQQ:70 IWM:76 GLD:150 TLT:223 TSLA:225 TQQQ:227 SOXS:2` + XL* 板块系(`XLY:138 XLB:147 XLK:151 XLU:151 XLE:152 XHB:242 XLC:246 XRT:248`)+ 大盘股周期权密集名(`NFLX:164 META:212 AAPL:248 NVDA:248 AMZN:249 MSFT:250 GOOGL:250 AVGO:247` 等,均只差最后一段);②**真·稀疏/新上市**(数据本身限制,非 bug)——`EYES:1 MUU:2 UP:4 LTL:12 KLAC:21 SPCX:27 SRVR:40 FCF:46 MQ:66 SMA:72 CBUS:94 INFQ:105` 等小盘;③介于两者之间的中流动性名,修复后重跑能补多少算多少。剩余验收(达 252、`update_iv_rank_readiness` 后 `iv_rank_ready=true`)顺延到 Phase 2.5 修复重跑之后。
-- [ ] **Phase 2.5 — 修 weekly-dense ETF 欠填(root cause 已实测坐实,2026-07-17)**:高流动 ETF(SPY/QQQ/IWM/GLD/大部分 XL* 板块 ETF)IV30 历史大面积缺失,不是数据缺,是回填逻辑两个 bug 叠加。
+- [x] **Phase 2.5 — 修 weekly-dense ETF 欠填(root cause 已实测坐实,2026-07-18)**:高流动 ETF(SPY/QQQ/IWM/GLD/大部分 XL* 板块 ETF)IV30 历史大面积缺失,不是数据缺,是回填逻辑两个 bug 叠加。
   - **实测证据(SPY 2026-03-02,spot 686)**:那天被跳过是因为——SPY 686C **周期权** `2026-04-01`(DTE 30)该天**单日 bar 为 None**(该合约最早 bar 要到 `2026-03-19` 才出现,即历史那天它还没挂牌);而 SPY 685C **月期权** `2026-04-17`(DTE 46)该天有 bar(close 27.63,自 2026-02-02 就有历史)。对照 AAPL 同期月期权正常。
   - **Bug A — `/v3/reference/options/contracts` 撞 `limit=1000` 截断**:SPY 周期权 + 密集 strike,1000 条在 **DTE 17 就耗尽**,30-DTE 及更远的**月期权全被切掉**。实测 `true` 侧正好返回 1000 且带 `next_url`。翻页(`full_grid` follow `next_url`)确实能拿到 DTE 10–53 的完整到期集。
   - **Bug B(真正的杀手,截断只是暴露它)— 周期权在历史某天尚未挂牌**:截断后 grid 只剩近月**周期权**(DTE 10–17),而周期权提前 ~4–8 周才挂牌,历史那天 `option_close` 全 None → `no_priced_strike` → 整天跳过。**关键**:实测证明**光翻页也修不好**——翻页拿到真 30-DTE 到期后其 ATM strike `option_close` 依然 None,因为那批仍是没历史挂牌的周期权。
@@ -84,6 +84,9 @@
     4. 修复后**只对欠填的 ~69 个 symbol 重跑** `--days 400`(周末窗口跑,daemon 空闲无争用);
     5. 跑 `update_iv_rank_readiness`,统计终态 ready 数。
   - **验收**:修复后 SPY/QQQ/IWM/GLD/TLT/TSLA + XL* 系全部 `iv_observation_count>=252`(容许真·稀疏小盘仍欠);单测覆盖"翻页拼接"与"到期回退优先月期权"两个路径;两批终态数字回写本节。
+  - **实施（`d7175d4`、`cb9f639`、`5a11d4b`）**：`expiry_strike_grid` 对 `expired=true/false` 均跟随 `next_url`（上限 10 页）；`compute_day_iv30` 先走第三个星期五月期权、再回退周到期；相邻交易日复用有界滚动 grid cache；每 25 个交易日做一次幂等 upsert，进程中断不会丢失整段结果。
+  - **验证（2026-07-18）**：collector `unittest discover` **226/226 通过**。对核心集合重跑 `backfill_iv_history.py <symbols> --days 400` 后执行 `derive_volatility.run(backfill=False, symbols=...)`：SPY 262、QQQ 274、IWM 274、GLD 276、TLT 276、TSLA 276、XLC 275、XHB 275，均 `iv_rank_ready=true`。
+  - **真实数据例外**：XLB 157、XLE 158、XLK 166、XLU 156、XLY 155、XSD 203 仍不足 252；月度查询显示前五个在 Polygon EOD option bars 中从 **2025-12** 才连续，之前仅零散日期，重跑不会补造不存在的观测。保留为 provider historical-coverage 例外，不能标记 ready。零行旧/稀疏 watchlist codes 另有 15 个（ACAC、BATL、BRK、FX、KPK、LINK、LSL、LTV、MINE、NOEM、RE、SGP、SMS、TITI、TTM），不纳入“修复已覆盖”统计。
 - [ ] **Phase 3 — 前向口径统一(Phase 2.5 之后立即做,上线前必须项)**:把每日 `atm_iv` 采集改成与回填一致的 constant-30-day 口径,消除"回填段 constant-30d vs 前向段浮动 30-45 DTE 单张 ATM"的方法接缝(接缝会在拼接点产生人为 IV 跳变,直接污染 IV Rank)。
   - **设计**:`fetch_atm_observations`(或其调用处)改为——取 30 DTE 两侧 bracketing 到期的 ATM call+put 快照 IV(Polygon snapshot 自带 IV,当日不需要 BS 反解),`constant_maturity_iv`(implied_vol.py 现成)插值到 30 天;写入 `volatility_history.atm_iv`,`iv_source` 标新口径(如 `polygon_snapshot_cm30`)。
   - **验收**:单测(插值路径/单点回退/无 IV 回退);对若干 symbol 比对新旧口径同日差异并记录;`derive_volatility` 在混合序列(回填段+前向段)上跑通出 iv_rank;文档记录口径切换日期(序列分析时的 provenance)。
