@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 import backfill_iv_history as bf
+from implied_vol import bs_price
 
 
 class OccTickerTest(unittest.TestCase):
@@ -48,6 +49,62 @@ class BracketingExpiriesTest(unittest.TestCase):
 
     def test_no_future_expiries(self):
         self.assertEqual(bf.select_bracketing_expiries([date(2026, 6, 1)], date(2026, 7, 1)), [])
+
+    def test_monthly_expiries_are_tried_before_weeklies(self):
+        as_of = date(2026, 3, 2)
+        weekly = date(2026, 4, 1)
+        monthly_near = date(2026, 3, 20)
+        monthly_far = date(2026, 4, 17)
+        ordered = bf.expiry_walk_order([weekly, monthly_near, monthly_far], as_of)
+        self.assertEqual(ordered[:2], [monthly_near, monthly_far])
+        self.assertEqual(ordered[-1], weekly)
+
+
+class PolygonGridPaginationTest(unittest.TestCase):
+    def test_grid_merges_every_page_for_both_expired_states(self):
+        client = object.__new__(bf.PolygonHistory)
+        client._grid_cache = {}
+        calls = []
+        responses = [
+            {'results': [{'expiration_date': '2026-04-01', 'strike_price': 685}], 'next_url': 'https://next/expired'},
+            {'results': [{'expiration_date': '2026-04-17', 'strike_price': 685}]},
+            {'results': [{'expiration_date': '2026-04-17', 'strike_price': 690}]},
+        ]
+
+        def fake_get(path_or_url, params=None):
+            calls.append((path_or_url, params))
+            return responses.pop(0)
+
+        client._get = fake_get
+        grid = client.expiry_strike_grid('SPY', date(2026, 3, 1), date(2026, 4, 30))
+
+        self.assertEqual(grid[date(2026, 4, 1)], [685.0])
+        self.assertEqual(grid[date(2026, 4, 17)], [685.0, 690.0])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[1][0], 'https://next/expired')
+
+
+class ExpiryFallbackTest(unittest.TestCase):
+    def test_compute_day_falls_back_from_unlisted_weekly_to_monthly(self):
+        as_of = date(2026, 3, 2)
+        weekly = date(2026, 4, 1)
+        monthly = date(2026, 4, 17)
+
+        class FakePolygon:
+            def expiry_strike_grid(self, symbol, exp_gte, exp_lte):
+                return {weekly: [685.0], monthly: [685.0]}
+
+            def option_close(self, ticker, day):
+                if '260401' in ticker:
+                    return None
+                is_call = 'C00685000' in ticker
+                return bs_price(686.0, 685.0, (monthly - as_of).days / 365, 0.045, 0.30, is_call)
+
+        iv30, chosen, points = bf.compute_day_iv30(FakePolygon(), 'SPY', 686.0, as_of)
+        self.assertIsNotNone(iv30)
+        self.assertEqual(chosen[0], monthly)
+        self.assertEqual(chosen[2], 46)
+        self.assertEqual(len(points), 1)
 
 
 class VolatilityRowTest(unittest.TestCase):

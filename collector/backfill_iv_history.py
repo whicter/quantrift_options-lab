@@ -40,6 +40,8 @@ TARGET_DTE = 30
 EXP_WINDOW_LO_DAYS = 10   # look for expiries from as_of+10 ...
 EXP_WINDOW_HI_DAYS = 55   # ... to as_of+55, so 30 DTE is always bracketed
 BACKFILL_SOURCE = 'polygon_backfill_bs'
+GRID_MAX_PAGES = int(os.getenv('IV_BACKFILL_GRID_MAX_PAGES', '10'))
+EXPIRY_WALK_LIMIT = int(os.getenv('IV_BACKFILL_EXPIRY_WALK_LIMIT', '8'))
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +87,28 @@ def select_bracketing_expiries(expiries, as_of: date, target_dte: int = TARGET_D
     return picks
 
 
+def is_third_friday(expiry: date) -> bool:
+    """Monthly equity-option expiry: Friday falling on the 15th through 21st."""
+    return expiry.weekday() == 4 and 15 <= expiry.day <= 21
+
+
+def expiry_walk_order(expiries, as_of: date, target_dte: int = TARGET_DTE,
+                      limit: int = EXPIRY_WALK_LIMIT) -> list:
+    """Prioritize long-listed monthly expiries, then nearby weeklies.
+
+    Historical daily aggregates often do not exist for a weekly contract that
+    was listed only a few weeks before expiration. Third-Friday monthlies tend
+    to have much longer listing histories. The walk keeps the 30-DTE target
+    intact by trying all monthly dates in the window first, then the remaining
+    expiries by target distance, stopping at a bounded number of candidates.
+    """
+    future = sorted({expiry for expiry in expiries if expiry is not None and expiry > as_of})
+    monthly = [expiry for expiry in future if is_third_friday(expiry)]
+    weekly = [expiry for expiry in future if not is_third_friday(expiry)]
+    by_distance = lambda expiry: (abs((expiry - as_of).days - target_dte), expiry)
+    return (sorted(monthly, key=by_distance) + sorted(weekly, key=by_distance))[:max(1, limit)]
+
+
 def volatility_row(symbol, metric_date, iv30, expiry, strike, dte, source=BACKFILL_SOURCE):
     return {
         'symbol': symbol, 'metric_date': metric_date, 'atm_iv': iv30,
@@ -107,8 +131,9 @@ class PolygonHistory:
         self.session.headers['Authorization'] = f'Bearer {self.key}'
         self._grid_cache: dict = {}
 
-    def _get(self, path, params=None):
-        resp = self.session.get(self.base + path, params=params, timeout=25)
+    def _get(self, path_or_url, params=None):
+        url = path_or_url if str(path_or_url).startswith('http') else self.base + path_or_url
+        resp = self.session.get(url, params=params, timeout=25)
         resp.raise_for_status()
         return resp.json()
 
@@ -135,15 +160,22 @@ class PolygonHistory:
         # are already expired, recent days' are still active. `expired` selects
         # one or the other, so query both and merge.
         for expired in ('true', 'false'):
-            data = self._get('/v3/reference/options/contracts', {
+            path_or_url = '/v3/reference/options/contracts'
+            params = {
                 'underlying_ticker': symbol.upper(),
                 'expiration_date.gte': exp_gte.isoformat(),
                 'expiration_date.lte': exp_lte.isoformat(),
                 'expired': expired, 'contract_type': 'call', 'limit': 1000,
-            })
-            for c in data.get('results') or []:
-                expiry = date.fromisoformat(c['expiration_date'])
-                grid.setdefault(expiry, set()).add(float(c['strike_price']))
+            }
+            for _ in range(max(1, GRID_MAX_PAGES)):
+                data = self._get(path_or_url, params)
+                for c in data.get('results') or []:
+                    expiry = date.fromisoformat(c['expiration_date'])
+                    grid.setdefault(expiry, set()).add(float(c['strike_price']))
+                next_url = data.get('next_url')
+                if not next_url:
+                    break
+                path_or_url, params = next_url, None
         grid = {e: sorted(s) for e, s in grid.items()}
         self._grid_cache[cache_key] = grid
         return grid
@@ -166,7 +198,9 @@ def compute_day_iv30(poly: PolygonHistory, symbol: str, spot: float, as_of: date
     )
     points = []
     chosen = None
-    for expiry in select_bracketing_expiries(list(grid), as_of):
+    has_below = False
+    has_above = False
+    for expiry in expiry_walk_order(list(grid), as_of):
         dte = (expiry - as_of).days
         t_years = dte / 365.0
         atm_iv = None
@@ -183,8 +217,14 @@ def compute_day_iv30(poly: PolygonHistory, symbol: str, spot: float, as_of: date
                 break
         if atm_iv:
             points.append((dte, atm_iv))
-            if chosen is None:
+            if chosen is None or abs(dte - TARGET_DTE) < abs(chosen[2] - TARGET_DTE):
                 chosen = (expiry, used_strike, dte)
+            has_below = has_below or dte <= TARGET_DTE
+            has_above = has_above or dte >= TARGET_DTE
+            # A target bracket is enough for total-variance interpolation. Do
+            # not keep making option-bar calls once the useful pair exists.
+            if dte == TARGET_DTE or (has_below and has_above):
+                break
     return constant_maturity_iv(points, TARGET_DTE), chosen, points
 
 
