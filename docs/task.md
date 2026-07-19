@@ -2,12 +2,13 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **99 项** `- [ ]`，按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **104 项** `- [ ]`，按文档出现顺序分布如下：
 
 1. `2026-07-17 — IV Rank 自给自足` — 4 项，**当前主线、下一个开发项 = Phase 2.5**：Phase 2.5 修 weekly-dense 欠填（root cause 坐实、实施计划已排定：翻页+到期回退优先月期权，修后对 ~69 个欠填 symbol 重跑）→ Phase 3 前向口径统一（上线前必须项，设计已写）→ Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。回填两批已全部完成：195 symbol / 45,905 行 / 126 个达 252+。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
 2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
+2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 10 项：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R1 决策语言层 3 项(State Matrix/每日简报/板块轮动)、R2 信任层 2 项(候选结果台账/期权原生 Breadth)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -201,6 +202,24 @@
 - [x] **CF-5 搁置(同 spec v2)**:权重拟合(有标注数据后让手工值退休)、双顶双底形态、Anchored VWAP、Market Profile/TPO、Order Flow。**状态**：作为明确的非本次实现范围归档；不得绕过 G5 以 UI 形式上线。**v2 重跑前置**：修复 CF-3 复核 caveat 的两个几何混杂（Zone 数量对齐 + 宽度归一）。
 
 工作量估计:CF-1+CF-2 约一个工作会话,CF-3 半个,CF-4 半个。
+
+## 2026-07-18 — 竞品分析 Roadmap R0-R4（newshock / alphastockpro / getnextpick,详见 docs/COMPETITOR_ANALYSIS_2026-07-18.md）
+
+**结论摘要**:三家竞品——newshock(新闻→主题→股票的叙事引擎)、alphastockpro(0-100 分 + Trend Matrix 五桶决策语言,$249-499/年)、getnextpick(AI 研报 + RRG 板块轮动 + 公开 paper bot 记录,credits 制)。**我们的护城河 = 期权原生分析,三家都没有,必须守住加深**。八个差距(G1-G8)中三个红色:G1 零叙事层、G2 无决策语言、G4 无可验证记录。**明确不抄**:带入场/止损/目标价的买卖信号、真金 bot、"AI 荐股"式文案(违反 Page Copy Audit 边界;"它们卖答案,我们卖判断力"是有意选择的赛道)。
+
+- [ ] **竞品复查(等用户试用后)**:本次分析中 **alphastockpro 的 Pro/Elite 内页在登录墙后**(Trend Matrix/3D Matrix/Momentum Radar/30-Min Breakout Scanner/Reddit Trends/Tactical Swings 等只以其官方功能清单还原,未见实页),**nextpick 的 app 内页为 JS 渲染**(Sector Flow RRG 实图/Stock Analysis 详情/AI 研报样例/bot 交易日志只以首页自述还原)。**用户计划注册试用两家**;拿到访问权后重新逐页深挖(截图+具体算法证据),更新 COMPETITOR_ANALYSIS 文档并校正 R1-R4 优先级。
+- **R0 — 主线不动摇(进行中)**:IV Rank 自给自足 Phase 2.5 → 3 → 4 → 5(Mac 可关机)。所有新功能不得挤占该主线。
+- [ ] **R1.1 Symbol State Matrix(决策语言层,对标 alphastockpro Trend Matrix)**:规则分类全 universe ~200 标的为 5-6 个可操作状态(强势上行/回调买点/底部试探/区间突破/空头/高波动观望),输入全部已有(Kalman 趋势+多周期动量+GEX 环境+IV Rank+RVol),每分类带 reasons(synthesis 层同款)。**顺带解决 scanner 多样性问题**(先按状态分桶再出候选,呼应"全项目 review·算法"节的多样性条目)。
+- [ ] **R1.2 每日市场简报(对标 nextpick briefing)**:市场级 synthesis——universe 状态分布(穷人版 breadth)、板块聚合、SPY/QQQ gamma 环境、IV 面貌(IV rank 分布)、top 期权异动、明日财报。每日物化一份,可分享链接/图卡。
+- [ ] **R1.3 板块轮动视图(对标 RRG)**:按 sector 聚合已有 per-symbol 数据(universe 元数据已有 sector 字段):平均动量状态、% above MA、gamma regime 分布、IV rank 分布;相对强度 vs 强度动量四象限散点(简版 RRG)。零新采集。
+- [ ] **R2.1 候选结果台账(信任层,对标 nextpick bot 记录的诚实版)**:V3A-2 已物化每批候选(表已在生产)——加结果评分:到期/N 日后逐候选记实际盈亏、POP 校准(预测 68% 的桶实际赢率)、按策略族胜率;成熟后开公开"模型记录"页。**一石二鸟:这正是拟合候选打分权重所需的标注数据**(呼应已记录的"打分权重未经验证"技术债与 Confluence CF-5 的权重拟合前置)。定位=模型验证,不是跟单信号。
+- [ ] **R2.2 期权原生 Breadth**:% of universe above MA50/200 + 三家都没有的期权版市场体征(% 正 Gamma、IV Rank 中位数、PCR 分布)。数据全在库。
+- [ ] **R3.1 财报/事件日历页**:`earnings_date` 已采集,纯展示;+财报前后 IV 行为曲线(IV 历史已回填,可画"财报 IV 冲高-坍缩")。
+- [ ] **R3.2 新闻摄取 MVP(对标 newshock,叙事层)**:免费源(GDELT/RSS)→ LLM 分类为事件卡(严重度+关联标的+为什么重要)→ Analyze per-symbol 事件流;**升级波动归因的"消息面"槽位**(从"隔夜跳空"粒度到具体 headline)。排 IV Rank cutover 后或并行于 Railway。
+- [ ] **R3.3 主题聚类(newshock 式)**:仅当 R3.2 验证用户参与度后再做。
+- [ ] **R4 打磨/商业化**:EN/ZH 双语(对标 alphastockpro,吃第二个市场)、分享卡片、CSV 导出(Pro 权益)、Stripe 就绪后参考 $249-499/年与 credits 制定价锚。部分被外部密钥阻塞。
+
+**排序依据**:R1 全部是既有数据派生(synthesis 层同等杠杆)先做;R2.1 复用 V3A-2 基础设施且偿还已知技术债;R3 需新摄取管道,不与 Mac 独立目标抢资源;R4 部分外部阻塞。
 
 ## ✅ 2026-07-16 — Page Copy Audit Remediation
 

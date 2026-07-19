@@ -5,6 +5,12 @@
 > 功能与定价目录完整、/breadth 深抓（Pro/Elite 内页在登录墙后，功能以其自述清单为准）；
 > nextpick 的首页/定价/discoveries/briefing 深抓（app 内页 JS 渲染，功能以首页自述为准）。
 > 推断的算法均标注"推断"。
+>
+> **⏳ 待复查（2026-07-18 记录）**：用户计划注册试用 alphastockpro（Pro/Elite）与 nextpick
+> （30 天免费试用），拿到登录态后需重新逐页深挖付费内页——alphastockpro 的 Trend Matrix /
+> 3D Matrix / Momentum Radar / 30-Min Breakout Scanner / Reddit Trends / Tactical Swings
+> 实页与打分算法证据；nextpick 的 Sector Flow RRG 实图 / Stock Analysis 详情 / AI 研报样例 /
+> bot 逐笔交易日志。复查后更新本文档并校正 R1-R4 优先级。对应 task.md「竞品复查」条目。
 
 ---
 
