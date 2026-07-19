@@ -42,6 +42,7 @@ EXP_WINDOW_HI_DAYS = 55   # ... to as_of+55, so 30 DTE is always bracketed
 BACKFILL_SOURCE = 'polygon_backfill_bs'
 GRID_MAX_PAGES = int(os.getenv('IV_BACKFILL_GRID_MAX_PAGES', '10'))
 EXPIRY_WALK_LIMIT = int(os.getenv('IV_BACKFILL_EXPIRY_WALK_LIMIT', '8'))
+GRID_CACHE_BUCKET_DAYS = int(os.getenv('IV_BACKFILL_GRID_CACHE_BUCKET_DAYS', '3'))
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +152,22 @@ class PolygonHistory:
 
     def expiry_strike_grid(self, symbol: str, exp_gte: date, exp_lte: date) -> dict:
         """{expiry_date: sorted[strikes]} for calls in the window (calls and puts
-        share strikes). Cached per (symbol, window)."""
-        cache_key = (symbol.upper(), exp_gte, exp_lte)
-        if cache_key in self._grid_cache:
-            return self._grid_cache[cache_key]
+        share strikes). Cached in bounded rolling date buckets.
+
+        Backfill evaluates consecutive trading days whose 45-day expiry windows
+        overlap almost completely. Cache a slightly wider bucket once, then
+        return only the caller's requested range so the IV calculation retains
+        its original 10-55 DTE input window.
+        """
+        bucket_days = max(1, GRID_CACHE_BUCKET_DAYS)
+        bucket_start = exp_gte - timedelta(days=exp_gte.toordinal() % bucket_days)
+        requested_span = (exp_lte - exp_gte).days
+        bucket_end = bucket_start + timedelta(days=requested_span + bucket_days - 1)
+        cache_key = (symbol.upper(), bucket_start, bucket_end)
+        cached_grid = self._grid_cache.get(cache_key)
+        if cached_grid is not None:
+            return {expiry: strikes for expiry, strikes in cached_grid.items()
+                    if exp_gte <= expiry <= exp_lte}
         grid: dict = {}
         # A backfill window spans both sides of "now": old days' 30-DTE expiries
         # are already expired, recent days' are still active. `expired` selects
@@ -163,8 +176,8 @@ class PolygonHistory:
             path_or_url = '/v3/reference/options/contracts'
             params = {
                 'underlying_ticker': symbol.upper(),
-                'expiration_date.gte': exp_gte.isoformat(),
-                'expiration_date.lte': exp_lte.isoformat(),
+                'expiration_date.gte': bucket_start.isoformat(),
+                'expiration_date.lte': bucket_end.isoformat(),
                 'expired': expired, 'contract_type': 'call', 'limit': 1000,
             }
             for _ in range(max(1, GRID_MAX_PAGES)):
@@ -178,7 +191,8 @@ class PolygonHistory:
                 path_or_url, params = next_url, None
         grid = {e: sorted(s) for e, s in grid.items()}
         self._grid_cache[cache_key] = grid
-        return grid
+        return {expiry: strikes for expiry, strikes in grid.items()
+                if exp_gte <= expiry <= exp_lte}
 
     def option_close(self, ticker: str, day: date):
         data = self._get(
@@ -261,7 +275,11 @@ def backfill_symbol(conn, poly: PolygonHistory, symbol: str, start: date, end: d
     underlying bar -> skipped)."""
     closes = poly.underlying_closes(symbol, start, end)
     rows = []
-    for day in sorted(closes):
+    days = sorted(closes)
+    log.info('%s: backfilling %d trading days (%s to %s)', symbol, len(days), start, end)
+    for index, day in enumerate(days, start=1):
+        if index > 1 and index % 25 == 0:
+            log.info('%s: processed %d/%d trading days', symbol, index, len(days))
         spot = closes[day]
         try:
             iv30, chosen, _points = compute_day_iv30(poly, symbol, spot, day)

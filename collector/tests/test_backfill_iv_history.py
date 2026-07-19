@@ -83,6 +83,33 @@ class PolygonGridPaginationTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[1][0], 'https://next/expired')
 
+    def test_grid_cache_reuses_rolling_bucket_without_widening_result(self):
+        client = object.__new__(bf.PolygonHistory)
+        client._grid_cache = {}
+        calls = []
+        responses = [
+            {'results': [
+                {'expiration_date': '2026-04-10', 'strike_price': 680},
+                {'expiration_date': '2026-04-16', 'strike_price': 685},
+            ]},
+            {'results': []},
+        ]
+
+        def fake_get(path_or_url, params=None):
+            calls.append((path_or_url, params))
+            return responses.pop(0)
+
+        client._get = fake_get
+        first = client.expiry_strike_grid('SPY', date(2026, 3, 2), date(2026, 4, 15))
+        second = client.expiry_strike_grid('SPY', date(2026, 3, 3), date(2026, 4, 16))
+
+        self.assertEqual(len(calls), 2)  # one request for each expired state
+        self.assertEqual(first, {date(2026, 4, 10): [680.0]})
+        self.assertEqual(second, {
+            date(2026, 4, 10): [680.0],
+            date(2026, 4, 16): [685.0],
+        })
+
 
 class ExpiryFallbackTest(unittest.TestCase):
     def test_compute_day_falls_back_from_unlisted_weekly_to_monthly(self):
