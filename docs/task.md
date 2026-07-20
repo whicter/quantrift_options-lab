@@ -33,16 +33,20 @@
 **根因(三层,已实测)**:
 1. 🔴 **`run_refresh_worker.py::SPOT_HINT_MAX_AGE_DAYS=4`**:期权采集器(每 5 分钟跑)拿"最近 4 天内的日线收盘"当 spot,跳过 `/prev`(源自 `f089fd1` 的省请求优化)。周四 07-16 收盘 391.06 在周一被判"够新鲜",于是每 5 分钟都用它,永远旧。**4 天容忍度是灾难**。
 2. 🟡 **日线 cron 只每工作日 13:35 PT 跑一次**(`quantrift-options-prices`,`autorestart:false`),周五收盘要等下周一才入库;`price_history` + `price_history_30m` 都源自这个 cron,所以"现价"整体被锁在日级。实测:全站 72 标的日线全部卡在 07-16,周五 07-17 一根没采(但 Polygon 现在就有——日线端点返回含 07-17 的 5 天)。**已手动补跑,TSLA 日线已到 07-17=380.84**。
-3. ⛔ **Polygon $29 Options 档 plan 限制(实测比预期更严)**:分钟聚合端点**盘中也 `NOT_AUTHORIZED`**(2026-07-20 11:02 ET 开盘时段实测,不只是盘前)。可用的只有日线、历史日线、`/prev`。→ **Polygon 这档连 15 分钟延迟盘中分钟价都拿不到**,能做到的最新 = **前收盘(`/prev`)**。真·盘中价需升级 Polygon Stocks 订阅(用户已知,以后再接)。
+3. ⛔ **massive.com/Polygon $29 Options 档:不含任何股票盘中/延迟/快照数据(2026-07-20 铁证)**。Polygon 原文 403:当天分钟→`"Your plan doesn't include this data timeframe. Please upgrade your plan at polygon.io/pricing"`;单票 snapshot→`"You are not entitled to this data. Please upgrade your plan at massive.com/pricing"`;`/prev`(股票 EOD 前收盘)→200 通。测过当天分钟(16-45 分钟前时间戳范围也拒,非"15 分钟窗口"问题)、当天日线、v2/v3 snapshot、grouped daily——**股票侧全部 403,只有 EOD 日线和 `/prev` 通**。**结论:Polygon 确有 15 分钟延迟数据,但属 Stocks 订阅,不在我们的 Options 档里**;免费下 Polygon 拿不到盘中价,能做到的最新 = 前收盘。真·盘中价:①升级 massive/Polygon 加 Stocks 订阅(花钱),或 ②走 IB(免费,见 P2.1)。
 
 **关键设计洞察 + 一个免费的盘中价来源**:光把 `MAX_AGE_DAYS` 4→1 不够——盘中日线未收盘,采集器会一直拿"昨天收盘"。修法是让 `fetch_underlying` **盘中优先取延迟盘中价、日线收盘只在盘后当现价**。**但实测发现 Polygon 分钟盘中不授权**;而**IB Gateway 盘中能给真·标的价**——生产 DB 里 TSLA 07-20 10:22 ET 有一条 `source=ib_internal`、`underlying=374.43` 的快照(另一 agent `8e3df5f` 的 quote-fallback 触发的),这是我们当前**唯一免费的盘中现价来源**。
 
 **修复进展**:
 - [x] **P1 `SPOT_HINT_MAX_AGE_DAYS` 4→1(已完成)**:消除"多天前价"。实测周一查 TSLA/SPY/MU 的 `latest_db_spot()` 均返回 None(最新日线周五 07-17=3 天前),强制走 `/prev` 拿前收盘 380.84,不再拿周四 391.06。
 - [x] **P2 `fetch_underlying` 加延迟盘中价路径(已完成,默认关)**:新增 `_fetch_intraday_last` + `intraday_spot_enabled`(env `OPTION_INTRADAY_SPOT_ENABLED`,默认 **false**)。因 Polygon 分钟盘中确认 NOT_AUTHORIZED,默认不发那个注定失败的请求(避免 200 标的×每 5 分钟的噪声);升级 Stocks 订阅后置 true 即自动生效。优先级:intraday(开启时)→ spot_hint(近日收盘)→ `/prev`;任何异常优雅回退不炸快照;raw 带 `endpoint`/`as_of`。单测覆盖开启命中/关闭不请求/未授权回退/盘后走 prev 四条路径。collector 236/236。
-- [ ] **P2.1 盘中用 IB 当 underlying 现价源(免费的真盘中价,待设计)**:既然 IB 盘中能给真价而 Polygon 不能,盘中(常规交易时段)让 underlying 现价走 IB(Polygon 仍供期权链/GEX)。需独立设计 + 开盘时段验收 + 处理 IB entitlement 边界(last/Greeks 可用,bid/ask 受限)。**这是当前不花钱拿到真盘中价的路径**。
+- [ ] **P2.1 ⭐盘中用 IB 当 underlying 现价源(唯一免费的真盘中价,用户已确认要做)**:Polygon Options 档股票盘中数据 403 已铁证死路,IB Gateway 盘中能给真标的价(实测 TSLA 07-20 10:22 ET `ib_internal` underlying=374.43)。设计:常规交易时段 underlying 现价走 IB(Polygon 仍供期权链/GEX);盘后仍用 Polygon `/prev`。需独立设计 + 开盘时段验收 + 处理 IB entitlement 边界(last/Greeks 可用,bid/ask 受限,IB `10091/10167`)。**这是当前唯一不花钱拿到真盘中现价的路径**。
 - [ ] **P3 现价永远带真实时间戳标注**("截至 X 收盘 / HH:MM"):当前 plan 下盘中显示的是**前收盘**,更必须标清楚,绝不把前收盘静默当"现价"。前端 + DTO。
 - [ ] **P4 日线 cron 可靠性**:周五那根不该等到周一;已手动补 07-17,但缺日回补机制仍需修。
+- **架构澄清(回答"日线 cron 是什么/用户查询是否该拿最新")**:
+  - `quantrift-options-prices`(`collect_prices.py`)采的是 **400 天日线 OHLCV + 35 天 30 分钟 K 线**,写 `price_history`/`price_history_30m`,再跑 `derive_volatility`。它喂的是**价格图表、技术指标(MA/RSI/HV/MFI)、HV/IV rank**,**不是"现价"来源**。叫"日线 cron"因为它取日线 bar、每工作日盘后跑一次。
+  - **"现价"的正确来源是期权刷新 worker 每 5 分钟写的 `option_chain_snapshots.underlying_price`**(P1 修复后:盘中走 IB/延迟、盘后走 `/prev`,不再复用陈旧日线)。本次 bug 是**两条都陈旧**——日线 cron 冻在 07-16,期权 worker 又把这个陈旧日线当 spot 复用(4 天容忍度)。P1 已解耦:worker 不再信任 >1 天的日线。
+  - **产品是"后台刷新"模型,不是"每次查询同步拉 provider"**(见 CLAUDE.md「user requests 不同步调 provider」):用户查询读 DB 里最新快照,后台每 5 分钟刷新。所以"用户每次拿最新、允许延迟"**已经是设计**——前提是后台刷新真的新鲜。修 bug = 让后台刷新的价真的新鲜(P1 已保证前收盘级,P2.1 补上盘中级),而不是改成每次查询同步拉(那会撞 rate limit + 延迟,且违反既定架构)。未覆盖标的的首次查询已有 priority-100 on-demand 入队,是这个模型内的补充。
 - **plan 边界(非本仓库可解)**:Polygon 真·盘中分钟需升级 Stocks 订阅(花钱)。当前免费能做到:盘后/盘中默认=前收盘(P1+P2 已保证不再多天陈旧);若做 P2.1 则盘中=IB 实时标的价。
 
 ---
