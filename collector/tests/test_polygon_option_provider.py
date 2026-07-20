@@ -19,13 +19,20 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, responses):
+    def __init__(self, responses, intraday=None):
         self.headers = {}
         self.responses = list(responses)
+        # fetch_underlying now always probes a delayed intraday minute bar first.
+        # Route that call separately (default: empty -> caller falls back to the
+        # daily-close hint or /prev) so existing per-endpoint response lists stay
+        # valid. Tests exercising the intraday path pass an explicit payload.
+        self.intraday = intraday if intraday is not None else {'status': 'OK', 'results': []}
         self.calls = []
 
     def get(self, url, params=None, timeout=None):
         self.calls.append((url, params))
+        if '/range/1/minute/' in url:
+            return FakeResponse(self.intraday)
         return FakeResponse(self.responses.pop(0))
 
 
@@ -186,7 +193,7 @@ class SpotHintTests(unittest.TestCase):
     """A fresh daily close from the database is an equally good previous-day
     spot, so passing it must remove the /prev request entirely."""
 
-    def _provider(self, session):
+    def _provider(self, session, **extra_env):
         env = {
             'POLYGON_API_KEY': 'test-key',
             'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
@@ -194,6 +201,7 @@ class SpotHintTests(unittest.TestCase):
             'POLYGON_STOCK_REQUEST_DELAY': '0',
             'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_option_provider_test',
             'PROVIDER_RATE_LIMIT_BACKEND': 'file',
+            **extra_env,
         }
         with patch.dict(os.environ, env, clear=False), \
              patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
@@ -229,3 +237,69 @@ class SpotHintTests(unittest.TestCase):
 
         prev_calls = [call for call in session.calls if '/prev' in call[0]]
         self.assertEqual(len(prev_calls), 1)
+
+    def test_intraday_delayed_price_beats_a_daily_close_hint_when_enabled(self):
+        # With the entitlement flag on, the delayed intraday bar is fresher than
+        # any daily close and must win even when a spot_hint is supplied.
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession(
+            [{'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]}],
+            intraday={'status': 'DELAYED', 'results': [{'c': 381.82, 't': 1_800_000_000_000}]},
+        )
+        provider = self._provider(session, OPTION_INTRADAY_SPOT_ENABLED='true')
+        snapshot = provider.fetch_option_chain('TEST', spot_hint=391.06)
+
+        self.assertEqual(float(snapshot.underlying.price), 381.82)
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'intraday_1m_delayed')
+        self.assertIn('as_of', snapshot.underlying.raw)
+        self.assertEqual([c for c in session.calls if '/prev' in c[0]], [])
+
+    def test_intraday_is_not_requested_when_disabled(self):
+        # Default (unentitled) plan: the minute endpoint must not even be called,
+        # so there is no wasted NOT_AUTHORIZED request per symbol per refresh.
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession(
+            [{'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]}],
+            intraday={'status': 'DELAYED', 'results': [{'c': 381.82, 't': 1_800_000_000_000}]},
+        )
+        provider = self._provider(session)  # flag defaults to off
+        snapshot = provider.fetch_option_chain('TEST', spot_hint=391.06)
+
+        self.assertEqual(float(snapshot.underlying.price), 391.06)
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'db_spot_hint')
+        self.assertEqual([c for c in session.calls if '/range/1/minute/' in c[0]], [])
+
+    def test_unauthorized_intraday_falls_back_to_hint_without_raising(self):
+        # Even with the flag on, a NOT_AUTHORIZED status must degrade to the
+        # daily-close hint, not raise.
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession(
+            [{'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]}],
+            intraday={'status': 'NOT_AUTHORIZED', 'results': []},
+        )
+        provider = self._provider(session, OPTION_INTRADAY_SPOT_ENABLED='true')
+        snapshot = provider.fetch_option_chain('TEST', spot_hint=391.06)
+
+        self.assertEqual(float(snapshot.underlying.price), 391.06)
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'db_spot_hint')
+
+    def test_off_hours_no_intraday_and_no_hint_falls_to_prev(self):
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession(
+            [{'status': 'OK', 'results': [{'c': 380.84}]},  # /prev prior close
+             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]}],
+            intraday={'status': 'OK', 'results': []},  # no bars today (off-hours)
+        )
+        provider = self._provider(session)
+        snapshot = provider.fetch_option_chain('TEST')
+
+        self.assertEqual(float(snapshot.underlying.price), 380.84)
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'prev_agg')

@@ -308,10 +308,13 @@ def option_provider_sequence(primary_provider: str, blocked_providers: set[str] 
     ]
 
 
-# A daily close this recent is an equally good previous-day spot for centering
-# the strike window, so passing it lets the Polygon provider skip its /prev
-# request. Covers weekends and holidays without reaching for a stale price.
-SPOT_HINT_MAX_AGE_DAYS = max(int(os.getenv('OPTION_SPOT_HINT_MAX_AGE_DAYS', '4')), 0)
+# A daily close is only an acceptable "current price" when it is genuinely
+# recent (yesterday's close overnight, or today's after the session). Four days
+# was catastrophic: a Thursday close was still served as spot the following
+# Monday, so a symbol that refreshes every 5 minutes showed a 4-day-old price.
+# Keep this at 1 day; when the daily close is older the provider fetches a fresh
+# price (delayed intraday during the session, else /prev prior close) instead.
+SPOT_HINT_MAX_AGE_DAYS = max(int(os.getenv('OPTION_SPOT_HINT_MAX_AGE_DAYS', '1')), 0)
 
 
 def latest_db_spot(conn, symbol: str, max_age_days: int = SPOT_HINT_MAX_AGE_DAYS) -> float | None:

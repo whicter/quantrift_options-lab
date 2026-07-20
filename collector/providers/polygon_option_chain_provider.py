@@ -5,11 +5,14 @@ import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
 from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapshot
 from .polygon_rate_limit import PolygonStockRequestPacer
+
+MARKET_TIMEZONE = ZoneInfo('America/New_York')
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +37,10 @@ class PolygonOptionChainProvider:
         self.strike_window_pct = float(os.getenv('OPTION_STRIKE_WINDOW_PCT', '15'))
         self.max_strikes_per_side = int(os.getenv('OPTION_MAX_STRIKES_PER_SIDE', '20'))
         self.max_contracts = int(os.getenv('OPTION_MAX_CONTRACTS', '500'))
+        # Delayed intraday minute spot: off by default because the $29 Options
+        # plan returns NOT_AUTHORIZED for it. Enable after a Stocks entitlement
+        # upgrade so the underlying reflects an in-session (delayed) price.
+        self.intraday_spot_enabled = os.getenv('OPTION_INTRADAY_SPOT_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes')
         self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,15-29,30-45,46-60,61-90'))
         self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '2'))
         self.page_limit = min(int(os.getenv('POLYGON_PAGE_LIMIT', '250')), 250)
@@ -49,18 +56,57 @@ class PolygonOptionChainProvider:
         self._session.headers['Authorization'] = f'Bearer {self.api_key}'
         self.stock_pacer = PolygonStockRequestPacer()
 
+    def _fetch_intraday_last(self, symbol: str) -> tuple[float, int] | None:
+        """Latest delayed intraday minute-bar (price, epoch_ms), or None.
+
+        Would be the freshest in-session price -- BUT on the current $29 Options
+        plan the minute-aggregate endpoint returns NOT_AUTHORIZED even during
+        market hours (verified 2026-07-20 11:02 ET), so this is gated OFF by
+        default and simply not called. Flip `OPTION_INTRADAY_SPOT_ENABLED=true`
+        after upgrading to a Polygon Stocks entitlement; the code then activates
+        automatically. Kept because it never raises (empty/unauthorized/error ->
+        None) and is the correct place for the future entitlement.
+        """
+        if not self.intraday_spot_enabled:
+            return None
+        today = datetime.now(timezone.utc).astimezone(MARKET_TIMEZONE).date()
+        url = f'{self.base_url}/v2/aggs/ticker/{symbol.upper()}/range/1/minute/{today.isoformat()}/{today.isoformat()}'
+        try:
+            self.stock_pacer.wait()
+            resp = self._session.get(url, params={'adjusted': 'true', 'sort': 'desc', 'limit': 1}, timeout=self.timeout)
+            if getattr(resp, 'status_code', 200) != 200:
+                return None
+            data = resp.json()
+            if data.get('status') not in (None, 'OK', 'DELAYED'):
+                return None  # e.g. NOT_AUTHORIZED for real-time; fall back
+            results = data.get('results') or []
+            if not results:
+                return None
+            bar = results[0]
+            close = bar.get('c')
+            return (float(close), int(bar['t'])) if close is not None else None
+        except (requests.RequestException, ValueError, KeyError):
+            return None
+
     def fetch_underlying(self, symbol: str, spot_hint: float | None = None) -> UnderlyingSnapshot:
-        # A fresh daily close from the database is an equally good previous-day
-        # spot, and skipping /prev removes one Stocks request per symbol per
-        # refresh. Only fetch /prev when no usable hint was supplied.
+        # Freshest first: a delayed intraday last-trade price during the session.
+        # Only when there is no intraday bar (pre-market, after-hours, weekend,
+        # holiday) do we use a recent daily close -- either the supplied hint or
+        # /prev. A stale daily close must never stand in for an intraday price.
+        now = datetime.now(timezone.utc)
+        intraday = self._fetch_intraday_last(symbol)
+        if intraday is not None:
+            price, bar_ms = intraday
+            return UnderlyingSnapshot(
+                symbol=symbol.upper(),
+                price=price, bid=None, ask=None, timestamp=now, source=self.source,
+                raw={'price': price, 'endpoint': 'intraday_1m_delayed',
+                     'as_of': datetime.fromtimestamp(bar_ms / 1000, tz=timezone.utc).isoformat()},
+            )
         if spot_hint is not None:
             return UnderlyingSnapshot(
                 symbol=symbol.upper(),
-                price=float(spot_hint),
-                bid=None,
-                ask=None,
-                timestamp=datetime.now(timezone.utc),
-                source=self.source,
+                price=float(spot_hint), bid=None, ask=None, timestamp=now, source=self.source,
                 raw={'price': float(spot_hint), 'endpoint': 'db_spot_hint'},
             )
         url = f'{self.base_url}/v2/aggs/ticker/{symbol.upper()}/prev'
@@ -74,11 +120,7 @@ class PolygonOptionChainProvider:
         bar = results[0]
         return UnderlyingSnapshot(
             symbol=symbol.upper(),
-            price=float(bar['c']),
-            bid=None,
-            ask=None,
-            timestamp=datetime.now(timezone.utc),
-            source=self.source,
+            price=float(bar['c']), bid=None, ask=None, timestamp=now, source=self.source,
             raw={'bar': bar, 'endpoint': 'prev_agg'},
         )
 
