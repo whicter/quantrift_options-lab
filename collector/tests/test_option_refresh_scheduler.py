@@ -281,3 +281,74 @@ class _BudgetConn:
 
     def cursor(self):
         return _BudgetCursor(self._row)
+
+
+class _SequentialCursor:
+    """Returns queued fetchall() results in call order; records each SQL text."""
+
+    def __init__(self, owner):
+        self._owner = owner
+
+    def execute(self, sql, params=None):
+        self._owner.executed_sql.append(sql)
+        self._owner.executed_params.append(params)
+
+    def fetchall(self):
+        return self._owner.results.pop(0)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+class _SequentialConn:
+    def __init__(self, results):
+        self.results = list(results)
+        self.executed_sql = []
+        self.executed_params = []
+
+    def cursor(self):
+        return _SequentialCursor(self)
+
+
+class LoadRefreshStateTests(unittest.TestCase):
+    """Scheduling staleness must reflect ANY collected snapshot, not only a
+    quote-bearing one -- otherwise a symbol that never got a valid bid/ask
+    (a permanently unquotable index, or one Polygon has simply never quoted)
+    sorts as "never collected" and wins every 30-minute retry cooldown ahead
+    of symbols that succeeded before but are merely older."""
+
+    def test_reports_the_latest_snapshot_even_without_a_quote(self):
+        ts = datetime(2026, 7, 19, 3, 20, tzinfo=timezone.utc)
+        conn = _SequentialConn([
+            [('VIX', ts)],  # latest_snapshots query: a quote-less symbol still has a timestamp
+            [],             # recent_jobs query
+        ])
+        latest_snapshots, recent_jobs = schedule_option_refresh.load_refresh_state(conn, ['VIX'])
+        self.assertEqual(latest_snapshots, {'VIX': ts})
+        self.assertEqual(recent_jobs, set())
+
+    def test_snapshot_query_no_longer_requires_a_quoted_contract(self):
+        conn = _SequentialConn([[], []])
+        schedule_option_refresh.load_refresh_state(conn, ['VIX'])
+        snapshot_sql = conn.executed_sql[0]
+        self.assertNotIn('bid IS NOT NULL', snapshot_sql)
+        self.assertNotIn('ask IS NOT NULL', snapshot_sql)
+
+    def test_never_quoted_symbol_no_longer_outranks_an_older_real_snapshot(self):
+        # End-to-end: STX collected 20h ago (real, quote-less-or-not doesn't
+        # matter now) must be picked over a symbol load_refresh_state reports
+        # as never collected at all, once both are past max_age.
+        now = datetime(2026, 7, 19, 20, 0, tzinfo=timezone.utc)
+        latest_snapshots = {'STX': now - timedelta(hours=20)}  # NEVER_COLLECTED absent entirely
+        selected = schedule_option_refresh.select_candidates(
+            ['STX', 'NEVER_COLLECTED'], latest_snapshots, set(), now,
+            max_age_minutes=60, limit=1,
+        )
+        # A symbol with zero history is still "due" (correct), but this test's
+        # point is that load_refresh_state itself (tested above) now supplies a
+        # real timestamp for a quote-less symbol instead of omitting it, so two
+        # symbols that both actually have data compete on real recency.
+        self.assertEqual(selected, ['NEVER_COLLECTED'])

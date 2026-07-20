@@ -1002,6 +1002,7 @@ symbol_universe (active)          ← 不是 watchlist.txt；后者只是 seed
 - **深度是约束量。** per-cycle cap 只限制被抽干的队列回填速度。原先 2 个/300s 而 worker 2 个/60s，worker 约 80% 时间空转。
 - **后台 tier 永远低于 on-demand 的 100。** worker 按 `priority DESC` claim；后台扫描若与之持平，正在等页面的用户会排到冷补齐后面。
 - **tier 表示"谁需要"，不表示"多旧"。** staleness 只在 tier 内排序，不跨 tier 提升。
+- **staleness 的判定不能叠加"是否带报价"（2026-07-19 修复）。** `load_refresh_state` 早先把"最新快照"限定为带有效 bid/ask 的那条，导致从未成功拿到报价的标的（含永久失败的 `VIX`——它是指数，走股票 `/prev` 端点必然报错）在排序里永远显示"从未采集"，比任何真实但较旧的快照都靠前；每 30 分钟冷却期一到就重新抢占大半队列容量，把 STX/SRVR 等曾经成功、只是较旧的标的饿了 20+ 小时。现在 `latest_snapshots` 只看**任意**快照的时间戳；报价需求已由独立的 `require_quotes`（仅常规交易时段为真）承担，排序不必重复这个门槛。`VIX` 已从 `scan_enabled` 移出。详见 `docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
 - **候选来自 universe。** universe 会因用户分析未知 symbol 而增长（实测 80 vs watchlist 67）；读文件会把 on-demand symbol 永久排除在后台刷新之外。
 
 **Freshness 契约（E5，2026-07-17）**

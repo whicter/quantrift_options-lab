@@ -735,3 +735,9 @@ GEX compute job：
 - **根因（2026-07-19）**：scheduler 的 freshness query 正确地只把有有效 bid/ask 的 snapshot 视为 quote-ready；但它创建的 background job 没有 `request_params.require_quotes`。worker 因此把 quote-less Polygon snapshot 作为成功结果结束，永远不尝试 fallback。
 - **修复**：仅在美股常规交易时 scheduler 写入 `require_quotes=true`；worker 将 `polygon_licensed → ib_internal` 作为默认顺序。休市不要求报价，避免把真实但无 bid/ask 的结构快照错误标记为失败。
 - **运行证据**：2026-07-19（周末）重载后的 collector 写入了 1,876 条 Polygon option-contract structural rows，bid/ask 为 0；这证明“无报价”是休市状态，不能据此判断 IB 订阅无效。开盘后必须再次验证 IB 真实 bid/ask、Greeks 与 fallback 写入。
+
+### 19. 报价过滤器不能同时兼职"该不该刷新"的判断
+
+- **和第 18 条是同一个查询埋的另一个坑**：`load_refresh_state` 把"最新快照"限定为带有效 bid/ask 的那条，是为了让第 18 条的 quote-readiness 判断正确；但这条查询的返回值同时被拿去做**调度排序**（谁最该被刷新）。一个从未成功拿到报价的标的（含 `VIX` 这种永久失败的——它是指数，走股票 `/prev` 端点必然报错）因此在排序里显示"从未采集"，比任何真实但较旧的快照都排得靠前，每 30 分钟冷却期一到就重新抢占大半队列容量，把 STX/SRVR 等曾经成功、只是较旧的标的饿了 20+ 小时。
+- **教训**：同一段 SQL 的返回值如果被两个不同目的复用（"这条快照能不能当报价用" vs "这个标的多久没刷新了"），过滤条件必须按各自目的分别定义，不能图省事共用一个查询——省下的代码量远不够抵消一个隐藏在排序里的资源饥饿 bug。
+- **修复**：调度排序改用**任意**快照的时间戳；报价是否达标只在决定"这个 job 要不要求 `require_quotes`"时判断，两件事分离。`VIX` 单独从 `scan_enabled` 移出，不再参与轮转。详见 `docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。

@@ -237,18 +237,24 @@ def load_recent_active(conn, hours: int) -> set[str]:
 
 def load_refresh_state(conn, symbols: list[str]) -> tuple[dict[str, datetime], set[str]]:
     with conn.cursor() as cur:
+        # Staleness for scheduling must be "when did we last collect this
+        # symbol at all", not "when did we last get a quote-bearing snapshot".
+        # A symbol that has literally never had a valid bid/ask (a permanently
+        # unquotable index like VIX, or one Polygon has simply never quoted)
+        # would otherwise carry no timestamp here at all and sort as if it had
+        # never been collected -- ahead of every symbol with a real, merely-old
+        # snapshot. Every 30-minute retry cooldown it would then win the
+        # priority sort again and re-claim most of the queue, starving symbols
+        # that succeeded before but are just chronologically older (observed:
+        # STX/SRVR/MU going 20+ hours unrefreshed while 16 never-quoted symbols
+        # cycled through every cooldown window). Whether a *specific* job needs
+        # a live quote is decided separately by require_quotes on the job the
+        # worker picks up; this query only answers "is a refresh due".
         cur.execute(
             """
             SELECT DISTINCT ON (symbol) symbol, snapshot_ts
             FROM option_chain_snapshots
             WHERE symbol = ANY(%s)
-              AND EXISTS (
-                SELECT 1
-                FROM option_contract_snapshots c
-                WHERE c.snapshot_id = option_chain_snapshots.id
-                  AND c.bid IS NOT NULL AND c.ask IS NOT NULL
-                  AND c.ask > 0 AND c.ask >= c.bid
-              )
             ORDER BY symbol, snapshot_ts DESC
             """,
             (symbols,),

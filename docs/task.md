@@ -4,6 +4,7 @@
 
 这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **103 项** `- [ ]`（2026-07-19 核对；Phase 2.5 已完成使总数从 104 减 1），按文档出现顺序分布如下：
 
+0. `2026-07-19 — Option refresh 调度器饥饿 bug` — **已完成 ✅**：16 个"从未成功报价"的标的永久霸占调度优先级、饿死 STX/SRVR/MU 等 13 个曾成功但较旧的标的；VIX 单独永久失败（指数无法走股票 underlying 端点）。已修复排序逻辑 + 禁用 VIX + 生产环境验证生效。详见 docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md。
 1. `2026-07-17 — IV Rank 自给自足` — 3 项，**当前主线、下一个开发项 = Phase 3**：Phase 2.5 已完成（分页 + 月期权回退 + 滚动 grid cache + 分批持久化；核心 SPY/QQQ/IWM/GLD/TLT/TSLA 均达 252+）→ Phase 3 前向口径统一（上线前必须项，设计已写）→ Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
@@ -22,6 +23,22 @@
 8. `🏗️ V3 — Product` — 6 项：Clerk/Stripe 生产密钥注入 ×2、entitlement enforcement 切换 ×1，均等待外部密钥就绪后验收。
 
 **已 100% 完成的早期阶段章节**（V1 Core / V2 Scaffold / Phase 1 UI / Phase 2 Weekly / Infrastructure / Phase 3A / Phase 3B-1 / Phase 3B-2 / Phase 3B-3 / V1 Backlog，共 9 节，零未完成项）已整体移至文末 `🗄️ 已完成归档`，内容原样保留，只是挪出文档前部，不再与进行中的工作混杂。
+
+---
+
+## ✅ 2026-07-19 — Option refresh 调度器饥饿 bug（新发现,与 STX 预算耗尽事故不同根因;已修复）
+
+**触发**:用户在 Analyze 页看到「快照约 1424 分钟前采集」提示,追问"数据不是都采集完成了吗"。核实后确认 daemon 本身健康(近 2h 写入 228 条快照),问题是**调度排序**卡死了一批标的。
+
+**根因**:`schedule_option_refresh.py::load_refresh_state` 计算"该刷新谁"时,`latest_snapshots` 查询只认**带有效 bid/ask 的快照**(`EXISTS (...c.bid IS NOT NULL...)`)。scan_enabled 的 81 个标的里有 **16 个从未拿到过一次有效报价**(`VIX、BA、COST、GLD、GS、MUU、NFLX、SPCX、TLT、XBI、XHB、XLRE、XLV、XLY、XOP、XSD`),因此在 `latest_snapshots` 里**完全没有记录** → `select_candidates` 把"无记录"当成"从未采集过",排序排到最前 → 每 30 分钟冷却期一到,这 16 个标的就重新抢占大部分队列名额,把**曾经成功、只是比较旧**的标的永久挤到后面。实测:STX 卡 23.7 小时、SRVR/MU/SMH/DTCR/META/AEHR/XLU/KIE/SOXX/XLP/MRVL/ICLN 共 13 个卡 20 小时左右;**VIX 是单独的永久性失败**——它是指数不是个股,`fetch_underlying()` 调用股票 `/prev` 端点必然返回空(`Polygon prev agg returned no results for VIX`),6 小时内精准每 30 分钟失败一次、连续 11 次。
+
+判断某个具体 job 是否需要报价,已经由另一个独立信号 `require_quotes`(2026-07-19 `8e3df5f` 加的,仅常规交易时段为 true)管;`load_refresh_state` 这条排序查询不需要也不应该再叠加"必须带报价"这个门槛。
+
+**修复**:
+- [x] `load_refresh_state` 的 `latest_snapshots` 查询去掉 bid/ask 过滤,改用**任意** `option_chain_snapshots.snapshot_ts`——排序只回答"该不该刷新",不该已经答过的"要不要报价"再问一遍。
+- [x] `symbol_universe.VIX.scan_enabled` 设为 `FALSE`(数据变更,非代码;`metadata.disabled_reason='index_underlying_unsupported'` 留痕)。`sync_universe.py` 的 `ON CONFLICT DO UPDATE` 只碰 `active`/`updated_at`,不会把它重新打开。
+- **验证**:collector `unittest discover` 232/232(新增 `LoadRefreshStateTests` 3 个)。真实 DB dry-run:修复前 `select_candidates` 输出被 VIX 等 16 个"从未成功"标的常年霸占前排、STX/SRVR 永不出现;修复后 SRVR/STX 正确排到最前(按真实陈旧度 1440/1437 分钟),后面紧跟其余 10 个饿死的标的。`pm2 reload` 后两轮调度周期(~7 分钟)内 STX/SRVR/SMH/DTCR/AEHR 生产环境已刷新成功;VIX 不再出现在 `provider_fetch_jobs` 里,30 分钟失败循环停止。剩余未清空的标的(MU 等)受限于已知的 `REFRESH_WORKER_BATCH_SIZE=2 过于保守`(见下方"全项目 review·架构"节),非本次 bug 范围,会随吞吐量继续清空。
+- 可复现记录:`docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
 
 ---
 
