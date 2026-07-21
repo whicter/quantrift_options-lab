@@ -385,6 +385,8 @@ gex_snapshots          (symbol, snapshot_ts, global_gex, local_gamma, gamma_flip
 scanner_configs (id, user_id, filters JSONB)                  -- 扫描器配置
 ```
 
+> 快照类表（`option_chain_snapshots` 及其级联子表、`scanner_results_snapshots`、`option_oi_delta_snapshots`）是每 ~5 分钟重算的物化产物，由 `collector/prune_snapshots.py` 每小时按 retention 清理（option 链 7 天、scanner 结果 3 天，均超过最长消费回看窗口）；累积型事实表（`iv_history`、`price_history`、`volatility_history`）不清理。
+
 **V3 — 产品化**
 ```sql
 users           (id, email, created_at)

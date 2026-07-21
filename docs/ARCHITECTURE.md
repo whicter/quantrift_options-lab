@@ -233,6 +233,11 @@ API response 应统一携带数据状态：
   - `collector/run_refresh_worker.py` consumes queued jobs.
   - `provider_request_usage` tracks daily provider/job request counts against a configured budget.
   - `/api/admin/status/cache` reports backlog, failures, stale scanner age, empty snapshots and budget usage. It requires `ADMIN_API_TOKEN`; see 7.2.1.
+  - **Budget is a runaway-loop backstop, not a cost throttle (Polygon paid = unlimited), so `PROVIDER_DAILY_BUDGET` defaults to `1_000_000`.** `reserve_budget` upserts `request_budget = EXCLUDED` on every reservation, so any process running the worker with the env unset clobbers the shared row down to the default; a low default (the old 1000) let a second runtime (`run_railway_refresh_cycle`) cap production at 1000 and starve the whole market session (2026-07-21). The default must stay far above real daily usage (~1-3k).
+
+### 1.1 Snapshot retention
+
+Materialized-snapshot tables are recomputed every ~5 minutes and no product reads their history (scan/alerts use only `MAX(snapshot_ts)`; weekly/unusual look back ≤5 trading days), so they are pruned by `collector/prune_snapshots.py` (hourly in the daemon, `SNAPSHOT_PRUNE_SECONDS`). Two prune roots cover the bloat via `ON DELETE CASCADE`: `option_chain_snapshots` (7d) drops its `option_contract_snapshots` / `gex_snapshots` / `gex_by_strike_snapshots` / `option_oi_delta_snapshots` children with it; `scanner_results_snapshots` (3d) is standalone. Windows are env-overridable and exceed the longest consumer look-back. Deletes are ctid-batched and per-call capped so a large first cleanup drains across cycles without a long Railway lock; best-effort, never aborts the cycle. Accumulating fact tables (`volatility_history`, `price_history`, `iv_history`) are never pruned.
 
 ---
 

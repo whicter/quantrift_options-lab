@@ -753,3 +753,10 @@ GEX compute job：
 - **根因（2026-07-21）**：`reserve_budget` 用 `ON CONFLICT DO UPDATE SET request_budget=EXCLUDED` 让每个跑 worker 的进程都把共享 `provider_request_usage.request_budget` 覆盖成自己 env 的值。`PROVIDER_DAILY_BUDGET` 默认 `1000`；Mac 守护进程 env 是 50000，但 Railway 的 `run_railway_refresh_cycle` import 同一 worker，env 没设时写 1000，把 50000 打回 1000，~1000 请求打满后饿死整个交易时段。
 - **教训**：只要多个 runtime 写同一行、且用 upsert 覆盖同一列，那一列的"默认值"就是全系统的下限——任何一个 env 没配好的进程都能把生产拉到默认值。**这种列的代码默认值必须是"安全侧"**（这里 Polygon 无限，安全侧=远高于真实用量），不能是"保守小值"。保守小值配上覆盖语义，等于给每个次要进程一把饿死主进程的钥匙。
 - **调查纪律**：用户报"数据旧+OI空"，先用 DB 证伪（OI 其实不空），再按"哪个时段停写"缩小到"盘中全停、盘前正常"，最后守护日志一句 `budget exhausted: remaining_budget=0` 直接坐实。症状（OI空）和根因（预算饥饿）可以完全不相干。
+
+### 22. 物化快照表必须在写它的地方就配 retention，否则默默膨胀到拖慢全库
+
+- **根因（2026-07-21）**：`scanner_results_snapshots`（929MB/53.6万行）、option 链及其 GEX/OI 级联表从上线起一行没删过，每天灌 6-14 万行，整库 2.3GB+。没有任何功能查它们的历史（scan/alerts 只读 `MAX(snapshot_ts)`，weekly/unusual 回看 ≤5 交易日），纯属膨胀。
+- **教训**：**"每 N 分钟重算一次的中间产物"从写下的第一天就该带 retention**，保留窗口对齐它的消费回看窗口，不是"以后再说"。区分两类表：累积型事实（IV/价格历史，绝不删）vs 物化快照（用完即弃，只留最新几批）。后者无 retention = 定时炸弹，只是引信长。
+- **省事技巧**：优先用 FK `ON DELETE CASCADE`——删一张源表（option_chain_snapshots 7 天）自动连带清 4 张最大的子表（contract 853MB / gex / oi_delta），一个 prune root 覆盖大半膨胀，不用逐表写清理。
+- **回收磁盘要 VACUUM FULL**：普通 DELETE + autovacuum 只让空间"可复用"（不再增长），物理磁盘要 `VACUUM FULL`（锁表）才还给云。盘后跑一次：scanner_results 929MB→545MB。
