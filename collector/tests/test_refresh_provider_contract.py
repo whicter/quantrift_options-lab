@@ -341,3 +341,25 @@ class RefreshProviderContractTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class JobSummarySerializationTest(unittest.TestCase):
+    def test_job_summary_json_handles_date_and_decimal(self):
+        import run_refresh_worker
+        wrapped = run_refresh_worker._job_json({
+            'market_date': date(2026, 7, 16),
+            'amount': Decimal('1.5'),
+            'symbol': 'TSLA',
+            'nothing': None,
+        })
+        # psycopg2 Json exposes the payload via .adapted and serializes via .dumps
+        rendered = wrapped.dumps(wrapped.adapted)
+        self.assertIn('"market_date": "2026-07-16"', rendered)
+        self.assertIn('"amount": "1.5"', rendered)
+        self.assertIn('"symbol": "TSLA"', rendered)
+
+    def test_default_provider_budget_is_a_high_runaway_backstop(self):
+        # Must stay far above real daily usage so a process with the env unset
+        # cannot clobber the shared budget row down and starve production.
+        import run_refresh_worker
+        self.assertGreaterEqual(run_refresh_worker.PROVIDER_DAILY_BUDGET, 1_000_000)

@@ -7,6 +7,7 @@ calls and snapshot materialization.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import date
@@ -16,6 +17,22 @@ from typing import Any
 import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import Json
+
+
+def _json_safe(value):
+    """Fallback encoder for job summaries: dates/Decimals/etc. -> str.
+
+    Job summaries are written via psycopg2 Json (json.dumps under the hood), so a
+    raw datetime.date or Decimal in a summary would raise "Object of type date is
+    not JSON serializable" and fail the whole job (observed 2026-07-21 on stale
+    metrics jobs). Stringifying unknown types keeps the job from failing on a
+    bookkeeping field.
+    """
+    return str(value)
+
+
+def _job_json(summary):
+    return Json(summary or {}, dumps=lambda obj: json.dumps(obj, default=_json_safe))
 
 import collect
 import collect_options
@@ -39,7 +56,14 @@ DB_URL = os.getenv('DATABASE_URL')
 WORKER_BATCH_SIZE = int(os.getenv('REFRESH_WORKER_BATCH_SIZE', '10'))
 WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
 RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
-PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000'))
+# Polygon's paid plan is unlimited, so this cap is only a runaway-loop backstop,
+# never a cost throttle. The default MUST stay far above real daily usage
+# (~1-3k requests): `reserve_budget` upserts request_budget on every reservation,
+# so any process that runs the worker with this env UNSET clobbers the shared
+# provider_request_usage row down to the default. A low default (the old 1000)
+# meant a second runtime (e.g. the Railway refresh cycle) could silently cap
+# production at 1000 and starve the entire market session -- observed 2026-07-21.
+PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000000'))
 TT_CIRCUIT_OPEN = os.getenv('TT_CIRCUIT_OPEN', '').strip().lower() in ('1', 'true', 'yes')
 SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal', 'polygon_licensed'}
 # Polygon remains the primary chain source.  When a snapshot has no executable
@@ -173,7 +197,7 @@ def finish_job(conn, job_id: int, status: str, summary: dict | None = None, erro
                 finished_at = NOW()
             WHERE id = %s
             """,
-            (status, Json(summary or {}), error, job_id),
+            (status, _job_json(summary), error, job_id),
         )
     conn.commit()
 
@@ -671,6 +695,9 @@ def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
 
     row = collect.parse_row(symbol, item, date.today())
     collect.upsert_rows(conn, [row])
+    # market_date stays a datetime.date: the symbol_data_state update consumes it
+    # as a real date. finish_job serializes the summary with a date/Decimal-safe
+    # encoder, so it does not need pre-stringifying here.
     return {
         'symbol': symbol,
         'date': row['date'].isoformat(),

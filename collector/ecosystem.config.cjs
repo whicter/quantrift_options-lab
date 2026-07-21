@@ -35,7 +35,7 @@ module.exports = {
         // The default 1000 was starving mid-day refreshes: ~81 symbols refreshed
         // through the day exceed 1000 well before market close. Keep it far above
         // real need so option data stays fresh all day. Mirror on Railway.
-        PROVIDER_DAILY_BUDGET: '50000',
+        PROVIDER_DAILY_BUDGET: '1000000',
         COLLECTOR_HEALTH_CHECK_ENABLED: 'true',
         COLLECTOR_HEALTH_CHECK_SECONDS: '300',
         HEALTH_MIN_COVERAGE_PCT: '95',

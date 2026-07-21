@@ -26,6 +26,18 @@
 
 ---
 
+## ✅ 2026-07-21 — 盘中数据停摆：预算行被双 runtime 打回 1000 饿死整个交易时段（严重,已修复）
+
+**触发**:用户"为什么数据那么旧 而且 OI 又是空的"。核实:OI 其实不空(TSLA 66/66、AAPL 72/72、SPY 30/30、MU 316/316 都有);真问题是**整个美股交易时段(13:30-20:00 UTC)一条 option 快照都没写**,universe 卡在 9 小时前;盘前 07-12 UTC 却每小时 59-78 条正常。
+
+**根因(双 runtime 抢预算行,与最初 STX 事故同类但机制升级)**:守护日志坐实 `Option refresh scheduler idle (budget exhausted): remaining_budget=0`。`reserve_budget` 的 `ON CONFLICT DO UPDATE SET request_budget=EXCLUDED` 让**任何跑 worker 的进程都会把共享 `provider_request_usage` 行的 budget 覆盖成自己 env 的值**。`run_refresh_worker.py` 模块级 `PROVIDER_DAILY_BUDGET=os.getenv(...,'1000')` 默认 **1000**;Mac 守护进程 env 是 50000,但 **`run_railway_refresh_cycle.py` 也 import 同一 worker**,若 Railway 那侧 env 没设 → 写 1000 → 把 50000 打回 1000。历史行铁证:07-18 那天 `budget=1000`。今天 1000 那版占上风,~1000 个请求在 12:00 UTC 打满,饿死整个交易时段。**这正是 Option B 想根治的双 runtime 争用,只是从"dedup 竞态"变成"预算值互相 clobber"**。
+
+**修复(已完成)**:
+- [x] **代码默认 1000 → 1,000,000**:`run_refresh_worker.py` + `ecosystem.config.cjs` + `.env.example`。Polygon 付费无限,预算只是防跑飞兜底,默认必须远高于真实日用量(~1-3k),这样任何 env 没设的进程也不会把生产卡死。生产预算行已手动抬到 1,000,000(remaining 998,995)。
+- [x] **顺带修 metrics job `date` JSON 序列化 bug**:`run_symbol_metrics_snapshot` 的 summary 带原始 `datetime.date`(`market_date`),被 `finish_job` 的 `Json()` 序列化时炸 `Object of type date is not JSON serializable`,让 stale-metrics job 全失败(job 10049 实例)。改 `finish_job` 用 `default=str` 容错编码器(`_job_json`),date/Decimal 一律转字符串,不再因记账字段炸整个 job。
+- **验证**:collector 238/238(+2:summary 序列化容错、默认预算高值断言)。reload 后近 5 分钟写 20 条新快照,universe 从"9 小时前"开始追平(受 `REFRESH_WORKER_BATCH_SIZE=2` 吞吐限制持续补齐,那是单独的已知项)。metrics job 不再失败。可复现记录:`docs/validation/BUDGET_STARVATION_2026-07-21.md`。
+- **残留(交给 Option A / 运维)**:根治双 runtime 争用要么彻底停掉 Railway 侧的 option 刷新(确认 `run_railway_refresh_cycle` 不再被任何 Railway cron 触发),要么走 Option A 单 owner。当前用高默认值让 clobber 无害化,不再饿死,但两 runtime 仍在写同一行。
+
 ## 2026-07-20 — 现价陈旧 bug：4 天前收盘价冒充"现价"（严重,进行中）
 
 **触发**:用户在生产站 quantrift.io 看到 TSLA 现价 `$391.06`,实际约 `$381.82`,差近 $9。
