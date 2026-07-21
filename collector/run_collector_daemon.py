@@ -6,6 +6,7 @@ import time
 
 import materialize_scan
 import materialize_scanner_candidates
+import prune_snapshots
 import reconcile_gex_models
 import run_refresh_worker
 import schedule_option_refresh
@@ -24,6 +25,7 @@ HEALTH_CHECK_SECONDS = max(int(os.getenv('COLLECTOR_HEALTH_CHECK_SECONDS', '300'
 DERIVED_VOLATILITY_ENABLED = os.getenv('DERIVED_VOLATILITY_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 DERIVED_VOLATILITY_SECONDS = max(int(os.getenv('DERIVED_VOLATILITY_SECONDS', '3600')), POLL_SECONDS)
 HEARTBEAT_SECONDS = max(int(os.getenv('HEARTBEAT_SECONDS', '60')), POLL_SECONDS)
+SNAPSHOT_PRUNE_SECONDS = max(int(os.getenv('SNAPSHOT_PRUNE_SECONDS', '3600')), POLL_SECONDS)
 GEX_MODEL_RECONCILE_ENABLED = os.getenv('GEX_MODEL_RECONCILE_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 GEX_MODEL_RECONCILE_SECONDS = max(int(os.getenv('GEX_MODEL_RECONCILE_SECONDS', '3600')), POLL_SECONDS)
 
@@ -44,6 +46,7 @@ def run() -> None:
     next_derived_volatility_at = 0.0
     next_heartbeat_at = 0.0
     next_gex_reconcile_at = 0.0
+    next_snapshot_prune_at = 0.0
     while True:
         started_at = time.monotonic()
         if GEX_MODEL_RECONCILE_ENABLED and started_at >= next_gex_reconcile_at:
@@ -90,6 +93,13 @@ def run() -> None:
             except Exception:
                 log.exception('derived volatility cycle failed')
             next_derived_volatility_at = started_at + DERIVED_VOLATILITY_SECONDS
+
+        if started_at >= next_snapshot_prune_at:
+            try:
+                prune_snapshots.run()
+            except Exception:
+                log.exception('snapshot retention prune cycle failed')
+            next_snapshot_prune_at = started_at + SNAPSHOT_PRUNE_SECONDS
 
         if started_at >= next_heartbeat_at:
             try:

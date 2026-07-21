@@ -26,6 +26,17 @@
 
 ---
 
+## ✅ 2026-07-21 — 快照表 retention（读写慢的真因之一：两张物化表无限膨胀,已加清理）
+
+**触发**:用户"读写是不是有点慢"。实测:单条索引查询快(17-41ms),但**物化快照表无 retention、无限膨胀**——`scanner_results_snapshots` 929MB/53.6万行(6-14 万行/天,从 07-15 一行没删)、`option_oi_delta_snapshots` 447MB、整库 2.3GB+。这些是每 5 分钟重算的中间产物,**没有功能查它们的历史**(scan/alerts 只读 `MAX(snapshot_ts)` 最新批;weekly/unusual 最多回看 5 个交易日),删旧零功能损失。累积型事实表(`volatility_history` 的 252 天 IV、`price_history`、`iv_history`)绝不动。
+
+**修复(已完成)**:
+- [x] 新增 `collector/prune_snapshots.py`:按表配置 retention——`option_chain_snapshots`(snapshot_ts,7 天,**ON DELETE CASCADE 连带清 option_contract_snapshots 853MB / gex_snapshots / gex_by_strike_snapshots / option_oi_delta_snapshots**,一次清 4 张大表)+ `scanner_results_snapshots`(created_at,3 天,独立)。ctid 分批删(每批 5000、每次调用上限 5 万行,大 backlog 分多轮 drain 不长锁 Railway),best-effort 不炸 cycle。retention 天数全 env 可调,覆盖最长消费回看窗口。
+- [x] 接入 daemon:每小时跑一次(`SNAPSHOT_PRUNE_SECONDS=3600`)。
+- [x] 首轮清理 + VACUUM FULL:scanner_results 删 24.5 万行、**929MB → 545MB**(物理磁盘已还)。
+- **验证**:collector `unittest` 242/242(+4:分批到底/上限截断/零 retention 空操作/DELETE 过滤按龄+表)。reload 后 daemon 跑新代码。可复现记录:`docs/validation/SNAPSHOT_RETENTION_2026-07-21.md`。
+- **另澄清(用户截图问题)**:①TSLL"metrics 被数据任务阻断"=上面预算章节里那个 `date` 序列化 bug 的直接后果(job 10049 就是 TSLL),已修并实测重采成功,阻断会随下次刷新消失;②TSLL S/R 显示 R $23.63(现价 $10.72)**不是 bug**——TSLL 是 2 倍杠杆 ETF,近 250 日线区间 $10.29-$23.03,$23.63 是真实历史高点 pivot,列表按触及强度排序不按价格排。
+
 ## ✅ 2026-07-21 — 盘中数据停摆：预算行被双 runtime 打回 1000 饿死整个交易时段（严重,已修复）
 
 **触发**:用户"为什么数据那么旧 而且 OI 又是空的"。核实:OI 其实不空(TSLA 66/66、AAPL 72/72、SPY 30/30、MU 316/316 都有);真问题是**整个美股交易时段(13:30-20:00 UTC)一条 option 快照都没写**,universe 卡在 9 小时前;盘前 07-12 UTC 却每小时 59-78 条正常。
