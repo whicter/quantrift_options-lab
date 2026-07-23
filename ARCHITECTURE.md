@@ -305,7 +305,22 @@ error
 
 不要把空数组、网络错误和无匹配结果显示成同一种状态。
 
-### 6.6 前端错误边界
+### 6.6 Analyze symbol resolution
+
+Analyze 将真实技术结构和旧版 mock 分析视为两个独立数据产品：
+
+| 条件 | 行为 |
+|---|---|
+| symbol 有 `price_history` | 请求 `/api/technical-levels/:symbol` 并显示技术结构 |
+| symbol 同时存在 `mockAnalysis` | 在技术结构之外继续显示旧版 4-Tab 内容 |
+| symbol 不存在 `mockAnalysis` | 不阻塞真实技术结构，只隐藏旧版 4-Tab |
+| 无日线历史 | Technical Levels 返回 `missing` |
+| GEX/OI 缺失 | 技术位照常返回，期权子结构显示 `missing` |
+
+因此输入 `SPY` 时，只要价格历史已经入库，就会得到 Volume Profile、AVWAP、DMA、周线和
+S/R Confluence；SPY 也属于旧 mock 标的，所以旧版 4-Tab 会同时保留。
+
+### 6.7 前端错误边界
 
 建议：
 
@@ -705,6 +720,16 @@ GitHub master
 collector 更新
     └── 单独部署或同步到 Mac Studio 执行环境
 ```
+
+Technical Levels 的部署顺序：
+
+1. Railway 部署包含 `server/src/routes/technicalLevels.js` 和路由挂载的新版本。
+2. 验证 `GET /api/technical-levels/SPY` 返回 `ready` 或可解释的 `missing`，而不是 404/500。
+3. Vercel 部署包含 `TechnicalLevelsPanel` 的前端版本。
+4. 验证 `/analyze?symbol=SPY` 同时显示技术结构和旧版 SPY 4-Tab。
+
+代码提交或本地生产构建不代表以上生产部署已经完成。当前功能代码提交为 `da298f4`，部署状态需由
+Railway/Vercel 的实际版本单独确认。
 
 ---
 

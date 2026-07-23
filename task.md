@@ -194,6 +194,14 @@
 > 9 个失败来自尚未纳入当前 server 的 Clerk/Stripe 依赖、`routes/options.js`、新版 metrics/scan 测试接口；
 > 前端全量测试另有策略数量与 notes 数字化两项既有 backlog。Phase 3C 目标测试、lint 与 build 全绿。
 
+### Phase 3C 部署跟进
+
+- [x] 功能代码提交：`da298f4`
+- [x] SPY 代码行为确认：有行情时显示真实技术结构；因属于 mock 白名单，同时保留旧版 4-Tab
+- [ ] Railway 部署并验收 `GET /api/technical-levels/SPY`
+- [ ] Vercel 部署并验收 `/analyze?symbol=SPY`
+- [ ] 生产验收后记录 Railway/Vercel deployment ID 与验收日期
+
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
 - [ ] 订阅分层: 免费（教育工具）/ 付费（scanner + alerts + live data）

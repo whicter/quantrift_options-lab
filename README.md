@@ -89,6 +89,17 @@ Open http://localhost:5173
 2026-07-22 GOOG 数据 smoke：spot `346.19`、POC `346.00`、AVWAP `353.42`、50/100/200DMA
 `366.12 / 343.21 / 321.99`；生产期权快照当时为 fresh，Call/Put GEX Wall 为 `350 / 330`。
 
+### `/analyze` symbol behavior
+
+| 输入 | 技术结构 | 原有 4-Tab 分析 | GEX / OI |
+|---|---|---|---|
+| `SPY`、`AAPL` 等已有 mock 且数据库有行情的标的 | 显示真实 Technical Levels | 同时显示 | 按最新快照显示 ready/stale/missing |
+| 数据库有行情、但不在旧 mock 白名单中的标的 | 显示真实 Technical Levels | 不显示 mock Tab | 按最新快照显示 ready/stale/missing |
+| 数据库没有日线历史的标的 | 显示 missing | 仅在有 mock 时显示 | 不生成替代数据 |
+
+Technical Levels 前后端代码已提交于 `da298f4`，但提交本身不等于生产部署。Railway 必须先部署新增 API，
+Vercel 再部署前端；在两端完成部署前，正式站 `/analyze` 不会出现该面板。
+
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
 - [ ] V2: Python IV collector on Mac Studio (daily cron)

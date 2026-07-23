@@ -95,6 +95,19 @@ server/
 GOOG 生产数据 smoke（2026-07-22）得到 POC `346.00`、AVWAP `353.42`、
 50/100/200DMA `366.12 / 343.21 / 321.99`；期权快照状态按请求时实时显示。
 
+**以 SPY 为例：**
+
+- SPY 有数据库行情历史时，Technical Levels 面板会返回真实 Volume Profile、AVWAP、DMA、周线结构和 S/R 区域。
+- SPY 同时属于旧 mock 白名单，因此原有“今日概览 / 日内变化 / 数据解读 / 信号追踪”4 个 Tab 继续显示。
+- GEX 和最大 OI Wall 取决于最新期权快照；缺失时显示 `Missing`，不会用 mock Wall 填充。
+- 若某个 symbol 只有行情、没有旧 mock，仍显示技术结构，只是不显示旧版 4-Tab。
+- 若没有日线历史，API 返回 `status=missing`。
+
+**上线条件：**
+
+功能代码位于 commit `da298f4`。必须先把后端部署到 Railway，并确认
+`GET /api/technical-levels/SPY` 可用，再部署 Vercel 前端。仅本地 commit/build 不会改变正式站。
+
 ### collector/ 结构
 
 ```
