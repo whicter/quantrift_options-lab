@@ -1,102 +1,21 @@
-import { useRef, useEffect } from 'react';
-
-function FlowChart({ dailyFlows }) {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const draw = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const dpr = window.devicePixelRatio || 1;
-      const W = canvas.parentElement.getBoundingClientRect().width;
-      const H = 130;
-      canvas.width = W * dpr; canvas.height = H * dpr;
-      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
-
-      const PAD = { top: 10, right: 80, bottom: 20, left: 14 };
-      const cW = W - PAD.left - PAD.right;
-      const cH = H - PAD.top - PAD.bottom;
-      const n = dailyFlows.length;
-      const gap = cH / n;
-      const maxFlow = Math.max(...dailyFlows.map(d => Math.abs(d.flow)));
-      // Zero line
-      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-      ctx.lineWidth = 1; ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, H - PAD.bottom); ctx.stroke();
-
-      dailyFlows.forEach(({ day, flow }, i) => {
-        const y = PAD.top + gap * i + gap * 0.15;
-        const barH = gap * 0.7;
-        const bLen = (Math.abs(flow) / maxFlow) * cW * 0.85;
-        const pos = flow >= 0;
-
-        // Bar
-        if (pos) {
-          const g = ctx.createLinearGradient(PAD.left, 0, PAD.left + bLen, 0);
-          g.addColorStop(0, 'rgba(22,100,50,0.7)'); g.addColorStop(1, 'rgba(34,197,94,0.9)');
-          ctx.fillStyle = g;
-        } else {
-          const g = ctx.createLinearGradient(PAD.left, 0, PAD.left + bLen, 0);
-          g.addColorStop(0, 'rgba(100,30,30,0.7)'); g.addColorStop(1, 'rgba(239,68,68,0.9)');
-          ctx.fillStyle = g;
-        }
-        ctx.fillRect(PAD.left, y, bLen, barH);
-
-        // Day label (left)
-        ctx.fillStyle = '#3a4464'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
-        ctx.fillText(day, PAD.left - 4, y + barH / 2 + 4);
-
-        // Value label (right of bar)
-        const valStr = (pos ? '+' : '-') + '$' + (Math.abs(flow) / 1e6).toFixed(1) + 'M';
-        ctx.fillStyle = pos ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)';
-        ctx.font = '10px monospace'; ctx.textAlign = 'left';
-        ctx.fillText(valStr, PAD.left + bLen + 6, y + barH / 2 + 4);
-      });
-    };
-
-    draw();
-    const obs = new ResizeObserver(draw);
-    const el = canvasRef.current?.parentElement;
-    if (el) obs.observe(el);
-    return () => obs.disconnect();
-  }, [dailyFlows]);
-
-  return <canvas ref={canvasRef} style={{ display: 'block' }} />;
-}
-
 export default function Sec4Money({ data }) {
-  const { smartMoney } = data;
-  const { cumulative, divergence, dailyFlows, note } = smartMoney;
-  const cumPos = cumulative >= 0;
-  const cumStr = (cumPos ? '+' : '-') + '$' + (Math.abs(cumulative) / 1e6).toFixed(1) + 'M';
-
+  const positioning = data.positioning;
+  if (positioning.status !== 'ready') return <div className="az-card"><div className="az-card-title">ΔOI 历史不足</div><p>需要至少两次可比较的 Open Interest 快照。</p></div>;
   return (
     <div className="wk-section">
-      <div className="wk-section-subtitle">主力资金透视</div>
-
-      {/* Summary row */}
+      <div className="wk-section-subtitle">期权未平仓量变化</div>
       <div className="wk-money-summary">
-        <div className="wk-money-stat">
-          <div className="wk-money-label">累计净流向</div>
-          <div className={`wk-money-val ${cumPos ? 'c-green' : 'c-red'}`}>{cumStr}</div>
-        </div>
-        <div className="wk-money-stat">
-          <div className="wk-money-label">价格背离</div>
-          <div className={`az-badge ${divergence ? 'az-badge-bear' : 'az-badge-bull'}`} style={{ fontSize: 14, padding: '4px 14px' }}>
-            {divergence ? '⚠ YES' : '✓ NO'}
-          </div>
-          {divergence && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 2 }}>价格创高但资金流出</div>}
-        </div>
+        <div className="wk-money-stat"><div className="wk-money-label">可比较合约的累计 ΔOI</div><div className="wk-money-val">{positioning.total_oi_delta.toLocaleString()}</div></div>
       </div>
-
-      {/* Flow bar chart */}
       <div className="az-card">
-        <div className="az-card-title">每日净流向（Mon–Fri）</div>
-        <FlowChart dailyFlows={dailyFlows} />
+        <div className="wk-migration-table">
+          <div className="wk-mig-header"><span>日期</span><span>ΔOI</span><span>达到 ΔOI 阈值的合约数</span></div>
+          {positioning.history.map(row => (
+            <div className="wk-mig-row" key={row.date}><span>{row.date}</span><span>{row.oi_delta.toLocaleString()}</span><span>{row.unusual_count}</span></div>
+          ))}
+        </div>
       </div>
-
-      <div className="wk-note">{note}</div>
+      <div className="wk-note">仅对连续快照中可匹配的相同合约累计 ΔOI；到期日变化、缺失或无法匹配的合约不纳入比较。这不是资金净流入，也不推断机构买卖方向。</div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getTechnicalLevels, normalizeTechnicalLevels } from './technicalLevels.js';
+import { normalizeTechnicalLevels, technicalLevelsPath } from './technicalLevels.js';
 
 test('normalizes missing arrays and numeric API fields', () => {
   const result = normalizeTechnicalLevels({
@@ -18,26 +18,11 @@ test('normalizes missing arrays and numeric API fields', () => {
   assert.equal(result.options.status, 'missing');
 });
 
-test('fetches a validated symbol and normalizes payload', async () => {
-  let requestedUrl = '';
-  const result = await getTechnicalLevels(' goog ', async url => {
-    requestedUrl = url;
-    return {
-      ok: true,
-      async json() {
-        return { symbol: 'GOOG', status: 'ready', spot: '346.19', supports: [], resistances: [] };
-      },
-    };
-  });
-  assert.match(requestedUrl, /\/api\/technical-levels\/GOOG$/);
-  assert.equal(result.spot, 346.19);
+test('builds a validated technical-levels path', () => {
+  assert.equal(technicalLevelsPath(' goog '), '/api/technical-levels/GOOG');
+  assert.equal(technicalLevelsPath('spy'), '/api/technical-levels/SPY');
 });
 
-test('rejects malformed symbols without fetching', async () => {
-  let called = false;
-  await assert.rejects(
-    getTechnicalLevels("GOOG' OR 1=1", async () => { called = true; }),
-    /invalid symbol/,
-  );
-  assert.equal(called, false);
+test('rejects malformed symbols', () => {
+  assert.throws(() => technicalLevelsPath("GOOG' OR 1=1"), /invalid symbol/);
 });

@@ -23,6 +23,7 @@ from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 from auth import get_session_token
+from common import WATCHLIST_PATH, load_watchlist
 
 load_dotenv()
 
@@ -33,20 +34,30 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-TT_BASE  = 'https://api.tastyworks.com'
+TT_BASE  = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')
+TT_USER_AGENT = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')
 DB_URL   = os.getenv('DATABASE_URL')
-
-# All symbols to collect daily. Edit this list as your watchlist grows.
-WATCHLIST = [
-    'AAPL', 'SPY', 'QQQ', 'TSLA', 'MSFT',
-    'XOM', 'GLD', 'NVDA', 'AMD', 'AMZN',
-    'META', 'GOOGL', 'NFLX', 'BA', 'JPM',
-    'GS', 'TLT', 'IWM', 'SMH', 'XLE',
-    'VIX',
-]
 
 # Tastytrade batch limit
 TT_BATCH = 50
+TT_METRICS_ENABLED = os.getenv('TT_METRICS_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
+
+
+def filter_symbols_requiring_tastytrade(conn, symbols: list[str]) -> list[str]:
+    """Stop provider IV Rank collection once a symbol has a ready derived rank."""
+    if not symbols:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT symbol
+            FROM volatility_history
+            WHERE symbol = ANY(%s) AND iv_rank_ready = TRUE
+            """,
+            (symbols,),
+        )
+        ready = {row[0] for row in cur.fetchall()}
+    return [symbol for symbol in symbols if symbol not in ready]
 
 
 def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
@@ -57,7 +68,11 @@ def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
     params = ','.join(symbols)
     resp = requests.get(
         f'{TT_BASE}/market-metrics',
-        headers={'Authorization': session_token},
+        headers={
+            'Accept': 'application/json',
+            'Authorization': session_token,
+            'User-Agent': TT_USER_AGENT,
+        },
         params={'symbols': params},
         timeout=30,
     )
@@ -159,21 +174,33 @@ def upsert_rows(conn, rows: list[dict]):
 
 def run():
     log.info('=== IV Collector starting ===')
+    if not TT_METRICS_ENABLED:
+        log.info('Tastytrade metrics collection disabled for this runtime')
+        return
     today = date.today()
-
-    # Auth
-    session_token = get_session_token()
+    watchlist = load_watchlist()
+    log.info(f'Loaded {len(watchlist)} symbols from {WATCHLIST_PATH.name}')
 
     # DB connection
     conn = psycopg2.connect(DB_URL)
     log.info('DB connected')
 
+    watchlist = filter_symbols_requiring_tastytrade(conn, watchlist)
+    if not watchlist:
+        conn.close()
+        log.info('All symbols have derived IV Rank readiness; Tastytrade metrics collection skipped')
+        return
+    log.info('Tastytrade still required for %d symbols without derived IV Rank readiness', len(watchlist))
+
+    # Auth only after readiness filtering, so a fully derived universe makes no TT request.
+    session_token = get_session_token()
+
     total_written = 0
     errors = []
 
     # Batch fetch (TT allows up to 50 per request)
-    for i in range(0, len(WATCHLIST), TT_BATCH):
-        batch = WATCHLIST[i:i + TT_BATCH]
+    for i in range(0, len(watchlist), TT_BATCH):
+        batch = watchlist[i:i + TT_BATCH]
         log.info(f'Fetching metrics for: {", ".join(batch)}')
 
         try:

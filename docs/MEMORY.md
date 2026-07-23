@@ -50,7 +50,7 @@
 - 2026-07-16 real-data integrity repair is deployed: `mockAnalysis.js` was deleted and Analyze uses a null-initialized real-data model only. Railway scanner SQL now qualifies `latest_rows.source` and `latest_rows.snapshot_ts`; production `/api/scan` returned HTTP 200, while `/analyze?symbol=NFLX` rendered actual `$73.68`, Polygon GEX and $75/$73 Walls.
 - PM2 collector 当前使用 `IB_MARKET_DATA_TYPE=1` 请求实时行情。常规交易时，缺报价的 Polygon option-chain job 必须回退 `ib_internal`；休市时保留真实结构字段但不将无 bid/ask 的快照当作可执行报价。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
 - Analyze 已接入真实 S/R、Focus Score、VRP、Gamma Flip、Local Gamma、IV skew 与 term structure。旧 target fallback 推荐腿已移除；没有 actual contract candidate 时不显示策略腿。
-- Analyze Technical Confluence 已在旧基线 commit `da298f4` 实现：`/api/technical-levels/:symbol` 合并 Volume Profile、Anchored VWAP、DMA、日/周结构、GEX 与 OI evidence。它仍须先与当前 `/api/sr`、CF-4/G5 整合，再进行 Railway/Vercel 生产验收；GOOG production-input smoke 不代表已部署。
+- Analyze Technical Confluence 已合并当前生产主线：`/api/technical-levels/:symbol` 作为独立扩展 prototype 合并 Volume Profile、Anchored VWAP、DMA、日/周结构、GEX 与 OI evidence，不替代 `/api/sr` 或已验证的 G5 confluence。全量本地回归通过；Railway/Vercel 生产验收仍待完成。
 - Production option collection uses `polygon_licensed`; `ib_internal` / `tt_internal` remain fallback/research adapters. API 与前端只读取 PostgreSQL snapshot。
 - Provider credentials只允许存在于 `collector/.env` 或部署 secret store，不得写入 PM2 config、文档、测试或 Git。
 

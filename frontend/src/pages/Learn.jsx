@@ -6,10 +6,12 @@ import StrategyNotes from '../components/StrategyNotes';
 import RightPanel from '../components/RightPanel';
 import GreeksKnowledge from '../components/GreeksKnowledge';
 import useStrategyStore from '../store/useStrategyStore';
+import { STRATEGIES } from '../data/strategies';
+import StrategyComparison from '../components/StrategyComparison';
 
 const CAT_LABELS = {
-  direction: '方向', income: '收租', volatility: '波动率',
-  calendar: '跨期', complex: '复杂', arb: '套利', guide: '向导',
+  direction: '方向', income: '权利金卖方', volatility: '波动率',
+  calendar: '跨期', complex: '复杂', arb: '相对价值', guide: '向导',
 };
 const TAG_LABELS = {
   bullish: 'BULLISH', bearish: 'BEARISH', neutral: 'NEUTRAL',
@@ -22,6 +24,15 @@ const LVL_LABELS = {
 export default function Learn() {
   const { strategy, resetLegs } = useStrategyStore();
   const [view, setView] = useState('strategy'); // 'strategy' | 'greeks'
+  const [comparisonIds, setComparisonIds] = useState([strategy.id, STRATEGIES.find((item) => item.id !== strategy.id).id]);
+
+  function toggleComparison() {
+    setView((current) => current === 'comparison' ? 'strategy' : 'comparison');
+  }
+
+  function selectComparison(slot, id) {
+    setComparisonIds((current) => current.map((currentId, index) => (index === slot ? id : currentId)));
+  }
 
   const breadcrumb = [
     CAT_LABELS[strategy.cat] || strategy.cat,
@@ -57,6 +68,19 @@ export default function Learn() {
               <GreeksKnowledge />
             </div>
           </>
+        ) : view === 'comparison' ? (
+          <>
+            <div className="strategy-header">
+              <div className="header-left">
+                <div className="header-breadcrumb">STRATEGY LIBRARY</div>
+                <div className="header-title">策略对比</div>
+              </div>
+              <div className="header-right">
+                <button className="learn-action" type="button" onClick={toggleComparison}>返回策略库</button>
+              </div>
+            </div>
+            <div className="main-scroll"><StrategyComparison strategies={STRATEGIES} selectedIds={comparisonIds} onSelect={selectComparison} /></div>
+          </>
         ) : (
           <>
             <div className="strategy-header">
@@ -70,8 +94,10 @@ export default function Learn() {
                 </div>
               </div>
               <div className="header-right">
+                <button className="learn-action" type="button" onClick={toggleComparison}>策略对比</button>
                 <button
-                  style={{ padding: '6px 12px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 6, fontSize: 12 }}
+                  className="learn-action"
+                  type="button"
                   onClick={resetLegs}
                 >
                   ↺ 重置模板

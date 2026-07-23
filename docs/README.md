@@ -141,8 +141,8 @@ Open http://localhost:5173
 - [x] Composite Momentum: real 30M/1D/weekly-derived 1W scores with 30/40/30 weights and stale intraday gating
 - [x] V3 code: Clerk auth + subscription tiers (runtime keys pending)
 - [x] V3: Portfolio tracking + Greeks aggregation
-- [x] Analyze Technical Support Confluence prototype and legacy-baseline local verification (`da298f4`)
-- [ ] Reconcile `/api/technical-levels/:symbol` with current `/api/sr` and CF-4/G5, run current-main regression, then deploy Railway API before the Vercel panel
+- [x] Analyze Technical Support Confluence integrated on current master as a separate prototype beside `/api/sr` and G5; full local regression passed
+- [ ] Deploy `/api/technical-levels/:symbol` to Railway before the Vercel panel and record production acceptance
 
 ## Analyze Technical Support Confluence
 
@@ -152,6 +152,6 @@ clusters evidence separately above and below spot. GEX Walls and 7–60 DTE maxi
 remain distinct, and missing option evidence is never synthesized.
 
 GOOG production-data input smoke on 2026-07-22 produced spot `346.19`, POC `346.00`, AVWAP
-`353.42`, and 50/100/200DMA `366.12 / 343.21 / 321.99`. This validated the legacy-branch
-calculation only; it did not deploy the route or panel. See `task.md` for the current-main
-integration, regression and Railway/Vercel acceptance gates.
+`353.42`, and 50/100/200DMA `366.12 / 343.21 / 321.99`. The feature is now merged with current
+master and uses the authenticated API path, but this smoke did not deploy the route or panel.
+See `task.md` for the remaining Railway/Vercel acceptance gate.

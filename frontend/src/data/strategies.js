@@ -1,4 +1,4 @@
-// 70+ option strategy definitions
+// 88 option strategy definitions
 // legs: { type:'call'|'put', dir:1|-1, K:number, dte:number, iv:number, qty:number }
 // dir: 1=long, -1=short
 // K: strike price (default spot=100)
@@ -7,13 +7,28 @@
 export const CATEGORIES = [
   { id: 'all',        label: 'All',         zh: '全部' },
   { id: 'direction',  label: 'Direction',   zh: '方向' },
-  { id: 'income',     label: 'Income',      zh: '收租' },
+  { id: 'income',     label: 'Income',      zh: '权利金卖方' },
   { id: 'volatility', label: 'Volatility',  zh: '波动率' },
   { id: 'calendar',   label: 'Calendar',    zh: '跨期' },
   { id: 'complex',    label: 'Complex',     zh: '复杂' },
-  { id: 'arb',        label: 'Arb',         zh: '套利' },
+  { id: 'arb',        label: 'Arb',         zh: '相对价值' },
   { id: 'guide',      label: 'Guide',       zh: '向导' },
 ];
+
+const NUMERIC_NOTE_DEFAULTS = {
+  iv: '量化默认阈值：IV Rank 30-60；超出范围时降低仓位或不新开仓。',
+  dte: '量化默认期限：30-60 DTE，以 45 DTE 为基准。',
+  tp: '量化默认止盈：达到初始最大潜在利润的 50% 时平仓。',
+  sl: '量化默认止损：亏损达到初始最大风险的 50% 时平仓。',
+};
+
+function standardizeNumericNotes(strategy) {
+  const notes = { ...strategy.notes };
+  for (const [field, fallback] of Object.entries(NUMERIC_NOTE_DEFAULTS)) {
+    if (!/\d/.test(notes[field] || '')) notes[field] = `${notes[field]} ${fallback}`.trim();
+  }
+  return { ...strategy, notes };
+}
 
 export const STRATEGIES = [
 
@@ -345,7 +360,7 @@ export const STRATEGIES = [
   },
 
   // ─────────────────────────────────────────────
-  // INCOME 收租
+  // INCOME 权利金卖方
   // ─────────────────────────────────────────────
   {
     id: 'covered_call',
@@ -457,7 +472,7 @@ export const STRATEGIES = [
     ],
     notes: {
       build:  '买入 OTM Put（最低）+ 卖出 OTM Put + 卖出 OTM Call + 买入 OTM Call（最高），四腿组合。',
-      when:   '中性偏高 IV 市场；预期标的在到期前维持震荡范围内；是最常见的收租策略之一。',
+      when:   '中性偏高 IV 的研究场景；需先确认标的波动、事件风险、流动性与可承受的最大损失。',
       strike: '内腿 Delta 各 0.25-0.30；外腿作为保护，通常间距 5 点；宽铁鹰（10+ 点）收权利金更多但最大亏损更大。',
       iv:     'IV Rank > 30-40；高 IV 时权利金厚，盈利区间宽。',
       dte:    '30-45 DTE 最优；约 21 天剩余时考虑平仓。',
@@ -511,7 +526,7 @@ export const STRATEGIES = [
       when:   '轻度看涨偏中性；想消除上行风险同时保留下行信用；高 IV + 偏涨偏斜时理想。',
       strike: 'Put 选 Delta 0.30 左右；Call Spread 宽度 5 点；确保净信用 > 5 点（消除上行风险）。',
       iv:     'Skew 大时（Put 贵 Call 便宜）更有利；高 IV 环境整体。',
-      dte:    '30-45 DTE；同样适用标准收租管理规则。',
+      dte:    '30-45 DTE 是常见研究窗口；退出与滚动规则需按策略和风险约束单独定义。',
       delta:  '净正 Delta（比对称 Iron Condor 偏多方向）；上行方向无风险。',
       tp:     '收取信用 50% 时平仓。',
       sl:     '下行风险在 Put 侧；Put 被突破时是主要风险来源。',
@@ -784,7 +799,7 @@ export const STRATEGIES = [
       build:  '卖出 1 张 ATM Put + 买入 2 张更低行权价 Put（1:2 比率），通常接近零成本或小额信用。',
       when:   '预期大幅下跌（超过下腿行权价）；低 IV 时低成本建立多余买方头寸；也可用作尾部风险对冲。',
       strike: '卖出腿选 ATM（Delta ~-0.50）；买入腿选 5-10% OTM（Delta ~-0.25 × 2）；选使净成本为零的组合。',
-      iv:     'IV Rank < 30 时建立最佳（买方有 Long Vega 优势）；IV 上升后 Long Vega 净头寸获益；避免在 IV 极高时建立（成本高，反弹后 IV 崩塌）。',
+      iv:     'IV Rank 较低时可作为比较买方成本的输入；IV 变化会影响 Long Vega，但不代表优势或保证收益。',
       dte:    '45-60 DTE 建仓；DTE < 21 时 Gamma 急增，亏损区间（两腿之间）风险剧升，需评估是否平仓；事件驱动前 2-3 周建仓最佳。',
       delta:  '净负 Delta（1:2 比率时约 -0.50 + 2×(-0.25) = 净 -0.50 初始）；大幅下跌后 Delta 趋近 -2，盈利加速；上涨时两腿相互抵消，损失有限。',
       tp:     '标的大幅下跌接近下腿行权价时止盈（最大利润区）；也可在 IV 大幅上升后（不等标的大跌）止盈 Vega 利润；单侧盈利目标 +100% 权利金。',
@@ -1952,4 +1967,66 @@ export const STRATEGIES = [
       adj:    '账户缩水 10%：仓位规模缩减 20%；账户缩水 20%：仓位规模缩减 50%，暂停新增交易，分析原因；不要通过加大仓位来追回亏损（反马丁格尔）。',
     },
   },
-];
+
+  // ── ADVANCED / FX / INDEX EXPANSION ─────────────────
+  {
+    id: 'long_call_ladder', name: 'Long Call Ladder', zh: '看涨阶梯价差', cat: 'complex', tag: 'bullish', lvl: 'advanced',
+    desc: '买入低行权价 Call、卖出两张中间 Call、买入更高 Call，押注温和上涨并限制尾部风险。',
+    legs: [{ type: 'call', dir: 1, K: 95, dte: 45, iv: 0.30, qty: 1 }, { type: 'call', dir: -1, K: 100, dte: 45, iv: 0.29, qty: 2 }, { type: 'call', dir: 1, K: 110, dte: 45, iv: 0.27, qty: 1 }],
+    notes: { build: '买 1 张 95 Call，卖 2 张 100 Call，买 1 张 110 Call，均为同一到期日。', when: '温和看涨，预期到期价格接近中间空头行权价而非暴涨。', strike: '中间短 Call 放在目标价，翼部宽度可不对称以调整最大风险。', iv: 'IV Rank 30-60 时适用；避免事件前 IV 极高时建立窄阶梯。', dte: '选 30-60 DTE，45 DTE 是默认示例。', delta: '初始正 Delta，但接近中间行权价后 Gamma 会快速变化。', tp: '达到理论最大利润的 50-75% 时平仓。', sl: '亏损达到初始最大风险的 50% 时止损。', adj: '价格向短 Call 快速上行时，提前平仓或向上滚动整个结构。' },
+  },
+  {
+    id: 'long_put_ladder', name: 'Long Put Ladder', zh: '看跌阶梯价差', cat: 'complex', tag: 'bearish', lvl: 'advanced',
+    desc: '买入高行权价 Put、卖出两张中间 Put、买入更低 Put，押注温和下跌并定义尾部风险。',
+    legs: [{ type: 'put', dir: 1, K: 105, dte: 45, iv: 0.30, qty: 1 }, { type: 'put', dir: -1, K: 100, dte: 45, iv: 0.29, qty: 2 }, { type: 'put', dir: 1, K: 90, dte: 45, iv: 0.27, qty: 1 }],
+    notes: { build: '买 1 张 105 Put，卖 2 张 100 Put，买 1 张 90 Put，均为同一到期日。', when: '温和看跌，预期到期价格靠近中间短 Put。', strike: '中间短 Put 放在下行目标，远端保护 Put 定义极端下跌风险。', iv: 'IV Rank 30-60 时适用，避免 IV Rank > 80 的恐慌追高。', dte: '选 30-60 DTE，45 DTE 是默认示例。', delta: '初始负 Delta；穿越中间行权价后 Delta 和 Gamma 会改变方向。', tp: '达到理论最大利润的 50-75% 时平仓。', sl: '亏损达到初始最大风险的 50% 时止损。', adj: '下跌过快接近短 Put 时，平仓或向下滚动中间短腿。' },
+  },
+  {
+    id: 'call_ratio_calendar', name: 'Call Ratio Calendar', zh: '看涨比例日历', cat: 'calendar', tag: 'neutral', lvl: 'advanced',
+    desc: '买入远月 Call、卖出两张近月较高行权价 Call，利用时间价值但需要严格管理近月短腿。',
+    legs: [{ type: 'call', dir: 1, K: 100, dte: 75, iv: 0.31, qty: 1 }, { type: 'call', dir: -1, K: 105, dte: 30, iv: 0.33, qty: 2 }],
+    notes: { build: '买 1 张远月 100 Call，卖 2 张近月 105 Call。', when: '预期短期价格停留在 105 下方，近月 Theta 衰减快于远月。', strike: '近月短腿放在目标阻力位；远月长腿接近 ATM。', iv: '近月 IV 高于远月 IV 时更有利；IV Rank 40-70 更适合。', dte: '近月 21-45 DTE，远月 60-90 DTE。', delta: '初始接近中性，短腿临近 ATM 时 Gamma 风险显著。', tp: '短腿价值衰减 50% 或结构盈利 25-50% 时平仓。', sl: '标的突破近月短 Call 行权价且亏损达到初始信用的 2 倍时止损。', adj: '短腿 Delta 超过 0.35 时滚动或买入额外保护 Call。' },
+  },
+  {
+    id: 'put_ratio_calendar', name: 'Put Ratio Calendar', zh: '看跌比例日历', cat: 'calendar', tag: 'neutral', lvl: 'advanced',
+    desc: '买入远月 Put、卖出两张近月较低行权价 Put，利用期限结构并控制下行短腿风险。',
+    legs: [{ type: 'put', dir: 1, K: 100, dte: 75, iv: 0.31, qty: 1 }, { type: 'put', dir: -1, K: 95, dte: 30, iv: 0.33, qty: 2 }],
+    notes: { build: '买 1 张远月 100 Put，卖 2 张近月 95 Put。', when: '预期短期价格停留在 95 上方，近月时间价值衰减。', strike: '近月短腿放在关键支撑位，远月长腿接近 ATM。', iv: '近月 IV 高于远月 IV 且 IV Rank 40-70 时更有利。', dte: '近月 21-45 DTE，远月 60-90 DTE。', delta: '初始接近中性；下跌接近短 Put 时负 Gamma 风险增大。', tp: '结构盈利 25-50% 或短腿价值衰减 50% 时平仓。', sl: '跌破短 Put 行权价并使亏损达到初始信用 2 倍时止损。', adj: '短腿 Delta 绝对值超过 0.35 时向下滚动或买入保护 Put。' },
+  },
+  {
+    id: 'calendar_condor', name: 'Calendar Condor', zh: '日历秃鹰', cat: 'calendar', tag: 'neutral', lvl: 'advanced',
+    desc: '在两个不同执行价建立双日历结构，押注价格在一个较宽区间内停留并收取近月时间价值。',
+    legs: [{ type: 'put', dir: 1, K: 95, dte: 75, iv: 0.30, qty: 1 }, { type: 'put', dir: -1, K: 95, dte: 30, iv: 0.32, qty: 1 }, { type: 'call', dir: 1, K: 105, dte: 75, iv: 0.30, qty: 1 }, { type: 'call', dir: -1, K: 105, dte: 30, iv: 0.32, qty: 1 }],
+    notes: { build: '在 95 Put 与 105 Call 各建一个远月多、近月空的 Calendar。', when: '中性，预期价格在两个短腿之间震荡。', strike: '短腿设在预期区间边缘，宽度通常为现价的 5-10%。', iv: '近月 IV 高于远月 IV，IV Rank 30-60 时较适合。', dte: '近月 21-45 DTE，远月 60-90 DTE。', delta: '整体 Delta 接近 0，主要暴露于 Theta 和 Vega。', tp: '近月 DTE 剩 14-21 天或结构盈利 25-50% 时平仓。', sl: '价格突破任一短腿且亏损达到初始借方 50% 时止损。', adj: '向价格移动方向滚动受压短腿，保持两侧风险定义。' },
+  },
+  {
+    id: 'double_diagonal_condor', name: 'Double Diagonal Condor', zh: '双对角秃鹰', cat: 'calendar', tag: 'neutral', lvl: 'advanced',
+    desc: '双对角结构在近月卖出 OTM 期权、远月买入更远 OTM 期权，形成有翼的时间价值策略。',
+    legs: [{ type: 'put', dir: 1, K: 90, dte: 75, iv: 0.29, qty: 1 }, { type: 'put', dir: -1, K: 95, dte: 30, iv: 0.32, qty: 1 }, { type: 'call', dir: -1, K: 105, dte: 30, iv: 0.32, qty: 1 }, { type: 'call', dir: 1, K: 110, dte: 75, iv: 0.29, qty: 1 }],
+    notes: { build: '买远月 90 Put 与 110 Call，卖近月 95 Put 与 105 Call。', when: '预期价格在 95-105 区间内，且近月时间衰减快。', strike: '近月短腿约 Delta 0.20-0.30，远月保护腿再外移 5 点。', iv: 'IV Rank 40-70 且近月 IV 溢价明显时优先。', dte: '近月 21-45 DTE，远月 60-90 DTE。', delta: '初始近中性，价格接近短腿后 Gamma 增大。', tp: '结构盈利 25-50% 或近月剩 14-21 DTE 时平仓。', sl: '短腿被测试且总亏损达到初始借方 50% 时止损。', adj: '滚动被测试的近月短腿，不能让保护腿先到期。' },
+  },
+  {
+    id: 'fx_risk_reversal', name: 'FX Risk Reversal', zh: '外汇风险逆转', cat: 'direction', tag: 'bullish', lvl: 'intermediate',
+    desc: '买入 OTM Call、卖出 OTM Put 的外汇方向结构，以较低净成本表达货币对看涨观点。',
+    legs: [{ type: 'call', dir: 1, K: 105, dte: 60, iv: 0.14, qty: 1 }, { type: 'put', dir: -1, K: 95, dte: 60, iv: 0.15, qty: 1 }],
+    notes: { build: '买 1 张 OTM Call，同时卖 1 张 OTM Put，数量和到期日一致。', when: '看涨某货币对，且愿意承担下跌方向的卖 Put 义务。', strike: '常用 25 Delta Call 对 25 Delta Put，按波动率偏斜调整。', iv: 'IV Rank 30-60，且 Put skew 较高时卖 Put 可补贴 Call 成本。', dte: '选 45-90 DTE，60 DTE 是默认示例。', delta: '正 Delta，卖 Put 使下行 Delta 风险放大。', tp: '货币对上行使 Call 获利 50-100% 时平仓。', sl: '跌破短 Put 行权价或净亏损达到账户预设 2% 时止损。', adj: '下跌时将短 Put 向下滚动，或买入更低 Put 限定风险。' },
+  },
+  {
+    id: 'fx_seagull', name: 'FX Seagull', zh: '外汇海鸥', cat: 'complex', tag: 'bullish', lvl: 'advanced',
+    desc: '买入 Call、卖出更高 Call、卖出 OTM Put 的三腿外汇结构，用上行收益上限换取较低成本。',
+    legs: [{ type: 'call', dir: 1, K: 100, dte: 60, iv: 0.14, qty: 1 }, { type: 'call', dir: -1, K: 108, dte: 60, iv: 0.13, qty: 1 }, { type: 'put', dir: -1, K: 94, dte: 60, iv: 0.15, qty: 1 }],
+    notes: { build: '买 1 张 ATM Call，卖 1 张更高 Call，并卖 1 张 OTM Put。', when: '温和看涨，愿意以 Put 下行义务换取低成本甚至零成本上行结构。', strike: 'Call 上腿放在目标汇率，短 Put 放在愿意接货的下行价位。', iv: 'Put skew 高、IV Rank 30-60 时短 Put 的补贴更明显。', dte: '选 45-90 DTE，60 DTE 是默认示例。', delta: '正 Delta，但跌破短 Put 后下行风险扩大。', tp: '汇率接近短 Call 时，达到最大利润的 50-75% 平仓。', sl: '短 Put Delta 绝对值超过 0.35 或账户亏损达到 2% 时止损。', adj: '下跌时买入保护 Put 变为有定义风险的结构。' },
+  },
+  {
+    id: 'index_iron_condor', name: 'Index Iron Condor', zh: '指数铁鹰', cat: 'income', tag: 'neutral', lvl: 'intermediate',
+    desc: '为现金结算指数设计的定义风险 Iron Condor，在预期区间震荡时收取双边权利金。',
+    legs: [{ type: 'put', dir: 1, K: 90, dte: 45, iv: 0.24, qty: 1 }, { type: 'put', dir: -1, K: 94, dte: 45, iv: 0.25, qty: 1 }, { type: 'call', dir: -1, K: 106, dte: 45, iv: 0.24, qty: 1 }, { type: 'call', dir: 1, K: 110, dte: 45, iv: 0.23, qty: 1 }],
+    notes: { build: '卖 94 Put/106 Call，买 90 Put/110 Call，四腿同一指数到期日。', when: '指数中性、预期区间震荡且 IV 较高。', strike: '短腿常用 0.15-0.20 Delta，翼宽按指数点值和最大风险确定。', iv: 'IV Rank > 30 时权利金更充足；财报个股风险不适用于宽基指数。', dte: '30-60 DTE，45 DTE 是默认示例。', delta: '初始 Delta 近 0，风险来自双边短 Gamma。', tp: '收取信用的 50% 时平仓。', sl: '一侧亏损达到初始信用的 2 倍或短腿 Delta 超过 0.35 时止损。', adj: '优先平掉盈利侧后评估受压侧，不在到期日硬扛短 Gamma。' },
+  },
+  {
+    id: 'index_broken_wing_butterfly', name: 'Index Broken-Wing Butterfly', zh: '指数不对称蝶式', cat: 'complex', tag: 'neutral', lvl: 'advanced',
+    desc: '不等宽指数蝶式以一侧更宽的翼换取较低借方或信用，并保留方向偏好。',
+    legs: [{ type: 'put', dir: 1, K: 96, dte: 45, iv: 0.25, qty: 1 }, { type: 'put', dir: -1, K: 100, dte: 45, iv: 0.24, qty: 2 }, { type: 'put', dir: 1, K: 108, dte: 45, iv: 0.23, qty: 1 }],
+    notes: { build: '买 1 张 96 Put，卖 2 张 100 Put，买 1 张 108 Put，形成不等宽蝶式。', when: '预期指数在到期时靠近中间行权价，且希望一侧风险更小。', strike: '中间短腿放在目标点位，较宽的一翼放在可接受的风险方向。', iv: 'IV Rank 30-60 时适用；高 IV 可尝试构建小信用。', dte: '30-60 DTE，45 DTE 是默认示例。', delta: '初始轻微方向性 Delta，接近中间行权价时 Gamma 高。', tp: '达到最大利润的 25-50% 时平仓。', sl: '价格突破宽翼并使亏损达到预设最大风险的 50% 时止损。', adj: '避免接近到期才调整，DTE 少于 14 天时主动平仓或滚动。' },
+  },
+].map(standardizeNumericNotes);

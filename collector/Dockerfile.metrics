@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    COLLECTOR_RUNTIME=railway-refresh-cron \
+    OPTION_REFRESH_PROVIDER=polygon_licensed \
+    TT_METRICS_ENABLED=false
+
+WORKDIR /app
+
+COPY collector/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY collector/ ./
+
+CMD ["python", "run_railway_refresh_cycle.py"]

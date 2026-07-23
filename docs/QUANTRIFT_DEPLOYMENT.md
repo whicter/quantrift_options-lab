@@ -1689,12 +1689,12 @@ On 2026-07-17, the first response reported all five coverage fields including `o
 
 ## Analyze Technical Support Confluence Deployment
 
-The implementation in legacy feature commit `da298f4` is not directly deployable because its
-parent (`352a23d`) predates the current `/api/sr` and CF-4/G5 work. First replay or merge the
-feature onto current `origin/master`, resolve overlapping responsibilities, and run the complete
-current-main server, collector and frontend test suites.
+The feature has been merged onto current production master. Existing `/api/sr` and G5 confluence
+remain unchanged; `/api/technical-levels` is a separately versioned expanded prototype protected
+by the current `live_analysis` entitlement. Local verification passed: server 180/180, collector
+242/242, frontend 85/85, ESLint clean and Vite production build successful.
 
-After integration passes, production acceptance must run in this order:
+Production acceptance must run in this order:
 
 1. Deploy the Railway API containing the agreed technical-level contract.
 2. Verify `GET /api/technical-levels/SPY` returns `ready` or an explainable `missing`, not 404/500.

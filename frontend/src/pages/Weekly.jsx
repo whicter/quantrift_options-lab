@@ -1,5 +1,7 @@
-import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { getWeeklyMock } from '../data/weeklyMock';
+import { useState, useEffect } from 'react';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { getDataStatus, getWeekly } from '../lib/api';
+import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Sec1Tone from './weekly/Sec1Tone';
 import Sec2Gamma from './weekly/Sec2Gamma';
 import Sec3Pinning from './weekly/Sec3Pinning';
@@ -8,82 +10,116 @@ import Sec5Playbook from './weekly/Sec5Playbook';
 
 const SECTIONS = [
   { id: 0, num: '01', label: '本周定调' },
-  { id: 1, num: '02', label: 'Gamma迁徙' },
-  { id: 2, num: '03', label: '交割偏离' },
-  { id: 3, num: '04', label: '资金暗线' },
-  { id: 4, num: '05', label: '下周分叉' },
+  { id: 1, num: '02', label: 'Gamma结构' },
+  { id: 2, num: '03', label: 'Max Pain距离' },
+  { id: 3, num: '04', label: '未平仓量变化' },
+  { id: 4, num: '05', label: '下周条件情景' },
 ];
+
+const COMMON_SYMBOLS = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMZN', 'META', 'MSFT'];
+
+function toViewModel(result) {
+  return {
+    symbol: result.symbol,
+    week: `${result.period.start} - ${result.period.end}`,
+    prevClose: result.price.previous_close,
+    weekClose: result.price.close,
+    weekChange: result.price.change_pct,
+    weekHigh: result.price.high,
+    weekLow: result.price.low,
+    candles: result.price.candles,
+    priceMeta: { source: result.price.source, latestDate: result.period.end, freshness: 'fresh', isStale: false },
+    tone: result.tone,
+    modelScore: result.score,
+    gamma: result.gamma,
+    pinning: result.pinning,
+    positioning: result.positioning,
+    scenarios: result.scenarios,
+  };
+}
 
 export default function Weekly() {
   const { symbol } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeSection = parseInt(searchParams.get('sec') || '0');
-  const data = symbol ? getWeeklyMock(symbol) : null;
-  const error = symbol && !data
-    ? `暂无 ${symbol.toUpperCase()} 的周回顾数据，试试 AAPL / SPY / QQQ`
-    : '';
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [quickLinks, setQuickLinks] = useState(COMMON_SYMBOLS);
+  const selectedSymbol = normalizeTickerInput(symbol || 'SPY');
+  const [symbolInput, setSymbolInput] = useState(selectedSymbol);
+  const activeSection = Math.max(0, Math.min(4, Number(searchParams.get('sec') || 0)));
+  const setSection = section => setSearchParams({ sec: section });
 
-  const setSection = s => setSearchParams({ sec: s });
-
-  if (!symbol) {
-    return (
-      <div className="az-page">
-        <div className="az-header">
-          <div className="az-title">一周深度复盘</div>
-          <div className="az-subtitle">从扫描器或分析页跳转至 /weekly/:symbol</div>
-        </div>
-        <div className="wk-quick-links">
-          {['AAPL', 'SPY', 'QQQ'].map(sym => (
-            <Link key={sym} to={`/weekly/${sym}`} className="wk-quick-link">{sym}</Link>
-          ))}
-        </div>
-      </div>
-    );
+  function selectSymbol(value) {
+    const nextSymbol = sanitizeTickerForSubmit(value);
+    if (!nextSymbol) return;
+    setSymbolInput(nextSymbol);
+    navigate(`/weekly/${nextSymbol}?sec=0`);
   }
+
+  useEffect(() => {
+    getDataStatus().then(status => {
+      const symbols = status.universe?.symbols || status.expected_symbols;
+      if (symbols?.length) setQuickLinks([...new Set([...COMMON_SYMBOLS, ...symbols])].slice(0, 12));
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getWeekly(selectedSymbol)
+      .then(result => {
+        if (cancelled) return;
+        if (result.status !== 'ready') {
+          setData(null);
+          setError(`${selectedSymbol} 至少需要 6 个有效交易日的价格历史，才能计算本周与前一收盘的比较。`);
+          return;
+        }
+        setData(toViewModel(result));
+        setError('');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setData(null);
+        setError(`暂时无法生成 ${selectedSymbol} 的周度快照。请查看数据状态或稍后重试。`);
+      });
+    return () => { cancelled = true; };
+  }, [selectedSymbol]);
 
   return (
     <div className="az-page">
-      {/* Header */}
       <div className="wk-page-header">
         <div>
-          <div className="wk-page-title">一周深度复盘</div>
-          {data && <div className="wk-page-meta">{symbol.toUpperCase()} · {data.week}</div>}
+          <div className="wk-page-title">周度市场快照</div>
+          {data && <div className="wk-page-meta">{data.symbol} · {data.week}</div>}
         </div>
-        <div className="wk-sym-links">
-          {['AAPL', 'SPY', 'QQQ'].map(sym => (
-            <Link
-              key={sym}
-              to={`/weekly/${sym}?sec=0`}
-              className={`wk-sym-link ${symbol?.toUpperCase() === sym ? 'active' : ''}`}
-            >
-              {sym}
-            </Link>
-          ))}
+        <div className="wk-symbol-controls">
+          <form className="wk-symbol-search" onSubmit={event => { event.preventDefault(); selectSymbol(symbolInput); }}>
+            <input
+              value={symbolInput}
+              onChange={event => setSymbolInput(normalizeTickerInput(event.target.value))}
+              placeholder="输入代码"
+              aria-label="输入复盘标的"
+            />
+            <button type="submit">查看</button>
+          </form>
+          <div className="wk-sym-links">
+            {quickLinks.map(item => (
+              <Link key={item} to={`/weekly/${item}?sec=0`} onClick={() => setSymbolInput(item)} className={`wk-sym-link ${selectedSymbol === item ? 'active' : ''}`}>{item}</Link>
+            ))}
+          </div>
         </div>
       </div>
-
       {error && <div className="az-error">{error}</div>}
-
       {data && (
         <>
-          {/* Section nav */}
           <div className="wk-section-nav">
-            {SECTIONS.map(s => (
-              <button
-                key={s.id}
-                className={`wk-sec-btn ${activeSection === s.id ? 'active' : ''}`}
-                onClick={() => setSection(s.id)}
-              >
-                <span className="wk-sec-num">{s.num}</span>
-                <span className="wk-sec-label">{s.label}</span>
+            {SECTIONS.map(section => (
+              <button key={section.id} className={`wk-sec-btn ${activeSection === section.id ? 'active' : ''}`} onClick={() => setSection(section.id)}>
+                <span className="wk-sec-num">{section.num}</span><span className="wk-sec-label">{section.label}</span>
               </button>
             ))}
-            <div className="wk-sec-progress">
-              {String(activeSection + 1).padStart(2, '0')} / 05
-            </div>
+            <div className="wk-sec-progress">{String(activeSection + 1).padStart(2, '0')} / 05</div>
           </div>
-
-          {/* Section content */}
           <div className="wk-content">
             {activeSection === 0 && <Sec1Tone data={data} />}
             {activeSection === 1 && <Sec2Gamma data={data} />}
@@ -91,22 +127,12 @@ export default function Weekly() {
             {activeSection === 3 && <Sec4Money data={data} />}
             {activeSection === 4 && <Sec5Playbook data={data} />}
           </div>
-
-          {/* Prev / Next nav */}
           <div className="wk-nav-row">
-            <button
-              className="wk-nav-btn"
-              disabled={activeSection === 0}
-              onClick={() => setSection(activeSection - 1)}
-            >
-              ← {activeSection > 0 ? SECTIONS[activeSection - 1].label : ''}
+            <button className="wk-nav-btn" disabled={activeSection === 0} onClick={() => setSection(activeSection - 1)}>
+              {activeSection > 0 ? `← ${SECTIONS[activeSection - 1].label}` : ''}
             </button>
-            <button
-              className="wk-nav-btn wk-nav-btn-next"
-              disabled={activeSection === SECTIONS.length - 1}
-              onClick={() => setSection(activeSection + 1)}
-            >
-              {activeSection < SECTIONS.length - 1 ? SECTIONS[activeSection + 1].label : ''} →
+            <button className="wk-nav-btn wk-nav-btn-next" disabled={activeSection === 4} onClick={() => setSection(activeSection + 1)}>
+              {activeSection < 4 ? `${SECTIONS[activeSection + 1].label} →` : ''}
             </button>
           </div>
         </>

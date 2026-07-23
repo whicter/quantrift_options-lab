@@ -1,6 +1,13 @@
-# IV Collector
+# Data Collectors
 
-Daily IV data collection from Tastytrade API → Railway PostgreSQL.
+Daily data collection into Railway PostgreSQL.
+
+- `collect.py`: IV / HV / earnings metrics from Tastytrade → `iv_history`
+- `collect_prices.py`: daily OHLCV from a provider adapter → `price_history`
+- `collect_options.py`: bounded option-chain snapshots from provider adapter → `option_chain_snapshots` / `option_contract_snapshots`
+- `materialize_oi_delta.py`: contract-level OI delta from consecutive option snapshots → `option_oi_delta_snapshots`
+- `materialize_scan.py`: latest IV/price/GEX snapshots → `scanner_results_snapshots`
+- `run_refresh_worker.py`: consumes queued `provider_fetch_jobs` with budget checks
 
 ## Setup (Mac Studio)
 
@@ -8,8 +15,8 @@ Daily IV data collection from Tastytrade API → Railway PostgreSQL.
 cd /path/to/quantrift_options-lab/collector
 
 # Create virtualenv
-python3 -m venv venv
-source venv/bin/activate
+/opt/homebrew/bin/python3.11 -m venv venv311
+source venv311/bin/activate
 pip install -r requirements.txt
 
 # Configure env
@@ -25,26 +32,225 @@ python auth.py --login
 # remember-token is saved to .env automatically
 ```
 
+When `DATABASE_URL` is configured, `provider_auth_state` is the durable token
+state. A successful renewal atomically writes any provider-supplied successor.
+`TT_REMEMBER_TOKEN` is used only when that database row does not exist. A
+401/403 against a stored row ends the run after that one request: it never
+falls back to a second configured seed, password login, or transient/network
+retry. Matching wrapping quotes in a Railway variable are stripped before a
+bootstrap request. Logs include a non-reversible token fingerprint and
+`COLLECTOR_RUNTIME`, never the raw token.
+
 ## Test Collection
 
 ```bash
-python collect.py
+venv311/bin/python collect.py
 ```
 
-## Cron Setup (4:30pm ET = 8:30pm UTC, adjust for DST)
+Scheduled price history uses `PRICE_PROVIDER=polygon`. Each run upserts up to 400 adjusted daily bars into `price_history` and 35 calendar days of 30-minute bars into `price_history_30m`. Stocks REST requests from both price and option collectors share the cross-process `POLYGON_STOCK_REQUEST_DELAY=16` pacer so the watchlist stays below the observed four-request-per-minute ceiling. `ib_internal` and Stooq remain explicit daily-only fallbacks and are not scheduled.
 
-```cron
-30 20 * * 1-5 cd /Users/congrenhan/Documents/quantrift_options-lab/collector && /Users/congrenhan/Documents/quantrift_options-lab/collector/venv/bin/python collect.py >> /Users/congrenhan/Documents/quantrift_options-lab/collector/logs/collect.log 2>&1
-```
+Collector health checks run inside `run_collector_daemon.py` every 300 seconds by default. They evaluate option coverage, 24h failed jobs, snapshot age and completeness, then persist deduplicated events in `collector_health_alerts`. Configure `ALERT_WEBHOOK_URL` or SMTP variables for external delivery; without them alerts remain visible in PM2 logs. Set `COLLECTOR_HEALTH_CHECK_ENABLED=false` to disable the check without changing collection.
 
-Create logs directory:
+Scanner user alerts run immediately after scanner materialization. `evaluate_scanner_alerts.py` reads active rules and the latest materialized batch, inserts a unique delivery outbox row, then uses generic SMTP or VAPID Web Push. Without channel secrets deliveries are `blocked`. It never calls a market-data provider.
+
 ```bash
-mkdir -p /Users/congrenhan/Documents/quantrift_options-lab/collector/logs
+venv311/bin/python collect_prices.py
 ```
+
+Option-chain snapshots use `OPTION_PROVIDER=ib_internal` for Phase 3D internal validation. Keep collection bounded while using IB Gateway:
+
+```bash
+OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=240 OPTION_MAX_CONTRACTS_PER_EXPIRATION=80 venv311/bin/python collect_options.py
+```
+
+For the tastytrade transitional path, use `tt_internal`. It collects option-chain metadata from REST and merges delayed/live DXLink events when available:
+
+- underlying `Quote` / `Trade`
+- option `Quote`
+- option `Trade`
+- option `Summary` / open interest
+- option `Greeks`
+- option `TheoPrice`
+- option `Profile` in raw contract metadata
+
+```bash
+OPTION_PROVIDER=tt_internal OPTION_SYMBOLS=PLTR OPTION_MAX_CONTRACTS=240 OPTION_MAX_CONTRACTS_PER_EXPIRATION=80 TT_DXLINK_TIMEOUT=12 venv311/bin/python collect_options.py
+```
+
+Probe tastytrade chain metadata without writing to PostgreSQL:
+
+```bash
+OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=10 OPTION_MAX_STRIKES_PER_SIDE=2 venv311/bin/python debug_tastytrade_option_chain.py
+```
+
+Probe tastytrade DXLink fields without writing to PostgreSQL:
+
+```bash
+OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 TT_DXLINK_TIMEOUT=12 venv311/bin/python debug_tastytrade_dxlink.py
+```
+
+Compute GEX / Wall / Gamma Flip from the latest persisted option-chain snapshot:
+
+```bash
+GEX_SYMBOLS=PLTR venv311/bin/python compute_gex.py
+```
+
+The GEX job reads PostgreSQL only. It does not call IB, tastytrade, or any other provider. It writes:
+
+- `gex_snapshots`
+- `gex_by_strike_snapshots`
+
+Materialize OI delta / unusual activity from consecutive persisted option snapshots:
+
+```bash
+venv311/bin/python materialize_oi_delta.py
+```
+
+The OI delta job reads PostgreSQL only. It writes `option_oi_delta_snapshots`. It compares the latest snapshot with the newest prior New York market-date snapshot from the same provider, not with another intraday copy of the same OI data. A contract's first observed market day is treated as `baseline`; it is not marked unusual until a previous trading-day snapshot exists for comparison.
+
+Materialize scanner cache rows from existing snapshots:
+
+```bash
+venv311/bin/python materialize_scan.py
+```
+
+The scanner materializer reads PostgreSQL only. It does not call IB, tastytrade, or any external provider. It writes one row per watchlist symbol to `scanner_results_snapshots`, which is what `/api/scan` reads in Phase 3C.
+
+Process queued refresh jobs:
+
+```bash
+venv311/bin/python run_refresh_worker.py
+```
+
+The worker supports:
+
+- `symbol_metrics_snapshot`: refreshes one symbol's IV/HV/earnings metrics.
+- `option_chain_snapshot`: refreshes one option-chain snapshot with the configured supported internal provider, then attempts GEX, OI delta and scanner materialization.
+- `scanner_materialize`: refreshes `scanner_results_snapshots` only.
+
+The worker records provider budget usage in `provider_request_usage`. If a licensed provider adapter is not configured, `licensed_options_provider` jobs fail closed and keep the error in `provider_fetch_jobs.last_error`.
+
+Safety defaults:
+
+- `GEX_MAX_MISSING_RATIO=0.25`
+- `GEX_LOCAL_GAMMA_WINDOW_PCT=1`
+- `GEX_GAMMA_FLIP_GRID_PCT=10`
+- `GEX_GAMMA_FLIP_GRID_STEPS=81`
+
+If option quotes, Greeks, or OI are empty, inspect the raw IB tick payload before changing the schema or API:
+
+```bash
+OPTION_DEBUG_SYMBOL=PLTR OPTION_MAX_CONTRACTS=6 OPTION_MAX_STRIKES_PER_SIDE=1 IB_OPTION_CLIENT_ID=44 venv311/bin/python debug_ib_option_ticks.py
+```
+
+The diagnostic output prints raw `tickPrice`, `tickSize`, `tickOptionComputation`, and IB error codes per contract. Use it to distinguish parser issues from IB Gateway connection, market-data subscription, or delayed-data issues.
+
+Default option-chain scope:
+
+- Symbols: `watchlist.txt` by default; `OPTION_SYMBOLS=NBIS,PLTR` narrows a targeted run.
+- DTE buckets: `OPTION_DTE_BUCKETS=0-14,15-29,30-45,46-60,61-90`
+- Expirations: `OPTION_MAX_EXPIRATIONS_PER_BUCKET=2`; Polygon performs one bounded 30–45 DTE supplement when initial pagination lacks that bucket, so near-term contracts cannot consume the ATM-IV history window.
+- Contracts: IB `reqContractDetails` returns the actual contracts for each selected expiry/right. The collector filters those returned contracts around spot and never creates expiry x strike x right combinations locally.
+- Contract caps: `OPTION_MAX_CONTRACTS=240` global safety cap and `OPTION_MAX_CONTRACTS_PER_EXPIRATION=80` per-expiration cap.
+- Source label: `ib_internal`
+- Delayed snapshot grace: `IB_OPTION_SNAPSHOT_GRACE_SECONDS=2`
+- API behavior: server reads PostgreSQL snapshots only; user requests never call IB Gateway synchronously.
+- tastytrade source label: `tt_internal`
+- tastytrade current status: chain metadata + DXLink quote/trade/OI/Greeks/TheoPrice when `TT_COLLECT_DXLINK=true`.
+
+For explicit development/backfill only, Stooq can be selected without changing the scheduled default:
+
+```bash
+PRICE_PROVIDER=stooq SYMBOLS=AAPL venv311/bin/python collect_prices.py
+```
+
+## Watchlist
+
+The watchlist is an ingestion seed, not the scanner product boundary. `sync_universe.py` persists it together with every known database symbol in `symbol_universe`; `materialize_scan.py` reads that registry. `collect_prices.py` also supports `SYMBOLS=AAPL,SPY` for targeted tests/backfills and `SYMBOLS=watchlist` for an explicit full run.
+
+`collect_options.py` defaults to the full watchlist. Use `OPTION_SYMBOLS` for a bounded backfill or diagnostic run.
+
+Format:
+
+```text
+# One symbol per line
+AAPL
+SPY
+QQQ
+PLTR
+```
+
+Blank lines and `#` comments are ignored. Symbols are uppercased and duplicates are skipped.
+
+## Mac Studio Runtime
+
+PM2 executes the current repository directly. There is no copied runtime directory, wrapper sync, cron entry, or LaunchAgent.
+
+```bash
+cd /Users/congrenhan/Documents/quantrift_options-lab
+pm2 start collector/ecosystem.config.cjs
+pm2 save
+pm2 status quantrift-options-collector quantrift-options-prices
+pm2 logs quantrift-options-collector --lines 50 --nostream
+```
+
+- `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects missing/old universe symbols to the bounded queue, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds. During the US regular session it requires executable bid/ask: Polygon remains primary and a quote-less snapshot falls back to IB.
+- Auto-refresh uses `polygon_licensed`. A recent failed attempt gets a 30-minute cooldown, so provider failures do not create a request storm.
+- `quantrift-options-prices`: runs `collect_prices.py` at `13:35 America/Los_Angeles` Monday-Friday.
+- `quantrift-universe-metadata`: runs `collect_universe_metadata.py` as a Sunday 12:15 one-shot cron; it is normally stopped between runs while PM2 keeps the cron active.
+- Both processes use this repository's `collector/venv311` and `collector/.env`.
+- `IB_MARKET_DATA_TYPE=1` requests real-time IB market data. Outside the regular session, no bid/ask is expected and the collector persists only the actual structural fields returned.
 
 ## Files
 
 - `auth.py` — Tastytrade auth + remember-token auto-renewal
-- `collect.py` — Main collector (Tastytrade → PostgreSQL)
+- `collect.py` — IV collector (Tastytrade → PostgreSQL)
+- `collect_prices.py` — OHLCV collector (provider adapter → PostgreSQL)
+- `collect_universe_metadata.py` — Polygon ticker reference metadata collector for `symbol_universe`
+- `collect_options.py` — bounded option-chain snapshot collector
+- `derive_volatility.py` — Polygon-only HV30/60/90 and 30–45 DTE ATM IV history; IV Rank remains not-ready before 252 market-day observations
+- `materialize_oi_delta.py` — contract-level OI delta materializer
+- `materialize_scan.py` — scanner cache materializer, PostgreSQL snapshot input only
+- `run_refresh_worker.py` — queued refresh worker and provider budget gate
+- `evaluate_scanner_alerts.py` — idempotent materialized-scanner email/web-push evaluator
+- `sync_universe.py` — seed/upsert persistent scanner universe from watchlist and existing data tables
+- `run_collector_daemon.py` — persistent worker/materializer loop used by PM2
+- `schedule_option_refresh.py` — bounded watchlist coverage scheduler with stale selection and retry cooldown
+- `ecosystem.config.cjs` — direct-repository PM2 process definitions
+- `providers/` — provider adapters; scheduled prices use `polygon`, universe reference uses `polygon_reference_provider.py`, while `ib_internal` and `stooq` remain explicit fallbacks
+- `common.py` — shared watchlist loader
+- `watchlist.txt` — Collector symbol list
 - `requirements.txt` — Python dependencies
 - `.env.example` — Environment variable template
+
+## Current Status
+
+- First successful Railway write: 2026-07-14
+- Rows written: 21
+- Source: `tastytrade`
+- Cron installed on Mac Studio: `30 13 * * 1-5`
+- Price history pipeline implemented: provider adapter → `price_history` → `/api/prices/:symbol`
+- Option positioning schema/API implemented: Polygon provider adapter → `option_chain_snapshots` → `/api/options/:symbol/snapshot`
+- Derived volatility runtime verified at 67/67 HV and 67/67 ATM coverage. DTE/observation dates use `America/New_York`, not UTC date truncation.
+- Analyze downstream derivatives are live: `/api/sr/:symbol` consumes persisted daily OHLCV for S/R, Focus Score, OBV and MFI-14; `/api/vp/:symbol` consumes regular-session 30M OHLCV for Volume Profile; `/api/chain/stats/:symbol` consumes only actual persisted contracts with IV for skew and term structure. The collector does not write synthetic levels, volume nodes, or option legs.
+- On-demand refresh is live: `/api/analyze/:symbol` can enqueue a targeted Polygon price job and option snapshot job; the worker persists both timeframes, derives volatility, and reuses the normal GEX path. Recent non-retryable metrics failures are reported as blockers rather than repeatedly queued.
+- Market/Weekly consumers are live: `/api/market/regime` reads regular-session 30M bars plus daily SPY/QQQ data; `/api/weekly/:symbol` reads persisted price/GEX/by-strike/OI-delta history. Collector gaps remain explicit and are never expanded into mock weekdays or money flow.
+- Heartbeat support is live in the daemon: every `HEARTBEAT_SECONDS` it calls `send_heartbeat.py`. Configure `HEARTBEAT_URL`, `HEARTBEAT_TOKEN`, and `HEARTBEAT_NODE_ID=mac-studio`; absent URL/token returns `disabled` without interrupting collection. Railway owns timeout detection and incident resolution.
+- Tastytrade metrics cutover is automatic per symbol: `collect.py` filters `iv_rank_ready=true` symbols before authentication, and queued metrics jobs return `already_ready`. Current runtime is 0/67 ready; do not force the 252-market-day threshold.
+- Cloud refresh cron artifacts are `Dockerfile.metrics` and `railway.metrics.json`. Railway service `quantrift-metrics-cron` uses `/collector/railway.metrics.json`; inject DB variables in the service and never copy `.env`. The weekday `*/5` UTC job runs `run_railway_refresh_cycle.py` once: it schedules bounded watchlist refreshes, consumes `provider_fetch_jobs`, then materializes scanner rows. This runtime fixes `OPTION_REFRESH_PROVIDER=polygon_licensed`; TT metrics remain disabled in cloud. Both option snapshots and scanner JSONB payloads encode provider `Decimal` values explicitly before persistence. The build context is repository root, so the Dockerfile must copy `collector/requirements.txt` and `collector/`, not paths relative to the config file.
+- 2026-07-16 authentication incident correction: `provider_auth_state` in PostgreSQL is the durable source of truth **for collectors bound to the same `DATABASE_URL`**. Every collector takes a transaction-scoped advisory lock, exchanges the stored token once, then commits the provider-supplied successor (or unchanged token when no successor is supplied). Railway needs both `TT_LOGIN` and `TT_REMEMBER_TOKEN`; the latter bootstraps only an absent row. A 401/403 performs no recovery-seed retry. The metrics image identifies itself as `railway-metrics-cron`; logs expose only a token fingerprint and consumer, so a later failure can be traced without revealing secrets.
+- Runtime boundary: a 2026-07-16 Railway run with a freshly seeded token returned `403 device_challenge_required`; TT treats the cloud runner as an untrusted device. Run TT metrics from the authenticated Mac Studio and persist to the same PostgreSQL database. Railway can continue hosting the API and database, but must not be the unattended TT login host unless its device challenge is explicitly completed.
+- Guard: the Railway metrics image sets `TT_METRICS_ENABLED=false`, so its scheduled container exits before reading credentials or calling TT. Local collection defaults to enabled. The active Mac Studio crontab runs `collect.py` at `13:30 PT` on weekdays (`16:30 ET`).
+- On-demand quote failures are scoped to the worker that observed them. A Railway TT device challenge must not suppress a later Mac Studio/IB refresh: only an explicit `option quote unavailable` terminal result is eligible for the API's temporary quote blocker.
+- A provider can fail before making a request (for example, a missing Polygon key). That is a provider-availability failure, not a terminal no-quote result; the refresh worker continues to the configured bounded fallback sequence instead of repeatedly requeueing the same unavailable primary.
+- IB Gateway cloud evaluation artifacts live in `ops/ib-gateway/`. The candidate is fixed-egress VPS only, with paper/read-only defaults, secret-file password and loopback API ports; a 72-hour soak and manual 2FA precede any collector move.
+- Product identity is separate from collectors: Clerk sessions map to PostgreSQL `users`/`subscriptions`; collectors never receive Clerk or Stripe credentials.
+- Portfolio valuation reads collector-persisted option snapshots through the API. Collectors do not own positions and must not fabricate missing marks for portfolio consumers.
+- Billing and entitlements stay in the API database boundary. Collectors never receive Clerk/Stripe credentials and continue materializing data independently of subscriber count.
+- The P3 account/portfolio/billing schema is applied in shared Railway PostgreSQL; this does not change collector scheduling or grant collectors access to product identities.
+- Frontend lint cleanup has no collector runtime impact; collector verification remains the Python test suite plus PM2/runtime evidence.
+- Analyze OI density consumes persisted `open_interest` across nonexpired expiries. Collectors must preserve null OI as missing and must not derive it from GEX or quote volume.
+- `collect_reddit_trends.py` is a credential-gated 30-minute PM2 one-shot. It stores universe-bounded mention/engagement snapshots; with `REDDIT_TRENDS_ENABLED=false` it exits successfully without network access. Community heat never enters option candidate scoring.
+# Unusual Whales flow (credential-gated)
+
+`collect_unusual_whales.py` consumes the account WebSocket JSON stream and persists official option-flow and TRF events. Required when enabled: `DATABASE_URL`, `UW_WS_URL`, `UW_API_TOKEN`; set the exact account subscription message in `UW_WS_SUBSCRIBE_JSON`. Without `UW_FLOW_ENABLED=true`, direct execution exits successfully while the PM2 configuration holds one low-frequency idle process until it is enabled and restarted. Do not guess the connection URL or subscription envelope.

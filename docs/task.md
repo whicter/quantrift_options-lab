@@ -2,10 +2,10 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **114 项** `- [ ]`（2026-07-22 核对；原 111 项 + Analyze Technical Support Confluence 当前分支整合/回归/部署 3 项），按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **112 项** `- [ ]`（2026-07-22 核对；原 111 项 + Analyze Technical Support Confluence 仅剩生产部署验收 1 项），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
-   - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **3 项未完成**：功能代码和专项测试已在 `da298f4` 完成，但基于落后当前 `origin/master` 214 commits 的旧基线；必须先与现有 `/api/sr` / CF-4 / G5 口径整合，再做当前主线全量回归和 Railway/Vercel 生产验收。
+   - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
    - `2026-07-21 — 快照表 retention` ✅：两张物化表无限膨胀拖慢库,已加 `prune_snapshots` 自动清理,scanner_results 929MB→545MB。
    - `2026-07-21 — 预算行被双 runtime 打回 1000` ✅：盘中整段停摆的根因,默认预算 1000→1,000,000,顺带修 metrics `date` 序列化 bug。
    - `2026-07-20 — 现价陈旧 bug` 🟡 **3 项未完成**：P1(spot 4→1 天)/P2(延迟盘中价路径,默认关)已完成;**P2.1 免费 IB 盘中价(唯一免费真盘中价路径,用户已确认要做)**、P3(现价时间戳标注)、P4(日线 cron 可靠性)待做。Polygon Options 档股票盘中数据 403 死路,已铁证。
@@ -61,7 +61,7 @@
 - [ ] `compute_max_pain` 改用宽 OI 数据源,得到真·全链 Max Pain;前端 OI 图自动变连续,Max Pain 展示到 Analyze。
 - [ ] 单测:自适应窗口对 SPY/TSLA/SOXL 各算出合理宽度 + 上下限截断;Max Pain 全链 vs 稀疏对比。
 
-## 2026-07-22 — Analyze Technical Support Confluence（代码已完成，当前主线整合/部署待完成）
+## 2026-07-22 — Analyze Technical Support Confluence（当前主线已整合，生产部署待完成）
 
 **目标**：在 `/analyze` 为任意已有真实价格历史的 symbol 展示可解释的技术支撑/压力结构，组合
 Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 与最大 OI Wall。
@@ -77,18 +77,19 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - [x] GOOG production-input smoke：spot 346.19、POC 346.00、AVWAP 353.42、50/100/200DMA
   366.12 / 343.21 / 321.99。该 smoke 只验证计算，不代表生产部署。
 
-**重要分支边界（2026-07-22 恢复文档时确认）**：
-- `da298f4` 的 parent 是旧 `master` commit `352a23d`；当前 `origin/master` 已前进到 `84eb0ad`，
-  两者相差 214 commits。
-- 当前主线已经有 `/api/sr/:symbol`、Composite Momentum、CF-1 至 CF-3，以及
-  `docs/SPEC_CONFLUENCE.md` 中的 CF-4/G5 gate。新 route 不能直接部署，必须先消除重复职责和算法口径冲突。
-- `6d4528b` 与 `56694bc` 中对短版 task 的更新已被本次 2,281 行 canonical task 恢复所取代。
+**当前主线整合结果（2026-07-22）**：
+- `support_level_cal` 已合并生产 `master` `84eb0ad`，没有把旧页面覆盖回主线。
+- `/api/sr/:symbol` 与已通过 G5 replay 的 `/api/analyze/:symbol/confluence` 保持原职责和响应不变；
+  `/api/technical-levels/:symbol` 作为扩展 prototype 独立提供 AVWAP、周线结构、50/100/200DMA
+  与最大 OI Wall，不冒充或替代 `confluence-v1-prior`。
+- 新 route 接入当前 `live_analysis` entitlement；前端通过统一 authenticated API helper 调用。
+- `6d4528b` 与 `56694bc` 中对短版 task 的更新已被本次 canonical task 恢复取代。
 
-**待完成（3 项）**：
-- [ ] 在最新 `origin/master` 上重放/整合 `da298f4`，逐项比较 `/api/technical-levels` 与现有
-  `/api/sr`、CF-4/G5，确定保留、合并或删除的职责；禁止直接把旧分支整包部署。
-- [ ] 在当前主线运行完整 server/collector/frontend 回归、lint、build，并补 SPY/GOOG 的 API
-  contract test；不得只引用旧基线的 8/8 和 3/3。
+**当前主线验证与待完成项**：
+- [x] 在最新生产 `master` 上整合 `da298f4`；保留现有 `/api/sr` 和 G5 confluence，
+  将 `/api/technical-levels` 明确为独立扩展 prototype。
+- [x] 当前主线回归：server 180/180、collector 242/242、frontend 85/85、ESLint 0 error、
+  Vite production build 成功；补充 SPY/GOOG API missing-contract 测试。
 - [ ] 当前主线整合通过后，按 Railway API → `GET /api/technical-levels/SPY` → Vercel UI 顺序部署，
   验证 SPY 技术结构、无 mock symbol、GEX/OI missing 状态，并记录 deployment ID/日期。
 

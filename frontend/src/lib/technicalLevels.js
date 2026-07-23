@@ -1,10 +1,3 @@
-const runtimeEnv = import.meta.env || {};
-const API_BASE = (
-  runtimeEnv.VITE_API_URL
-  || runtimeEnv.VITE_API_BASE_URL
-  || 'http://localhost:3001'
-).replace(/\/$/, '');
-
 function numberOrNull(value) {
   if (value == null || value === '') return null;
   const parsed = Number(value);
@@ -63,12 +56,8 @@ export function normalizeTechnicalLevels(payload) {
   };
 }
 
-export async function getTechnicalLevels(symbol, fetchImpl = fetch) {
+export function technicalLevelsPath(symbol) {
   const normalized = String(symbol || '').trim().toUpperCase();
   if (!/^[A-Z][A-Z0-9.-]{0,11}$/.test(normalized)) throw new Error('invalid symbol');
-  const response = await fetchImpl(`${API_BASE}/api/technical-levels/${encodeURIComponent(normalized)}`);
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return normalizeTechnicalLevels(await response.json());
+  return `/api/technical-levels/${encodeURIComponent(normalized)}`;
 }
-
-export { API_BASE };

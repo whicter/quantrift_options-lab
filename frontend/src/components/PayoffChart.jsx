@@ -1,18 +1,20 @@
 import { useEffect, useRef, useMemo } from 'react';
 import useStrategyStore from '../store/useStrategyStore';
 import { bsPrice } from '../lib/blackscholes';
+import { getChartColors } from '../lib/theme';
+import { downloadCanvasPng } from '../lib/canvasExport';
+import { createPayoffSnapshots, optionValueAtDays } from '../lib/payoffSnapshots';
+import { calculateProbabilityCone } from '../lib/probabilityCone';
 
 const COLORS = {
   expiry: '#10d984',
   scenario: '#3b82f6',
   bep: '#f5a623',
-  zero: '#2e3545',
-  grid: '#1e2230',
-  axis: '#555e73',
+  snapshots: ['#818cf8', '#a78bfa', '#c084fc'],
 };
 
 function drawChart(canvas, data) {
-  const { prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL } = data;
+  const { prices, expiryPL, scenarioPL, snapshotPL, beps, cone, spot, minPL, maxPL } = data;
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
   const H = canvas.offsetHeight;
@@ -20,6 +22,7 @@ function drawChart(canvas, data) {
   canvas.height = H * dpr;
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
+  const theme = getChartColors();
 
   const PAD = { top: 16, right: 14, bottom: 30, left: 52 };
   const cW = W - PAD.left - PAD.right;
@@ -33,11 +36,11 @@ function drawChart(canvas, data) {
   const yMap = (v) => PAD.top + (1 - (v - yLo) / (yHi - yLo)) * cH;
 
   // Background
-  ctx.fillStyle = '#13161c';
+  ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, W, H);
 
   // Grid lines
-  ctx.strokeStyle = COLORS.grid;
+  ctx.strokeStyle = theme.grid;
   ctx.lineWidth = 1;
   const ySteps = 5;
   for (let i = 0; i <= ySteps; i++) {
@@ -45,7 +48,7 @@ function drawChart(canvas, data) {
     const y = yMap(v);
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
     // Y label
-    ctx.fillStyle = COLORS.axis;
+    ctx.fillStyle = theme.axis;
     ctx.font = `10px -apple-system, sans-serif`;
     ctx.textAlign = 'right';
     const label = v >= 1000 ? `${(v/1000).toFixed(1)}k` : v <= -1000 ? `${(v/1000).toFixed(1)}k` : v.toFixed(0);
@@ -58,23 +61,41 @@ function drawChart(canvas, data) {
   for (let i = 0; i <= xSteps; i++) {
     const s = minS + ((maxS - minS) / xSteps) * i;
     const x = xMap(s);
-    ctx.fillStyle = COLORS.axis;
+    ctx.fillStyle = theme.axis;
     ctx.fillText(s.toFixed(0), x, H - PAD.bottom + 14);
-    ctx.strokeStyle = COLORS.grid;
+    ctx.strokeStyle = theme.grid;
     ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, H - PAD.bottom); ctx.stroke();
   }
 
   // Zero line
   if (yLo < 0 && yHi > 0) {
     const y0 = yMap(0);
-    ctx.strokeStyle = COLORS.zero;
+    ctx.strokeStyle = theme.gridSoft;
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(PAD.left, y0); ctx.lineTo(W - PAD.right, y0); ctx.stroke();
   }
 
+  // One-standard-deviation terminal-price range. This is a price distribution band, not POP.
+  if (cone) {
+    const lower = Math.max(minS, cone.lower);
+    const upper = Math.min(maxS, cone.upper);
+    if (lower < upper) {
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.10)';
+      ctx.fillRect(xMap(lower), PAD.top, xMap(upper) - xMap(lower), cH);
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]);
+      [lower, upper].forEach((value) => {
+        const x = xMap(value);
+        ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, H - PAD.bottom); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+    }
+  }
+
   // Spot vertical line
   const xSpot = xMap(spot);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = theme.gridSoft;
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   ctx.beginPath(); ctx.moveTo(xSpot, PAD.top); ctx.lineTo(xSpot, H - PAD.bottom); ctx.stroke();
@@ -110,6 +131,21 @@ function drawChart(canvas, data) {
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
   }
+
+  snapshotPL.forEach(({ values, color }) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([2, 4]);
+    ctx.globalAlpha = 0.78;
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = xMap(prices[i]), y = yMap(v);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  });
 
   // Expiry P/L line (solid green) with fill
   // Fill above/below zero
@@ -161,10 +197,10 @@ function drawChart(canvas, data) {
 
 export default function PayoffChart() {
   const canvasRef = useRef(null);
-  const { legs, spot, ivShift, rate, div, range, contracts } = useStrategyStore();
+  const { strategy, legs, spot, ivShift, rate, div, range, contracts } = useStrategyStore();
 
-  const { prices, expiryPL, scenarioPL, beps, minPL, maxPL } = useMemo(() => {
-    if (!legs.length) return { prices: [], expiryPL: [], scenarioPL: [], beps: [], minPL: -100, maxPL: 100 };
+  const { prices, expiryPL, scenarioPL, snapshotPL, snapshots, beps, cone, minPL, maxPL } = useMemo(() => {
+    if (!legs.length) return { prices: [], expiryPL: [], scenarioPL: [], snapshotPL: [], snapshots: [], beps: [], cone: null, minPL: -100, maxPL: 100 };
 
     const r = rate / 100;
     const q = div / 100;
@@ -202,6 +238,31 @@ export default function PayoffChart() {
       return (val - netPremium) * contracts;
     });
 
+    const maxDte = Math.max(...legs.map((leg) => leg.dte));
+    const cone = calculateProbabilityCone({ spot, legs, rate: r, div: q });
+    const snapshots = createPayoffSnapshots(maxDte);
+    const snapshotPL = snapshots.map((snapshot, index) => ({
+      ...snapshot,
+      color: COLORS.snapshots[index % COLORS.snapshots.length],
+      values: prices.map((S) => {
+        const elapsedDays = maxDte - snapshot.days;
+        const val = legs.reduce((total, leg) => {
+          const remainingDays = Math.max(0, leg.dte - elapsedDays);
+          const price = remainingDays > 0
+            ? bsPrice(S, leg.K, remainingDays / 365, r, q, leg.iv, leg.type)
+            : 0;
+          return total + leg.dir * leg.qty * optionValueAtDays({
+            spot: S,
+            strike: leg.K,
+            type: leg.type,
+            days: remainingDays,
+            price,
+          });
+        }, 0);
+        return (val - netPremium) * contracts;
+      }),
+    }));
+
     // Find breakevens
     const beps = [];
     for (let i = 1; i < expiryPL.length; i++) {
@@ -210,9 +271,9 @@ export default function PayoffChart() {
       }
     }
 
-    const allPL = [...expiryPL, ...scenarioPL];
+    const allPL = [...expiryPL, ...scenarioPL, ...snapshotPL.flatMap((snapshot) => snapshot.values)];
     return {
-      prices, expiryPL, scenarioPL, beps,
+      prices, expiryPL, scenarioPL, snapshotPL, snapshots, beps, cone,
       minPL: Math.min(...allPL),
       maxPL: Math.max(...allPL),
     };
@@ -222,12 +283,12 @@ export default function PayoffChart() {
     const canvas = canvasRef.current;
     if (!canvas || !prices.length) return;
     const obs = new ResizeObserver(() => {
-      drawChart(canvas, { prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL });
+      drawChart(canvas, { prices, expiryPL, scenarioPL, snapshotPL, beps, cone, spot, minPL, maxPL });
     });
     obs.observe(canvas.parentElement);
-    drawChart(canvas, { prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL });
+    drawChart(canvas, { prices, expiryPL, scenarioPL, snapshotPL, beps, cone, spot, minPL, maxPL });
     return () => obs.disconnect();
-  }, [prices, expiryPL, scenarioPL, beps, spot, minPL, maxPL]);
+  }, [prices, expiryPL, scenarioPL, snapshotPL, beps, cone, spot, minPL, maxPL]);
 
   return (
     <div className="section-card">
@@ -236,6 +297,18 @@ export default function PayoffChart() {
           <div className="section-label">Payoff</div>
           <div className="section-title">主损益图</div>
         </div>
+        <button
+          className="payoff-export"
+          type="button"
+          onClick={() => downloadCanvasPng(
+            canvasRef.current,
+            `${strategy.id || 'strategy'}-payoff.png`,
+            document,
+            `Model estimate · Black-Scholes inputs as of ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC · Educational use only`,
+          )}
+        >
+          导出 PNG
+        </button>
       </div>
       <div className="payoff-canvas-wrap">
         <canvas ref={canvasRef} className="payoff-chart" />
@@ -249,6 +322,18 @@ export default function PayoffChart() {
           <svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke="#3b82f6" strokeWidth="2" strokeDasharray="5,3"/></svg>
           <span>当前情景 Scenario</span>
         </div>
+        {cone && (
+          <div className="legend-item">
+            <svg width="22" height="10"><rect width="22" height="10" fill="rgba(59,130,246,0.18)"/></svg>
+            <span title="基于输入 IV、对数正态分布与约一标准差假设；不是价格保证。">模型一标准差区间（约 68% 假设）${cone.lower.toFixed(0)}-${cone.upper.toFixed(0)} ({cone.dte} DTE)</span>
+          </div>
+        )}
+        {snapshots.map((snapshot, index) => (
+          <div className="legend-item" key={snapshot.days}>
+            <svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke={COLORS.snapshots[index % COLORS.snapshots.length]} strokeWidth="1.5" strokeDasharray="2,4"/></svg>
+            <span>{snapshot.label}</span>
+          </div>
+        ))}
         <div className="legend-item">
           <svg width="22" height="4"><line x1="0" y1="2" x2="22" y2="2" stroke="#f5a623" strokeWidth="1.5" strokeDasharray="3,4"/></svg>
           <span>盈亏平衡 BEP</span>

@@ -2024,7 +2024,10 @@ localizes missing GEX/OI to the options component. OI Wall and GEX Wall are neve
 substituted for each other. Volume Profile is a 30-minute bar typical-price approximation, not a
 tick-level market profile.
 
-This prototype was implemented on the old `352a23d` baseline. Before production deployment it
-must be reconciled with the current `/api/sr/:symbol` contract and the CF-4/G5 design in
-`SPEC_CONFLUENCE.md`, then pass the current-main server/collector/frontend regression suites.
-Production acceptance remains Railway API first, followed by the Vercel panel and SPY UI smoke.
+The feature is integrated with current master as a separate prototype. Existing `/api/sr/:symbol`
+and the G5 confluence contract remain unchanged and continue to own their validated model;
+`/api/technical-levels/:symbol` exposes the additional AVWAP, long-DMA, weekly and maximum-OI
+evidence without claiming the G5 model version. The route uses the current `live_analysis`
+entitlement and the frontend uses the shared authenticated API helper. Current-main server,
+collector, frontend, lint and build verification pass. Production acceptance remains Railway API
+first, followed by the Vercel panel and SPY UI smoke.

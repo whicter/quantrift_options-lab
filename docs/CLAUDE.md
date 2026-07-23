@@ -108,7 +108,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 - Universe reference metadata comes from Polygon ticker reference data via `collect_universe_metadata.py`; sector/category is SIC-derived and nullable, and `optionable` is true only from persisted usable option snapshots.
 - Preserve partial data and expose recent non-retryable failures as blockers instead of creating enqueue loops.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; preserve ISO dates and fail closed when real inputs are absent. Never synthesize price paths or option legs.
-- `/api/technical-levels/:symbol` is implemented in legacy feature commit `da298f4` but is not production-ready until it is reconciled with current `/api/sr` and CF-4/G5. Keep GEX Wall and OI Wall distinct, preserve component-level missing states, and retain the Railway-then-Vercel acceptance gates in `docs/task.md`.
+- `/api/technical-levels/:symbol` is integrated as an expanded prototype beside current `/api/sr` and G5 confluence; it does not replace the validated G5 model. Keep GEX Wall and OI Wall distinct, preserve component-level missing states, and retain the Railway-then-Vercel acceptance gate in `docs/task.md`.
 - Derived volatility is isolated in `volatility_history`; use New York market dates for DTE and daily observations. Do not mark derived IV Rank ready before 252 observations.
 - Scanner candidate quotes come from the latest usable quoted snapshot, independently of the latest positioning snapshot. Preserve quote provenance and the explicit advanced-risk gate.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.

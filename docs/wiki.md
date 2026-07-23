@@ -1403,8 +1403,9 @@ IB historical farm 恢复只证明历史 close/fallback 及请求链路可用，
 
 ### Analyze Technical Support Confluence
 
-旧基线功能 commit `da298f4` 实现了 `GET /api/technical-levels/:symbol` 原型。它只读取
-PostgreSQL 快照，不在请求路径同步调用 provider，计算内容包括：
+`GET /api/technical-levels/:symbol` 已合并当前生产主线，作为 `/api/sr` 和 G5 confluence
+旁边的独立扩展 prototype。它只读取 PostgreSQL 快照，不在请求路径同步调用 provider，
+并使用当前 `live_analysis` entitlement。计算内容包括：
 
 1. 最近 250 根日线的 50DMA、100DMA、200DMA、ATR14 与日线 Pivot。
 2. 日线聚合后的周 MA4/12/20/40 与周线 Pivot。
@@ -1417,7 +1418,7 @@ PostgreSQL 快照，不在请求路径同步调用 provider，计算内容包括
 Volume Profile 是 30m bar typical-price approximation，不是逐笔成交分布；GEX Wall
 与 OI Wall 不得混用，缺失时不得伪造。
 
-GOOG production-input smoke 得到 spot `346.19`、POC `346.00`、AVWAP `353.42`、
-50/100/200DMA `366.12 / 343.21 / 321.99`。这只验证旧分支计算。上线前仍须与当前
-`/api/sr` 和 `SPEC_CONFLUENCE.md` 的 CF-4/G5 整合，完成当前主线回归，再按 Railway
-API → SPY contract smoke → Vercel UI 的顺序验收。
+现有 `/api/sr` 和已通过 replay 的 G5 模型保持不变；该 prototype 不冒充 G5 model
+version。GOOG production-input smoke 得到 spot `346.19`、POC `346.00`、AVWAP `353.42`、
+50/100/200DMA `366.12 / 343.21 / 321.99`。当前主线回归已通过，仍须按 Railway API
+→ SPY contract smoke → Vercel UI 的顺序完成生产验收。

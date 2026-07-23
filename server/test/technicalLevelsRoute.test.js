@@ -193,3 +193,17 @@ test('API rejects malformed symbols before querying', async () => {
   assert.equal(res.statusCode, 400);
   assert.equal(queries.length, 0);
 });
+
+test('API preserves the missing-data contract for SPY and GOOG', async () => {
+  for (const symbol of ['SPY', 'GOOG']) {
+    queryResults.push({ rows: [] }, { rows: [] });
+    const res = responseRecorder();
+    await sendTechnicalLevels({ params: { symbol } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.symbol, symbol);
+    assert.equal(res.body.status, 'missing');
+    assert.equal(res.body.reason, 'no_daily_price_history');
+    assert.deepEqual(res.body.supports, []);
+    assert.deepEqual(res.body.resistances, []);
+  }
+});

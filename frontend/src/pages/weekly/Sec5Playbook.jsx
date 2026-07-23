@@ -1,57 +1,24 @@
 export default function Sec5Playbook({ data }) {
-  const { scenarios } = data;
-
+  const scenarios = data.scenarios;
+  if (!scenarios) return <div className="az-card"><div className="az-card-title">条件情景暂不可用</div><p>需要可用的 Wall 模型观察位或价格支撑/阻力。</p></div>;
   return (
     <div className="wk-section">
-      <div className="wk-section-subtitle">下周条件剧本（PLAYBOOK）</div>
-      <div className="wk-section-note" style={{ marginBottom: 16 }}>
-        只按关键价位触发，不提前替市场下结论
-      </div>
-
+      <div className="wk-section-subtitle">下周条件情景</div>
       <div className="wk-playbook-grid">
-        {/* Bull scenario */}
-        <div className="wk-play-card wk-play-bull">
-          <div className="wk-play-header">
-            <span className="wk-play-icon">▲</span>
-            <span className="wk-play-title">多头剧本</span>
-          </div>
-          <div className="wk-play-row">
-            <span className="wk-play-label">触发条件</span>
-            <span className="wk-play-val c-green">突破 ${scenarios.upTrigger}</span>
-          </div>
-          <div className="wk-play-row">
-            <span className="wk-play-label">价格目标</span>
-            <span className="wk-play-val c-green">${scenarios.upTarget}</span>
-          </div>
-          <div className="wk-play-divider" />
-          <div className="wk-play-watch-label">观察重点</div>
-          <div className="wk-play-watch">{scenarios.upWatch}</div>
-        </div>
-
-        {/* Bear scenario */}
-        <div className="wk-play-card wk-play-bear">
-          <div className="wk-play-header">
-            <span className="wk-play-icon">▼</span>
-            <span className="wk-play-title">空头剧本</span>
-          </div>
-          <div className="wk-play-row">
-            <span className="wk-play-label">触发条件</span>
-            <span className="wk-play-val c-red">跌破 ${scenarios.downTrigger}</span>
-          </div>
-          <div className="wk-play-row">
-            <span className="wk-play-label">价格目标</span>
-            <span className="wk-play-val c-red">${scenarios.downTarget}</span>
-          </div>
-          <div className="wk-play-divider" />
-          <div className="wk-play-watch-label">观察重点</div>
-          <div className="wk-play-watch">{scenarios.downWatch}</div>
-        </div>
+        {scenarios.up && <div className="wk-play-card wk-play-bull">
+          <div className="wk-play-title">向上条件</div>
+          <div className="wk-play-row"><span>条件</span><strong>日线收盘站上 ${scenarios.up.trigger}</strong></div>
+          <div className="wk-play-row"><span>下一观察位</span><strong>{scenarios.up.target == null ? '--' : `$${scenarios.up.target}`}</strong></div>
+          <div className="wk-play-watch">证据：{scenarios.up.evidence}</div>
+        </div>}
+        {scenarios.down && <div className="wk-play-card wk-play-bear">
+          <div className="wk-play-title">向下条件</div>
+          <div className="wk-play-row"><span>条件</span><strong>日线收盘跌破 ${scenarios.down.trigger}</strong></div>
+          <div className="wk-play-row"><span>下一观察位</span><strong>{scenarios.down.target == null ? '--' : `$${scenarios.down.target}`}</strong></div>
+          <div className="wk-play-watch">证据：{scenarios.down.evidence}</div>
+        </div>}
       </div>
-
-      <div className="wk-play-disclaimer">
-        以上剧本基于当前Gamma墙位置自动生成，价格突破/跌破触发条件后方生效。
-        本分析不构成交易建议，实际操作需结合成交量、Greeks及风险管理。
-      </div>
+      <div className="wk-play-disclaimer">条件来自模型 Wall 观察位或价格 S/R；这些情景仅用于研究观察，不构成交易指令或投资建议。</div>
     </div>
   );
 }

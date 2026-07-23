@@ -1,4 +1,6 @@
 import { useRef, useEffect } from 'react';
+import { getCompanyInfo } from '../../data/companyInfo';
+import { getChartColors } from '../../lib/theme';
 
 function CandleChart({ candles }) {
   const canvasRef = useRef(null);
@@ -13,7 +15,8 @@ function CandleChart({ candles }) {
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+      const theme = getChartColors();
+      ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
       const PAD = { top: 10, right: 8, bottom: 20, left: 8 };
       const cW = W - PAD.left - PAD.right;
@@ -44,7 +47,7 @@ function CandleChart({ candles }) {
         ctx.fillRect(x - bW / 2, top, bW, bodyH);
 
         // Day label
-        ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
         ctx.fillText(c.day, x, H - PAD.bottom + 12);
       });
     };
@@ -57,7 +60,7 @@ function CandleChart({ candles }) {
   return <canvas ref={canvasRef} style={{ display: 'block' }} />;
 }
 
-function CMEGauge({ score }) {
+function WeeklyModelGauge({ score }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -68,7 +71,8 @@ function CMEGauge({ score }) {
     canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-    ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
+    const theme = getChartColors();
+    ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
 
     const cx = W / 2, cy = H - 18, r = 70;
     // Background arc zones
@@ -90,7 +94,7 @@ function CMEGauge({ score }) {
     });
 
     // Tick marks
-    ctx.strokeStyle = '#0c0e18'; ctx.lineWidth = 1;
+    ctx.strokeStyle = theme.bg; ctx.lineWidth = 1;
     [0, 25, 50, 75, 100].forEach(v => {
       const a = Math.PI + (v / 100) * Math.PI;
       ctx.beginPath();
@@ -100,8 +104,8 @@ function CMEGauge({ score }) {
     });
 
     // Labels
-    ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
-    [[0, '恐慌'], [50, '中性'], [100, '贪婪']].forEach(([v, label]) => {
+    ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    [[0, '偏弱'], [50, '中性'], [100, '偏强']].forEach(([v, label]) => {
       const a = Math.PI + (v / 100) * Math.PI;
       const rr = r + 10;
       ctx.fillText(label, cx + rr * Math.cos(a), cy + rr * Math.sin(a) + 3);
@@ -114,32 +118,43 @@ function CMEGauge({ score }) {
     ctx.lineTo(cx + (r - 6) * Math.cos(needleA), cy + (r - 6) * Math.sin(needleA));
     ctx.lineTo(cx + 8 * Math.cos(needleA - Math.PI / 2), cy + 8 * Math.sin(needleA - Math.PI / 2));
     ctx.closePath();
-    ctx.fillStyle = '#e2e8f0'; ctx.fill();
+    ctx.fillStyle = theme.text; ctx.fill();
 
     // Center hub
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2);
     ctx.fillStyle = '#94a3b8'; ctx.fill();
 
     // Score text
-    ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = theme.text; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
     ctx.fillText(score, cx, cy - r / 2 - 4);
-    ctx.fillStyle = '#3a4464'; ctx.font = '9px monospace';
-    ctx.fillText('情绪指数', cx, cy - r / 2 + 10);
+    ctx.fillStyle = theme.axis; ctx.font = '9px monospace';
+    ctx.fillText('周度模型分数', cx, cy - r / 2 + 10);
   }, [score]);
   return <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />;
 }
 
 export default function Sec1Tone({ data }) {
-  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, cmeScore, candles, symbol } = data;
+  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, modelScore, candles, symbol, priceMeta } = data;
   const bull = weekChange >= 0;
+  const co = getCompanyInfo(symbol);
+  const priceStale = Boolean(priceMeta?.isStale || priceMeta?.freshness === 'stale');
 
   return (
     <div className="wk-section">
       {/* Header row */}
       <div className="wk-tone-header">
-        <div>
-          <div className="wk-sym">{symbol}</div>
-          <div className="wk-week">{week}</div>
+        <div className="wk-company-header">
+          {co && <img className="wk-company-logo" src={co.logo} alt={co.en} onError={e => { e.target.style.display = 'none'; }} />}
+          <div>
+            <div className="wk-sym">{symbol}{co && <span className="wk-company-zh"> {co.zh}</span>}</div>
+            {co && <div className="wk-company-tagline">{co.tagline}</div>}
+            <div className="wk-week">{week}</div>
+            <div className={`wk-price-source ${priceMeta ? (priceStale ? 'stale' : 'fresh') : 'missing'}`}>
+              {priceMeta
+                ? `价格历史${priceStale ? '已延迟' : '可用'} · 数据截至 ${priceMeta.latestDate}`
+                : '周度价格数据暂不可用'}
+            </div>
+          </div>
         </div>
         <div className="wk-price-block">
           <div className="wk-close">${weekClose}</div>
@@ -161,11 +176,12 @@ export default function Sec1Tone({ data }) {
           <CandleChart candles={candles} />
         </div>
         <div className="az-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>CME 情绪仪表盘</div>
-          <CMEGauge score={cmeScore} />
+          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>标的周度模型状态</div>
+          <WeeklyModelGauge score={modelScore} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            {cmeScore < 30 ? '极度恐慌' : cmeScore < 50 ? '偏空情绪' : cmeScore < 70 ? '中性偏多' : '情绪偏热'}
+            {modelScore < 30 ? '偏弱' : modelScore < 50 ? '中性偏弱' : modelScore < 70 ? '中性偏强' : '偏强'}
           </div>
+          <div className="az-data-note">由周涨跌幅与 Gamma 状态按固定规则合成，不是恐慌贪婪指数。</div>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo } from 'react';
 import useStrategyStore from '../store/useStrategyStore';
 import { bsPrice, bsGreeks } from '../lib/blackscholes';
+import { getChartColors } from '../lib/theme';
 
 const GREEK_COLORS = ['#10d984', '#3b82f6', '#f5a623', '#9b6ef3'];
 
@@ -31,6 +32,7 @@ function drawGreekChart(canvas, data) {
   canvas.height = H * dpr;
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
+  const theme = getChartColors();
 
   const PAD = { top: 6, right: 6, bottom: 16, left: 34 };
   const cW = W - PAD.left - PAD.right;
@@ -47,11 +49,11 @@ function drawGreekChart(canvas, data) {
   const yMap = (v) => PAD.top + (1 - (v - yLo) / (yHi - yLo)) * cH;
 
   // BG
-  ctx.fillStyle = '#13161c';
+  ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, W, H);
 
   // Grid
-  ctx.strokeStyle = '#1e2230';
+  ctx.strokeStyle = theme.grid;
   ctx.lineWidth = 1;
   [0.25, 0.5, 0.75].forEach((t) => {
     const y = PAD.top + t * cH;
@@ -59,7 +61,7 @@ function drawGreekChart(canvas, data) {
   });
 
   // Y axis labels
-  ctx.fillStyle = '#555e73';
+  ctx.fillStyle = theme.axis;
   ctx.font = `9px -apple-system, sans-serif`;
   ctx.textAlign = 'right';
   [yLo, (yLo + yHi) / 2, yHi].forEach((v) => {
@@ -71,20 +73,20 @@ function drawGreekChart(canvas, data) {
   // X axis labels
   ctx.textAlign = 'center';
   [minS, spot, maxS].forEach((s) => {
-    ctx.fillStyle = '#555e73';
+    ctx.fillStyle = theme.axis;
     ctx.fillText(s.toFixed(0), xMap(s), H - PAD.bottom + 11);
   });
 
   // Zero line
   if (yLo < 0 && yHi > 0) {
-    ctx.strokeStyle = '#2e3545';
+    ctx.strokeStyle = theme.gridSoft;
     ctx.lineWidth = 1.5;
     const y0 = yMap(0);
     ctx.beginPath(); ctx.moveTo(PAD.left, y0); ctx.lineTo(W - PAD.right, y0); ctx.stroke();
   }
 
   // Spot line
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.strokeStyle = theme.gridSoft;
   ctx.lineWidth = 1;
   ctx.setLineDash([3, 3]);
   const xs = xMap(spot);
@@ -111,10 +113,10 @@ function drawGreekChart(canvas, data) {
 
 const GREEKS_CONFIG = [
   { key: 'price', label: 'Risk', desc: '价格风险曲线：随标的价格变化的持仓价值（含时间价值）。' },
-  { key: 'theta', label: 'Theta', desc: '时间衰减：每日时间价值损耗。负值为买方，正值为卖方。' },
+  { key: 'theta', label: 'Theta', desc: '在其他输入不变的模型假设下，时间减少一天时组合理论价值的近似变化。' },
   { key: 'delta', label: 'Delta', desc: '方向敏感性：正股上涨 1 美元时的盈亏变化量。' },
   { key: 'vega',  label: 'Vega',  desc: 'IV 敏感性：隐含波动率变化 1% 时的盈亏变化。' },
-  { key: 'gamma', label: 'Gamma', desc: 'Delta 变化速率：正 Gamma 有利于大幅移动，负 Gamma 相反。' },
+  { key: 'gamma', label: 'Gamma', desc: 'Delta 的变化率；盈亏影响需与 Theta、波动路径、交易成本和持仓管理一起评估。' },
   { key: 'rho',   label: 'Rho',   desc: '利率敏感性：利率变化 1% 时的盈亏变化（通常影响较小）。' },
 ];
 
