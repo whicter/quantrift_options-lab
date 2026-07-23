@@ -14,21 +14,28 @@ Target: self-use + subscribers. Bilingual (English strategy names, Chinese descr
 
 ## Key Directories
 ```
-README.md                  ← Project entrypoint
-docs/                      ← Source of truth for long-form project docs
+docs/                      ← Source of truth docs
 frontend/src/              ← React app
 server/src/                ← Express API
 collector/                 ← Python collectors, GEX compute, refresh worker
 ```
 
+## Documentation Completion Rule
+- Every completed task must update every affected source-of-truth document before it is reported complete: at minimum `docs/task.md`, plus the relevant sections of `docs/ARCHITECTURE.md`, `docs/wiki.md`, `docs/learning.md`, and a reproducible record under `docs/validation/` when runtime or data behavior changed.
+- The task checkbox may be marked complete only after implementation, appropriate tests/runtime evidence, documentation updates, an intentional commit, and push. Disclose genuine external/data-source exceptions rather than marking them as complete.
+
 ## Current Architecture
 - See `docs/ARCHITECTURE.md` first.
 - Phase 3C is complete: API reads PostgreSQL snapshots/cache; user requests do not synchronously call IB, TT, or any provider.
 - `/api/scan` reads `scanner_results_snapshots`, produced by `collector/materialize_scan.py`.
+- Analyze has no production mock seed or fallback. A displayed price, IV field, GEX, Wall, conclusion, or strategy leg must come from its real response; otherwise it remains unavailable.
+- Scanner SQL joins several snapshot products. Every duplicate column name in its final select/CASE expressions must be qualified to its owning CTE (for example `latest_rows.source` and `latest_rows.snapshot_ts`).
 - Refresh requests enqueue `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes queued jobs.
-- `/api/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
+- `/api/admin/status/cache` monitors backlog, failures, scanner staleness, empty snapshots and provider budget.
 - Scanner user output is an actionable candidate, not snapshot inventory: use actual same-expiry contracts, executable-side pricing and explicit risk; never display a DTE range or fixed POP as a recommendation.
 - Scanner `不限` means all qualifying setups across supported strategies, not one inferred strategy per symbol. Multiple rows per symbol are expected.
+- Scanner candidate enumeration, score and economics run only in `server/src/domain/scanner/candidateEngine.cjs`. Normal `/api/scan` responses contain candidate DTOs, never complete `option_contracts`; do not reintroduce frontend chain traversal.
+- Production Vite builds must keep `build.sourcemap=false`; verify the generated `frontend/dist` contains no `.map` files.
 - Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` serves confirmed/baseline OI delta state.
 - Public options data still requires a licensed provider adapter; `ib_internal` and `tt_internal` are internal/transitional only.
@@ -84,7 +91,8 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Universe reference metadata comes from Polygon ticker reference data via `collect_universe_metadata.py`; sector/category is SIC-derived and nullable, and `optionable` is true only from persisted usable option snapshots.
 - Recent non-retryable field failures must be returned as blockers and must not be re-enqueued on every page request.
 - Analyze derived endpoints are `/api/sr/:symbol` and `/api/chain/stats/:symbol`; missing real price/contract inputs must stay missing. Never generate example price paths or synthetic recommendation legs.
-- Analyze Technical Confluence is implemented at `/api/technical-levels/:symbol`; it combines real Volume Profile, Anchored VWAP, DMA, daily/weekly structure, GEX and OI evidence. Code completion is not production deployment: preserve the Railway-then-Vercel acceptance gates in `docs/task.md`.
+- Analyze Technical Confluence exists in legacy feature commit `da298f4` at `/api/technical-levels/:symbol`; before production use it must be reconciled with current `/api/sr` and CF-4/G5. Keep GEX Wall and OI Wall distinct, preserve component-level missing states, and retain the Railway-then-Vercel acceptance gates in `docs/task.md`.
+- `frontend/src/data/mockAnalysis.js` was removed on 2026-07-16 after it leaked sample prices and Walls into production Analyze. Do not recreate it or import equivalent sample data into production routes.
 - `volatility_history` owns Polygon-derived HV and ATM IV. IV Rank remains fail-closed until 252 market-day observations; APIs expose per-field provenance and retain the Tastytrade cold-start rank until ready.
 - Scanner positioning and quote snapshots are separate: select the newest usable real bid/ask snapshot for candidate legs and expose its source/time/freshness. Advanced naked-risk structures require explicit UI opt-in.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.

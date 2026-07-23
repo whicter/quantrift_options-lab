@@ -28,6 +28,7 @@
 - **Bash 直接跑**，不问确认（.claude/settings.json 已配 `Bash(*)`）
 - **参数改动必须先问用户确认**，不能自己决定
 - **不能输出模棱两可的猜测**，只说能从代码/日志中证明的事实
+- **任务完成即更新文档**：不等待提醒。更新 `docs/task.md` 与所有受影响的 `ARCHITECTURE.md`、`wiki.md`、`learning.md`；运行或数据行为变更还必须新增/更新 `docs/validation/` 的可复现记录。完成标准含验证、文档、commit、push。
 
 ## 技术栈
 - **Frontend**: React 19 + Vite，部署 Vercel，根目录 `frontend/`
@@ -39,22 +40,26 @@
 - `docs/ARCHITECTURE.md` 是架构主文档。
 - Phase 3C 已完成：snapshot cache、freshness contract、scanner materialization、refresh queue、worker、provider budget、cache monitoring。
 - `/api/scan` 只读 `scanner_results_snapshots`，不在用户请求时全 watchlist 重算。
+- 2026-07-16 V3A immediate core complete: `/api/scan` builds final candidates in `server/src/domain/scanner/candidateEngine.cjs`, removes raw `option_contracts` before responding, and `frontend/src/lib/scanOpportunity.js` is deleted. Frontend sends filters/strategy choice and renders `concrete_setup` DTO only. Server tests 82/82, frontend tests 36/36, Vite build passed with no source maps.
 - `collector/materialize_scan.py` 生成 scanner cache。
 - `collector/materialize_oi_delta.py` 生成 OI delta / unusual activity cache。
 - `collector/run_refresh_worker.py` 消费 `provider_fetch_jobs`。
-- `/api/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget。
+- `/api/admin/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget；需要 `ADMIN_API_TOKEN`。
 - PM2 app `quantrift-options-collector` 每 300 秒 bounded enqueue 最多 2 个 missing/stale option symbols、每 60 秒处理 queue、每 300 秒 materialize scanner；`quantrift-options-prices` 工作日 13:35 PT 跑 OHLCV。
 - IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
-- `IB_MARKET_DATA_TYPE=3` 接受延迟行情。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
+- 2026-07-16 real-data integrity repair is deployed: `mockAnalysis.js` was deleted and Analyze uses a null-initialized real-data model only. Railway scanner SQL now qualifies `latest_rows.source` and `latest_rows.snapshot_ts`; production `/api/scan` returned HTTP 200, while `/analyze?symbol=NFLX` rendered actual `$73.68`, Polygon GEX and $75/$73 Walls.
+- PM2 collector 当前使用 `IB_MARKET_DATA_TYPE=1` 请求实时行情。常规交易时，缺报价的 Polygon option-chain job 必须回退 `ib_internal`；休市时保留真实结构字段但不将无 bid/ask 的快照当作可执行报价。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
 - Analyze 已接入真实 S/R、Focus Score、VRP、Gamma Flip、Local Gamma、IV skew 与 term structure。旧 target fallback 推荐腿已移除；没有 actual contract candidate 时不显示策略腿。
-- Analyze Technical Confluence 代码已提交（`da298f4`）：`/api/technical-levels/:symbol` 合并 Volume Profile、Anchored VWAP、DMA、日/周结构、GEX 与 OI evidence。Railway/Vercel 尚未完成生产验收，不能把 GOOG production-input smoke 记成已部署。
+- Analyze Technical Confluence 已在旧基线 commit `da298f4` 实现：`/api/technical-levels/:symbol` 合并 Volume Profile、Anchored VWAP、DMA、日/周结构、GEX 与 OI evidence。它仍须先与当前 `/api/sr`、CF-4/G5 整合，再进行 Railway/Vercel 生产验收；GOOG production-input smoke 不代表已部署。
 - Production option collection uses `polygon_licensed`; `ib_internal` / `tt_internal` remain fallback/research adapters. API 与前端只读取 PostgreSQL snapshot。
 - Provider credentials只允许存在于 `collector/.env` 或部署 secret store，不得写入 PM2 config、文档、测试或 Git。
 
 ## 关键文件
 - `server/src/migrate.js` — 建表脚本，Railway 上跑一次
 - `server/src/routes/scan.js` — scanner cache API，只读 `scanner_results_snapshots`
-- `server/src/routes/status.js` — `/api/status/data`, `/api/status/options`, `/api/status/cache`
+- `server/src/routes/status.js` — 公开的 `/api/status/data` 产品安全摘要
+- `server/src/routes/adminStatus.js` — `/api/admin/status/{data,options,cache}` 运维明细，需 `ADMIN_API_TOKEN`
+- `server/src/domain/status/statusReports.js` — 两侧共用的 builder；`toPublicDataStatus()` 是降级给未认证客户端的唯一通道
 - `collector/auth.py` — Tastytrade 认证，`--login` 手动登录；仅在成功 session exchange 返回 successor 时原子持久化 remember-token
 - `collector/collect.py` — 每日 4:30pm ET 采集 IV → PostgreSQL
 - `collector/collect_options.py` — bounded option-chain snapshots

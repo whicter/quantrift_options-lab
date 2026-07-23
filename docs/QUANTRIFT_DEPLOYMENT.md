@@ -1,11 +1,11 @@
 # Quantrift Options Lab 部署说明
 
-> 项目仓库：`whicter/quantrift_options-lab`
-> 生产分支：`master`
-> 正式站点：`https://www.quantrift.io`
-> 前端：Vercel
-> API：Railway
-> 数据库：Railway PostgreSQL
+> 项目仓库：`whicter/quantrift_options-lab`  
+> 生产分支：`master`  
+> 正式站点：`https://www.quantrift.io`  
+> 前端：Vercel  
+> API：Railway  
+> 数据库：Railway PostgreSQL  
 > 数据采集器：Python collector（当前可由 Mac Studio 运行）
 
 ---
@@ -66,6 +66,12 @@ Python collector
 ```
 
 ### 2.1 生产验收记录
+
+#### 2026-07-16 — Real-data integrity repair
+
+- Railway scanner had returned HTTP 500 because its final SQL joined `latest_rows` and `latest_community_batch` but left `source`, then `snapshot_ts`, unqualified. Both fields now explicitly read from `latest_rows`; freshness CASE expressions use the same owner.
+- Vercel Analyze had retained `mockAnalysis` as a base object before overlaying API responses. The file and all production imports were removed; the page now starts with null fields and only real price/metrics/GEX responses populate it.
+- Verification after deployment: Railway `GET /api/scan?minIvr=40&maxIvr=100&limit=5` returned HTTP 200 with real scanner rows. Vercel `GET /analyze?symbol=NFLX` rendered `$73.68`, `polygon_licensed` price/GEX, Call Wall `$75`, and Put Wall `$73`; `/scan` rendered 1,700 real quoted candidates.
 
 最近一次验收：2026-07-14
 
@@ -301,6 +307,13 @@ NODE_ENV=production
 | `DATABASE_URL` | 连接同一 Railway 项目中的 PostgreSQL |
 | `NODE_ENV` | 启用生产行为及当前数据库 SSL 分支 |
 | `PORT` | Railway 自动注入，不建议硬编码 |
+| `ADMIN_API_TOKEN` | 保护 `/api/admin/status/*` 与 `GET /api/heartbeat/status`；未设置时这些路由返回 503 而不是放行 |
+
+`ADMIN_API_TOKEN` 与 `HEARTBEAT_TOKEN` 是两个独立密钥，不要复用同一个值：前者给运维人员读取状态，后者给 Mac Studio collector 上报心跳。生成方式：
+
+```bash
+openssl rand -hex 32
+```
 
 注意：
 
@@ -977,6 +990,56 @@ GET /api/scan
 
 CORS 只限制浏览器，不阻止服务器、脚本或 curl 调用 API，因此不能把 CORS 当作认证机制。
 
+### 13.1 安全响应头（2026-07-17）
+
+前端由 `frontend/vercel.json` 的 `headers` 块下发；API 由 `server/src/lib/securityHeaders.js` 中间件下发。
+
+| Header | 前端（Vercel） | API（Railway） |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'self'`，允许 `logo.clearbit.com` 图片与 Railway API 的 `connect-src`；`frame-ancestors 'none'`、`object-src 'none'` | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'`——API 只出 JSON，不加载任何资源 |
+| `X-Content-Type-Options` | `nosniff` | `nosniff` |
+| `X-Frame-Options` | `DENY` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | `no-referrer` |
+| `Permissions-Policy` | 关闭 camera/microphone/geolocation/payment/usb 等 | — |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | 同左，仅 `NODE_ENV=production` |
+| `Cross-Origin-Resource-Policy` | — | `same-site` |
+
+`X-Powered-By` 已通过 `app.disable('x-powered-by')` 与中间件双重移除。
+
+验证：
+
+```bash
+curl -sD - -o /dev/null https://www.quantrift.io/ | grep -iE "content-security|x-frame|referrer|permissions|strict-transport"
+curl -sD - -o /dev/null "$API_BASE/health" | grep -iE "content-security|x-content-type|x-powered"
+```
+
+**CSP 尚未包含 Clerk（重要）**：当前 `VITE_CLERK_PUBLISHABLE_KEY` 未配置，`ClerkProvider` 不挂载，因此现有 CSP 与实际运行的应用一致并已验证。注入 Clerk key 时**必须同时**按真实 Clerk 实例域名扩展 `script-src`、`connect-src`、`img-src`、`worker-src` 和 `frame-src`，否则登录会被 CSP 静默阻断，且浏览器控制台之外没有任何提示。Stripe 目前是 hosted checkout 重定向，不加载前端脚本；若改用 Stripe.js 需同时扩展 `script-src` 与 `frame-src`。
+
+### 13.2 CI 门禁（2026-07-17）
+
+`.github/workflows/ci.yml` 在 push 到 master 和所有 PR 上运行四个 job：
+
+| Job | 内容 |
+|---|---|
+| `server` | `npm ci` + `npm test` |
+| `frontend` | `npm ci` + lint（`--max-warnings=0`）+ test + build + `check:dist` |
+| `collector` | Python 3.11 + `pip install -r requirements.txt` + `unittest discover`；`TT_LOGIN`/`DATABASE_URL` 置空，确保测试不读 `.env`、不触达 provider |
+| `secrets` | `scripts/scan-secrets.sh` |
+
+`frontend/scripts/check-dist.mjs` 校验的是 **artifact 本身**而不是配置：`vite.config.js` 已设 `build.sourcemap=false`，但门禁不信任该设置，直接扫描 `dist/` 是否含 `.map`、内联 `sourceMappingURL=data:` 或 provider secret pattern。
+
+`scripts/scan-secrets.sh` 把 `docs/` 保留在扫描范围内——Polygon key 恰恰是通过文档进入 Git 历史的——并以占位符过滤（`:PASSWORD@`、`YOUR_*`、`${...}`、`<...>`）代替排除文件。`*.example` 与 `VITE_` 前缀值按设计不在范围内。
+
+两个门禁都做过反向验证：注入伪造 source map、伪造 Polygon key、真实 DB URL、Stripe live key 与 admin token 后均正确失败；干净仓库与占位符正确通过。
+
+### 13.3 公开状态与运维状态的分级（2026-07-17）
+
+`/api/status/data` 是唯一公开的状态端点，只返回产品自身要渲染的 symbol 注册表和整体 ok/degraded。运维明细走 `/api/admin/status/{data,options,cache}` 和 `GET /api/heartbeat/status`，需要 `ADMIN_API_TOKEN`。
+
+未认证客户端不会再看到：内部 provider 名（`polygon_licensed` / `ib_internal` / `tt_internal`）、逐 symbol 数据来源、缺失/stale 覆盖明细、watchlist 之外的 extra symbols、job 失败详情和 provider budget 用量。
+
+`requireAdminToken` 的失败模式是**关闭而不是放行**：`ADMIN_API_TOKEN` 未配置时返回 503。这样漏配密钥只会让运维端点不可用，不会静默把明细暴露到公网。token 比较使用 `crypto.timingSafeEqual`，接受 `Authorization: Bearer` 或 `X-Admin-Token`。
+
 ---
 
 ## 14. 常见故障排查
@@ -1253,7 +1316,7 @@ Railway API enqueue
   → provider_fetch_jobs
   → collector/run_refresh_worker.py
   → provider_request_usage
-  → /api/status/cache
+  → /api/admin/status/cache
 ```
 
 Endpoint 行为：
@@ -1328,10 +1391,10 @@ IB option ingestion defaults to `IB_MARKET_DATA_TYPE=3`. Contract discovery must
 Monitoring endpoint:
 
 ```bash
-curl -f "$API_BASE/api/status/cache"
+curl -f -H "Authorization: Bearer $ADMIN_API_TOKEN" "$API_BASE/api/admin/status/cache"
 ```
 
-`/api/status/cache` reports provider job failures, queue backlog, scanner cache age, empty/metadata-only option snapshots and provider budget usage.
+`/api/admin/status/cache` reports provider job failures, queue backlog, scanner cache age, empty/metadata-only option snapshots and provider budget usage. It requires `ADMIN_API_TOKEN`; without that variable the route returns 503 rather than serving operational detail unauthenticated.
 
 Suggested TTLs:
 
@@ -1363,9 +1426,9 @@ Acceptance must establish 67-symbol HV/ATM coverage, ATM DTE 30–45, source pro
 ## Scanner Quote Fallback Operations
 
 - Configure `SCANNER_QUOTE_STALE_MINUTES=1440` for the current delayed quote transition. Lower it when quote collection cadence improves.
-- `/api/scan` must return `quote_source`, `quote_snapshot_ts`, and `quote_freshness` beside `option_contracts`.
+- `/api/scan` must return `quote_source`, `quote_snapshot_ts`, and `quote_freshness` beside the final `concrete_setup` candidate DTO; raw `option_contracts` remain internal.
 - Acceptance distinguishes latest positioning coverage from latest usable bid/ask coverage. A successful GEX snapshot is not evidence of candidate-pricing readiness.
-- Runtime smoke command：start the API against Railway, request `/api/scan?minIvr=0&maxIvr=100&limit=2`, and verify `quoted_contract_count > 0`, non-empty `option_contracts`, New York DTE, and quote provenance.
+- Runtime smoke command：start the API against Railway, request `/api/scan?minIvr=0&maxIvr=100&limit=2`, and verify `quoted_contract_count > 0`, non-empty `concrete_setup`, New York DTE, quote provenance, and absence of `option_contracts`.
 - Rollback is the scanner section commit; no migration is required.
 
 ## Universe and On-Demand Operations
@@ -1457,7 +1520,7 @@ WHERE iv_rank_ready = TRUE;
 
 ## Railway Metrics Cron
 
-The separate Railway service is `quantrift-metrics-cron`. Its config file path is `/collector/railway.metrics.json`; that file selects `collector/Dockerfile.metrics`, runs `python collect.py`, schedules `30 22 * * 1-5` UTC and never restarts a completed run. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
+The separate Railway service is `quantrift-metrics-cron`. Its config file path is `/collector/railway.metrics.json`; it selects `collector/Dockerfile.metrics`, runs `python run_railway_refresh_cycle.py`, schedules `*/5 * * * 1-5` UTC and never restarts a completed run. Each execution schedules bounded watchlist refresh work, consumes API/on-demand jobs, then materializes scanner rows. Railway requires cron jobs to exit and evaluates schedules in UTC ([Railway cron documentation](https://docs.railway.com/cron-jobs)).
 
 The Railway build context remains the repository root even when the config file is inside `collector/`. Therefore the Dockerfile path and `COPY` sources must be repo-root-relative: config uses `collector/Dockerfile.metrics`, and the Dockerfile copies `collector/requirements.txt` and `collector/`. Do not rely on the config path to change build context.
 
@@ -1465,17 +1528,12 @@ Required variables:
 
 ```text
 DATABASE_URL=<Railway PostgreSQL reference variable>
-TT_LOGIN=<tastytrade login>
-TT_REMEMBER_TOKEN=<current token>
-TT_BASE_URL=https://api.tastyworks.com
-TT_USER_AGENT=quantrift-options-lab/0.1
+POLYGON_API_KEY=<Polygon/Massive secret>
 ```
 
-Do not copy `collector/.env` into the service. The repository migration ran successfully on 2026-07-16 and read-only verification confirmed `provider_auth_state` exists. Railway must include both `TT_LOGIN` and `TT_REMEMBER_TOKEN`; an absent login fails before the collector makes an HTTP request. A local `python auth.py --login` writes a seed only to the PostgreSQL instance named by that local process's `DATABASE_URL`; it is shared with Railway only when the service is bound to that exact same database. Otherwise Railway bootstraps its own empty row from its `TT_REMEMBER_TOKEN`, then, under a transaction advisory lock, writes back the provider-supplied successor before it exits. No Railway Volume and no successor-variable update are needed. A literal quoted Railway value is normalized before an empty-row bootstrap. Once a database row exists, 401/403 ends the run after one exchange; it does not try a second environment seed, password login, or transient retry. `COLLECTOR_RUNTIME=railway-metrics-cron` and a non-secret token fingerprint appear in the execution log. The 2026-07-16 post-deploy run showed that removing historical quotes did not make the stored state valid; do not issue another run until the shared row is seeded from a verified existing login. Verify that a later successful execution's `iv_history` date/source rows and `provider_auth_state.updated_at` before marking the cloud collector live or retiring the old Mac cron.
+Do not copy `collector/.env` into the service. `POLYGON_API_KEY` must be a service-scoped Railway secret and must be present before any manual `Run now` or scheduled execution. It is the primary provider for the cloud option-chain refresh. `TT_*` variables are not a production requirement for this path: `TT_METRICS_ENABLED=false`, and TT is only a bounded fallback when Polygon cannot return usable quotes.
 
-The verified login/seed step was completed on 2026-07-16, but the subsequent Railway execution returned `403 device_challenge_required` for the matching fingerprint. This is TT device trust for the Railway runner. Keep scheduled TT collection on the authenticated Mac Studio, which writes directly to the same PostgreSQL, and do not run the Railway cron again until an operator intentionally completes the provider device challenge for Railway.
-
-The Railway Docker image now sets `TT_METRICS_ENABLED=false`; its cron exits safely before loading symbols, reading credentials, or sending TT traffic. The active schedule is the Mac Studio crontab at `13:30 PT` on weekdays. On 2026-07-16, that collector wrote 67 rows with zero errors and production `/api/metrics` returned current fresh values with `iv_rank_source=tastytrade` for AAPL, PLTR and TSLA.
+Production acceptance, 2026-07-17: after adding the Railway `POLYGON_API_KEY` and deploying the variable change, a manually triggered cron execution completed two `option_chain_snapshot` jobs successfully, materialized 4,826 OI-delta rows, and materialized 80 scanner rows. The earlier execution without this secret immediately failed provider construction and fell back into the Railway Tastytrade device challenge. Treat the log line `POLYGON_API_KEY is required for PolygonOptionChainProvider` as a configuration failure: deploy the secret first, then rerun the cron; do not diagnose it as an option-data or TT-token failure.
 
 Repository verification: `cd collector && ./venv311/bin/python -m unittest discover -s tests -v` passed 111 tests; `docker build -f collector/Dockerfile.metrics -t quantrift-metrics-cron:test .` passed. A read-only Railway DB check at the failed-run point found 76 `iv_history` rows across 76 symbols, all dated 2026-07-14; the failed run made no new rows.
 
@@ -1534,6 +1592,21 @@ Only after signed-in scanner/Analyze/alerts/portfolio requests all carry Clerk b
 ## Frontend Verification Baseline
 
 Before deployment, run `cd frontend && npm run lint && npm test && npm run build`. On 2026-07-15 this completed with ESLint 0 errors/0 warnings, 21/21 tests and a successful Vite build. The only remaining build output is the non-failing main-chunk size warning. Rollback is the frontend verification commit; no schema, secret or collector change is involved.
+
+## V3A Immediate Core Deployment (2026-07-16)
+
+Deploy Railway API and Vercel frontend together from commit `9fd90e9`. This is an API-contract change: `/api/scan` now returns final candidate rows with `concrete_setup`; it no longer returns the full `option_contracts` array. No migration, collector restart or secret change is required.
+
+Verification:
+
+```bash
+cd server && npm test
+cd ../frontend && npm test && npm run build
+test -z "$(find dist -type f -name '*.map' -print -quit)"
+curl -fsS "https://quantriftoptions-lab-production.up.railway.app/api/scan?minIvr=40&maxIvr=100&limit=5"
+```
+
+Confirm the production response has candidate rows with `concrete_setup` and no `option_contracts` property. Rollback is reverting `9fd90e9` in both deployments; this commit has no schema or collector state to reverse.
 
 ## OI Density Rollout
 
@@ -1600,16 +1673,36 @@ Code evidence: collector 95 tests, server 62 tests, frontend 25 tests, full ESLi
 No migration or collector restart is required. Deploy the Node API and frontend, then call `/api/sr/AAPL`. Verify `momentum.weights` is `30m=0.3`, `1d=0.4`, `1w=0.3`, all three component scores are present, and the latest daily/intraday New York market dates agree before treating status as ready.
 
 2026-07-15 Railway read-only replay used 250 AAPL daily rows and 200 regular-session 30M rows. It returned composite 84 (`30M=50`, `1D=100`, `1W=95`) and correctly marked stale because daily was 2026-07-15 while intraday was 2026-07-14. Collector 95, server 65, frontend 25, full ESLint and production build pass. Rollback is the composite-momentum commit; `/api/sr` additions are backward compatible and have no schema changes.
-## Analyze Technical Support Confluence 部署
 
-代码 commit：`da298f4`。生产上线必须按顺序执行：
+## Quote Refresh Acceptance (2026-07-17)
 
-1. Railway 部署包含 `server/src/routes/technicalLevels.js` 与 `/api/technical-levels` 路由挂载的版本。
-2. 验证 `GET /api/technical-levels/SPY` 返回 `ready` 或可解释的 `missing`，不得为 404/500。
-3. 检查 response 中 Volume Profile、Anchored VWAP、DMA、weekly structure 和 evidence zones。
-4. 检查 GEX Wall 与最大 OI Wall 独立；任一缺失时只标记对应 component missing。
-5. Vercel 部署包含 `TechnicalLevelsPanel` 的版本。
-6. 验证 `/analyze?symbol=SPY` 同时显示真实 Technical Levels 与旧版 SPY 4-Tab。
-7. 把 Railway/Vercel deployment ID、验收时间和结果写回 `docs/task.md`。
+The Railway refresh cron must provide `DATABASE_URL`; if it is expected to call Polygon directly it must also provide `POLYGON_API_KEY`. Absence of that key is recoverable for an option job when a configured local fallback can run, but it is visible in worker logs and must not be mistaken for “the symbol has no options.” The cloud cron uses Polygon as its primary refresh provider and does not authenticate TT.
 
-GOOG 的 2026-07-22 smoke 使用生产数据输入验证了本地计算，但不代表路由或面板已经部署。
+Acceptance command and result:
+
+```bash
+curl -fsS https://quantriftoptions-lab-production.up.railway.app/api/analyze/RKLB
+curl -fsS https://quantriftoptions-lab-production.up.railway.app/api/analyze/RKLB/candidate
+```
+
+On 2026-07-17, the first response reported all five coverage fields including `option_quotes=true`; the second returned a server-generated Diagonal Spread with real bid/ask legs and its persisted snapshot timestamp. A failed chain without valid bid/ask must remain unavailable, never receive fabricated quotes. Rollback is the corresponding collector/API commit; persisted snapshots remain additive and can be superseded by a later real refresh.
+
+## Analyze Technical Support Confluence Deployment
+
+The implementation in legacy feature commit `da298f4` is not directly deployable because its
+parent (`352a23d`) predates the current `/api/sr` and CF-4/G5 work. First replay or merge the
+feature onto current `origin/master`, resolve overlapping responsibilities, and run the complete
+current-main server, collector and frontend test suites.
+
+After integration passes, production acceptance must run in this order:
+
+1. Deploy the Railway API containing the agreed technical-level contract.
+2. Verify `GET /api/technical-levels/SPY` returns `ready` or an explainable `missing`, not 404/500.
+3. Confirm Volume Profile, Anchored VWAP, DMA, weekly structure and evidence zones use persisted data.
+4. Confirm GEX Wall and maximum OI Wall remain independent and fail closed by component.
+5. Deploy the Vercel panel.
+6. Verify `/analyze?symbol=SPY` shows the real technical structure without restoring mock data.
+7. Record Railway/Vercel deployment IDs, acceptance time and results in `task.md`.
+
+The GOOG production-input smoke validated the legacy-branch calculation only; it is not production
+deployment evidence.

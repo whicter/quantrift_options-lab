@@ -25,17 +25,7 @@ quantrift_options-lab/
   frontend/     ← React 19 + Vite (Vercel)
   server/       ← Node.js API (Railway)
   collector/    ← Python data collectors (Mac Studio PM2, direct repository runtime)
-  docs/         ← Canonical architecture, deployment, wiki, learning and task docs
 ```
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Deployment](docs/QUANTRIFT_DEPLOYMENT.md)
-- [Wiki](docs/wiki.md)
-- [Task tracker](docs/task.md)
-- [Learning notes](docs/learning.md)
-- [Project memory](docs/MEMORY.md)
 
 ## Run Locally
 
@@ -53,7 +43,7 @@ Open http://localhost:5173
 |---|---|
 | `/` | Quantrift 产品入口：live Market Regime + Scan/Analyze/Weekly workflow |
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
-| `/analyze` | V2 标的分析：真实价格趋势、S/R、Focus Score、GEX、VRP、IV skew 与期限结构 |
+| `/analyze` | V2 标的分析：真实价格趋势、S/R、Volume Profile、OBV、MFI、Focus Score、GEX、VRP、IV skew 与期限结构 |
 | `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
 
 ## Features (V1 — /learn)
@@ -71,13 +61,13 @@ Open http://localhost:5173
 - IV analysis: IV Rank, IV30 vs HV30, term structure
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
-- Scanner: filter by opportunity/preset, then enumerate 13 actual-contract structures; Calendar/Diagonal support cross-expiry legs and advanced naked-risk structures require explicit opt-in
+- Scanner: browser submits opportunity/preset filters; the backend enumerates and scores 13 actual-contract structures, then returns final candidate DTOs only. Calendar/Diagonal support cross-expiry legs and advanced naked-risk structures require explicit opt-in
 - Data coverage status API: `/api/status/data`
 - Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 - Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
-- Analyze Technical Confluence expansion: `/api/technical-levels/:symbol` combines Volume Profile, Anchored VWAP, 50/100/200DMA, daily/weekly structure, GEX and OI Walls into explainable S/R zones
-- Analyze never creates example price history or synthetic option legs when real inputs are missing
+- Analyze Technical Confluence prototype: legacy commit `da298f4` adds `/api/technical-levels/:symbol` for Volume Profile, Anchored VWAP, 50/100/200DMA, daily/weekly structure, GEX and OI evidence; current-main integration and production acceptance remain pending
+- Analyze has no mock-data import or fallback: it builds its page model from real price, metrics and GEX responses only; a missing field remains unavailable rather than inheriting a sample value
 - Persistent scanner universe: known database symbols plus on-demand Analyze registrations feed the materialized scanner; `/api/analyze/:symbol` reports field coverage and queues only missing data products
 - Universe filters: price, share/dollar volume, earnings, market cap, sector/category and optionable status are live when the field is populated; nullable reference fields fail closed when a selected filter requires them
 - Market Regime: `/api/market/regime` combines SPY/QQQ daily momentum, regular-session 30M breakout, IV Rank and GEX; stale intraday bars cannot confirm a breakout
@@ -92,6 +82,7 @@ Open http://localhost:5173
 - Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
 - 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
 - 2026-07-16 runtime: persistent scanner universe has 78 active/scan-enabled symbols; Polygon reference metadata covers 77, market cap 27, sector/category 28, and persisted optionable=true 69. `VIX` remains the only missing ticker reference.
+- 2026-07-16 production integrity verification: `/api/scan?minIvr=40&maxIvr=100&limit=5` returned HTTP 200 with real rows after qualifying scanner snapshot fields; `/analyze?symbol=NFLX` rendered real `$73.68`, Polygon price/GEX and $75/$73 Walls. Analyze has no sample-data fallback.
 - Dev/backfill provider: `stooq`, only when explicitly selected
 - Option chains: scheduled ingestion uses `polygon_licensed`; `ib_internal` and `tt_internal` remain explicit fallback/research adapters.
 - IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.
@@ -110,16 +101,17 @@ Open http://localhost:5173
 - Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
 - Scanner materialized rows include IV, latest price, GEX/walls, OI/volume, OI delta, price-history trend, and earnings date
 - Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
-- Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
+- Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/admin/status/cache` monitors backlog/stale/failure/budget state
 - Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
-- Analyze computes direction context from real price history and displays Focus Score, VRP, Gamma Flip, Local Gamma, S/R, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
+- Analyze computes direction context from real price history and displays Focus Score, OBV, MFI-14, VRP, Gamma Flip, Local Gamma, S/R, 30M Volume Profile, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
 - Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.
 - Refresh worker safeguards: stale `running` jobs are recovered, unsupported provider jobs fail closed, TT auth exits are converted into job errors, option-chain jobs can fall back from TT to IB, and malformed symbols are rejected before entering `provider_fetch_jobs`.
 - PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.
 - IB contract discovery persists only contracts actually returned by IB with a valid `conId` and `localSymbol`; the collector never constructs synthetic expiry/strike/right combinations.
 - Stale or partial GEX remains visible when the snapshot contains the required computed fields. The UI labels its age/quality; only missing required fields suppress GEX/Wall analysis.
-- Technical evidence remains usable when options data is absent; GEX Wall and maximum OI Wall are separate evidence types and missing values are never synthesized.
 - Scanner `不限` applies no hidden preset and enumerates every qualifying setup across supported strategies in the current 1-90 DTE ingestion window, including multiple rows per symbol. It rejects incomplete or non-positive-credit structures and displays exact legs plus executable-side pricing.
+- Scanner candidate generation, pricing and scoring run in `server/src/domain/scanner/candidateEngine.cjs`. Normal `/api/scan` responses never contain the complete `option_contracts` chain; they contain only display-ready candidate legs and economics.
+- Production Vite builds explicitly disable source maps (`build.sourcemap=false`); 2026-07-16 build verification found no `.map` artifact.
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
@@ -149,25 +141,17 @@ Open http://localhost:5173
 - [x] Composite Momentum: real 30M/1D/weekly-derived 1W scores with 30/40/30 weights and stale intraday gating
 - [x] V3 code: Clerk auth + subscription tiers (runtime keys pending)
 - [x] V3: Portfolio tracking + Greeks aggregation
-- [x] Analyze Technical Support Confluence code and local verification (`da298f4`)
-- [ ] Deploy `/api/technical-levels/:symbol` to Railway and `TechnicalLevelsPanel` to Vercel, then record production acceptance
+- [x] Analyze Technical Support Confluence prototype and legacy-baseline local verification (`da298f4`)
+- [ ] Reconcile `/api/technical-levels/:symbol` with current `/api/sr` and CF-4/G5, run current-main regression, then deploy Railway API before the Vercel panel
 
 ## Analyze Technical Support Confluence
 
-The expanded Analyze panel is independent from the legacy mock-analysis whitelist:
-
-| Symbol state | Technical structure | Legacy 4-Tab content | GEX / OI |
-|---|---|---|---|
-| `SPY`, `AAPL`, etc. with price history and legacy mock data | Real Technical Levels | Also shown | Latest snapshot status |
-| Price history exists but no legacy mock exists | Real Technical Levels | Hidden | Latest snapshot status |
-| No daily price history | Explicit `missing` | Shown only if legacy mock exists | No substitute values |
-
-The API reads 250 daily bars and regular-session 30-minute bars from PostgreSQL, calculates
+The prototype reads 250 daily bars and regular-session 30-minute bars from PostgreSQL. It calculates
 50/100/200DMA, ATR14, Volume Profile POC/HVN, Anchored VWAP and daily/weekly structure, then
 clusters evidence separately above and below spot. GEX Walls and 7–60 DTE maximum OI Walls
-remain distinct.
+remain distinct, and missing option evidence is never synthesized.
 
-GOOG production-data smoke on 2026-07-22 produced spot `346.19`, POC `346.00`, AVWAP `353.42`,
-and 50/100/200DMA `366.12 / 343.21 / 321.99`. This validated the calculation against production
-inputs; it did not deploy the new route. Code is committed in `da298f4`. Railway must deploy the
-API before Vercel deploys the panel.
+GOOG production-data input smoke on 2026-07-22 produced spot `346.19`, POC `346.00`, AVWAP
+`353.42`, and 50/100/200DMA `366.12 / 343.21 / 321.99`. This validated the legacy-branch
+calculation only; it did not deploy the route or panel. See `task.md` for the current-main
+integration, regression and Railway/Vercel acceptance gates.

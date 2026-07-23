@@ -13,16 +13,18 @@
 - **IV Rank**: where current IV sits between 52-week high and low (0-100 scale)
 - **IV Percentile**: % of past days where IV was lower than today
 - IV Rank is more commonly cited but IV Percentile is more statistically meaningful
-- High IV Rank (>50) favors selling premium; Low IV Rank (<30) favors buying
+- IV Rank describes a relative historical range; it is not, by itself, a buy/sell signal. Any strategy comparison also needs event risk, realized volatility, term structure, skew, liquidity and transaction-cost assumptions.
 
 ### Greeks intuition
 - **Delta**: how many shares of stock this position behaves like
 - **Gamma**: how fast delta changes (high near expiry, near ATM)
-- **Theta**: daily P&L from time passing alone (negative for buyers, positive for sellers)
+- **Theta**: under unchanged model inputs, the approximate theoretical value change as one day passes. Its realized P/L effect depends on the whole position, volatility, spot path and repricing.
 - **Vega**: P&L per 1% increase in IV (positive for long options)
 - **Rho**: P&L per 1% increase in interest rates (usually small, matters more for LEAPS)
 
 ### Key strategy selection heuristics
+
+The table is a research starting point, not a recommendation or a claim of expected profitability. Defined-risk structures are generally easier to bound than naked short options, but still carry material loss risk.
 | Market view | IV view | Consider |
 |---|---|---|
 | Bullish | Low IV | Long Call, Bull Call Spread |
@@ -52,8 +54,8 @@
 - **Roll up/down**: adjust strikes when position goes against you
 - **Roll out**: extend DTE by buying back near-term and selling further out
 - **Add a wing**: convert naked short to spread to limit risk
-- **Take profit early**: at 50% of max profit for defined-risk trades (tasty-style)
-- **Stop loss**: at 2× credit received for credit spreads
+- **Take profit early**: some rule-based studies test exits such as 50% of maximum modeled profit; this is not a universal optimum.
+- **Loss management**: a multiple of credit is one possible risk rule, but it should be selected, tested and sized for the specific structure and portfolio.
 
 ## 期权实战交易框架（V2 扫描器设计依据）
 
@@ -69,18 +71,18 @@
 
 ### 两种交易哲学
 
-**卖方（Premium Seller）— 高胜率路线**
+**权利金卖方（Premium Seller）— 风险与溢价的权衡**
 
-逻辑：IV 长期系统性高于 RV，差值叫**波动率风险溢价（Vol Risk Premium）**。
+逻辑：在部分市场、样本和期限中，隐含波动率会高于后续实现波动率；两者的差异常被称为**波动率风险溢价（Vol Risk Premium）**。它会随标的、事件、期限和市场状态变化，并非保证可捕获的收益。
 
 ```
 历史数据示例（SPY）：
   30日 IV 均值 ≈ 16%
   30日 RV 均值 ≈ 13%
-  差值 ≈ 3% → 卖方的统计优势来源
+  差值 ≈ 3% → 一个历史样本中的差异，不代表未来结果
 ```
 
-- 胜率 70-90%，但单次亏损可能很大
+- 胜率、尾部损失和回撤高度依赖入场、管理、成本与样本；卖方结构可能出现大额或快速亏损
 - 代表策略：Iron Condor, Credit Spread, Strangle, Covered Call
 
 **买方（Premium Buyer）— 低胜率但非对称**
@@ -88,50 +90,46 @@
 - 需要：方向对 + 幅度够 + 时间内到 + IV 不能太高
 - 适合：有明确 catalyst（财报/FOMC）且 IV 处于历史低位时
 
-### Tastytrade 系统化框架（有回测支撑）
+### 常见的规则化研究框架（示例，不构成交易规则）
 
 ```
 过滤条件：
-  IVR > 50（IV 相对历史高位，均值回归预期）
+  IVR > 50（IV 相对历史区间较高；不代表一定均值回归）
   流动性好（bid-ask tight，OI > 1000）
 
 开仓：
-  DTE = 45 天（Theta 衰减加速区间）
-  短腿 Delta = 0.16 ~ 0.30（胜率 70-84%）
+  DTE 约 45 天（常见研究窗口之一，仍需考虑事件日与期限结构）
+  短腿 Delta = 0.16 ~ 0.30（常见区间；不是胜率承诺）
   用 defined-risk 结构控制最大亏损（Spread / Condor）
 
 管理规则：
-  盈利 50% → 平仓（不等到期，避免 gamma 风险）
-  亏损 200% 权利金 → 止损
-  DTE < 21 → 考虑 roll 或平仓
+  可研究在模型利润达到某一比例时退出、在某一风险阈值时减仓、或在到期前滚动；这些阈值需要针对策略、流动性和账户规模验证
 
 仓位规模：
-  单标的 ≤ 5% 资金
-  同时持有 15-20 个不相关标的（分散 vega 风险）
-  整体 Delta 保持中性或小方向偏移
+  以预先定义的最大损失、相关性和流动性约束确定仓位；具体比例不应脱离账户规模与风险承受能力照搬
 ```
 
 **为什么 50% 平仓？**
-数学上，一个 trade 赚 50% 的概率远高于等到期的期望，且最后几天 gamma 急剧上升，风险报酬比变差。
+部分历史回测会比较不同获利退出点和持有到期的结果；结论会随标的、时期、交易成本和执行假设变化，不能据此推断任何单笔交易的结果。
 
 ### 真正的 Edge 来源
 
 | Edge | 原理 |
 |---|---|
-| Vol Risk Premium | IV 系统性 > RV，卖方长期有统计优势 |
-| IV 均值回归 | 高 IV 会回落（VIX spike 后必然收缩）|
-| Theta 确定性 | 时间衰减是确定的，方向是随机的 |
+| Vol Risk Premium | 部分样本中 IV 与后续 RV 的差异；是否可交易取决于尾部风险、成本和模型 |
+| IV 均值回归 | 高 IV 可能回落，也可能因事件或市场状态继续上升 |
+| Theta 模型效应 | 在其他模型输入不变时的时间价值近似变化，不等于实际损益保证 |
 | 结构优化 | 相同方向判断，用对结构可提高盈亏比 |
 
 ### 常见死法
 
 | 死法 | 原因 | 解法 |
 |---|---|---|
-| IV crush 买方 | 财报前买期权，事后 IV 暴跌 | 看 IVR，高 IV 不买；用 spread 对冲 vega |
+| 事件后 IV 重估 | 财报前后 IV 可能显著变化 | 明确事件风险，比较不同结构与 Vega 暴露 |
 | 裸卖被黑天鹅 | 卖 naked，遇单边暴动 | 永远用 defined-risk（spread）|
 | 仓位集中 | 多个相关标的同方向 | 分散，控制 portfolio-level Greeks |
-| 不止损 | 亏 300% 还在等反弹 | 机械止损，2x 权利金必须平 |
-| Gamma 爆炸 | DTE < 7 还持仓 | 21天内 roll 或平仓 |
+| 缺少退出计划 | 风险超过预设承受范围 | 预先定义、回测并持续复核风险退出逻辑 |
+| 临近到期的 Gamma 风险 | DTE 很低时 Delta 对价格变化更敏感 | 按策略、流动性和组合风险评估是否减仓、滚动或持有 |
 
 ### V2 扫描器设计依据
 
@@ -242,7 +240,7 @@
 缺失数据逻辑：
 - 有价格但无 metrics：进入 price-only fallback，只展示真实价格趋势，不生成期权策略结论。
 - 无价格也无 metrics：根据 `/api/status` 判断 symbol 是否在 watchlist。
-- API 全部失败但本地有 mock symbol：只作为本地示例结构，并显示 API 不可用提示。
+- API 全部失败：不显示分析结构；页面只显示 API unavailable。生产 Analyze 没有 mock fallback。
 
 当前已接入 analyze UI 的真实数据：
 - `/api/gex/:symbol`
@@ -283,9 +281,11 @@ GEX compute job：
 - 只读 PostgreSQL snapshot，不调用 provider。
 - 写入 `gex_snapshots` 和 `gex_by_strike_snapshots`。
 
-V1 公式：
-- Call GEX = `gamma * open_interest * 100 * spot^2`
-- Put GEX = `-gamma * open_interest * 100 * spot^2`
+当前公式（产品口径：标的变动 1% 时的模型估算 Delta-dollar exposure）：
+- Call GEX = `gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+- Put GEX = `-gamma * open_interest * contract_multiplier * spot^2 * 0.01`
+- 单位：`usd_delta_change_per_1pct_move`；不代表现金流、PnL 或 dealer 实际持仓金额。
+- Call 正号 / Put 负号是 `call_positive_put_negative_proxy` dealer positioning 代理假设；公开 OI 无法识别真实 dealer side。
 - Global GEX = strike-level net GEX 汇总
 - Local Gamma = spot ±1% 内 strike net GEX 汇总
 - Call Wall = max call-side GEX strike
@@ -298,13 +298,20 @@ V1 公式：
 - 不把 mock shell 伪装成真实 options data。
 - 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
 - GEX 只有在 gamma + OI completeness 达标后才计算。
+- GEX API 必须返回 `raw_metrics.unit`、`raw_metrics.formula`、`raw_metrics.positioning_model` 和 `raw_metrics.positioning_assumption`，页面需要把 GEX 标记为模型估算。
+- GEX 不能只以数值字段在不同产品间传播。Analyze、Scan 与 Weekly 的 GEX DTO 都必须带同一份 `gex_metadata`：模型版本/单位/代理假设、快照时间与数据状态、合约覆盖范围、计算参数。这样每个展示点都能追溯到具体快照，而旧 Scanner 行缺少 metadata 时必须显示 `partial`，不能用当前默认配置猜测历史模型。
+- Gamma Flip 重算必须使用 option-chain snapshot 的估值日期，而不是 job 运行当天。否则同一历史链会因剩余 DTE 改变得到不同曲线，不能复现或比较。
+- 数据详情属于研究结果的一部分，而非调试装饰。默认收起能保持 Scan 的可读性；展开后用户必须能看到口径、快照时点、覆盖质量、到期范围与定位代理假设，才能正确理解 GEX 数值。
+- GEX 验证要区分两件事：固定 fixture 验证“代码是否按既定公式计算”，数据库 replay 验证“保存值能否由同一快照重现”。两者都不能证明 dealer 实际仓位或价格预测能力。SPY/AAPL replay 已核对 Global/Local GEX、Flip、Walls 与 Max Pain，但结论仅限计算一致性。
+- 当前模型版本为 `gex-v2-1pct-positioning-proxy`；不同模型版本的 GEX 数值不能直接做历史比较。
+- 部署重算：`GEX_RECOMPUTE_ALL=true GEX_SYMBOLS=<symbols> venv311/bin/python compute_gex.py`，随后重新 materialize scanner rows。
 - scanner 已可读取 latest GEX snapshot 做 Gamma regime / Wall proximity / Local Gamma / OI / Volume / Volume-to-OI filters。
 - Scanner 的 IV/trend/GEX 用于 context、过滤和解释；`不限`必须跨所有已支持策略枚举达标 contract setups，不能先把一个 symbol 压成单一策略。
 - OI delta 异常需要连续 snapshot 历史；当前 Volume-to-OI 只能作为活跃度 proxy。
 - licensed provider 第一候选是 Massive/Polygon options snapshot，第二候选是 Intrinio；真正上线前必须确认 OPRA/options display 与 redistribution 权利。
 - Phase 3C 后，`/api/scan` 不再做 request-time full watchlist aggregation；scanner rows 由 `collector/materialize_scan.py` 预计算进 `scanner_results_snapshots`。
 - stale/missing API responses 只 enqueue `provider_fetch_jobs`，不在用户请求路径同步调用 provider。
-- `collector/run_refresh_worker.py` 是 refresh job 执行边界；`provider_request_usage` 记录每日 provider budget；`/api/status/cache` 用于观察 backlog、failure、stale scanner、empty snapshot。
+- `collector/run_refresh_worker.py` 是 refresh job 执行边界；`provider_request_usage` 记录每日 provider budget；`/api/admin/status/cache` 用于观察 backlog、failure、stale scanner、empty snapshot。
 - Phase 3E 已实现 OI delta / unusual activity：用连续 option contract snapshots 计算 OI delta；volume/OI 只是 proxy，不能等同“机构建仓确认”。
 - `/api/unusual/:symbol` 的 `quiet` 表示有 confirmed OI delta 数据但未命中 unusual 阈值；`baseline` 表示还没有 previous snapshot，不能确认 OI delta。
 - Scanner direction 已接入真实 `price_history` 派生趋势：MA20/50/200、RSI14、5D change 写入 `scanner_results_snapshots`，前端不再硬编码 `待接入趋势`。
@@ -352,8 +359,15 @@ V1 公式：
 
 - 旧错误：Analyze 先初始化 `mockAnalysis`，真实 GEX stale 或请求失败后仍保留 mock Call Wall、Put Wall、scenarios 和 recommendation。
 - 后果：PLTR 页面曾显示与现价完全不相称的 `$595 / $575`，用户无法判断数据是否真实。
-- 修复：typed symbol 不允许 API 失败时回退到本地 mock；missing/unusable GEX 清空 Wall、strikes、scenarios 和策略腿；stale/partial 且字段完整则显示实际数据并加质量提示。
-- 测试：frontend regression tests 覆盖 fresh、stale、missing、low-confidence 四种状态。
+- 修复：2026-07-16 删除 `frontend/src/data/mockAnalysis.js`，并以 `createRealAnalysis` 创建所有-null 的 production base。typed symbol 不允许 API 失败时回退到本地 mock；missing/unusable GEX 清空 Wall、strikes、scenarios 和策略腿；stale/partial 且字段完整才显示实际数据并加质量提示。
+- 测试：frontend regression test 断言 Analyze 不得 import/use `mockAnalysis`；数据转换 tests 覆盖 fresh、stale、missing、low-confidence 四种状态。
+
+### 3.1 scanner SQL 的列名必须始终限定来源
+
+- 2026-07-16 事故：`GET /api/scan` 的 CTE 同时包含 `latest_rows.source` 与 `latest_community_batch.source`，final `SELECT source` 未限定，PostgreSQL 报 `column reference "source" is ambiguous` 并返回 HTTP 500。
+- 修复：final select 的 scanner fields 全部显式绑定 `latest_rows`，包括 `latest_rows.source AS source` 和 `latest_rows.snapshot_ts AS snapshot_ts`；freshness CASE 同样使用 `latest_rows.snapshot_ts`。
+- 防回归：scanner route test 对实际 SQL 字符串断言该 qualification；部署后必须以生产 `/api/scan` HTTP 200 + 非空 rows 做 smoke，mocked pool test 不能证明 PostgreSQL 能解析 SQL。
+- 生产验收：修复后 `/api/scan?minIvr=40&maxIvr=100&limit=5` 返回 HTTP 200 与真实 scanner rows；Vercel scanner 页面可实际渲染 1,700 个报价候选。
 
 ### 4. collector 默认 universe 错误会造成“只有 PLTR 有数据”
 
@@ -446,7 +460,7 @@ V1 公式：
 
 ### 12. Health endpoint 不等于 operator alert
 
-- `/api/status/cache` 只能在有人主动查看时暴露 degraded；它不会主动通知，也不保存同一故障是否已经通知。
+- `/api/admin/status/cache` 只能在有人主动查看时暴露 degraded；它不会主动通知，也不保存同一故障是否已经通知。
 - Collector health check 必须复用明确阈值，并把 issue code + affected symbols 做 fingerprint。否则每 5 分钟发一封相同邮件会让告警失效。
 - Snapshot 表里“有 row”不等于 covered：`contract_count=0`、`metadata_only`、stale、低 completeness 必须分别判断。
 - 告警本身不得阻断采集。Webhook/SMTP 失败写 error 并降级到日志；collector 下一轮继续运行。
@@ -477,6 +491,8 @@ V1 公式：
 - **报价必须带自己的 provenance/freshness**：不能把 GEX source 或 scanner materialization time 当作 legs 的报价时间。API 增加 `quote_source/quote_snapshot_ts/quote_freshness`。
 - **DTE 也受 UTC 午夜影响**：SQL 中 `expiry - CURRENT_DATE` 在美东晚间会提前减一天。scanner 与 ATM pipeline 都统一到 `America/New_York` market date。
 - **策略名不是产品输出**：每个 candidate 必须携带实际 legs、near/far expiry、sell bid、buy ask、credit/debit、max loss 或明确 undefined risk、breakeven 和 opportunity score。
+- **候选算法不能作为前端实现细节**：`scanOpportunity.js` 曾把完整 raw chain、策略枚举、评分权重与经济性计算发送到浏览器。自 2026-07-16 起，这些逻辑由 `server/src/domain/scanner/candidateEngine.cjs` 执行；正常 `/api/scan` 仅返回 display-ready candidate DTO，不返回 `option_contracts`。这既减少 payload，也建立产品算法边界。
+- **source map 必须显式关闭并验证产物**：只依赖 Vite 默认行为不足以构成发布策略。生产配置显式为 `build.sourcemap=false`，验证必须检查实际 `dist` 没有 `.map` 文件。
 - **跨期结构要测试腿方向**：Calendar/Diagonal 固定 near short、far long；只测试“返回 Calendar”无法发现 expiry 反向的灾难性错误。
 - **裸卖风险必须是产品状态**：Short Strangle/Short Put/Short Call 不因用户选择“策略不限”而静默出现；必须显式开启 advanced-risk gate。
 - **全量 lint 与改动 lint 分开报告**：早期 section 只证明 changed-file lint；遗留错误后来由独立 P2.4 commit 清零，不能倒写成早期 section 当时已经通过。
@@ -487,6 +503,12 @@ V1 公式：
 - **当日日线 volume 不是完整日成交量**：收盘前将它与过去完整日均量计算 RVol，会得到极低假信号。纽约当前交易日的 daily RVol 保持 null；30M 参与度应在独立 intraday 信号中计算。
 - **最新 chain snapshot 未必适合所有派生指标**：chain stats 应选择最新“至少有真实 IV contract”的 snapshot，而不是无条件最新 row；source/time/freshness 跟随被选择的 snapshot。
 - **S/R zone 与 Wall 是不同证据**：S/R 来自历史价格 pivot；Call/Put Wall 来自期权持仓结构。UI 可以并列比较，但不能合并成同一来源或互相冒充。
+- **Volume Profile 不是逐笔成交归因**：当前实现将每根 30M 或日线 bar 的典型价 `(H+L+C)/3` 归入一个价格桶并累加该 bar 全部成交量。因此 POC、70% Value Area 和 LVN 都是该聚合方法下的近似成交结构，不能被表述为精确的逐价逐笔 volume，也不能自动等同于支撑、压力或期权 Wall。
+- **Confluence 强度不是成功概率**：当前 `confluence-v1-prior` 仅把六类离散价位按 ATR 半径聚类，模块分数取固定冷启动上限并保留最高一条理由。它表达“哪些模型输入在同一区间重叠”，不是经拟合的胜率、精确支撑阻力，也不能单独作为交易触发条件；CF-3 必须用历史回放检验它是否优于现有单点 S/R。
+- **更高守住率不等于更好的模型**：2026-07-18 的 G5 全样本回放中，Confluence 的触及后守住率从 `46.44%` 升至 `50.07%`，但反转点召回从 `27.30%` 降至 `22.14%`，综合为 `-2.07%`。因此不能挑选单项好看的数字上线；gate 要求两项均改善且综合提升至少 15%。
+- **Zone-vs-点位对比自带几何混杂，harness 必须对齐几何再比**：同一次 G5 复核发现两个方向相反的偏差——候选只取 top-1 Zone 而控制组用最多 3 条带/侧（触及机会不等，召回对控制组结构性有利）；ATR 宽 Zone 天然比 ±0.5% 窄带更容易"守住"（守住率对宽 Zone 有利）。两者恰好各偏向一方，让单项指标都不可单独采信。教训：对比不同形态的价位模型时，先对齐 Zone 数量与宽度（或改用宽度无关的评分），否则回放结果只是几何差异的回声。本次因 gate 结论保守（未上线）不需返工；v2 重跑前必修，详见 `docs/validation/CONFLUENCE_G5_2026-07-18.md`。
+- **OBV 是方向性累计，不是资金流金额**：收盘高于前一日时加上该日成交量，低于前一日时减去，收平时不变。它适合用来检查价格方向和成交量是否同步；不能据此推断买方金额、卖方金额、机构持仓或逐笔订单方向。
+- **MFI 的“资金流”是技术指标口径**：它由典型价和成交量的正负变化得出，并不追踪现金从谁流向谁。高于 80 或低于 20 只说明过去 14 个变化中的价格-成交量关系极端；应与 RSI、趋势和结构位共同判断，不能自动视为反转交易信号。
 - **没有真实合约候选就不显示策略腿**：用 spot ± width 或 wall ± width 合成腿会制造不存在、无报价或错 expiry 的订单。Analyze 只展示结构数据，具体腿必须来自 scanner/contract candidate attachment。
 - **图表空状态优于 deterministic mock**：固定 seed 的示例曲线看起来稳定，仍会被用户理解为真实走势。真实 OHLCV 少于最低门槛时直接显示 unavailable。
 
@@ -507,6 +529,8 @@ V1 公式：
 - **30M 必须先限定 regular session**：包含盘前/盘后 bars 会让 range、成交量基准和最后一根 bar 全部失真。SQL 先按 New York 09:30–16:00 过滤。
 - **突破信号必须校验跨 timeframe 日期**：daily 已到 7/15、30M 仍停在 7/14 时，即便价格和量能满足公式也只能返回 stale，不能确认 breakout。
 - **OI 变化不是资金流**：`SUM(oi_delta)` 的单位是合约，不是美元，也不能判断 opening buy/sell。Weekly 将“Smart Money”改为“仓位变化”。
+- **OI 不是每轮报价都会变**：同一交易日内反复保存的 option snapshot 常有完全相同的 OI。ΔOI 必须拿最新快照与同一 provider 的前一纽约交易日快照比较；把今天 10:00 与今天 13:00 相减得到的 `0` 不是有效的仓位结论。没有前一交易日基线时，UI 应显示 `待下一交易日`，不能显示 `0 / 0`。
+- **Wall 与 GEX 必须用现价语言表达**：`Call 4.5%` 没有说明 Wall 在哪里。应该显示为 `上方 Call Wall $价位（+距离）` 或 `下方 Put Wall $价位（-距离）`。`净 GEX` 是把 Call Gamma 计正、Put Gamma 计负后的模型汇总，不是资金流；负 Gamma 表示波动可能放大，正 Gamma 表示波动可能收敛，且要同时显示快照是否延迟。
 - **Wall 需要方向有效性**：Call Wall 在现价下方不能作为向上突破，Put Wall 在现价上方不能作为向下跌破。先检查相对 spot 的方向，再 fallback 到真实 S/R。
 - **历史快照少就显示少**：AAPL 当前只有一个可用 GEX market day。Gamma migration 显示一日，不复制成 Mon–Fri 假历史。
 - **滚动五交易日比硬编码 Mon–Fri 更稳健**：节假日、周中运行和缺失交易日不会导致填充不存在的 candle。
@@ -652,3 +676,87 @@ V1 公式：
 - **概率锥与 POP 必须分开表达**：Payoff 图的蓝色阴影只描述由加权 IV 和最长 DTE 推导的 68% 终值价格范围；它不是策略盈利概率，因此在图例中直接标明“价格区间”，避免和 POP 混淆。
 - **产品类别不能靠名称暗示合约规则**：FX 与指数策略可复用标准 Call/Put legs 和同一损益引擎，但模板必须告诉用户在实际交易时重新核对乘数、结算方式和行权价间隔，不能把股票示例参数当成交易指令。
 - **策略说明需要可比较的最小数值契约**：所有模板至少暴露 IV、DTE、止盈与止损的数字阈值。原策略规则优先；只有原文完全没有数字时才追加统一基准，既补齐阅读体验，也不改写已有策略的行为说明。
+
+## Scanner Expected Move / POP Lessons (2026-07-16)
+
+- **Expected Move 必须说明输入和时间口径**：当前 Scanner 使用同一 expiry 的最近 ATM Call/Put IV 均值和 calendar-day `sqrt(T/365)`，并在 DTO 中声明模型版本、标准差、输入合约和快照时间；不能把它写成价格必然范围。
+- **POP 不是固定策略标签**：只用真实 bid/ask 选腿形成的盈亏平衡点、已声明 IV、利率和到期日计算；缺少任一核心输入就返回 unavailable，而不是沿用 64/66% 之类的占位百分比。
+- **跨期结构必须承认模型边界**：Calendar / Diagonal 没有一个单一到期日的静态 payoff，当前单到期 POP 模型不能假装给出精确概率，因此明确标记 unavailable。
+
+## GEX Version Reconciliation Lesson (2026-07-16)
+
+- **原始链存在不等于当前产品 GEX 可用**：GEX 公式/单位版本升级后，旧派生行必须被 API 拒绝，不能静默混用；但拒绝后若没有回填任务，用户会误以为 collector 没有采集。
+- **版本迁移应重算派生层，不重拉行情**：collector 现在对最新 watchlist chain 做版本差异检查，并只从 PostgreSQL 重算 GEX/Wall/Flip。这样不会消耗 provider 配额，也不会在模型升级后留下整批“不可用”。
+- **用户请求不能排在 watchlist 冷启动之后**：按需 Analyze 任务以显式 priority `100` 入队，worker 优先消费；否则每 5 分钟两个标的的后台补全会把一个具体用户输入拖到数小时。
+- **缺 GEX 和缺期权链必须走不同任务**：已有链只做本地 `gex_recompute`，缺链才调用 provider。把两者混为一次 options fetch 会浪费请求，并延长恢复时间。
+- **模型边界不能盖过产品解释**：先说“当前是正/负 Gamma 环境”和可能的盘面含义；公开 OI 的估算限制用一句放在后面。把“代理符号假设”放进答案主句，只会让用户读不懂结论。
+- **策略候选不可在最后一层被清空**：期权链、报价和 GEX 都 ready 时，前端把 `recommendation` 设成 `null` 会伪装成数据缺失。完整链只应在后端候选引擎读取，Analyze 只消费服务端筛出的策略腿 DTO 和真实的无候选原因。
+- **期权链完整度与可交易报价是不同条件**：GEX 只需要 Greeks/OI，策略腿还必须有有效 bid/ask。刷新调度若仅检查 `contract_count > 0`，会把无报价快照误判为完成，导致用户永远拿不到具体策略腿。
+- **无报价快照必须走定向回退，不是重复同源刷新**：`require_quotes` 的 Polygon job 若没有有效 bid/ask，保留该快照供 GEX/OI 使用，再在同一 job 尝试 IB；所有 provider 仍无报价时以 non-retryable blocker 结束。不能用 mark、last 或收盘价补成假 bid/ask。
+- **provider 原始 JSON 也属于采集事务的一部分**：TT/DXLink 事件可能含 `Decimal`。数据库列可以正常适配 Decimal，但 JSONB 不会；raw metadata 与 raw contract 必须在持久化边界统一转成 JSON 数字，否则“数据已获取”仍会因审计字段失败而整单回滚。
+- **blocker 只能表达不可通过重试解决的状态**：无报价和认证失败适合短期阻断；代码或序列化错误不应被标记成数据不可用，否则部署修复后用户请求仍被旧失败记录挡住。
+- **enqueue 与执行是两个独立运行面**：API 写入 `provider_fetch_jobs` 不会自行执行 provider。Railway 若只跑 `collect.py`，按需队列和 watchlist option scheduler 都会饿死；云端 one-shot cron 必须按顺序运行 scheduler、refresh worker、scanner materialization。当前 cadence 为工作日每 5 分钟。
+- **所有 JSONB 写入边界都必须处理 Decimal**：修复 option snapshot 后，scanner materialization 从 PostgreSQL 读回 `gex.raw_metrics` 仍会重新带入 Decimal；若直接 `Json(payload)`，refresh worker 虽已完成，最终 scanner materialization 仍会失败。所有 raw/provider JSON 及其派生 payload 必须使用同一显式 Decimal-to-number encoder，并以完整 refresh cycle 覆盖回归。
+- **认证失败的作用域不能扩大为数据不存在**：Railway TT 的 device challenge 只说明该 worker 不能用 TT session；它不能阻断 Mac Studio 或 IB 的后续 quote refresh。on-demand blocker 只可用于 provider 已明确无可用报价的终态，worker-specific auth failure 必须留在队列重试路径。
+- **fallback 必须覆盖 provider 初始化失败**：Polygon 缺 key 时错误发生在 `make_provider()`，早于 API 请求或“空报价”判断。若只对空 snapshot fallback，队列会无限重试 Polygon 而永远不尝试 TT/IB。初始化、连接和无 usable quote 三类可恢复失败必须走同一个受限 provider sequence。
+- **云端 secret 的验收必须在变量部署后执行**：2026-07-17 Railway option cron 因缺 `POLYGON_API_KEY` 在 provider construction 阶段失败，并误入 TT device challenge。把 secret 加到变量面板不等于运行容器已收到它；必须 deploy 变量变更后再执行 cron，并同时确认 `option_chain_snapshot succeeded`、OI-delta materialization 与 scanner materialization。该次验收写入 2 个真实链快照、4,826 条 OI delta、80 条 scanner rows。
+- **端到端验收必须验证用户最终路径**：2026-07-17 RKLB 有 price/IV/GEX 却没有 quoted chain 时，单测与日志分别发现了 scheduler、JSONB Decimal、cross-worker blocker 和 provider-construction fallback 四个断点。最终验收不能止于“worker 成功”：必须确认 Analyze readiness 变为 `option_quotes=true`，再确认 candidate endpoint 能从同一真实 snapshot 返回具体策略腿。
+
+### 14. 状态端点的默认受众是运维，不是产品
+
+- **公开状态端点只应返回产品自己会渲染的字段**：`/api/status/data` 过去返回逐 symbol `source`、`source_counts`、缺失/stale 覆盖明细、`extra_symbols`、job 失败和 provider budget，但前端实际只读 `expected_symbols` 一个字段。多出来的全部是未认证公网可见的采集情报。
+- **审计要以消费方为准，不是以字段是否"敏感"为准**：判断哪些字段可以公开，先 grep 前端到底读了什么，再反推最小公开集合；靠逐字段主观判断敏感度会漏掉 `source_counts` 这种间接泄露内部 provider 名的字段。
+- **降级必须是单一通道，不能靠调用方自觉**：`toPublicDataStatus()` 是公开视图的唯一出口，admin 与 public 共用同一组 builder。若让两条路径各自拼装 response，新增字段迟早会只加到一侧，公开面会无声扩大。
+- **缺失密钥必须关闭端点而不是放行**：`requireAdminToken` 在 `ADMIN_API_TOKEN` 未配置时返回 503。若写成"没配就跳过认证"，一次漏配就等于把运维明细公开，而且不会有任何报错提示。
+- **运维读模型与上报写入是不同的信任边界**：`POST /api/heartbeat` 由 collector 用 `HEARTBEAT_TOKEN` 上报，`GET /api/heartbeat/status` 由人读取，应该用 `ADMIN_API_TOKEN`。复用同一个密钥会让采集节点顺带获得读取全局运维状态的权限。
+
+### 15. 门禁必须断言产物，并且必须能失败
+
+- **配置不是产物**：`vite.config.js` 里的 `build.sourcemap=false` 只是意图。真正到用户手上的是 `dist/`。门禁应该扫描 `dist/`，因为任何一次配置回归、插件行为变化或构建路径调整都会让"配置正确"和"产物正确"分叉，而只有后者有意义。
+- **没验证过能失败的门禁等于没有门禁**：`check-dist` 和 `scan-secrets` 都先注入伪造 source map、伪造 Polygon key、真实格式的 DB URL 和 Stripe live key 反向验证过。一个永远返回 0 的检查会给出比没有检查更强的虚假安全感。
+- **不要把已经发生过泄露的路径排除出扫描范围**：Polygon key 是通过文档进入 Git 历史的。secret 扫描一开始因为文档里的 `postgresql://postgres:PASSWORD@...` 占位符误报，最省事的做法是 `':!*.md'`——那等于把唯一一条已被证实的泄露路径永久设为盲区。正确做法是过滤占位符（`:PASSWORD@`、`YOUR_*`、`${...}`），保留文件在范围内。
+- **宁可留下明确前置，也不要猜一个会静默失败的配置**：CSP 若猜错 Clerk 的 host，登录会被静默阻断，且只有浏览器控制台有线索。当前 Clerk 未配置、实例域名无法验证，因此 CSP 只覆盖真实运行的应用，并把"启用 Clerk 前先扩展 CSP"写成 V3A-5 的显式前置。未验证的安全配置不是保守，是把故障推迟到最难排查的时刻。
+- **无人读取不是一种保障机制**：审计发现没有任何 provider 名被渲染，但这只是因为恰好没有组件读那些字段——`Scan.jsx` 的 `dataMeta` 把三个原始 provider 字符串送进 props 却无人消费。删掉死字段能减少暴露面，但真正的保障必须是服务端不下发，而不是前端恰好不显示。
+
+### 16. 历史 IV 回填要按“可用 EOD bar”验收
+
+- **分页和月期权回退解决的是代码缺口，不会创造历史行情**：密集 ETF 的 reference contracts 会跨多页；周到期在早期历史日可能尚未挂牌。回填必须同时跟随 `next_url`，优先第三个星期五的月期权，再计算 constant-30-day IV。
+- **回填必须增量落库**：把一个 symbol 的数百天结果只在最后一次 commit，会让中断丢失全部进度。每 25 个交易日幂等 upsert 后，可从任何已写日期安全重跑。
+- **252 天 readiness 是数据事实**：2026-07-18 的 Phase 2.5 验证使 SPY/QQQ/IWM/GLD/TLT/TSLA/XLC/XHB 达到 252+；XLB/XLE/XLK/XLU/XLY/XSD 的 Polygon EOD option-bar 历史在 2025-12 前不连续，因此继续显示 not-ready，而不是填充或推断缺失 IV。
+
+### 17. IB historical farm 恢复不等于完整 quote entitlement
+
+- **已验证的恢复范围**：2026-07-18 的 bounded SPY diagnostic 成功拿到 delayed last、volume、OI 和 tick 83 model Greeks，证明 Gateway 连通、历史 fallback 与 option 数据回调正常。
+- **不能过度解读**：同一请求的 bid/ask 仍为 null，IB `10091/10167` 明确指向 API market-data subscription 限制。必须把它记录为 quote-quality 限制，而不是把 historical farm 恢复误写成“所有期权字段恢复”。
+- **产品规则不变**：GEX/结构页面可标注延迟来源；策略候选的可执行价格仍只接受实际 bid/ask，不能用 last 或 model price 代替。
+
+### 18. 有“缺报价检测”不等于会触发报价回退
+
+- **根因（2026-07-19）**：scheduler 的 freshness query 正确地只把有有效 bid/ask 的 snapshot 视为 quote-ready；但它创建的 background job 没有 `request_params.require_quotes`。worker 因此把 quote-less Polygon snapshot 作为成功结果结束，永远不尝试 fallback。
+- **修复**：仅在美股常规交易时 scheduler 写入 `require_quotes=true`；worker 将 `polygon_licensed → ib_internal` 作为默认顺序。休市不要求报价，避免把真实但无 bid/ask 的结构快照错误标记为失败。
+- **运行证据**：2026-07-19（周末）重载后的 collector 写入了 1,876 条 Polygon option-contract structural rows，bid/ask 为 0；这证明“无报价”是休市状态，不能据此判断 IB 订阅无效。开盘后必须再次验证 IB 真实 bid/ask、Greeks 与 fallback 写入。
+
+### 19. 报价过滤器不能同时兼职"该不该刷新"的判断
+
+- **和第 18 条是同一个查询埋的另一个坑**：`load_refresh_state` 把"最新快照"限定为带有效 bid/ask 的那条，是为了让第 18 条的 quote-readiness 判断正确；但这条查询的返回值同时被拿去做**调度排序**（谁最该被刷新）。一个从未成功拿到报价的标的（含 `VIX` 这种永久失败的——它是指数，走股票 `/prev` 端点必然报错）因此在排序里显示"从未采集"，比任何真实但较旧的快照都排得靠前，每 30 分钟冷却期一到就重新抢占大半队列容量，把 STX/SRVR 等曾经成功、只是较旧的标的饿了 20+ 小时。
+- **教训**：同一段 SQL 的返回值如果被两个不同目的复用（"这条快照能不能当报价用" vs "这个标的多久没刷新了"），过滤条件必须按各自目的分别定义，不能图省事共用一个查询——省下的代码量远不够抵消一个隐藏在排序里的资源饥饿 bug。
+- **修复**：调度排序改用**任意**快照的时间戳；报价是否达标只在决定"这个 job 要不要求 `require_quotes`"时判断，两件事分离。`VIX` 单独从 `scan_enabled` 移出，不再参与轮转。详见 `docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
+
+### 20. "省一次请求"的缓存优化,容忍度过大就是陈旧 bug
+
+- **根因（2026-07-20）**：`SPOT_HINT_MAX_AGE_DAYS=4` 让期权采集器把"最近 4 天内的日线收盘"当现价用（本意是省一次 `/prev` 请求）。结果周四收盘在周一还被当"够新鲜",一个每 5 分钟刷新的产品显示 4 天前、差 $9 的价。**缓存/复用的新鲜度窗口必须按"这个值代表什么"来定**：日线收盘代表的是"某天的收盘",拿它当"现价"最多只有前收盘一天的容忍度,4 天是把语义搞错了。
+- **数据源授权要按"实时 vs 延迟"分别实测,不能想当然**：以为 $29 Options 档有 15 分钟延迟盘中价,实测盘中（不只盘前）分钟聚合仍 `NOT_AUTHORIZED`。只有日线和 `/prev` 可用。授权边界必须用真实请求在真实时段验证,写进文档,不能按"一般套餐都有"推测。
+- **免费的能力可能藏在 fallback 路径里**：Polygon 拿不到盘中价,但已经在跑的 IB Gateway fallback 盘中给出了真标的价。找"怎么不花钱做到 X"时,先盘一遍现有的每一条数据路径实际能返回什么,再谈买新订阅。
+
+### 21. 共享预算行 + upsert 覆盖 + 低默认值 = 双 runtime 定时饿死
+
+- **根因（2026-07-21）**：`reserve_budget` 用 `ON CONFLICT DO UPDATE SET request_budget=EXCLUDED` 让每个跑 worker 的进程都把共享 `provider_request_usage.request_budget` 覆盖成自己 env 的值。`PROVIDER_DAILY_BUDGET` 默认 `1000`；Mac 守护进程 env 是 50000，但 Railway 的 `run_railway_refresh_cycle` import 同一 worker，env 没设时写 1000，把 50000 打回 1000，~1000 请求打满后饿死整个交易时段。
+- **教训**：只要多个 runtime 写同一行、且用 upsert 覆盖同一列，那一列的"默认值"就是全系统的下限——任何一个 env 没配好的进程都能把生产拉到默认值。**这种列的代码默认值必须是"安全侧"**（这里 Polygon 无限，安全侧=远高于真实用量），不能是"保守小值"。保守小值配上覆盖语义，等于给每个次要进程一把饿死主进程的钥匙。
+- **调查纪律**：用户报"数据旧+OI空"，先用 DB 证伪（OI 其实不空），再按"哪个时段停写"缩小到"盘中全停、盘前正常"，最后守护日志一句 `budget exhausted: remaining_budget=0` 直接坐实。症状（OI空）和根因（预算饥饿）可以完全不相干。
+
+### 22. 物化快照表必须在写它的地方就配 retention，否则默默膨胀到拖慢全库
+
+- **根因（2026-07-21）**：`scanner_results_snapshots`（929MB/53.6万行）、option 链及其 GEX/OI 级联表从上线起一行没删过，每天灌 6-14 万行，整库 2.3GB+。没有任何功能查它们的历史（scan/alerts 只读 `MAX(snapshot_ts)`，weekly/unusual 回看 ≤5 交易日），纯属膨胀。
+- **教训**：**"每 N 分钟重算一次的中间产物"从写下的第一天就该带 retention**，保留窗口对齐它的消费回看窗口，不是"以后再说"。区分两类表：累积型事实（IV/价格历史，绝不删）vs 物化快照（用完即弃，只留最新几批）。后者无 retention = 定时炸弹，只是引信长。
+- **省事技巧**：优先用 FK `ON DELETE CASCADE`——删一张源表（option_chain_snapshots 7 天）自动连带清 4 张最大的子表（contract 853MB / gex / oi_delta），一个 prune root 覆盖大半膨胀，不用逐表写清理。
+- **回收磁盘要 VACUUM FULL**：普通 DELETE + autovacuum 只让空间"可复用"（不再增长），物理磁盘要 `VACUUM FULL`（锁表）才还给云。盘后跑一次：scanner_results 929MB→545MB。

@@ -1,7 +1,7 @@
 # Quantrift Options Lab 架构说明
 
-> 项目：`whicter/quantrift_options-lab`
-> 正式站点：`https://www.quantrift.io`
+> 项目：`whicter/quantrift_options-lab`  
+> 正式站点：`https://www.quantrift.io`  
 > 文档范围：前端、API、PostgreSQL、Python collector 和生产基础设施
 
 ---
@@ -41,6 +41,7 @@ Options Lab 的目标产品能力包括 Call Wall、Put Wall、Global GEX、Loca
 这些指标依赖 option chain、open interest、volume、Greeks、IV 和 underlying price。生产系统应采用以下原则：
 
 - 用户请求只读取 Railway API 返回的已采集/预计算快照。
+- 前端 production model 不含 sample/mock seed：price、IV、GEX、Walls、结论和策略腿均只能来自各自真实 API response；字段缺失显示 unavailable。
 - 普通用户输入 `AAPL` 时，不应同步触发本地 Mac Studio 或 IB Gateway 拉取 option chain。
 - 当前过渡链使用 IB Gateway 与 Tastytrade adapter；IB 默认接受 delayed market data。
 - GEX 计算、API response 和前端 UI 不应绑定具体 provider；应通过 provider adapter 和数据库快照隔离数据源。
@@ -156,13 +157,38 @@ Scanner candidate selection path：
 ```text
 scanner_results_snapshots + latest actual quoted option contracts
   -> symbol context and filters (IV / trend / GEX)
-  -> enumerate every supported same-expiry real-contract setup
+  -> server candidate engine enumerates every supported real-contract setup
   -> hard eligibility (DTE / Delta / spread / OI / volume / positive credit)
   -> score (DTE fit / Delta / spread / OI / volume / economics)
-  -> actionable rows with exact legs, risk and breakeven
+  -> final candidate DTO with exact legs, risk and breakeven
+  -> browser renders DTO only
 ```
 
 The default `不限` selector applies no hidden preset: it enumerates qualifying setups across the current 1-90 DTE ingestion window, including multiple rows for one symbol when strategy, expiry or strikes differ. Presets explicitly narrow DTE/Delta/liquidity. Inventory metadata such as `min_dte=2, max_dte=65` must never be presented as the recommended contract. The selector fails closed when it cannot construct a complete setup from actual same-expiry quotes; it does not synthesize contracts or show a strategy label without legs.
+
+### Scanner Product Boundary (V3A immediate core, 2026-07-16)
+
+`server/src/domain/scanner/candidateEngine.cjs` owns candidate enumeration, strategy-leg construction, executable-side economics, eligibility gates and score ordering. `frontend/src/lib/scanOpportunity.js` was removed: the frontend may submit selected strategy types and advanced filters, but it does not traverse raw chains or carry scoring weights.
+
+`/api/scan` may query the latest usable quoted snapshot internally, but its normal response removes `option_contracts`. Each response row exposes scanner summary fields plus a `concrete_setup` DTO containing only the candidate strategy, display legs, expiry/DTE, economics, score and quality summary. This is a product/API boundary, not a collector or schema change. The legacy raw chain endpoint remains a separate diagnostic surface and must not be used by the Scanner page.
+
+Vite production configuration explicitly sets `build.sourcemap=false`. Verification for commit `9fd90e9`: server tests 82/82, frontend tests 36/36, production build passed, and no `.map` file existed in `frontend/dist`.
+
+### Materialized Candidate Batches (V3A-2, 2026-07-17)
+
+The candidate engine can also run **ahead of** the request path so no product API needs the raw chain to produce actionable setups. `server/src/jobs/materializeScannerCandidates.js` reads the latest positioning rows plus each symbol's latest usable quoted chain, runs `buildActionableSetups` per symbol, ranks all setups globally by score, dedupes by `candidate_key` (`symbol|strategy|legs`), and writes:
+
+```text
+scanner_candidate_batches   (id, scan_key, algorithm_version, source_snapshot_cutoff,
+                             universe_count, candidate_count, started_at, completed_at, status, error)
+scanner_candidate_snapshots (batch_id FK, candidate_key, symbol, strategy, strategy_family,
+                             expiry, dte, spot, score, rank,
+                             legs_json, economics_json, signals_json, freshness_json)
+```
+
+Both tables are **additive** — they do not replace `scanner_results_snapshots`, which still carries positioning rows. `runMaterialization` writes batch(`running`) → candidate rows → batch(`completed`); on error it marks `failed`. Readers serve only `completed` batches, so a partially written run is never visible. `ALGORITHM_VERSION` (`candidate-v1`) must increase whenever enumeration/scoring/dedupe changes, so a stored batch can be told apart from one built by a different algorithm.
+
+`GET /api/v1/scanner/candidates` serves the latest `completed` batch for a `scan_key`, returns only selected legs (never the raw chain), flags a batch older than `SCANNER_CANDIDATE_STALE_MINUTES` (default 15) as stale, and on stale/missing enqueues a `scanner_candidate_materialize` job (`__SCAN__` sentinel) without a synchronous provider fetch. `/api/scan` is intentionally **not** switched to this batch yet (rollout Step 2): this is additive and reversible. The collector materializes a batch every scan cycle through `collector/materialize_scanner_candidates.py` — a thin wrapper that shells out to `node server/src/jobs/materializeScannerCandidates.js` so the candidate engine stays one JS source rather than a drifting Python re-implementation. It is wired into `run_collector_daemon.py` and `run_railway_refresh_cycle.py` right after `materialize_scan.run()`, and degrades safely (node or `DATABASE_URL` absent → warn and skip). The Railway `python:3.11-slim` cron has no node and skips it; the node-equipped Mac Studio daemon is the runtime that writes batches (every `SCAN_MATERIALIZE_SECONDS`, default 300s). Verification: server `node --test` 148/148; collector `unittest` 194/194; migration + two real batches (81 symbols, 4768 candidates) confirmed against production Railway PostgreSQL. Remaining follow-up: the frontend cutover to `/api/v1/scanner/candidates`.
 
 API response 应统一携带数据状态：
 
@@ -206,7 +232,12 @@ API response 应统一携带数据状态：
   - API creates/reuses `provider_fetch_jobs`.
   - `collector/run_refresh_worker.py` consumes queued jobs.
   - `provider_request_usage` tracks daily provider/job request counts against a configured budget.
-  - `/api/status/cache` reports backlog, failures, stale scanner age, empty snapshots and budget usage.
+  - `/api/admin/status/cache` reports backlog, failures, stale scanner age, empty snapshots and budget usage. It requires `ADMIN_API_TOKEN`; see 7.2.1.
+  - **Budget is a runaway-loop backstop, not a cost throttle (Polygon paid = unlimited), so `PROVIDER_DAILY_BUDGET` defaults to `1_000_000`.** `reserve_budget` upserts `request_budget = EXCLUDED` on every reservation, so any process running the worker with the env unset clobbers the shared row down to the default; a low default (the old 1000) let a second runtime (`run_railway_refresh_cycle`) cap production at 1000 and starve the whole market session (2026-07-21). The default must stay far above real daily usage (~1-3k).
+
+### 1.1 Snapshot retention
+
+Materialized-snapshot tables are recomputed every ~5 minutes and no product reads their history (scan/alerts use only `MAX(snapshot_ts)`; weekly/unusual look back ≤5 trading days), so they are pruned by `collector/prune_snapshots.py` (hourly in the daemon, `SNAPSHOT_PRUNE_SECONDS`). Two prune roots cover the bloat via `ON DELETE CASCADE`: `option_chain_snapshots` (7d) drops its `option_contract_snapshots` / `gex_snapshots` / `gex_by_strike_snapshots` / `option_oi_delta_snapshots` children with it; `scanner_results_snapshots` (3d) is standalone. Windows are env-overridable and exceed the longest consumer look-back. Deletes are ctid-batched and per-call capped so a large first cleanup drains across cycles without a long Railway lock; best-effort, never aborts the cycle. Accumulating fact tables (`volatility_history`, `price_history`, `iv_history`) are never pruned.
 
 ---
 
@@ -214,22 +245,22 @@ API response 应统一携带数据状态：
 
 ### 2.1 当前原则
 
-1. **前后端分离**
+1. **前后端分离**  
    浏览器只访问静态前端和 HTTP API，不直接连接数据库。
 
-2. **数据库是生产数据的单一事实源**
+2. **数据库是生产数据的单一事实源**  
    `public.iv_history` 是当前 API 使用的核心业务表。
 
-3. **采集与查询解耦**
+3. **采集与查询解耦**  
    collector 负责外部数据获取和写入，API 负责只读查询和响应。
 
-4. **平台托管优先**
+4. **平台托管优先**  
    前端使用 Vercel，API 和 PostgreSQL 使用 Railway，减少自建基础设施。
 
-5. **单体优先，避免过早拆分**
+5. **单体优先，避免过早拆分**  
    当前业务规模适合一个 Express API 服务，不需要微服务。
 
-6. **环境配置外置**
+6. **环境配置外置**  
    域名、数据库和 CORS 通过环境变量配置，不应硬编码 Secret。
 
 ### 2.2 建议补充的原则
@@ -325,11 +356,7 @@ quantrift_options-lab/
 │   └── .env.example
 └── docs/
     ├── ARCHITECTURE.md
-    ├── MEMORY.md
-    ├── QUANTRIFT_DEPLOYMENT.md
-    ├── learning.md
-    ├── task.md
-    └── wiki.md
+    └── QUANTRIFT_DEPLOYMENT.md
 ```
 
 已确认的代码入口和配置：
@@ -422,7 +449,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>UI: 设置 IVR 区间和数量
-    UI->>API: GET /api/scan?...
+    UI->>API: GET /api/scan?... 
     API->>API: 参数校验和边界限制
     API->>DB: 参数化扫描查询
     DB-->>API: 符合条件的标的
@@ -476,7 +503,38 @@ Railway
 | GET | `/health` | 服务存活检查 |
 | GET | `/api/metrics` | 查询一个或多个 symbol 的指标 |
 | GET | `/api/scan` | 按 IV Rank 等条件扫描 |
-| GET | `/api/status/data` | 查询 watchlist 数据覆盖率、缺失标的、stale 标的和 latest_date |
+| GET | `/api/v1/scanner/candidates` | 读取最新 `completed` candidate batch（V3A-2 预物化），只出选中腿，不跑引擎、不出原始链 |
+| GET | `/api/status/data` | 公开的产品安全摘要：symbol 注册表、整体 ok/degraded 与 latest_date |
+| GET | `/api/admin/status/data` | 运维明细：source 分布、逐 symbol provenance、缺失/stale 标的、extra symbols |
+| GET | `/api/admin/status/options` | 运维明细：option snapshot 覆盖率、completeness、provider_status |
+| GET | `/api/admin/status/cache` | 运维明细：job backlog、recent failures、scanner batch age、provider budget |
+
+### 7.2.0 生产加固边界（2026-07-17）
+
+安全响应头有两个独立下发点，对应两种截然不同的内容：`frontend/vercel.json` 服务浏览器可执行的 SPA；`server/src/lib/securityHeaders.js` 服务只出 JSON 的 API，因此后者用 `default-src 'none'`——API 不加载任何资源，也不该出现在任何 frame 中。
+
+CSP 目前**不含 Clerk**：未配置 `VITE_CLERK_PUBLISHABLE_KEY` 时 `ClerkProvider` 不挂载，无法对真实 Clerk 实例域名做验证。启用 Clerk 前必须扩展 `script-src`/`connect-src`/`img-src`/`worker-src`/`frame-src`，见 V3A-5 前置项。一个猜出来的 CSP 会静默打断登录，比暂时不写更糟。
+
+CI（`.github/workflows/ci.yml`）的两个门禁都断言产物而非配置：
+
+- `frontend/scripts/check-dist.mjs` 直接扫描 `dist/`，不信任 `vite.config.js` 的 `build.sourcemap=false`。配置与产物是两件事，只有产物是用户真正拿到的东西。
+- `scripts/scan-secrets.sh` 保留 docs 在范围内并过滤占位符。Polygon key 正是通过文档进入 Git 历史的；把文档排除出扫描范围等于把已经发生过的泄露路径永久设为盲区。
+
+内部 provider 名（`polygon_licensed` / `ib_internal` / `tt_internal`）当前不会出现在任何渲染路径：所有 `source` 字段要么写入 view model 后无人读取，要么只用于 `freshness` / `isStale` 的条件判断。`frontend/src/lib/providerDisclosure.test.js` 守住硬编码与 `DataDetails` 两条路径，但它是静态断言，不能证明运行时值不会被渲染——根治仍是服务端降级（V3A-4）。
+
+### 7.2.1 公开状态与运维状态的边界
+
+`/api/status/data` 是唯一公开的状态端点，因为 Scan、Weekly 和 Analyze 需要 symbol 注册表来判断一个标的是否已被收录。它只返回 `status`、`generated_at`、`latest_date`、`expected_count`、`expected_symbols` 和 `universe.scan_enabled_count`。
+
+运维明细一律走 `/api/admin/status/*`，需要 `ADMIN_API_TOKEN`。两侧共用 `server/src/domain/status/statusReports.js` 的同一组 builder；`toPublicDataStatus()` 是把任何内容降级给未认证客户端的唯一通道，它会移除：
+
+- `source_counts` 与逐 symbol `source`：这些会泄露 `polygon_licensed`、`ib_internal`、`tt_internal` 等内部 provider 名，与 V3A-4 的 provider 降级展示要求一致。
+- `missing_symbols` / `stale_symbols` / `price_history` 覆盖明细：属于采集健康度，不是产品数据。
+- `extra_symbols`：泄露 watchlist 之外的内部采集范围。
+
+`requireAdminToken` 对未配置 `ADMIN_API_TOKEN` 的部署返回 503 而不是放行——缺失的密钥必须关闭端点，不能打开它。token 比较使用 `crypto.timingSafeEqual`，接受 `Authorization: Bearer` 或 `X-Admin-Token`。
+
+`GET /api/heartbeat/status` 同样是运维读模型，因此也需要 admin token；`POST /api/heartbeat` 继续使用 collector 自己的 `HEARTBEAT_TOKEN`，两者是不同的密钥和不同的调用方。
 
 ### 7.3 建议分层
 
@@ -845,7 +903,8 @@ Polygon.io  GET /v3/snapshot/options/{symbol}?limit=250  （+ next_url 分页）
   + GET /v2/aggs/ticker/{symbol}/prev  （underlying 前日 OHLCV）
   → polygon_option_chain_provider.py
   → run_refresh_worker.py（worker daemon，60s poll）
-      ← schedule_option_refresh.py（scheduler，每 300s，batch 2，max_age 60min）
+      ← schedule_option_refresh.py（scheduler，每 300s，填满至 queue target 20，max_age 60min；常规交易时 `require_quotes=true`）
+      → 无有效 bid/ask 时回退 IB Gateway（`ib_internal`，实时类型 1）
   → option_chain_snapshots
       symbol, snapshot_ts, source, underlying_price,
       contract_count, completeness_pct, missing_greeks_ratio, missing_oi_ratio
@@ -871,7 +930,7 @@ option_chain_snapshots + option_contract_snapshots
 **Scanner（派生，无外部 API）**
 ```text
 iv_history + gex_snapshots + option_contract_snapshots + price_history
-  → materialize_scan.py（每 300s）
+  → materialize_scan.py（每 300s；worker batch 内每轮只执行一次）
   → scanner_results_snapshots
       symbol, snapshot_ts, scan_key, iv_rank, iv_hv_diff,
       trend_score, trend_label, gex_regime, signal_score, ...
@@ -879,12 +938,96 @@ iv_history + gex_snapshots + option_contract_snapshots + price_history
 
 **OI Delta / Unusual（派生，无外部 API）**
 ```text
-option_contract_snapshots（当前 snapshot vs 前一 snapshot 比较）
-  → materialize_oi_delta.py
+option_contract_snapshots（最新 snapshot vs 同一来源的前一纽约交易日 snapshot 比较）
+  → materialize_oi_delta.py（worker batch 内每轮只执行一次）
   → option_oi_delta_snapshots
       symbol, snapshot_ts, strike, expiry, option_right,
       oi_delta, is_unusual, status
 ```
+
+**Ingestion / derivation 边界（E3，2026-07-17）**
+
+派生成本按作用域分两类，worker 按此调度：
+
+- **Per-symbol**：`compute_gex.py` 只读刚写入的那个 snapshot，成本随 symbol 线性增长，因此在 option snapshot 落库后立即执行。
+- **Global**：`materialize_oi_delta.py` 与 `materialize_scan.py` 读全部 symbol，成本与"谁触发了它"无关。一个 batch 里 N 个 option job 各跑一次会把全局 scanner 重算 N 次，因此 job 只在 `PendingDerivations` 记录"我 invalidate 了什么"，`run_pending_derivations` 在 batch 末尾各执行一次。
+
+`scanner_materialize` job 因此不再 inline 执行：job row 保持 `running`，直到 batch 末尾的真实结果回写 `succeeded` 或 `failed`。这是刻意的——延迟执行不能让失败的物化被记成成功。两个全局派生各自独立 try/except，OI delta 失败不阻断 scanner 物化。
+
+**`symbol_data_state`：每 symbol × product 的读侧汇总（E4，2026-07-17）**
+
+```text
+run_refresh_worker.handle_job
+  → job_product_facts()（job 语义 → per-product 事实）
+  → symbol_data_state.record_products()
+  → symbol_data_state (symbol, product) 一行
+      latest_snapshot_ts, latest_market_date, source,
+      refresh_status, last_job_id, last_error_code, updated_at
+```
+
+设计约束：
+
+- **不存 freshness。** freshness 随 wall-clock 衰减：60 分钟目标的行在第 61 分钟没有任何写入也已经过期，存下来的标签必然说谎。表只记录"什么落库了、什么时候、来自哪里、上次尝试做了什么"；freshness 由读方用 `latest_snapshot_ts` + product policy 现算。
+- **product 独立。** `price_daily` / `price_30m` / `metrics` / `option_chain` / `gex` 各自一行。期权链落库但 GEX 未过质量门是常态（2026-07-17 GDXJ 实例），塌缩成单一 per-symbol 状态会谎报 GEX 可用。
+- **失败不擦除数据。** upsert 用 `COALESCE` 保留上一次真实 snapshot；失败只更新 `refresh_status` / `last_error_code`，数据仍可作为 stale 展示。
+- **错误码是粗粒度码，不是原始消息。** provider 名和请求明细不进该表，留在 `provider_fetch_jobs.last_error` 给运维。
+- **写入 best-effort。** snapshot 表仍是 source of truth；汇总表写失败不能把成功的刷新变成失败的 job。
+
+**Shared provider rate limiter（E7，2026-07-17）**
+
+`provider_rate_limits(provider, scope, next_allowed_at, last_status, updated_at)` 是跨进程/跨机器的 provider 限流状态。它替代的 file lock 只能约束同一文件系统上的进程：一旦 Mac Studio 与 Railway collector 同时跑，两边各自持有自己的锁文件，实际速率翻倍。
+
+```text
+DatabaseRequestPacer.wait()
+  → INSERT ... ON CONFLICT DO UPDATE
+      SET next_allowed_at = GREATEST(next_allowed_at, NOW()) + delay
+      RETURNING next_allowed_at - delay - NOW()   ← 我的 slot 还有多久
+  → commit + close                                ← 不持锁睡眠
+  → sleep(该时长)
+```
+
+- **slot 认领是原子的。** 两个 worker 竞争拿到两个不同的 slot，不可能撞在同一时刻。
+- **数据库时钟是唯一权威。** 等待时长在 SQL 内算，系统时钟有偏差的两台机器不会都认为轮到自己。
+- **429 惩罚必须共享。** 本地 `time.sleep` 只暂停一个进程，其余继续猛打——这正是单次拒绝变成风暴的机制。`penalize()` 推移共享 slot；`GREATEST` 保证并发 429 中较短的 `Retry-After` 不缩短已生效的较长退避。
+- **降级是显式的。** 无 `DATABASE_URL` 时退回 file lock 并 warn，绝不静默发出不受限请求。
+
+**Queue-fill scheduler（E6，2026-07-17）**
+
+`schedule_option_refresh.py` 按**队列深度**补满，而不是每轮固定入队 N 个：
+
+```text
+symbol_universe (active)          ← 不是 watchlist.txt；后者只是 seed
+  → assign_tiers()                ← core / recent_active / universe_scan / cold_backfill
+  → load_queue_depth()            ← 含 on-demand job，共用同一 provider 预算
+  → fill_count(depth) = min(target - depth, max_per_cycle)
+  → select_candidates()           ← tier 优先，tier 内 missing 优先、最旧优先
+  → provider_fetch_jobs (request_params.priority)
+```
+
+- **深度是约束量。** per-cycle cap 只限制被抽干的队列回填速度。原先 2 个/300s 而 worker 2 个/60s，worker 约 80% 时间空转。
+- **后台 tier 永远低于 on-demand 的 100。** worker 按 `priority DESC` claim；后台扫描若与之持平，正在等页面的用户会排到冷补齐后面。
+- **tier 表示"谁需要"，不表示"多旧"。** staleness 只在 tier 内排序，不跨 tier 提升。
+- **staleness 的判定不能叠加"是否带报价"（2026-07-19 修复）。** `load_refresh_state` 早先把"最新快照"限定为带有效 bid/ask 的那条，导致从未成功拿到报价的标的（含永久失败的 `VIX`——它是指数，走股票 `/prev` 端点必然报错）在排序里永远显示"从未采集"，比任何真实但较旧的快照都靠前；每 30 分钟冷却期一到就重新抢占大半队列容量，把 STX/SRVR 等曾经成功、只是较旧的标的饿了 20+ 小时。现在 `latest_snapshots` 只看**任意**快照的时间戳；报价需求已由独立的 `require_quotes`（仅常规交易时段为真）承担，排序不必重复这个门槛。`VIX` 已从 `scan_enabled` 移出。详见 `docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
+- **候选来自 universe。** universe 会因用户分析未知 symbol 而增长（实测 80 vs watchlist 67）；读文件会把 on-demand symbol 永久排除在后台刷新之外。
+
+**Freshness 契约（E5，2026-07-17）**
+
+`server/src/domain/status/freshness.js` 是全部数据产品唯一的 freshness 定义。此前四个 route 各写各的规则（`prices.js` 5 天、`metrics.js` 2 天、`options.js` 180 分钟、`market.js` 30M 自有规则），E5 将其收敛为一处。新增阈值必须加到该模块，不得在 route 内重新推导。
+
+| Product | 判据 | 理由 |
+|---|---|---|
+| `price_daily` | market date + 多天容差 | 周末/假日没有 bar 可产生，上一交易日收盘仍然当前；容差用来吸收非交易日 |
+| `price_30m` | 与最新日线 market date 比较 | 落后日线的 30M 属于上一 session，不能当作当前确认（沿用 P1.4 规则） |
+| `metrics` | market date，交易日级别 | 每个 session 收盘后落一次 |
+| `option_chain` | 时钟 age | 盘中产品 |
+| `gex` | 继承其 option snapshot 的时间 | GEX 无独立 freshness |
+
+两条不变量：
+
+- **freshness 现算，不落库。** 它随 wall-clock 衰减，存下来的标签在没有任何写入时也会过期。`symbol_data_state` 记录事实，本模块给判定。
+- **真实数据优先于 refresh 状态。** stale + failed refresh 报 `stale`——用户仍看得到真实数据，报 `failed` 会暗示空白页。`queued`/`failed` 只用于"没有可展示的数据"。
+
+`GET /api/analyze/:symbol` 的 `products` 字段按此逐 product 返回 `state` / `freshness` / `is_stale` / `age_minutes` / `age_days` / `refresh_status`。`option_quotes` 是独立 product：链已落库但无可用 bid/ask 是常态，按链的 freshness 报 quotes 会谎报策略腿可用。
 
 ### 10.3 读路径（API → 前端）
 
@@ -1395,7 +1538,7 @@ Mac Studio collector
 | Scanner cache | `materialize_scan.py` → `scanner_results_snapshots` → `/api/scan` |
 | OI delta / unusual | `materialize_oi_delta.py` → `option_oi_delta_snapshots` → `/api/unusual/:symbol` |
 | Refresh queue | API enqueue → `provider_fetch_jobs` → `run_refresh_worker.py` |
-| Budget / monitoring | `provider_request_usage` + `/api/status/cache` |
+| Budget / monitoring | `provider_request_usage` + `/api/admin/status/cache` |
 
 3C runtime verification performed on 2026-07-14:
 
@@ -1403,14 +1546,14 @@ Mac Studio collector
 - `materialize_scan.py` wrote 67 scanner rows for `scan_key=watchlist_v1`.
 - `run_refresh_worker.py` completed with no queued jobs.
 - Local API with Railway DB returned `/api/scan?minIvr=0&maxIvr=100&limit=3` from materialized scanner rows.
-- `/api/status/cache` returned scanner row_count=67 and stale=false.
+- `/api/admin/status/cache` returned scanner row_count=67 and stale=false.
 - `/api/metrics?symbols=PLTR` returned freshness metadata.
 - Phase 3E verification：`materialize_oi_delta.py` wrote 10 PLTR OI delta rows; `/api/unusual/PLTR` returned confirmed rows with `oi_delta=0` and `status=quiet`.
 - Scanner materialization derives trend fields from `price_history` (`trend_score`, `trend_label`, `trend_signal`, 5D change, RSI14, MA20/50/200) and carries `earnings_date` from `iv_history`; the frontend does not compute scanner-wide trend on demand.
 
 Known current monitoring state:
 
-- `/api/status/cache` may report `degraded` while historical failed IB jobs or metadata-only option snapshots remain in the 24h window.
+- `/api/admin/status/cache` may report `degraded` while historical failed IB jobs or metadata-only option snapshots remain in the 24h window.
 - This is expected monitoring visibility, not a Phase 3C implementation failure.
 - 2026-07-15 collector audit found uneven coverage: `iv_history` and `price_history` covered the watchlist, while option-chain/GEX snapshots initially covered only PLTR. The option collector now defaults to `watchlist.txt`, and targeted backfills remain available through `OPTION_SYMBOLS` / `SYMBOLS`.
 - Refresh worker failure handling now has four guardrails: stale `running` jobs are recovered after timeout, unsupported provider names fail closed instead of requeueing forever, TT auth failures are catchable so worker state is written back to `provider_fetch_jobs`, and option-chain jobs fall back from `tt_internal` to `ib_internal` when TT auth is unavailable.
@@ -1461,7 +1604,7 @@ Known current monitoring state:
                         └─────────────────────────────┘
 ```
 
-该架构适合当前项目阶段。当前实施顺序以 `docs/task.md` 的“实施优先级（执行顺序）”为准：先完成 Technical Levels 的 Railway/Vercel 生产验收，再推进 Clerk/Stripe 凭据验收、外部通知/数据源凭据和物理恢复演练。
+该架构适合当前项目阶段。当前实施顺序以 `docs/task.md` 的“实施优先级（执行顺序）”为准：先补计算/API 回归测试与 collector health/coverage alert，再切 Polygon price/HV/IV 派生链，随后完成 scanner/analyze/universe。
 
 Provider credential invariant：API key 只存在于 `collector/.env` 或部署平台 secret store。PM2 ecosystem config、源码、测试和文档不得包含 key；也不得显式注入空字符串覆盖 dotenv。
 
@@ -1530,11 +1673,18 @@ Alerting is observational：它不暂停 collector、不改变 provider fallback
 | Scanner 趋势信号 | `materialize_scan.py` 计算 trend_score、RSI14、MA20/50/200 |
 | S/R 支撑压力（已实现） | `/api/sr/:symbol` 从最多 250 天 OHLCV 计算 2-bar pivots 并按 ±1% 聚合 zone |
 | Focus Score（已实现） | MA20/50/200 + RSI14 + 5日动量 + 完整日线 RVol 组成 0–100 评分 |
+| Volume Profile（已实现） | `/api/vp/:symbol` 的 `30m` 模式只读 regular-session `price_history_30m`；`1d` 模式读取最多 250 根 `price_history`，两者均以典型价 `(H+L+C)/3` 分桶累加 volume，返回 nodes、前 5 个高成交节点、POC、70% Value Area 与 LVN |
+| OBV（已实现） | `/api/sr/:symbol` 基于日线 close 与 volume 计算累计 OBV；上涨日加量、下跌日减量、收平不变，返回完整序列与 20 日方向 |
+| MFI-14（已实现） | `/api/sr/:symbol` 基于 15 根日线的典型价和 volume 计算 14 期 Money Flow Index；返回 0–100 与 overbought/oversold/neutral |
 | Chain stats（已实现） | `/api/chain/stats/:symbol` 从最新含 IV 的真实 contract snapshot 派生 skew 和 ATM term structure |
 
 ### 15.8 Analyze derived-data path（2026-07-15）
 
-Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R 和 chain stats。S/R/Focus 只读取 `price_history`；IV skew/term structure 只读取 `option_contract_snapshots` 中实际存在且 `iv > 0` 的合约。PostgreSQL `DATE` 在 API 边界统一序列化为 `YYYY-MM-DD`，DTE/当日完整性使用 `America/New_York`。
+Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R（含 Focus/OBV/MFI）、Volume Profile 和 chain stats。S/R/Focus/OBV/MFI 只读取 `price_history`；Volume Profile 的 `30m` 模式读取 regular-session `price_history_30m`（默认近 20 天），`1d` 模式读取最多 250 根 `price_history`，两种模式默认 40 个价格桶，并返回 POC、70% Value Area 与 LVN；IV skew/term structure 只读取 `option_contract_snapshots` 中实际存在且 `iv > 0` 的合约。PostgreSQL `DATE` 在 API 边界统一序列化为 `YYYY-MM-DD`，DTE/当日完整性使用 `America/New_York`。
+
+Confluence 是独立的只读派生 API：`GET /api/analyze/:symbol/confluence`。route 只读取最多 250 根 `price_history` 和最新兼容模型的 `gex_snapshots`；`server/src/domain/confluence/engine.js` 保持纯函数，收集 Volume Profile、Market Structure、ATR、Moving Average、Gamma 与 Fibonacci 六类信号，再按 `0.5 × ATR14` 聚类。它使用版本化的固定先验 `confluence-v1-prior`，每个 Zone 返回 `reasons` 和原始输入摘要，尚不写入 scanner 或 UI，直到 CF-3 G5 回放通过。
+
+`server/scripts/replay-confluence.js` 是 G5 的可复现只读 harness。它对每个日线前缀分别调用 Confluence 和现有单点 pivot S/R `+/-0.5%` 控制组，后续 5 个日线只做评分；历史 Gamma 始终为零。当前全样本 G5 未达标，故该 API 不被前端调用，部署层无新增表、job 或权限。
 
 前端不再生成示例价格序列。Analyze 的推荐腿也不再由 spot、wall 与固定 width 合成；真实 candidate 尚未附加时 fail closed。该 section 无 schema migration，回滚仅需回滚对应 commit。
 | HV 自算 | stddev(log_return) × √252，替代 Tastytrade HV 字段 |
@@ -1563,6 +1713,14 @@ metrics API + scanner materializer (per-field provenance)
 - `USE_DERIVED_VOLATILITY=false` 是字段消费 rollback；原始表和派生表均保留，回滚不需要删数据。
 
 2026-07-15 runtime：历史回填 24,738 HV rows；最新 watchlist HV 67/67、ATM IV 67/67、ATM DTE 30–43；IV Rank 0/67 ready（每 symbol 1–2 market-day observations）。Tastytrade HV 对比 median absolute difference 为 14.97pp/8.39pp/6.40pp（30/60/90），因此 TT 数值不能作为同公式 `<1%` parity oracle。
+
+### 26.1 Historical IV Backfill (Phase 2.5)
+
+Historical option snapshots do not supply a complete historical IV series. `collector/backfill_iv_history.py` reconstructs a constant-30-day ATM IV from Polygon EOD option bars: it merges paginated expired and active reference contracts, tries third-Friday monthly expiries before weeklies, BS-inverts traded call/put closes, and interpolates total variance to 30 DTE. It uses a bounded rolling contract-grid cache and commits every 25 trading days; retries are therefore idempotent and interruption-safe.
+
+The readiness boundary remains factual: 252 non-null `atm_iv` observations are required. On 2026-07-18, SPY/QQQ/IWM/GLD/TLT/TSLA/XLC/XHB reached it after replay. XLB/XLE/XLK/XLU/XLY/XSD did not, because Polygon's available EOD option-bar history for those symbols is materially shorter; they remain `iv_rank_ready=false`, rather than receiving manufactured observations.
+
+IB Gateway diagnostic evidence is separate from this Polygon history path. On 2026-07-18, after the IB historical farm recovered, a bounded SPY diagnostic returned delayed option last, volume, OI and model Greeks. API bid/ask remained null with IB messages `10091`/`10167`, which identify a quote-entitlement limitation rather than a broken historical farm. Quote-dependent strategy construction must continue to require a usable bid/ask snapshot.
 
 ## 27. Scanner Positioning and Quote Planes
 
@@ -1677,7 +1835,7 @@ Current Railway runtime is 0/67 ready, so 67 symbols correctly remain eligible f
 
 ## 34. Cloud Metrics Cron
 
-Tastytrade market metrics use REST only and are isolated from the Mac option collector. `collector/Dockerfile.metrics` builds a one-shot Python image whose sole command is `collect.py`; `collector/railway.metrics.json` configures a weekday `22:30 UTC` cron and `NEVER` restart policy.
+Tastytrade market metrics use REST only and are isolated from the Mac option collector. `collector/Dockerfile.metrics` builds a one-shot Python image; its command evolved from `collect.py` (metrics only) to `run_railway_refresh_cycle.py` (full refresh cycle). `collector/railway.metrics.json` uses a `NEVER` restart policy and, as of Option B (2026-07-17), carries **no `cronSchedule`** — the service now runs once per deploy then idles (see the disable note below).
 
 ```text
 Railway cron start -> collect.py -> filter derived-ready symbols
@@ -1686,7 +1844,9 @@ Railway cron start -> collect.py -> filter derived-ready symbols
                                 -> process exits
 ```
 
-The later UTC schedule is intentionally after the US close in both daylight and standard time; Railway cron schedules are UTC. The image excludes `.env`, local virtualenv, tests and logs. This service must not run the Mac daemon, IB adapter, scanner materializer or heartbeat. The Railway service `quantrift-metrics-cron` is created and its Git deployment is active as of 2026-07-16. The config file does not alter Railway's repo-root build context, so its Dockerfile and `COPY` paths are explicitly repo-root-relative.
+The original after-close metrics cron did not consume API refresh jobs. It was later repurposed into a bounded one-shot refresh cycle (`schedule_option_refresh` → `run_refresh_worker` → `materialize_scan`), running every five minutes on weekdays.
+
+**Disabled 2026-07-17 (Option B, commit `48b1cbc`).** Running the refresh cycle here AND on the Mac Studio daemon made two writers contend on one DB — notably the `provider_request_usage` budget row, each stamping its own `PROVIDER_DAILY_BUDGET`, which starved mid-day refreshes. `cronSchedule` was removed from `railway.metrics.json` so Mac Studio is the sole writer; the service keeps its start command but runs once per deploy then idles (`restartPolicyType: NEVER`). Reversible by re-adding `"cronSchedule": "*/5 * * * 1-5"`; if re-enabled, both runtimes must set the same `PROVIDER_DAILY_BUDGET`. The image still excludes `.env`, local virtualenv, tests and logs, and its Dockerfile/`COPY` paths remain repo-root-relative.
 
 The first manual cloud execution reached PostgreSQL and loaded the 67-symbol watchlist. Railway initially omitted `TT_LOGIN`; this is now a required credential-contract field and the collector fails before sending an HTTP request when it is absent. Railway also initially stored a token with literal wrapping quotes; removing those did not restore the invalid database state. The additive migration was applied on 2026-07-16. `provider_auth_state` is shared only by collectors using the same `DATABASE_URL`: a local `auth.py --login` does not seed Railway if its database binding differs. Railway bootstraps an empty row from `TT_REMEMBER_TOKEN`; every collector locks its provider row for the exchange and commits any successor before accepting the session. An explicit 401/403 against an existing database token ends the run after one request; it does not attempt the environment seed, password login, or transient retries. The log includes only an irreversible token fingerprint and named consumer. This avoids a Railway Volume entirely. Cloud collection remains incomplete until its execution log and resulting `iv_history`/`provider_auth_state.updated_at` are verified.
 
@@ -1806,7 +1966,22 @@ When disabled, direct execution exits cleanly; the PM2 profile sets `UW_PM2_IDLE
 
 Freshness belongs to the provider stream, not to each ticker. A fresh stream with no event for a symbol is `quiet`; no provider heartbeat is `missing`; an old/error stream is `stale`. This prevents “no event” from being confused with “collector not running.” Events never alter GEX, IV Rank, recommendation legs, POP, or scanner opportunity score.
 
-## 43. Composite Momentum
+## 43. Real-Data Integrity Boundary
+
+Analyze has one production seed: a null-initialized model created from the requested symbol. It is then populated independently by persisted price history, symbol metrics, GEX and derived endpoints. There is no `mockAnalysis` file or sample-data fallback in the production frontend. A failed or missing API response must leave the corresponding value unavailable; it must never inherit another symbol's price, Wall, conclusion, scenario, or strategy leg.
+
+Scanner reads a materialized snapshot plus independent quote and community CTEs. These relations intentionally share common field names such as `source` and `snapshot_ts`. The final SQL must always qualify their owner. Current contract:
+
+```text
+latest_rows.source      -> scanner row provenance
+latest_rows.snapshot_ts -> scanner freshness / is_stale calculation
+community_batch.source  -> community provenance only
+community_batch.snapshot_ts -> community freshness only
+```
+
+2026-07-16 production verification: `GET /api/scan?minIvr=40&maxIvr=100&limit=5` returned HTTP 200 and real rows after both scanner fields were qualified. `GET /analyze?symbol=NFLX` rendered real `$73.68`, `polygon_licensed` price/GEX and `$75/$73` Walls; the scanner UI rendered 1,700 real quoted candidates.
+
+## 44. Composite Momentum
 
 `GET /api/sr/:symbol` reads up to 250 daily bars and 200 regular-session 30M bars from PostgreSQL. It performs no provider request. Daily bars are also grouped by calendar week using the last available close, producing a real 1W series.
 
@@ -1818,9 +1993,15 @@ Freshness belongs to the provider stream, not to each ticker. A fresh stream wit
 
 Readiness requires 60 daily bars, 12 weekly observations, and 26 regular-session 30M bars. The component and composite scores are bounded to 0–100. If the latest 30M New York market date differs from the latest daily date, the computed values remain visible for diagnosis but status is `stale`; UI explicitly says it is not current multi-timeframe confirmation.
 
-## 44. Analyze Technical Support Confluence
+## 45. Quote Refresh Recovery Boundary
 
-Commit `da298f4` adds a snapshot-only endpoint and panel:
+An Analyze request never calls a provider inline. When an existing chain lacks executable bid/ask quotes, the API enqueues one high-priority `option_chain_snapshot` job with `require_quotes=true`. The worker executes a bounded provider sequence: Polygon first, then the configured local fallback such as TT or IB. A provider construction or connection failure is recoverable and advances the sequence; a returned chain without usable bid/ask also advances the sequence. Only an explicit final `option quote unavailable` result may temporarily block repeat enqueueing. A cloud-specific TT device challenge is not a global quote-data verdict and cannot block a later Mac Studio worker.
+
+The worker persists the successful chain, recomputes GEX, materializes OI delta and scanner rows, then Analyze candidate generation reads only the latest quote-bearing snapshot. This was production-verified for RKLB on 2026-07-17: the local worker fell back after the absent Polygon key, wrote a real quoted snapshot, and `/api/analyze/RKLB/candidate` returned a server-side Diagonal Spread DTO. JSONB boundaries for both raw provider data and scanner payloads explicitly encode Python `Decimal` values before persistence.
+
+## 46. Analyze Technical Support Confluence Prototype
+
+Legacy feature commit `da298f4` adds a snapshot-only endpoint and panel:
 
 ```text
 price_history (250 daily)
@@ -1838,20 +2019,12 @@ all evidence
   -> ranked zones with low/high/center, score, strength and provenance
 ```
 
-`GET /api/technical-levels/:symbol` validates the symbol and returns technical evidence even when
-options data is absent. OI Wall and GEX Wall are never relabeled or substituted for each other.
-Volume Profile is explicitly a 30-minute bar typical-price approximation, not tick-level market
-profile.
+`GET /api/technical-levels/:symbol` returns technical evidence when real price history exists and
+localizes missing GEX/OI to the options component. OI Wall and GEX Wall are never relabeled or
+substituted for each other. Volume Profile is a 30-minute bar typical-price approximation, not a
+tick-level market profile.
 
-Analyze treats this product independently from legacy mock content. SPY therefore shows real
-Technical Levels when price history exists and also retains the legacy 4-Tab content because SPY
-is in the mock dataset. A symbol with real history but no mock still shows Technical Levels.
-Missing daily history returns `status=missing`; missing GEX/OI is localized to the options section.
-
-Deployment state is separate from code state. Local tests, lint, build and a GOOG production-input
-smoke passed, but production acceptance requires:
-
-1. Deploy the server commit to Railway.
-2. Verify `GET /api/technical-levels/SPY` returns `ready` or an explainable `missing`.
-3. Deploy the frontend commit to Vercel.
-4. Verify `/analyze?symbol=SPY` renders the Technical Levels panel and legacy SPY tabs.
+This prototype was implemented on the old `352a23d` baseline. Before production deployment it
+must be reconciled with the current `/api/sr/:symbol` contract and the CF-4/G5 design in
+`SPEC_CONFLUENCE.md`, then pass the current-main server/collector/frontend regression suites.
+Production acceptance remains Railway API first, followed by the Vercel panel and SPY UI smoke.
