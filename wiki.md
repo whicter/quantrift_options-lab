@@ -22,7 +22,8 @@ frontend/src/
 │   ├── mockAnalysis.js       # V2 mock data（9 symbols，含 GEX/scenarios 扩展）
 │   └── weeklyMock.js         # 周复盘 mock data（AAPL/SPY/QQQ，含 5日 gammaByDay）
 ├── lib/
-│   └── blackscholes.js       # BS pricing engine + Greeks
+│   ├── blackscholes.js       # BS pricing engine + Greeks
+│   └── technicalLevels.js    # Technical Levels API client + payload normalization
 ├── store/
 │   └── useStrategyStore.js   # Zustand global state
 ├── components/
@@ -32,6 +33,7 @@ frontend/src/
 │   ├── RightPanel.jsx
 │   ├── StrategyNotes.jsx
 │   ├── GreeksKnowledge.jsx
+│   ├── TechnicalLevelsPanel.jsx # 支撑/压力共振结构、证据、期权状态
 │   └── NavBar.jsx            # 顶部导航
 ├── pages/
 │   ├── Learn.jsx             # /learn — V1 教育工具
@@ -62,7 +64,8 @@ server/
 │   ├── migrate.js            # 建表脚本（run once）
 │   └── routes/
 │       ├── metrics.js        # GET /api/metrics?symbols=AAPL,SPY
-│       └── scan.js           # GET /api/scan?minIvr=30&maxIvr=80
+│       ├── scan.js           # GET /api/scan?minIvr=30&maxIvr=80
+│       └── technicalLevels.js # GET /api/technical-levels/:symbol
 ├── package.json
 └── .env.example
 ```
@@ -74,6 +77,23 @@ server/
 | `GET /health` | 健康检查 |
 | `GET /api/metrics?symbols=X,Y` | 返回最新 IV 数据（最多 50 个）|
 | `GET /api/scan?minIvr=&maxIvr=&minIvHv=&limit=` | 扫描器过滤 |
+| `GET /api/technical-levels/:symbol` | 返回技术支撑/压力区域及 GEX/OI 状态 |
+
+### Technical Support Structure
+
+`/analyze` 不再要求 symbol 必须存在于旧 mock 白名单。只要数据库有日线历史，就会独立加载技术结构：
+
+1. 最近 250 日计算 50DMA、100DMA、200DMA、ATR14 和日线 Pivot。
+2. 日线聚合为周线，计算 MA4/12/20/40 与周线 Pivot。
+3. 常规交易时段 30m OHLCV 计算 Volume Profile POC/HVN。
+4. 从最近 80 个交易日的高成交量 Swing High/Low 自动选 Anchored VWAP 锚点。
+5. 分开读取 GEX Wall 与 7–60 DTE 最大 OI Wall；缺失时 fail closed。
+6. 所有价位先按现价分为 support/resistance，再以
+   `max(0.5 × ATR14, 0.5% × spot)` 聚类，输出 S1–S3 / R1–R3。
+
+每个区域包含 `low/high/center`、`score`、`strength`、`distance_pct` 与可解释 evidence。
+GOOG 生产数据 smoke（2026-07-22）得到 POC `346.00`、AVWAP `353.42`、
+50/100/200DMA `366.12 / 343.21 / 321.99`；期权快照状态按请求时实时显示。
 
 ### collector/ 结构
 

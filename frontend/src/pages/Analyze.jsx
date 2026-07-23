@@ -5,6 +5,8 @@ import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
 import Tab4Signals from './analyze/Tab4Signals';
+import TechnicalLevelsPanel from '../components/TechnicalLevelsPanel';
+import { getTechnicalLevels } from '../lib/technicalLevels';
 
 const TABS = [
   { id: 0, label: '今日概览' },
@@ -34,10 +36,16 @@ function IVGauge({ value }) {
 
 export default function Analyze() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [input, setInput] = useState('');
-  const [result, setResult] = useState(null);
+  const initialSymbol = (searchParams.get('symbol') || '').toUpperCase();
+  const [input, setInput] = useState(initialSymbol);
+  const [result, setResult] = useState(() => getMockAnalysis(initialSymbol));
+  const [technicalData, setTechnicalData] = useState(null);
+  const [technicalError, setTechnicalError] = useState('');
+  const [technicalLoading, setTechnicalLoading] = useState(Boolean(initialSymbol));
+  const [technicalRequest, setTechnicalRequest] = useState(
+    () => initialSymbol ? { symbol: initialSymbol, key: 0 } : null,
+  );
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const activeTab = parseInt(searchParams.get('tab') || '0');
 
   const setTab = t => {
@@ -46,29 +54,33 @@ export default function Analyze() {
   };
 
   useEffect(() => {
-    const sym = searchParams.get('symbol');
-    if (sym) {
-      setInput(sym.toUpperCase());
-      const data = getMockAnalysis(sym);
-      if (data) setResult(data);
-    }
-  }, []);
+    if (!technicalRequest) return undefined;
+    let cancelled = false;
+    getTechnicalLevels(technicalRequest.symbol)
+      .then(data => {
+        if (!cancelled) setTechnicalData(data);
+      })
+      .catch(fetchError => {
+        if (!cancelled) setTechnicalError(fetchError.message);
+      })
+      .finally(() => {
+        if (!cancelled) setTechnicalLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [technicalRequest]);
 
   function handleAnalyze() {
     const sym = input.trim().toUpperCase();
     if (!sym) return;
-    setLoading(true); setError('');
-    setTimeout(() => {
-      const data = getMockAnalysis(sym);
-      if (data) {
-        setResult(data);
-        setSearchParams({ symbol: sym, tab: activeTab });
-      } else {
-        setError(`暂无 ${sym} 的数据，试试 AAPL / SPY / QQQ`);
-        setResult(null);
-      }
-      setLoading(false);
-    }, 380);
+    setTechnicalLoading(true);
+    setError('');
+    setTechnicalError('');
+    setTechnicalData(null);
+    setSearchParams({ symbol: sym, tab: activeTab });
+    const mockData = getMockAnalysis(sym);
+    setResult(mockData);
+    if (!mockData) setError(`${sym} 暂无旧版策略 mock；下方仍会加载真实技术结构。`);
+    setTechnicalRequest({ symbol: sym, key: Date.now() });
   }
 
   return (
@@ -86,12 +98,18 @@ export default function Analyze() {
           onChange={e => setInput(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && handleAnalyze()}
         />
-        <button className="az-btn" onClick={handleAnalyze} disabled={loading}>
-          {loading ? '分析中...' : '分析'}
+        <button className="az-btn" onClick={handleAnalyze} disabled={technicalLoading}>
+          {technicalLoading ? '分析中...' : '分析'}
         </button>
       </div>
 
       {error && <div className="az-error">{error}</div>}
+
+      <TechnicalLevelsPanel
+        data={technicalData}
+        loading={technicalLoading}
+        error={technicalError}
+      />
 
       {result && (
         <>

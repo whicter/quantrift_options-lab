@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { getWeeklyMock } from '../data/weeklyMock';
 import Sec1Tone from './weekly/Sec1Tone';
@@ -18,18 +17,13 @@ const SECTIONS = [
 export default function Weekly() {
   const { symbol } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [data, setData] = useState(null);
-  const [error, setError] = useState('');
   const activeSection = parseInt(searchParams.get('sec') || '0');
+  const data = symbol ? getWeeklyMock(symbol) : null;
+  const error = symbol && !data
+    ? `暂无 ${symbol.toUpperCase()} 的周回顾数据，试试 AAPL / SPY / QQQ`
+    : '';
 
   const setSection = s => setSearchParams({ sec: s });
-
-  useEffect(() => {
-    if (!symbol) return;
-    const d = getWeeklyMock(symbol);
-    if (d) { setData(d); setError(''); }
-    else setError(`暂无 ${symbol.toUpperCase()} 的周回顾数据，试试 AAPL / SPY / QQQ`);
-  }, [symbol]);
 
   if (!symbol) {
     return (

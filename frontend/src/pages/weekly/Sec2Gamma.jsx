@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
-function GEXDayChart({ gexByStrike, putWall, callWall, price }) {
+function GEXDayChart({ gexByStrike, putWall, callWall }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     const draw = () => {

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 function FlowChart({ dailyFlows }) {
   const canvasRef = useRef(null);
@@ -21,8 +21,6 @@ function FlowChart({ dailyFlows }) {
       const n = dailyFlows.length;
       const gap = cH / n;
       const maxFlow = Math.max(...dailyFlows.map(d => Math.abs(d.flow)));
-      const zero = PAD.left;
-
       // Zero line
       ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.12)';
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, H - PAD.bottom); ctx.stroke();

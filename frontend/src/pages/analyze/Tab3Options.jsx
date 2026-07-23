@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);

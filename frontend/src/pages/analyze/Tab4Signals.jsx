@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 function ChipRuler({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);

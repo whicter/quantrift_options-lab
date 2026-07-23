@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 function genPrices(symbol, currentPrice, days = 60) {
   let seed = symbol.split('').reduce((a, c) => a + c.charCodeAt(0), 42);

@@ -42,7 +42,7 @@ Open http://localhost:5173
 | Route | Description |
 |---|---|
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
-| `/analyze` | V2 标的分析：输入股票代码，获取IV状态+方向信号+策略推荐 |
+| `/analyze` | 标的分析：真实技术支撑/压力结构；已有 mock 标的同时显示 IV、方向信号与策略推荐 |
 | `/scan` | V2 扫描器：批量筛选符合条件的标的，按IV Rank排序 |
 
 ## Features (V1 — /learn)
@@ -57,6 +57,9 @@ Open http://localhost:5173
 
 ## Features (V2 — /analyze + /scan)
 - Ticker-first flow: input symbol → system analyzes → recommends strategy
+- Technical Support Structure: Volume Profile POC/HVN、Anchored VWAP、50/100/200DMA、日线/周线结构
+- Confluence zones: 按现价先分 support/resistance，再以 ATR 容差聚合为 S1–S3 / R1–R3，并展示证据与强度
+- Options structure is fail-closed: GEX Wall 与最大 OI Wall 独立计算；快照缺失时明确显示 missing
 - IV analysis: IV Rank, IV30 vs HV30, term structure
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
@@ -74,10 +77,23 @@ Open http://localhost:5173
 - Public user requests must not synchronously depend on a local Mac Studio IB Gateway
 - Future data ingestion should use provider adapters so IB can be replaced by licensed production data without changing frontend contracts
 
+## Technical Levels API
+
+`GET /api/technical-levels/:symbol` 从 PostgreSQL 快照计算并返回：
+
+- 最近 250 根日线的 50/100/200DMA、ATR14、日线 Pivot 和周线 MA/Pivot。
+- 常规交易时段 30m OHLCV 的 Volume Profile 与 Anchored VWAP。
+- 最新 GEX / Gamma Wall 和 7–60 DTE 最大 Call/Put OI Wall；两类 Wall 不混用。
+- 带 `score`、`strength`、`distance_pct` 和 evidence 列表的支撑/压力区域。
+
+2026-07-22 GOOG 数据 smoke：spot `346.19`、POC `346.00`、AVWAP `353.42`、50/100/200DMA
+`366.12 / 343.21 / 321.99`；生产期权快照当时为 fresh，Call/Put GEX Wall 为 `350 / 330`。
+
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
 - [ ] V2: Python IV collector on Mac Studio (daily cron)
 - [x] V2: Vercel deployment
+- [x] V2: Technical Support Structure / Confluence API + Analyze panel
 - [ ] V2: GEX data model + licensed options data provider abstraction
 - [ ] V2: Options scanner push notifications
 - [ ] V3: User auth + subscription tiers

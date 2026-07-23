@@ -1,7 +1,5 @@
-import React from 'react';
-
 export default function Sec5Playbook({ data }) {
-  const { scenarios, symbol } = data;
+  const { scenarios } = data;
 
   return (
     <div className="wk-section">

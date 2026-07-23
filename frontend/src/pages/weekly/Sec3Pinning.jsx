@@ -1,7 +1,5 @@
-import React from 'react';
-
 export default function Sec3Pinning({ data }) {
-  const { maxPain, fridayClose, pinningNote, symbol } = data;
+  const { maxPain, fridayClose, pinningNote } = data;
   const deviation = ((fridayClose / maxPain - 1) * 100).toFixed(2);
   const above = fridayClose >= maxPain;
   const absDev = Math.abs(deviation);

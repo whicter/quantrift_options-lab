@@ -1,5 +1,3 @@
-import React from 'react';
-
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
   return (
@@ -11,7 +9,7 @@ function Badge({ label, value, colorFn }) {
 }
 
 export default function Tab1Overview({ data }) {
-  const { sector, gexTotal, putWall, callWall, pcr, trend, conclusion, scenarios, price, recommendation, earnings } = data;
+  const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, earnings } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = Math.abs(gexTotal) >= 1e9
     ? `$${(gexTotal / 1e9).toFixed(2)}B`

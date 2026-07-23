@@ -205,7 +205,7 @@ export default function GreeksCharts() {
       </div>
 
       <div className="greeks-grid">
-        {GREEKS_CONFIG.map(({ key, label, desc }, gi) => (
+        {GREEKS_CONFIG.map(({ key, label, desc }) => (
           <div key={key} className="greek-cell">
             <div className="greek-title">{label}</div>
             <canvas

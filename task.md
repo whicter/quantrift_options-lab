@@ -149,6 +149,51 @@
 - [ ] /scan 新增过滤器：Unusual OI、PCR 异常、GEX 环境
 - [ ] （付费扩展）Unusual Whales API：真实 sweep / dark pool 数据，$50/月
 
+## ✅ Done (Phase 3C — Technical Support Structure / Confluence)
+
+### 产品目标
+- [x] `/analyze` 为任意已有价格历史的 symbol 显示真实股票技术支撑/压力结构，不依赖 mock symbol 白名单
+- [x] 股票技术结构与期权结构分层展示；Put/Call OI Wall、GEX 缺失时明确显示 missing，不生成替代数字
+- [x] 将多个接近价位聚合为 S1/S2/S3 与 R1/R2/R3 区域，并列出每个区域的证据、强度、来源和数据日期
+
+### 数据与计算
+- [x] 使用 `price_history` 最近 250 根日线计算 50DMA、100DMA、200DMA 与 ATR14
+- [x] 使用常规交易时段 `price_history_30m` 计算固定窗口 Volume Profile、POC 与主要 HVN
+- [x] Volume Profile 明确返回 bar count、price range、bin size、window start/end 和 `approximation=bar_typical_price`
+- [x] 自动选择最近高成交量 Swing Low/High 作为 Anchored VWAP 锚点，并返回 anchor date/type/reason
+- [x] 使用锚点之后的常规交易时段 30M OHLCV 计算 Anchored VWAP；数据不足时 fail closed
+- [x] 将日线聚合为周线，计算周 MA4/MA12/MA20/MA40 与周线 Pivot High/Low
+- [x] 复用真实日线 Pivot 并按距离现价排序，避免只按历史触碰次数输出远端价位
+- [x] 读取最新 `gex_snapshots`，保留 Gamma Regime、Gamma Flip、Call/Put GEX Wall
+- [x] 从最新可用 `option_contract_snapshots` 聚合 7–60 DTE Call/Put OI，计算最大 Call OI Wall 与 Put OI Wall
+- [x] 严格区分 OI Wall 与 GEX Wall，并返回期权快照 source、snapshot time、freshness 和 coverage
+
+### Confluence Engine
+- [x] 将 Volume Profile、Anchored VWAP、50/100/200DMA、日/周线结构、周线 MA、GEX 与 OI Wall 标准化为统一 evidence
+- [x] 先按现价区分 support/resistance，再使用 `max(0.5 × ATR14, 0.5% × spot)` 聚类，避免跨越现价误合并
+- [x] 每个区域返回 low/high/center、score、strength、distance_pct 和可解释 evidence 列表
+- [x] 技术证据在期权数据缺失时仍可独立形成区域；期权数据不得成为技术结构的硬依赖
+
+### API 与前端
+- [x] 新增 `GET /api/technical-levels/:symbol`，校验 symbol 并返回 ready/missing/error 状态
+- [x] 将 technical-levels route 挂载到 Express 生产入口
+- [x] `/analyze` 搜索任意 symbol 时加载技术结构；即使没有旧 mock 分析数据也显示真实技术结构
+- [x] 新增支撑结构面板：顶部指标、垂直价格地图、支撑/压力区域、证据 chips、期权数据状态
+- [x] GOOG 示例显示近期 Volume Profile、AVWAP、DMA 与周线结构；GEX/OI 按实时快照显示 ready/stale/missing
+- [x] 页面覆盖 loading、missing、stale、partial、network error，所有 null 值不得导致 NaN 或 Canvas/React 崩溃
+
+### 测试与验收
+- [x] 后端单测覆盖 DMA、ATR、Volume Profile、AVWAP anchor、周线结构、聚类和期权 missing/ready（8/8）
+- [x] 前端纯函数测试覆盖 API payload 标准化和缺失状态（3/3）
+- [x] `node --test server/test/technicalLevelsRoute.test.js` 通过本阶段全部后端测试
+- [x] 前端 `npm run lint` 零错误、`npm run build` 成功
+- [x] GOOG 生产数据 smoke：技术结构可计算；期权按真实快照返回，缺失时不伪造 Wall/GEX
+- [x] 更新 README、ARCHITECTURE、wiki 和 task；本阶段标题及全部条目标记 ✅
+
+> 全仓库既有回归状态（不属于 Phase 3C）：`node --test server/test/*.test.js` 为 46/55，
+> 9 个失败来自尚未纳入当前 server 的 Clerk/Stripe 依赖、`routes/options.js`、新版 metrics/scan 测试接口；
+> 前端全量测试另有策略数量与 notes 数字化两项既有 backlog。Phase 3C 目标测试、lint 与 build 全绿。
+
 ## 🏗️ V3 — Product
 - [ ] User authentication (NextAuth or Clerk)
 - [ ] 订阅分层: 免费（教育工具）/ 付费（scanner + alerts + live data）

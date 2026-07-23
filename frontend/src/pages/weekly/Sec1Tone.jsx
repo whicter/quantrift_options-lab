@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 function CandleChart({ candles }) {
   const canvasRef = useRef(null);
@@ -71,8 +71,6 @@ function CMEGauge({ score }) {
     ctx.fillStyle = '#0c0e18'; ctx.fillRect(0, 0, W, H);
 
     const cx = W / 2, cy = H - 18, r = 70;
-    const startA = Math.PI, endA = 0;
-
     // Background arc zones
     const zones = [
       { from: 0, to: 30, color: 'rgba(239,68,68,0.5)' },

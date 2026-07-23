@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { scanMock, DEFAULT_WATCHLIST } from '../data/mockAnalysis';
 

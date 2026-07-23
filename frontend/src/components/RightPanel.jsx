@@ -14,7 +14,7 @@ function fmtG(v, dec = 3) {
 
 export default function RightPanel() {
   const {
-    strategy, legs, spot, ivShift, rate, div, range, contracts,
+    legs, spot, ivShift, rate, div, range, contracts,
     setSpot, setIvShift, setRate, setDiv, setRange, setContracts,
     updateLeg, addLeg, removeLeg, resetLegs,
   } = useStrategyStore();
@@ -101,8 +101,6 @@ export default function RightPanel() {
       pop,
     };
   }, [legs, spot, ivShift, rate, div, contracts]);
-
-  const maxDte = Math.max(...legs.map((l) => l.dte), 1);
 
   return (
     <aside className="right-panel">
