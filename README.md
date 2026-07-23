@@ -24,8 +24,18 @@ Production verification on 2026-07-14:
 quantrift_options-lab/
   frontend/     ← React 19 + Vite (Vercel)
   server/       ← Node.js API (Railway)
-  collector/    ← Python IV data collector (Mac Studio cron)
+  collector/    ← Python data collectors (Mac Studio PM2, direct repository runtime)
+  docs/         ← Canonical architecture, deployment, wiki, learning and task docs
 ```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Deployment](docs/QUANTRIFT_DEPLOYMENT.md)
+- [Wiki](docs/wiki.md)
+- [Task tracker](docs/task.md)
+- [Learning notes](docs/learning.md)
+- [Project memory](docs/MEMORY.md)
 
 ## Run Locally
 
@@ -41,9 +51,10 @@ Open http://localhost:5173
 
 | Route | Description |
 |---|---|
+| `/` | Quantrift 产品入口：live Market Regime + Scan/Analyze/Weekly workflow |
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
-| `/analyze` | 标的分析：真实技术支撑/压力结构；已有 mock 标的同时显示 IV、方向信号与策略推荐 |
-| `/scan` | V2 扫描器：批量筛选符合条件的标的，按IV Rank排序 |
+| `/analyze` | V2 标的分析：真实价格趋势、S/R、Focus Score、GEX、VRP、IV skew 与期限结构 |
+| `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
 
 ## Features (V1 — /learn)
 - 86 strategies across 7 categories: Direction / Income / Volatility / Calendar / Complex / Arbitrage / Guide
@@ -57,55 +68,106 @@ Open http://localhost:5173
 
 ## Features (V2 — /analyze + /scan)
 - Ticker-first flow: input symbol → system analyzes → recommends strategy
-- Technical Support Structure: Volume Profile POC/HVN、Anchored VWAP、50/100/200DMA、日线/周线结构
-- Confluence zones: 按现价先分 support/resistance，再以 ATR 容差聚合为 S1–S3 / R1–R3，并展示证据与强度
-- Options structure is fail-closed: GEX Wall 与最大 OI Wall 独立计算；快照缺失时明确显示 missing
 - IV analysis: IV Rank, IV30 vs HV30, term structure
 - Direction signals: MA50/200, RSI, MACD
 - Earnings date detection
-- Scanner: filter by IVR range, strategy type; click row → detailed analysis
+- Scanner: filter by opportunity/preset, then enumerate 13 actual-contract structures; Calendar/Diagonal support cross-expiry legs and advanced naked-risk structures require explicit opt-in
+- Data coverage status API: `/api/status/data`
+- Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
+- Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
+- Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
+- Analyze Technical Confluence expansion: `/api/technical-levels/:symbol` combines Volume Profile, Anchored VWAP, 50/100/200DMA, daily/weekly structure, GEX and OI Walls into explainable S/R zones
+- Analyze never creates example price history or synthetic option legs when real inputs are missing
+- Persistent scanner universe: known database symbols plus on-demand Analyze registrations feed the materialized scanner; `/api/analyze/:symbol` reports field coverage and queues only missing data products
+- Universe filters: price, share/dollar volume, earnings, market cap, sector/category and optionable status are live when the field is populated; nullable reference fields fail closed when a selected filter requires them
+- Market Regime: `/api/market/regime` combines SPY/QQQ daily momentum, regular-session 30M breakout, IV Rank and GEX; stale intraday bars cannot confirm a breakout
+- Weekly Recap: `/api/weekly/:symbol` uses real rolling-week OHLC, daily GEX snapshots, Max Pain and ΔOI. It contains no mock fallback or fabricated money-flow data
+- Scanner alerts: email and browser-push subscriptions persist rules and tokenized unsubscribe state; PM2 evaluates each materialized scan batch with delivery deduplication
 
 ## Data Sources (V2)
-- IV Rank: Tastytrade API (free, pre-calculated)
-- Option chains: production must use a licensed options data provider
-- IB API: internal research / algorithm validation only, not the default public product data source
-- Fallback: yfinance
+- ATM IV / HV30/60/90: Polygon option snapshots and daily OHLCV, derived into `volatility_history`
+- IV Rank: derived only after 252 independent market-day ATM observations; Tastytrade remains the explicit cold-start fallback until readiness
+- Daily OHLCV: up to 400 adjusted bars in Railway `price_history`, sourced by scheduled Polygon aggregates
+- 30-minute OHLCV: 35 calendar days in Railway `price_history_30m`, including VWAP and trade count when supplied
+- Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
+- 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
+- 2026-07-16 runtime: persistent scanner universe has 78 active/scan-enabled symbols; Polygon reference metadata covers 77, market cap 27, sector/category 28, and persisted optionable=true 69. `VIX` remains the only missing ticker reference.
+- Dev/backfill provider: `stooq`, only when explicitly selected
+- Option chains: scheduled ingestion uses `polygon_licensed`; `ib_internal` and `tt_internal` remain explicit fallback/research adapters.
+- IB API: delayed market data is accepted by the current transition pipeline with `IB_MARKET_DATA_TYPE=3`.
+- yfinance is not the default price or options data path because of rate-limit and licensing/reliability constraints
 
 ## Product Data Direction
 - Core product signals: Call Wall, Put Wall, Global GEX, Local Gamma, Gamma Flip, Max Pain, PCR, IV Skew, OI concentration, Unusual OI delta
 - User requests should read precomputed snapshots from Railway PostgreSQL through the Railway API
 - Public user requests must not synchronously depend on a local Mac Studio IB Gateway
-- Future data ingestion should use provider adapters so IB can be replaced by licensed production data without changing frontend contracts
-
-## Technical Levels API
-
-`GET /api/technical-levels/:symbol` 从 PostgreSQL 快照计算并返回：
-
-- 最近 250 根日线的 50/100/200DMA、ATR14、日线 Pivot 和周线 MA/Pivot。
-- 常规交易时段 30m OHLCV 的 Volume Profile 与 Anchored VWAP。
-- 最新 GEX / Gamma Wall 和 7–60 DTE 最大 Call/Put OI Wall；两类 Wall 不混用。
-- 带 `score`、`strength`、`distance_pct` 和 evidence 列表的支撑/压力区域。
-
-2026-07-22 GOOG 数据 smoke：spot `346.19`、POC `346.00`、AVWAP `353.42`、50/100/200DMA
-`366.12 / 343.21 / 321.99`；生产期权快照当时为 fresh，Call/Put GEX Wall 为 `350 / 330`。
-
-### `/analyze` symbol behavior
-
-| 输入 | 技术结构 | 原有 4-Tab 分析 | GEX / OI |
-|---|---|---|---|
-| `SPY`、`AAPL` 等已有 mock 且数据库有行情的标的 | 显示真实 Technical Levels | 同时显示 | 按最新快照显示 ready/stale/missing |
-| 数据库有行情、但不在旧 mock 白名单中的标的 | 显示真实 Technical Levels | 不显示 mock Tab | 按最新快照显示 ready/stale/missing |
-| 数据库没有日线历史的标的 | 显示 missing | 仅在有 mock 时显示 | 不生成替代数据 |
-
-Technical Levels 前后端代码已提交于 `da298f4`，但提交本身不等于生产部署。Railway 必须先部署新增 API，
-Vercel 再部署前端；在两端完成部署前，正式站 `/analyze` 不会出现该面板。
+- Provider adapters isolate ingestion so a future data source can be added without changing API or frontend contracts.
+- Provider credentials are loaded from local/deployment secret stores only. PM2 config, docs and Git must never contain API keys.
+- GEX/API regression coverage includes sign, walls, Gamma Flip, PCR zero division, confidence downgrade, and fresh/missing/stale snapshot behavior. API refresh jobs default to `polygon_licensed`.
+- Collector health checks run every 300 seconds and persist deduplicated active/resolved alerts for coverage, failed jobs, snapshot age and completeness. Notification channels are webhook/SMTP with log fallback.
+- Production data UX should use snapshot cache + stale-while-revalidate: return fresh snapshots immediately, return stale-but-labeled snapshots while refreshing, and show queued/unavailable states instead of fake mock data when a symbol has no data
+- Scanner results should be precomputed/cached, not full-market recalculated on every user request
+- Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
+- Scanner materialized rows include IV, latest price, GEX/walls, OI/volume, OI delta, price-history trend, and earnings date
+- Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
+- Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/status/cache` monitors backlog/stale/failure/budget state
+- Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
+- Analyze computes direction context from real price history and displays Focus Score, VRP, Gamma Flip, Local Gamma, S/R, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
+- Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.
+- Refresh worker safeguards: stale `running` jobs are recovered, unsupported provider jobs fail closed, TT auth exits are converted into job errors, option-chain jobs can fall back from TT to IB, and malformed symbols are rejected before entering `provider_fetch_jobs`.
+- PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.
+- IB contract discovery persists only contracts actually returned by IB with a valid `conId` and `localSymbol`; the collector never constructs synthetic expiry/strike/right combinations.
+- Stale or partial GEX remains visible when the snapshot contains the required computed fields. The UI labels its age/quality; only missing required fields suppress GEX/Wall analysis.
+- Technical evidence remains usable when options data is absent; GEX Wall and maximum OI Wall are separate evidence types and missing values are never synthesized.
+- Scanner `不限` applies no hidden preset and enumerates every qualifying setup across supported strategies in the current 1-90 DTE ingestion window, including multiple rows per symbol. It rejects incomplete or non-positive-credit structures and displays exact legs plus executable-side pricing.
 
 ## Roadmap
 - [x] V2: Railway PostgreSQL + Node.js API (replace mock data)
-- [ ] V2: Python IV collector on Mac Studio (daily cron)
+- [x] V2: Python collectors on Mac Studio (PM2 direct-repository runtime)
+- [x] V2: Polygon daily/30M OHLCV pipeline (`collect_prices.py`, `price_history`, `price_history_30m`, `/api/prices/:symbol`)
+- [x] V2: Polygon-derived HV/ATM IV pipeline with 252-day IV Rank readiness gate and per-field provenance
 - [x] V2: Vercel deployment
-- [x] V2: Technical Support Structure / Confluence API + Analyze panel
-- [ ] V2: GEX data model + licensed options data provider abstraction
-- [ ] V2: Options scanner push notifications
-- [ ] V3: User auth + subscription tiers
-- [ ] V3: Portfolio tracking + Greeks aggregation
+- [x] V2: GEX data model + provider adapter abstraction
+- [x] V2: Cache/freshness architecture for option chain, GEX, scanner and refresh jobs
+- [x] V2: Refresh worker loop, provider budget accounting and stale/empty snapshot monitoring
+- [x] V2: Phase 3E OI delta / unusual activity snapshot layer
+- [x] V2: Persistent scanner universe and unknown-symbol on-demand price/options/GEX refresh
+- [x] V2: Market Regime and fully real-data Weekly Recap
+- [x] V2: Quantrift responsive product home
+- [x] V2: Scanner email/web-push subscription and delivery pipeline
+- [x] V2: Mac Studio collector heartbeat, cloud freshness status and offline incident lifecycle
+- [x] V2: Per-symbol automatic Tastytrade IV Rank cutoff after derived 252-session readiness
+- [x] V2: Tastytrade metrics runtime: Mac Studio weekday cron writes Railway PostgreSQL; Railway one-shot image is retained but defaults disabled after provider device challenge
+- [x] V2: IB Gateway cloud migration evaluation and secure fixed-egress VPS template
+- [x] V3 scaffold: Clerk auth boundary, account API/UI, Free/Pro entitlement model and Railway schema (runtime keys pending)
+- [x] V3 Portfolio: authenticated multi-leg tracking, snapshot P/L and aggregate Greeks with missing-quote gates
+- [x] V3 billing code: Stripe Checkout/Portal, signed idempotent webhooks and rollout-gated Free/Pro enforcement
+- [x] Frontend verification baseline: full ESLint clean, 21 tests and production build
+- [x] Analyze Tab4: real Call/Put OI density by strike with independent snapshot freshness
+- [x] Reddit community-trend pipeline: OAuth provider, persisted snapshots, Scanner heat column and disabled-safe PM2 cron (credentials pending)
+- [x] Unusual Whales flow pipeline: idempotent sweep/TRF events, provider heartbeat, Analyze UI and disabled-safe WebSocket worker (account stream parameters pending)
+- [x] Composite Momentum: real 30M/1D/weekly-derived 1W scores with 30/40/30 weights and stale intraday gating
+- [x] V3 code: Clerk auth + subscription tiers (runtime keys pending)
+- [x] V3: Portfolio tracking + Greeks aggregation
+- [x] Analyze Technical Support Confluence code and local verification (`da298f4`)
+- [ ] Deploy `/api/technical-levels/:symbol` to Railway and `TechnicalLevelsPanel` to Vercel, then record production acceptance
+
+## Analyze Technical Support Confluence
+
+The expanded Analyze panel is independent from the legacy mock-analysis whitelist:
+
+| Symbol state | Technical structure | Legacy 4-Tab content | GEX / OI |
+|---|---|---|---|
+| `SPY`, `AAPL`, etc. with price history and legacy mock data | Real Technical Levels | Also shown | Latest snapshot status |
+| Price history exists but no legacy mock exists | Real Technical Levels | Hidden | Latest snapshot status |
+| No daily price history | Explicit `missing` | Shown only if legacy mock exists | No substitute values |
+
+The API reads 250 daily bars and regular-session 30-minute bars from PostgreSQL, calculates
+50/100/200DMA, ATR14, Volume Profile POC/HVN, Anchored VWAP and daily/weekly structure, then
+clusters evidence separately above and below spot. GEX Walls and 7–60 DTE maximum OI Walls
+remain distinct.
+
+GOOG production-data smoke on 2026-07-22 produced spot `346.19`, POC `346.00`, AVWAP `353.42`,
+and 50/100/200DMA `366.12 / 343.21 / 321.99`. This validated the calculation against production
+inputs; it did not deploy the new route. Code is committed in `da298f4`. Railway must deploy the
+API before Vercel deploys the panel.
