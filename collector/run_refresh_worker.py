@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg2
 from dotenv import load_dotenv
@@ -70,6 +71,15 @@ SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal', 'polygon_licensed'}
 # quote, use the locally subscribed IB Gateway before considering any other
 # transitional provider.
 DEFAULT_OPTION_FALLBACK_PROVIDERS = 'ib_internal'
+# P2.1: during the regular US session, source the underlying spot from IB Gateway
+# (a real in-session delayed last) instead of a prior daily close. The $29 Polygon
+# Options plan cannot serve stock intraday (403, verified 2026-07-20), so IB is
+# the only free in-session price. Default OFF -- flip after market-open acceptance.
+# The option chain itself still comes from Polygon; only the spot is IB-sourced.
+OPTION_IB_INTRADAY_SPOT_ENABLED = os.getenv('OPTION_IB_INTRADAY_SPOT_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes')
+MARKET_TIMEZONE = ZoneInfo('America/New_York')
+_SESSION_OPEN = time(9, 30)
+_SESSION_CLOSE = time(16, 0)
 NON_RETRYABLE_ERROR_PREFIXES = (
     'unsupported option provider for worker:',
     'tastytrade auth unavailable:',
@@ -365,6 +375,45 @@ def latest_db_spot(conn, symbol: str, max_age_days: int = SPOT_HINT_MAX_AGE_DAYS
     return float(row[0]) if row and row[0] is not None else None
 
 
+def is_regular_us_session(now_et: datetime | None = None) -> bool:
+    """True during the Mon-Fri 09:30-16:00 ET regular session.
+
+    Holidays are not modeled -- an early-close or holiday only means IB is asked
+    for a spot it may not have, which falls back cleanly. Used to gate the IB
+    intraday spot: outside the session there is no live price to prefer over the
+    prior close, and IB delayed data is only meaningful in-session.
+    """
+    now_et = now_et or datetime.now(timezone.utc).astimezone(MARKET_TIMEZONE)
+    if now_et.weekday() >= 5:
+        return False
+    return _SESSION_OPEN <= now_et.timetz().replace(tzinfo=None) < _SESSION_CLOSE
+
+
+def fetch_ib_intraday_spot(symbol: str) -> dict[str, Any] | None:
+    """Best-effort in-session underlying spot from IB Gateway (P2.1).
+
+    Reuses the existing IB option-chain provider's `fetch_underlying` (already
+    the fallback path's underlying source). Returns {price, source, as_of} or
+    None on any failure -- it must never break the Polygon refresh, so IB being
+    down/late/entitlement-limited simply falls back to the prior close.
+    """
+    try:
+        from providers.ib_option_chain_provider import IbOptionChainProvider
+        underlying = IbOptionChainProvider().fetch_underlying(symbol)
+        price = getattr(underlying, 'price', None)
+        if price is None or float(price) <= 0:
+            return None
+        as_of = getattr(underlying, 'timestamp', None)
+        return {
+            'price': float(price),
+            'source': 'ib_internal',
+            'as_of': as_of.isoformat() if hasattr(as_of, 'isoformat') else None,
+        }
+    except Exception as exc:  # best-effort: never break the Polygon path
+        log.warning('IB intraday spot unavailable for %s: %s', symbol, exc)
+        return None
+
+
 def latest_db_iv(conn, symbol: str) -> float | None:
     """Most recent ATM IV for a symbol (decimal, e.g. 0.48), for sizing the
     adaptive OI window. Prefers the derived volatility series, falls back to the
@@ -406,7 +455,14 @@ def fetch_and_persist_option_snapshot(
     if provider_name == 'polygon_licensed':
         spot_hint = latest_db_spot(conn, symbol)
         iv_hint = latest_db_iv(conn, symbol)
-        snapshot = provider.fetch_option_chain(symbol, spot_hint=spot_hint, iv_hint=iv_hint)
+        # P2.1: prefer a real in-session IB spot over the prior close during the
+        # regular session. Best-effort -- None falls back to spot_hint/`/prev`.
+        intraday_spot = None
+        if OPTION_IB_INTRADAY_SPOT_ENABLED and is_regular_us_session():
+            intraday_spot = fetch_ib_intraday_spot(symbol)
+        snapshot = provider.fetch_option_chain(
+            symbol, spot_hint=spot_hint, iv_hint=iv_hint, intraday_spot=intraday_spot,
+        )
     else:
         snapshot = provider.fetch_option_chain(symbol)
     snapshot_id = collect_options.persist_snapshot(conn, snapshot)

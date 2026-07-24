@@ -1727,6 +1727,8 @@ The readiness boundary remains factual: 252 non-null `atm_iv` observations are r
 
 IB Gateway diagnostic evidence is separate from this Polygon history path. On 2026-07-18, after the IB historical farm recovered, a bounded SPY diagnostic returned delayed option last, volume, OI and model Greeks. API bid/ask remained null with IB messages `10091`/`10167`, which identify a quote-entitlement limitation rather than a broken historical farm. Quote-dependent strategy construction must continue to require a usable bid/ask snapshot.
 
+**In-session underlying spot from IB (P2.1, code 2026-07-23, flag default off, acceptance pending)**：产品的"现价"来自期权刷新 worker 每 5 分钟写的 `option_chain_snapshots.underlying_price`。$29 Polygon Options 档不含股票盘中(403),所以盘中真现价的唯一免费来源是 IB Gateway 的延迟 last。worker 在常规交易时段(`is_regular_us_session`,Mon-Fri 09:30-16:00 ET)经 `fetch_ib_intraday_spot`(best-effort,复用 `IbOptionChainProvider.fetch_underlying`)取 IB 现价,作为 `intraday_spot` 传给 polygon provider,优先级最高(IB 盘中 > Polygon 盘中 gated > db spot_hint > `/prev`)。期权链仍来自 Polygon,故快照 `source` 保持 `polygon_licensed`,真实现价来源记入 `raw_metadata.underlying_source/endpoint('ib_intraday_last')/as_of`。env `OPTION_IB_INTRADAY_SPOT_ENABLED` 默认 false;开盘 flip 后需 live 验收。可复现:`docs/validation/IB_INTRADAY_SPOT_2026-07-23.md`。
+
 ## 27. Scanner Positioning and Quote Planes
 
 同一 symbol 的“最新 positioning snapshot”和“最新 usable quote snapshot”不是同一个概念：

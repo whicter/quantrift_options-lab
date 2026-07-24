@@ -314,6 +314,44 @@ class SpotHintTests(unittest.TestCase):
         self.assertEqual(float(snapshot.underlying.price), 380.84)
         self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'prev_agg')
 
+    def test_ib_intraday_spot_beats_hint_and_prev_and_records_provenance(self):
+        # P2.1: a caller-supplied in-session IB spot wins over a daily-close hint,
+        # and its origin is recorded in raw_metadata even though the snapshot
+        # source stays polygon_licensed.
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession([
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+        ])
+        provider = self._provider(session)
+        snapshot = provider.fetch_option_chain(
+            'TEST', spot_hint=100.0,
+            intraday_spot={'price': 374.43, 'source': 'ib_internal', 'as_of': '2026-07-20T14:22:00+00:00'},
+        )
+
+        # IB price won, not the 100.0 hint; no /prev requested.
+        self.assertEqual(float(snapshot.underlying.price), 374.43)
+        self.assertEqual([c for c in session.calls if '/prev' in c[0]], [])
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'ib_intraday_last')
+        self.assertEqual(snapshot.source, 'polygon_licensed')  # options are still Polygon
+        self.assertEqual(snapshot.raw_metadata['underlying_source'], 'ib_internal')
+        self.assertEqual(snapshot.raw_metadata['underlying_endpoint'], 'ib_intraday_last')
+
+    def test_invalid_ib_intraday_spot_falls_back_to_hint(self):
+        today = date.today()
+        atm_expiry = today + timedelta(days=35)
+        session = FakeSession([
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+        ])
+        provider = self._provider(session)
+        snapshot = provider.fetch_option_chain(
+            'TEST', spot_hint=100.0, intraday_spot={'price': 0, 'source': 'ib_internal'},
+        )
+        self.assertEqual(float(snapshot.underlying.price), 100.0)
+        self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'db_spot_hint')
+
 
 class AdaptiveOiWindowTests(unittest.TestCase):
     def test_window_scales_with_iv_and_clamps(self):

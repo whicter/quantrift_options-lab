@@ -217,9 +217,10 @@ class SpotHintWorkerTests(unittest.TestCase):
 
         class _Provider:
             source = 'polygon_licensed'
-            def fetch_option_chain(self, symbol, spot_hint=None, iv_hint=None):
+            def fetch_option_chain(self, symbol, spot_hint=None, iv_hint=None, intraday_spot=None):
                 captured['spot_hint'] = spot_hint
                 captured['iv_hint'] = iv_hint
+                captured['intraday_spot'] = intraday_spot
                 return _FakeSnapshot()
 
         with patch.object(run_refresh_worker, 'latest_db_spot', return_value=205.0), \
@@ -230,6 +231,8 @@ class SpotHintWorkerTests(unittest.TestCase):
             )
         self.assertEqual(captured['spot_hint'], 205.0)
         self.assertEqual(captured['iv_hint'], 0.42)
+        # IB intraday spot is gated off by default, so no IB spot is passed.
+        self.assertIsNone(captured['intraday_spot'])
 
     def test_non_polygon_job_does_not_pass_a_spot_hint(self):
         import run_refresh_worker

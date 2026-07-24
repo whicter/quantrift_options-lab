@@ -363,3 +363,59 @@ class JobSummarySerializationTest(unittest.TestCase):
         # cannot clobber the shared budget row down and starve production.
         import run_refresh_worker
         self.assertGreaterEqual(run_refresh_worker.PROVIDER_DAILY_BUDGET, 1_000_000)
+
+
+class IbIntradaySpotTests(unittest.TestCase):
+    """P2.1: in-session IB spot as the underlying price for the Polygon chain."""
+
+    def test_regular_session_boundaries(self):
+        import run_refresh_worker as w
+        et = w.MARKET_TIMEZONE
+        # Wednesday 2026-07-22
+        self.assertTrue(w.is_regular_us_session(datetime(2026, 7, 22, 9, 30, tzinfo=et)))
+        self.assertTrue(w.is_regular_us_session(datetime(2026, 7, 22, 15, 59, tzinfo=et)))
+        self.assertFalse(w.is_regular_us_session(datetime(2026, 7, 22, 16, 0, tzinfo=et)))   # close is exclusive
+        self.assertFalse(w.is_regular_us_session(datetime(2026, 7, 22, 9, 0, tzinfo=et)))    # pre-market
+        self.assertFalse(w.is_regular_us_session(datetime(2026, 7, 18, 11, 0, tzinfo=et)))   # Saturday
+
+    def test_fetch_ib_intraday_spot_returns_price_source_asof(self):
+        import run_refresh_worker as w
+
+        class _Underlying:
+            price = 374.43
+            timestamp = datetime(2026, 7, 20, 14, 22, tzinfo=timezone.utc)
+
+        class _Provider:
+            def fetch_underlying(self, symbol):
+                return _Underlying()
+
+        with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _Provider):
+            spot = w.fetch_ib_intraday_spot('TSLA')
+        self.assertEqual(spot['price'], 374.43)
+        self.assertEqual(spot['source'], 'ib_internal')
+        self.assertEqual(spot['as_of'], '2026-07-20T14:22:00+00:00')
+
+    def test_fetch_ib_intraday_spot_is_best_effort_on_failure(self):
+        import run_refresh_worker as w
+
+        class _Boom:
+            def fetch_underlying(self, symbol):
+                raise RuntimeError('IB gateway down')
+
+        with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _Boom):
+            self.assertIsNone(w.fetch_ib_intraday_spot('TSLA'))
+
+    def test_fetch_ib_intraday_spot_rejects_nonpositive_price(self):
+        import run_refresh_worker as w
+
+        class _Provider:
+            def fetch_underlying(self, symbol):
+                from types import SimpleNamespace
+                return SimpleNamespace(price=0.0, timestamp=None)
+
+        with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _Provider):
+            self.assertIsNone(w.fetch_ib_intraday_spot('TSLA'))
+
+    def test_ib_intraday_spot_is_disabled_by_default(self):
+        import run_refresh_worker as w
+        self.assertFalse(w.OPTION_IB_INTRADAY_SPOT_ENABLED)

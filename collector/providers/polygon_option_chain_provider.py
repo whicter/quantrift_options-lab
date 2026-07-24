@@ -105,12 +105,30 @@ class PolygonOptionChainProvider:
         except (requests.RequestException, ValueError, KeyError):
             return None
 
-    def fetch_underlying(self, symbol: str, spot_hint: float | None = None) -> UnderlyingSnapshot:
-        # Freshest first: a delayed intraday last-trade price during the session.
-        # Only when there is no intraday bar (pre-market, after-hours, weekend,
-        # holiday) do we use a recent daily close -- either the supplied hint or
-        # /prev. A stale daily close must never stand in for an intraday price.
+    def fetch_underlying(
+        self,
+        symbol: str,
+        spot_hint: float | None = None,
+        intraday_spot: dict[str, Any] | None = None,
+    ) -> UnderlyingSnapshot:
+        # Freshest first: a real in-session underlying price supplied by the
+        # caller (P2.1 -- IB Gateway delivers a delayed last during the regular
+        # session; the $29 Polygon Options plan cannot). Then a Polygon delayed
+        # intraday bar (only if entitled). Only with no in-session price do we use
+        # a recent daily close -- the supplied hint or /prev. A stale daily close
+        # must never stand in for an intraday price.
         now = datetime.now(timezone.utc)
+        if intraday_spot is not None:
+            price = intraday_spot.get('price')
+            if price is not None and float(price) > 0:
+                return UnderlyingSnapshot(
+                    symbol=symbol.upper(),
+                    price=float(price), bid=None, ask=None, timestamp=now,
+                    source=intraday_spot.get('source') or self.source,
+                    raw={'price': float(price), 'endpoint': 'ib_intraday_last',
+                         'source': intraday_spot.get('source'),
+                         'as_of': intraday_spot.get('as_of')},
+                )
         intraday = self._fetch_intraday_last(symbol)
         if intraday is not None:
             price, bar_ms = intraday
@@ -149,13 +167,14 @@ class PolygonOptionChainProvider:
         max_strikes_per_side: int | None = None,
         spot_hint: float | None = None,
         iv_hint: float | None = None,
+        intraday_spot: dict[str, Any] | None = None,
     ) -> OptionChainSnapshot:
         symbol = symbol.upper()
         snapshot_ts = datetime.now(timezone.utc)
         window_pct = strike_window_pct if strike_window_pct is not None else self.strike_window_pct
         strike_limit = max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side
 
-        underlying = self.fetch_underlying(symbol, spot_hint=spot_hint)
+        underlying = self.fetch_underlying(symbol, spot_hint=spot_hint, intraday_spot=intraday_spot)
         if underlying.price is None:
             raise RuntimeError(f'Polygon underlying price unavailable for {symbol}')
         spot = underlying.price
@@ -273,6 +292,13 @@ class PolygonOptionChainProvider:
                 'selected_expirations': sorted({contract.expiry.isoformat() for contract in contracts}),
                 'term_structure_expiry_count': len(term_structure),
                 'oi_by_strike_count': len(oi_by_strike.get('points') or []),
+                # Underlying price provenance: the options come from Polygon, but
+                # the spot may be an in-session IB price (P2.1). Recorded so the
+                # composite snapshot's price origin stays honest even though the
+                # snapshot source is polygon_licensed.
+                'underlying_endpoint': (underlying.raw or {}).get('endpoint'),
+                'underlying_source': (underlying.raw or {}).get('source') or underlying.source,
+                'underlying_as_of': (underlying.raw or {}).get('as_of'),
             },
             term_structure=term_structure,
             oi_by_strike=oi_by_strike,
