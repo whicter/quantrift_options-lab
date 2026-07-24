@@ -63,6 +63,22 @@ linked:
   semis/tech into energy + defensives" story; semis' high IV (SMH 85, SOXX 83)
   corroborates their S0 high-vol classification.
 
+## Enhancement (2026-07-24, from the competitor re-audit)
+
+nextpick's rotation carries "Institutional Net Flow" + sector grades. Added both,
+zero new data:
+
+- **Flow (MFI)**: `loadSectorRotation` pulls the recent ~16 OHLCV bars per ETF and
+  reuses `supportResistance.deriveMfi`; `buildSectorRotation` adds `mfi` +
+  `rotationFlow` (inflow ≥55 / outflow ≤45 / neutral). Position is trend, flow is
+  whether money is actually moving in — the two can diverge.
+- **Grade (S–D)**: `rotationGrade(rs)` — S ≥5, A ≥2, B ≥0, C ≥−3, D else. On the
+  RRG chips (badge + flow triangle) and tooltip, and in the R1.2 briefing headline.
+
+Verification: `rotationGrade`/`rotationFlow` unit-tested; server 212/212, frontend
+92/92. Live (2026-07-24): XLE S + MFI 76 inflow (clean); KIE/XLV grade A but MFI
+outflow — a price/flow divergence pure RRG hides.
+
 ## Files
 
 - `server/src/routes/market.js` — `SECTOR_ETFS`, `ROTATION_BENCHMARK`, `round2`,
