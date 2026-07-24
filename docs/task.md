@@ -10,7 +10,7 @@
    - `2026-07-21 — 预算行被双 runtime 打回 1000` ✅：盘中整段停摆的根因,默认预算 1000→1,000,000,顺带修 metrics `date` 序列化 bug。
    - `2026-07-20 — 现价陈旧 bug` 🟡 **1 项未完成**：P1(spot 4→1 天)/P2(延迟盘中价路径,默认关)/**P3(现价时间戳标注)**/**P4(日线 cron 可靠性:加第二次 18:35 PT 运行 + 新鲜度守卫)**均已完成(后两项 2026-07-23);仅剩 **P2.1 免费 IB 盘中价(唯一免费真盘中价路径,用户已确认要做,需开盘时段验收——市场闭市期间无法验收)**。Polygon Options 档股票盘中数据 403 死路,已铁证。
    - `2026-07-19 — 调度器饥饿 bug` ✅：16 个"从未成功报价"标的霸占优先级饿死 STX/SRVR/MU 等;修排序 + 禁用 VIX。
-1. `2026-07-17 — IV Rank 自给自足` — 3 项，**当前主线、下一个开发项 = Phase 3**：Phase 2.5 已完成（分页 + 月期权回退 + 滚动 grid cache + 分批持久化；核心 SPY/QQQ/IWM/GLD/TLT/TSLA 均达 252+）→ Phase 3 前向口径统一（上线前必须项，设计已写）→ Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
+1. `2026-07-17 — IV Rank 自给自足` — 2 项，**当前主线**：Phase 2.5（分页+月期权回退+滚动 grid cache+分批持久化）与 **Phase 3 前向口径统一（constant-30d,2026-07-23 完成）**已完成 → 下一步 Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
 2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
@@ -220,9 +220,10 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - **实施（`d7175d4`、`cb9f639`、`5a11d4b`）**：`expiry_strike_grid` 对 `expired=true/false` 均跟随 `next_url`（上限 10 页）；`compute_day_iv30` 先走第三个星期五月期权、再回退周到期；相邻交易日复用有界滚动 grid cache；每 25 个交易日做一次幂等 upsert，进程中断不会丢失整段结果。
   - **验证（2026-07-18）**：collector `unittest discover` **226/226 通过**。对核心集合重跑 `backfill_iv_history.py <symbols> --days 400` 后执行 `derive_volatility.run(backfill=False, symbols=...)`：SPY 262、QQQ 274、IWM 274、GLD 276、TLT 276、TSLA 276、XLC 275、XHB 275，均 `iv_rank_ready=true`。
   - **真实数据例外**：XLB 157、XLE 158、XLK 166、XLU 156、XLY 155、XSD 203 仍不足 252；月度查询显示前五个在 Polygon EOD option bars 中从 **2025-12** 才连续，之前仅零散日期，重跑不会补造不存在的观测。保留为 provider historical-coverage 例外，不能标记 ready。零行旧/稀疏 watchlist codes 另有 15 个（ACAC、BATL、BRK、FX、KPK、LINK、LSL、LTV、MINE、NOEM、RE、SGP、SMS、TITI、TTM），不纳入“修复已覆盖”统计。
-- [ ] **Phase 3 — 前向口径统一(Phase 2.5 之后立即做,上线前必须项)**:把每日 `atm_iv` 采集改成与回填一致的 constant-30-day 口径,消除"回填段 constant-30d vs 前向段浮动 30-45 DTE 单张 ATM"的方法接缝(接缝会在拼接点产生人为 IV 跳变,直接污染 IV Rank)。
-  - **设计**:`fetch_atm_observations`(或其调用处)改为——取 30 DTE 两侧 bracketing 到期的 ATM call+put 快照 IV(Polygon snapshot 自带 IV,当日不需要 BS 反解),`constant_maturity_iv`(implied_vol.py 现成)插值到 30 天;写入 `volatility_history.atm_iv`,`iv_source` 标新口径(如 `polygon_snapshot_cm30`)。
-  - **验收**:单测(插值路径/单点回退/无 IV 回退);对若干 symbol 比对新旧口径同日差异并记录;`derive_volatility` 在混合序列(回填段+前向段)上跑通出 iv_rank;文档记录口径切换日期(序列分析时的 provenance)。
+- [x] **Phase 3 — 前向口径统一(已完成 2026-07-23,上线前必须项)**:每日 `atm_iv` 采集改成与回填一致的 constant-30-day 口径,消除"回填段 constant-30d vs 前向段浮动 30-45 DTE 单张 ATM"的方法接缝。
+  - **实现**:`implied_vol.constant_maturity_atm_iv`(每到期 call+put 平均→按总方差插值到 30 天,纯函数)+ `derive_volatility.fetch_cm30_observations`(SQL 取每快照每 bracketing 到期的 ATM strike call+put 快照 IV,`FILTER (WHERE option_right)`;不做 BS 反解——Polygon snapshot 自带 IV)+ `build_cm30_rows`(纯:按 symbol-day 分组、插值、provenance 锚到最接近 30 天的到期)。写 `volatility_history.atm_iv`,`iv_source='polygon_snapshot_cm30'`;`upsert_atm_rows` 改为透传 `row.iv_source`(此前硬编码 `polygon_derived`)。env `IV_CM30_ENABLED`(默认 true,回退旧浮动法)、`IV_CM30_DTE_MIN/MAX`(12/50)、`IV_CM30_TARGET_DAYS`(30)。
+  - **验收**:单测 9 条(implied_vol 插值/缺腿/单点/无腿 4 + derive 插值+标源/provenance 锚/无 IV 丢弃/分组独立/SQL bracket+双 right 5);**live 新旧口径同日差异**(2026-07-23):SPY 0.1571→0.1445(−1.26 vol 点)、QQQ 0.2515→0.2411(−1.04)、TSLA 0.4118→0.4662(**+5.44**,旧 call-only 丢了 put skew)、MU 0.9779→0.9812(+0.33)——这些正是接缝处的人为跳变;cm30 与回填 constant-30d 口径(call+put)一致,接缝消除。collector 263/263。daemon reload 后前向写 cm30;option_chain_snapshots 7 天 retention 内的既有前向浮动天(07-18~07-22)会被下一轮 derive 覆盖为 cm30,自愈中段接缝。可复现:`docs/validation/IV_CM30_FORWARD_UNIFICATION_2026-07-23.md`。
+  - **口径切换 provenance**:`iv_source` 三态区分——`polygon_backfill_bs`(历史回填,constant-30d)/`polygon_snapshot_cm30`(前向新,constant-30d)/`polygon_derived`(前向旧浮动,已弃用/被覆盖)。序列分析按此判定方法。
 - [ ] **Phase 4 — TT 对比验证 harness**:重叠 symbol-日上比 ①IV 水平(自算 atm_iv vs TT `iv_history.iv30`)②IV Rank(自算 vs TT `iv_rank`)。指标 MAE + 相关系数。参考验收线:IV 水平 MAE < ~2 vol 点 & corr > 0.95;IV Rank MAE < ~5–8 点。水平对但 rank 偏 = 方法差异(可修);水平就偏 = 数据/反解问题。
 - [ ] **Phase 5 — cutover**:TT 保持并行跑攒重叠样本;Phase 4 达标后各处 `TT_METRICS_ENABLED=false` 下线 TT;从 option provider fallback 序列移除 IB(产品路径)。结果:options-lab = Railway(DB+API+Polygon+derive)+ Vercel,Mac 可关机。
 

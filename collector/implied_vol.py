@@ -97,6 +97,25 @@ def atm_iv_from_call_put(call_iv: float | None, put_iv: float | None) -> float |
     return sum(values) / len(values)
 
 
+def constant_maturity_atm_iv(expiry_points, target_days: float = 30) -> float | None:
+    """Constant-maturity ATM IV from per-expiry call/put IVs.
+
+    ``expiry_points`` is an iterable of ``(dte_days, call_iv, put_iv)``. Each
+    expiry's ATM IV is the call/put average (``atm_iv_from_call_put``); the
+    resulting ``(dte, atm_iv)`` points are interpolated to ``target_days`` in
+    total variance (``constant_maturity_iv``). This is the forward-collection
+    twin of the historical backfill's constant-30d method, so the two segments of
+    the IV series share one maturity convention and no seam appears at the join.
+    Returns None when no expiry yields a usable ATM IV.
+    """
+    points = []
+    for dte, call_iv, put_iv in expiry_points:
+        atm = atm_iv_from_call_put(call_iv, put_iv)
+        if atm is not None:
+            points.append((dte, atm))
+    return constant_maturity_iv(points, target_days)
+
+
 def constant_maturity_iv(points, target_days: float = 30) -> float | None:
     """Interpolate ATM IV to a constant target maturity.
 

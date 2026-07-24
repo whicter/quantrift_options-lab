@@ -748,6 +748,8 @@ INDEX(date DESC)
 
 避免不同页面或接口采用不同口径。
 
+**前向口径统一（Phase 3，2026-07-23）**：`volatility_history` 的 252 天序列由历史回填段与前向每日段拼接而成，两段必须同口径,否则拼接点的人为 IV 跳变会污染 IV Rank（对序列噪声敏感的相对指标）。历史回填 (`polygon_backfill_bs`) 用 constant-30-day（ATM call+put、总方差插值、BS 反解）；前向此前用浮动 30–45 DTE 单张 ATM **call**（`polygon_derived`），两处方法不一致。现前向改为 `derive_volatility.fetch_cm30_observations` + `implied_vol.constant_maturity_atm_iv`：取每快照每 bracketing 到期的 ATM strike call+put **快照 IV**（Polygon snapshot 自带 IV，无需 BS 反解），按总方差插值到 30 天，写 `iv_source='polygon_snapshot_cm30'`。`iv_source` 三态区分方法来源（`polygon_backfill_bs`/`polygon_snapshot_cm30`/弃用的 `polygon_derived`）。env `IV_CM30_ENABLED`（默认 true）。可复现：`docs/validation/IV_CM30_FORWARD_UNIFICATION_2026-07-23.md`。
+
 ### 8.4 派生指标放在哪里
 
 可选方案：

@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
 from common import load_watchlist
+from implied_vol import atm_iv_from_call_put, constant_maturity_atm_iv
 
 load_dotenv(Path(__file__).with_name('.env'))
 
@@ -26,6 +27,15 @@ log = logging.getLogger(__name__)
 DB_URL = os.getenv('DATABASE_URL')
 IV_RANK_MIN_OBSERVATIONS = int(os.getenv('IV_RANK_MIN_OBSERVATIONS', '252'))
 ANNUALIZATION_DAYS = int(os.getenv('HV_ANNUALIZATION_DAYS', '252'))
+# Phase 3: forward daily IV uses the same constant-30-day maturity as the
+# historical backfill (`polygon_backfill_bs`), so the spliced 252-day series has
+# no method seam. Flip IV_CM30_ENABLED=false to fall back to the legacy floating
+# 30-45 DTE single-ATM observation (`polygon_derived`).
+IV_CM30_ENABLED = os.getenv('IV_CM30_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
+IV_CM30_TARGET_DAYS = float(os.getenv('IV_CM30_TARGET_DAYS', '30'))
+IV_CM30_DTE_MIN = int(os.getenv('IV_CM30_DTE_MIN', '12'))
+IV_CM30_DTE_MAX = int(os.getenv('IV_CM30_DTE_MAX', '50'))
+IV_CM30_SOURCE = 'polygon_snapshot_cm30'
 
 
 def annualized_hv(closes: list[float], window: int, annualization_days: int = 252) -> float | None:
@@ -139,6 +149,107 @@ def fetch_atm_observations(conn, symbols: list[str]) -> list[dict]:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
+def _f(value) -> float | None:
+    return float(value) if value is not None else None
+
+
+def build_cm30_rows(raw_rows: list[dict], target_days: float = IV_CM30_TARGET_DAYS) -> list[dict]:
+    """Collapse per-expiry ATM call/put IV rows into one constant-30d IV per
+    symbol-day. Pure so the interpolation + provenance logic is unit-testable.
+
+    ``raw_rows`` are ATM-strike rows (one per snapshot+expiry) carrying
+    ``dte``, ``call_iv``, ``put_iv`` and provenance columns. Groups by
+    (symbol, metric_date), interpolates to ``target_days`` in total variance,
+    and anchors provenance to the expiry nearest the target that has a usable
+    ATM IV. Symbol-days with no usable IV are dropped.
+    """
+    grouped: dict[tuple[str, date], list[dict]] = defaultdict(list)
+    for row in raw_rows:
+        grouped[(row['symbol'], row['metric_date'])].append(row)
+
+    rows: list[dict] = []
+    for (symbol, metric_date), expiries in grouped.items():
+        expiry_points = [(e['dte'], _f(e['call_iv']), _f(e['put_iv'])) for e in expiries]
+        cm30 = constant_maturity_atm_iv(expiry_points, target_days)
+        if cm30 is None:
+            continue
+        usable = [e for e in expiries if atm_iv_from_call_put(_f(e['call_iv']), _f(e['put_iv'])) is not None]
+        anchor = min(usable, key=lambda e: (abs(e['dte'] - target_days), e['dte']))
+        rows.append({
+            'symbol': symbol,
+            'metric_date': metric_date,
+            'snapshot_id': anchor['snapshot_id'],
+            'source': anchor['source'],
+            'atm_iv': cm30,
+            'atm_expiry': anchor['expiry'],
+            'atm_strike': anchor['strike'],
+            'atm_dte': anchor['dte'],
+            'iv_source': IV_CM30_SOURCE,
+        })
+    return rows
+
+
+def fetch_cm30_observations(
+    conn,
+    symbols: list[str],
+    dte_min: int = IV_CM30_DTE_MIN,
+    dte_max: int = IV_CM30_DTE_MAX,
+    target_days: float = IV_CM30_TARGET_DAYS,
+) -> list[dict]:
+    """Forward constant-30d ATM IV per symbol-day from Polygon snapshot IV.
+
+    For each daily snapshot it takes, per bracketing expiry, the ATM strike's
+    call and put snapshot IV (no BS inversion -- snapshots already carry IV),
+    then interpolates to a constant target maturity. This matches the historical
+    backfill's maturity convention and removes the seam a floating-DTE ATM IV
+    injects into the IV-Rank series.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH daily_snapshots AS (
+              SELECT DISTINCT ON (symbol, (snapshot_ts AT TIME ZONE 'America/New_York')::date)
+                id, symbol,
+                (snapshot_ts AT TIME ZONE 'America/New_York')::date AS metric_date,
+                underlying_price, source
+              FROM option_chain_snapshots
+              WHERE symbol = ANY(%s)
+                AND source = 'polygon_licensed'
+                AND contract_count > 0
+                AND underlying_price IS NOT NULL AND underlying_price > 0
+              ORDER BY symbol, (snapshot_ts AT TIME ZONE 'America/New_York')::date, snapshot_ts DESC
+            ),
+            strike_iv AS (
+              SELECT s.symbol, s.metric_date, s.id AS snapshot_id, s.source, s.underlying_price,
+                     c.expiry, (c.expiry - s.metric_date)::int AS dte, c.strike,
+                     MAX(c.iv) FILTER (WHERE c.option_right = 'C') AS call_iv,
+                     MAX(c.iv) FILTER (WHERE c.option_right = 'P') AS put_iv
+              FROM daily_snapshots s
+              JOIN option_contract_snapshots c ON c.snapshot_id = s.id
+              WHERE c.iv IS NOT NULL AND c.iv > 0
+                AND (c.expiry - s.metric_date) BETWEEN %s AND %s
+              GROUP BY s.symbol, s.metric_date, s.id, s.source, s.underlying_price, c.expiry, c.strike
+            ),
+            atm AS (
+              SELECT strike_iv.*,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY snapshot_id, expiry
+                       ORDER BY ABS(strike - underlying_price), strike
+                     ) AS rn
+              FROM strike_iv
+            )
+            SELECT symbol, metric_date, snapshot_id, source, expiry, dte, strike, call_iv, put_iv
+            FROM atm
+            WHERE rn = 1
+            ORDER BY symbol, metric_date, dte
+            """,
+            (symbols, dte_min, dte_max),
+        )
+        columns = [description[0] for description in cur.description]
+        raw_rows = [dict(zip(columns, row)) for row in cur.fetchall()]
+    return build_cm30_rows(raw_rows, target_days)
+
+
 def upsert_hv_rows(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -177,7 +288,8 @@ def upsert_atm_rows(conn, rows: list[dict]) -> int:
     ]
     values = [(
         row['symbol'], row['metric_date'], row['atm_iv'], row['atm_expiry'],
-        row['atm_strike'], row['atm_dte'], row['snapshot_id'], 'polygon_derived',
+        row['atm_strike'], row['atm_dte'], row['snapshot_id'],
+        row.get('iv_source', 'polygon_derived'),
     ) for row in rows]
     with conn.cursor() as cur:
         execute_values(
@@ -253,7 +365,7 @@ def run(backfill: bool | None = None, symbols: list[str] | None = None) -> dict:
             symbol_rows = build_hv_rows(symbol, price_histories.get(symbol, []))
             hv_rows.extend(symbol_rows if backfill else symbol_rows[-1:])
         hv_written = upsert_hv_rows(conn, hv_rows)
-        atm_rows = fetch_atm_observations(conn, symbols)
+        atm_rows = fetch_cm30_observations(conn, symbols) if IV_CM30_ENABLED else fetch_atm_observations(conn, symbols)
         atm_written = upsert_atm_rows(conn, atm_rows)
         statuses = update_iv_rank_readiness(conn, symbols)
     finally:

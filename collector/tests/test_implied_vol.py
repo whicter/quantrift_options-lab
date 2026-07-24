@@ -71,5 +71,26 @@ class ConstantMaturityTest(unittest.TestCase):
         self.assertIsNone(iv.atm_iv_from_call_put(None, None))
 
 
+class ConstantMaturityAtmIvTest(unittest.TestCase):
+    def test_averages_call_put_then_interpolates_to_target(self):
+        # Expiry 20d: atm=(0.30+0.32)/2=0.31; expiry 45d: atm=(0.20+0.22)/2=0.21.
+        # Same as constant_maturity_iv([(20,0.31),(45,0.21)], 30).
+        expected = iv.constant_maturity_iv([(20, 0.31), (45, 0.21)], 30)
+        result = iv.constant_maturity_atm_iv([(20, 0.30, 0.32), (45, 0.20, 0.22)], 30)
+        self.assertAlmostEqual(result, expected)
+
+    def test_missing_leg_uses_the_present_one(self):
+        # 24d put-only -> atm 0.40; 33d call-only -> atm 0.30.
+        expected = iv.constant_maturity_iv([(24, 0.40), (33, 0.30)], 30)
+        result = iv.constant_maturity_atm_iv([(24, None, 0.40), (33, 0.30, None)], 30)
+        self.assertAlmostEqual(result, expected)
+
+    def test_single_usable_expiry_holds_flat(self):
+        self.assertAlmostEqual(iv.constant_maturity_atm_iv([(35, 0.42, 0.44)], 30), 0.43)
+
+    def test_no_usable_leg_is_none(self):
+        self.assertIsNone(iv.constant_maturity_atm_iv([(20, None, None), (40, 0, 0)], 30))
+
+
 if __name__ == '__main__':
     unittest.main()

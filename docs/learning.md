@@ -14,6 +14,7 @@
 - **IV Percentile**: % of past days where IV was lower than today
 - IV Rank is more commonly cited but IV Percentile is more statistically meaningful
 - IV Rank describes a relative historical range; it is not, by itself, a buy/sell signal. Any strategy comparison also needs event risk, realized volatility, term structure, skew, liquidity and transaction-cost assumptions.
+- **拼接的时间序列必须全段同口径,否则相对指标被方法接缝污染(Phase 3,2026-07-23)**:IV Rank 的 252 天序列由历史回填段 + 前向每日段拼接。回填是 constant-30d(call+put、总方差插值),前向曾是浮动 30-45 DTE 单张 **call**——两处差在①浮动 vs 固定到期②call-only vs call+put。拼接点因此有人为跳变,而 IV Rank=`(cur-min)/(max-min)` 对序列里的任何异常极值都敏感,一个方法性跳变就能永久扭曲后续所有读数。实测同日差:TSLA 因旧法丢 put skew 差 **+5.44 vol 点**、SPY/QQQ ~−1.2 点。教训:**任何"历史回填 + 前向采集"拼起来的序列,两段的口径(到期、腿、反解方法)必须逐项对齐**;对齐后仍要留 `iv_source` 三态标记(回填/前向新/前向旧)供序列分析判定方法边界。前向用 Polygon snapshot 自带 IV 即可,不需要像回填那样 BS 反解——但插值到同一 constant maturity 这步必须一致。
 
 ### Greeks intuition
 - **Delta**: how many shares of stock this position behaves like
