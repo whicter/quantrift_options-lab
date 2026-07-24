@@ -1,5 +1,41 @@
 # 竞品分析 — newshock.net / alphastockpro.com / getnextpick.com（2026-07-18）
 
+## 🔁 复查（2026-07-24，R1/R2 完成后）
+
+> 方法：浏览器接管仍被扩展权限拒（两次 "Permission denied"），改用 WebFetch 实抓公开页。
+> newshock、nextpick 实抓成功；**alphastockpro 是 JS SPA（根页返回空壳、/pricing 404、www 不解析）**，
+> WebFetch 与浏览器都进不去，深页仍需登录态——沿用 07-18 的自述清单，此项待用户登录后再挖。
+
+**验证到的竞品实况（2026-07-24）**：
+- **newshock = 纯叙事引擎**。导航 Monitor / Themes / Stocks / Events。核心是 **Themes**（40 个主题、按 **7D Heat** 排序、每主题带时长分类 Long/Medium-term + 关联 tickers + **Event stream** 事件流 + 预期持续时间）。例：Utility Sector Re-Rating、NATO-Russia Escalation、AI Infrastructure Demand。全站"information tool, not investment advice"。→ **这正是我们的 G1 叙事层缺口 / R3.2+R3.3 的对标物**。
+- **nextpick = 全能工作台**。导航 Sector Flow / Stock Analysis / Research / Quant Engine / Pricing。实况：
+  - **Sector Flow**：**RRG vs SPY** + **Institutional Net Flow**（MFI + 量比）+ 板块 **S–D 评级** + "rotation before price"。→ 我们 R1.3 有 RRG 四象限,但**缺"资金流"维度**(他们用 MFI/量比给板块上色;我们用价格派生 rs/动量)。
+  - **Stock Analysis**：**带 entry/stop/target 的买卖信号**(实例 TSLA Entry $400–408 / Stop $396 / Targets $432/$455) + Live scan + AI 评论(★评级)。→ **我们有意不做**(合规边界"卖判断力不卖答案")。
+  - **Options Intelligence**：unusual options flow / call-put 异动。→ 我们有 ΔOI/unusual(Tab3),且期权原生是我们的核心。
+  - **SEC filing monitor**：10-K/8-K + **AI 摘要** + bull/bear case。→ 我们无(属 R3.2 叙事层延伸)。
+  - **Quant Engine 公开 paper bot**:**+23.8% since Feb 2026、跑赢 SPY +14.6%、555 笔、胜率 58.9%、最大回撤 -5.3%**。→ 对标我们 R2.1 台账;但他们是"跟单 bot + 收益数字",**我们刻意做"诚实模型验证、非跟单、从空积累"**。
+  - **定价**:Demo $0(3 credits)/ Lite $14.90(5)/ Basic $99(10)/ **Premium $199 最热门(50 credits)**;credits 永不过期,单价 $0.90–1.50/个,年付 8 折。per-stock AI 分析走 credits。
+
+**复查后 gap 对照(我们 R1/R2 之后)**:
+
+| 维度 | 竞品 | 我们现状(本 session 后) | 结论 |
+|---|---|---|---|
+| 决策语言/矩阵 | alphastockpro Trend Matrix、nextpick S–D 评级 | ✅ R1.1 State Matrix(6+兜底,带 reasons) | **已追平**,且输入更丰富(GEX/IV/RVol) |
+| 板块轮动 RRG | nextpick RRG + **Institutional Net Flow** | ✅ R1.3 RRG 四象限,散点+联动列表 | 追平位置图;**缺资金流维度**(可加 MFI/量比,库里已有 MFI) |
+| Breadth | alphastockpro SPX Breadth | ✅ R2.2 **期权原生** breadth(正/负 Gamma、IV 分布、PCR) | **我们更强**(期权版三家都没有) |
+| 每日简报 | nextpick briefing | ✅ R1.2 市场简报 | 已追平(MVP;物化+分享待做) |
+| 公开记录/bot | nextpick +23.8% paper bot | 🟡 R2.1 台账框架(从空积累) | 定位不同(**我们=诚实验证,不跟单**);待数据到期 |
+| 期权异动 | nextpick unusual options | ✅ ΔOI/unusual(Tab3) | 追平,期权原生是护城河 |
+| **叙事/主题** | **newshock Themes+Event stream、nextpick SEC AI 摘要/AI 研报** | 🔴 **仍缺**(波动归因只到"隔夜跳空") | **最大剩余缺口 = G1**,对标 R3.2 新闻 + R3.3 主题 |
+| 带 entry/stop/target 信号 | nextpick 有 | ⛔ **有意不做** | 合规边界,确认保持 |
+| AI 荐股/评级 | nextpick ★评级、AI 研报 | ⛔ 荐股部分不做;客观摘要属 R3.2 | 边界确认 |
+| 定价/商业化 | nextpick $0–199+credits、alphastockpro $249–499/yr | 🔴 未商业化(R4) | 有定价锚可参考 |
+
+**复查结论**:本 session 的 R1/R2 把**决策语言层(G2)、板块轮动+breadth(G3)、公开记录框架(G4)**都追平/闭合了;**唯一还在红色的是 G1 叙事层**(newshock 的主题引擎 + nextpick 的 SEC AI 摘要/AI 研报)——即 R3.2 新闻摄取 + R3.3 主题聚类。**两个可立刻做的小增强**:①R1.3 板块轮动加"资金流"维度(MFI/量比,库里已有 MFI);②R1.2 简报里已有 top 异动,可再挂板块 S–D 评级。alphastockpro 深页仍待用户登录后复查。
+
+---
+
+
 > 方法：静态抓取（WebFetch）各站公开页面 + 定价/功能清单还原。浏览器接管两次被拒故未截图。
 > 覆盖度：newshock 的 Monitor/Themes/Events 深抓（/stocks 404）；alphastockpro 的 /market
 > 功能与定价目录完整、/breadth 深抓（Pro/Elite 内页在登录墙后，功能以其自述清单为准）；
