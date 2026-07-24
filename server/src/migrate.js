@@ -726,6 +726,39 @@ async function migrate() {
       ON scanner_candidate_snapshots (batch_id, rank);
     CREATE INDEX IF NOT EXISTS scanner_candidate_snapshots_batch_symbol
       ON scanner_candidate_snapshots (batch_id, symbol);
+
+    -- Candidate result ledger (R2.1): durable, NOT pruned like the snapshot
+    -- tables. Captures each candidate's entry once, then an evaluator fills the
+    -- outcome once its expiry has passed. This is the labeled data for scoring
+    -- calibration and an honest track record -- model validation, not a signal.
+    CREATE TABLE IF NOT EXISTS candidate_ledger (
+      id                 BIGSERIAL   PRIMARY KEY,
+      candidate_key      TEXT        NOT NULL,
+      symbol             TEXT        NOT NULL,
+      strategy           TEXT,
+      strategy_family    TEXT,
+      expiry             DATE        NOT NULL,
+      entry_date         DATE        NOT NULL,
+      entry_spot         NUMERIC(14,4),
+      entry_cash         NUMERIC(14,4),   -- per share: credit positive, debit negative
+      max_loss           NUMERIC(14,4),
+      pop                NUMERIC(6,4),
+      single_expiry      BOOLEAN     NOT NULL DEFAULT TRUE,
+      legs_json          JSONB       NOT NULL DEFAULT '[]',
+      algorithm_version  TEXT,
+      first_seen_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      -- outcome (nullable until resolved after expiry)
+      resolved_at        TIMESTAMPTZ,
+      underlying_at_expiry NUMERIC(14,4),
+      realized_pnl       NUMERIC(14,4),
+      return_on_risk     NUMERIC(10,4),
+      outcome            TEXT,             -- win | loss | not_evaluable | no_price
+      UNIQUE (candidate_key, expiry)
+    );
+    CREATE INDEX IF NOT EXISTS candidate_ledger_unresolved
+      ON candidate_ledger (expiry) WHERE outcome IS NULL;
+    CREATE INDEX IF NOT EXISTS candidate_ledger_resolved_family
+      ON candidate_ledger (strategy_family) WHERE outcome IS NOT NULL;
   `);
 
   console.log('Migrations complete.');

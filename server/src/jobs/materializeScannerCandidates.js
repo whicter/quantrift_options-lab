@@ -326,7 +326,18 @@ async function runMaterialization(pool, { scanKey = DEFAULT_SCAN_KEY, overrides 
       [batchId, candidateCount],
     );
     const pruned = await pruneOldBatches(pool, scanKey, batchId);
-    return { batchId, scanKey, algorithmVersion: ALGORITHM_VERSION, universeCount, candidateCount, prunedBatches: pruned, status: 'completed' };
+    // Capture this batch into the durable result ledger (R2.1) and resolve any
+    // now-expired entries. Best-effort — the ledger must never fail a batch.
+    let ledgerCaptured = 0;
+    let ledgerResolved = 0;
+    try {
+      const { captureLedger, evaluateLedger } = require('../routes/ledger');
+      ledgerCaptured = await captureLedger(pool, batchId);
+      ledgerResolved = await evaluateLedger(pool);
+    } catch (ledgerErr) {
+      console.error('candidate ledger capture/evaluate skipped:', ledgerErr.message);
+    }
+    return { batchId, scanKey, algorithmVersion: ALGORITHM_VERSION, universeCount, candidateCount, prunedBatches: pruned, ledgerCaptured, ledgerResolved, status: 'completed' };
   } catch (err) {
     await pool.query(
       `UPDATE scanner_candidate_batches
