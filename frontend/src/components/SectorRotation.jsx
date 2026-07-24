@@ -4,6 +4,7 @@ import { getSectorRotation } from '../lib/api';
 import { buildRotationView } from '../lib/sectorRotation';
 
 const signed = (v, d = 1) => (v == null || !Number.isFinite(Number(v)) ? '--' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(d)}`);
+const FLOW_ZH = { inflow: '流入', outflow: '流出', neutral: '中性' };
 
 // Sector/theme ETF rotation (RRG-lite): a scatter that carries the flow picture,
 // with a linked quadrant list that stays legible at any dot density. Hovering a
@@ -58,9 +59,9 @@ export default function SectorRotation() {
             ))}
             {hot && (
               <div className="rrg-tip" style={{ left: `${hot.x}%`, top: `${hot.y}%` }}>
-                <b>{hot.symbol} · {hot.label}</b>
+                <b>{hot.symbol} · {hot.label}{hot.grade ? ` · ${hot.grade} 级` : ''}</b>
                 <small>{view.groups.find(g => g.id === hot.quadrant)?.label} · rs {signed(hot.rs)} · 动量 {signed(hot.momentum)}</small>
-                <small>20日 {signed(hot.ret20)}%{hot.iv_rank != null ? ` · IVR ${Math.round(hot.iv_rank)}` : ''}</small>
+                <small>20日 {signed(hot.ret20)}%{hot.iv_rank != null ? ` · IVR ${Math.round(hot.iv_rank)}` : ''}{hot.flow ? ` · 资金${FLOW_ZH[hot.flow]}${hot.mfi != null ? `(MFI ${hot.mfi})` : ''}` : ''}</small>
               </div>
             )}
           </div>
@@ -81,9 +82,11 @@ export default function SectorRotation() {
                     className={`rrg-chip${s.symbol === hovered ? ' hot' : ''}`}
                     onMouseEnter={() => setHovered(s.symbol)}
                     onMouseLeave={() => setHovered(null)}
-                    title={`${s.label} · rs ${signed(s.rs)} · 动量 ${signed(s.momentum)}`}
+                    title={`${s.label} · ${s.grade || '-'} 级 · rs ${signed(s.rs)} · 动量 ${signed(s.momentum)}${s.flow ? ` · 资金${FLOW_ZH[s.flow]}` : ''}`}
                   >
+                    {s.grade && <i className={`rrg-grade rrg-grade-${s.grade}`}>{s.grade}</i>}
                     {s.symbol} {s.label}<small>{signed(s.rs)}</small>
+                    {s.flow && s.flow !== 'neutral' && <i className={`rrg-flow rrg-flow-${s.flow}`} title={`资金${FLOW_ZH[s.flow]}`} />}
                   </Link>
                 ))}
                 {g.count === 0 && <span className="rrg-empty">今日无</span>}

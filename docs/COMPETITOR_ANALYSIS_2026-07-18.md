@@ -31,7 +31,7 @@
 | AI 荐股/评级 | nextpick ★评级、AI 研报 | ⛔ 荐股部分不做;客观摘要属 R3.2 | 边界确认 |
 | 定价/商业化 | nextpick $0–199+credits、alphastockpro $249–499/yr | 🔴 未商业化(R4) | 有定价锚可参考 |
 
-**复查结论**:本 session 的 R1/R2 把**决策语言层(G2)、板块轮动+breadth(G3)、公开记录框架(G4)**都追平/闭合了;**唯一还在红色的是 G1 叙事层**(newshock 的主题引擎 + nextpick 的 SEC AI 摘要/AI 研报)——即 R3.2 新闻摄取 + R3.3 主题聚类。**两个可立刻做的小增强**:①R1.3 板块轮动加"资金流"维度(MFI/量比,库里已有 MFI);②R1.2 简报里已有 top 异动,可再挂板块 S–D 评级。alphastockpro 深页仍待用户登录后复查。
+**复查结论**:本 session 的 R1/R2 把**决策语言层(G2)、板块轮动+breadth(G3)、公开记录框架(G4)**都追平/闭合了;**唯一还在红色的是 G1 叙事层**(newshock 的主题引擎 + nextpick 的 SEC AI 摘要/AI 研报)——即 R3.2 新闻摄取 + R3.3 主题聚类。**两个可立刻做的小增强 → ✅ 均已完成(2026-07-24)**:①R1.3 板块轮动加**资金流维度**——复用 `deriveMfi` 算每 ETF 的 MFI,给出 `flow`(流入/流出/中性)+ `grade`(S–D from rs),散点 tooltip + 列表 chip 展示(grade 徽章 + 流向三角);**位置=趋势、flow=钱是否真进**,二者可背离(实测 KIE/XLV 是 A 级但 MFI 流出)。②R1.2 简报 headline 挂**板块 S–D 评级**(能源·S、医疗·A 领跑)。server 212/212、frontend 92/92。alphastockpro 深页仍待用户登录后复查。
 
 ---
 

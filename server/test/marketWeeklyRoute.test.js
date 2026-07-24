@@ -188,6 +188,9 @@ test('sector rotation: quadrants from relative strength and its momentum vs the 
   assert.equal(r.status, 'ready');
   const q = Object.fromEntries(r.sectors.map(s => [s.symbol, s.quadrant]));
   assert.equal(q.XLK, 'leading');
+  // grade (S-D from rs) + flow (from MFI): XLK rs +4 -> A; MFI absent -> null flow
+  assert.equal(r.sectors.find(s => s.symbol === 'XLK').grade, 'A');
+  assert.equal(r.sectors.find(s => s.symbol === 'XLK').flow, null);
   assert.equal(q.XLF, 'weakening');
   assert.equal(q.XLE, 'improving');
   assert.equal(q.XLU, 'lagging');
@@ -201,6 +204,22 @@ test('sector rotation: quadrants from relative strength and its momentum vs the 
   assert.equal(xlk.rs, 4);
   assert.equal(xlk.label, '科技');
   assert.equal(xlk.above_ma50, true);
+});
+
+test('sector rotation grade (S-D from rs) and flow (from MFI)', () => {
+  const rows = [
+    { symbol: 'SPY', ret5: 0, ret20: 0 },
+    { symbol: 'XLE', ret5: 1, ret20: 6, mfi: 72 },   // rs +6 -> S; MFI 72 -> inflow
+    { symbol: 'XLF', ret5: 0, ret20: 3, mfi: 40 },   // rs +3 -> A; MFI 40 -> outflow
+    { symbol: 'XLU', ret5: 0, ret20: -1, mfi: 50 },  // rs -1 -> C; MFI 50 -> neutral
+    { symbol: 'XLB', ret5: 0, ret20: -5 },           // rs -5 -> D; no MFI -> null
+  ];
+  const r = buildSectorRotation(rows, 'SPY');
+  const g = Object.fromEntries(r.sectors.map(s => [s.symbol, s]));
+  assert.equal(g.XLE.grade, 'S'); assert.equal(g.XLE.flow, 'inflow'); assert.equal(g.XLE.mfi, 72);
+  assert.equal(g.XLF.grade, 'A'); assert.equal(g.XLF.flow, 'outflow');
+  assert.equal(g.XLU.grade, 'C'); assert.equal(g.XLU.flow, 'neutral');
+  assert.equal(g.XLB.grade, 'D'); assert.equal(g.XLB.flow, null);
 });
 
 test('sector rotation fails closed when the benchmark has no return', () => {
@@ -235,10 +254,10 @@ const briefingInputs = {
   rotation: {
     sectors: [
       // rs-desc, as buildSectorRotation always returns
-      { symbol: 'XLE', label: '能源', quadrant: 'leading', rs: 6.8 },
-      { symbol: 'XLV', label: '医疗', quadrant: 'leading', rs: 2.9 },
-      { symbol: 'BOTZ', label: '机器人/AI', quadrant: 'lagging', rs: -8.1 },
-      { symbol: 'TAN', label: '太阳能', quadrant: 'lagging', rs: -10.1 },
+      { symbol: 'XLE', label: '能源', quadrant: 'leading', rs: 6.8, grade: 'S', flow: 'inflow' },
+      { symbol: 'XLV', label: '医疗', quadrant: 'leading', rs: 2.9, grade: 'A', flow: 'neutral' },
+      { symbol: 'BOTZ', label: '机器人/AI', quadrant: 'lagging', rs: -8.1, grade: 'D', flow: 'outflow' },
+      { symbol: 'TAN', label: '太阳能', quadrant: 'lagging', rs: -10.1, grade: 'D', flow: 'outflow' },
     ],
   },
   spyGamma: 'negative',
@@ -255,13 +274,15 @@ test('briefing synthesizes a market tilt + headline from the reused aggregates',
   assert.match(b.headline, /IV Rank 中位 60/);   // 59.5 rounded
   assert.match(b.headline, /强势上行 20 \/ 回调 21 \/ 空头 9/);
   assert.match(b.headline, /11 只高波动观望/);
-  assert.match(b.headline, /能源、医疗 领跑/);
+  assert.match(b.headline, /能源·S、医疗·A 领跑/);   // grades from the re-audit enhancement
   assert.match(b.headline, /未来一周 3 只财报（MSFT、META、AAPL）/);
 });
 
 test('briefing callouts carry rotation leaders/laggards and gamma labels', () => {
   const b = buildBriefing(briefingInputs);
   assert.deepEqual(b.callouts.rotation.leaders.map(x => x.symbol), ['XLE', 'XLV']);
+  assert.equal(b.callouts.rotation.leaders[0].grade, 'S');
+  assert.equal(b.callouts.rotation.leaders[0].flow, 'inflow');
   // laggards are the weakest rs (end of the rs-desc list), worst first
   assert.deepEqual(b.callouts.rotation.laggards.map(x => x.symbol), ['TAN', 'BOTZ']);
   assert.equal(b.spy_gamma_label, '负Gamma');

@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db');
+const { deriveMfi } = require('./supportResistance');
 
 const router = express.Router();
 
@@ -515,7 +516,28 @@ function round2(v) {
  * relative pace (`rs / 4`), i.e. is the ETF's relative strength accelerating.
  * The (rs, momentum) sign pair maps to the four RRG quadrants. This is a
  * cross-sectional rotation snapshot, not a trade signal.
+ *
+ * Two enhancements from the 2026-07-24 competitor re-audit: a strength `grade`
+ * (S–D from relative strength, cf. nextpick's sector grades) and a money-`flow`
+ * read from MFI (cf. nextpick's "Institutional Net Flow") — position is trend,
+ * flow is whether money is actually going in.
  */
+function rotationGrade(rs) {
+  if (rs == null) return null;
+  if (rs >= 5) return 'S';
+  if (rs >= 2) return 'A';
+  if (rs >= 0) return 'B';
+  if (rs >= -3) return 'C';
+  return 'D';
+}
+
+function rotationFlow(mfi) {
+  if (mfi == null || !Number.isFinite(mfi)) return null;
+  if (mfi >= 55) return 'inflow';
+  if (mfi <= 45) return 'outflow';
+  return 'neutral';
+}
+
 function buildSectorRotation(rows, benchmarkSymbol = ROTATION_BENCHMARK) {
   const bySym = new Map(rows.map(r => [r.symbol, r]));
   const bench = bySym.get(benchmarkSymbol);
@@ -541,6 +563,9 @@ function buildSectorRotation(rows, benchmarkSymbol = ROTATION_BENCHMARK) {
       rs: round2(rs),
       momentum: round2(momentum),
       quadrant,
+      grade: rotationGrade(rs),
+      mfi: r.mfi != null ? Math.round(r.mfi) : null,
+      flow: rotationFlow(r.mfi),
       ret20: round2(r.ret20),
       ret5: round2(r.ret5),
       iv_rank: r.ivRank,
@@ -560,7 +585,7 @@ function buildSectorRotation(rows, benchmarkSymbol = ROTATION_BENCHMARK) {
 
 async function loadSectorRotation() {
   const symbols = [...Object.keys(SECTOR_ETFS), ROTATION_BENCHMARK];
-  const [signalResult, gammaResult, ivResult] = await Promise.all([
+  const [signalResult, gammaResult, ivResult, barsResult] = await Promise.all([
       pool.query(`
         WITH recent AS (
           SELECT p.symbol, p.close,
@@ -578,10 +603,29 @@ async function loadSectorRotation() {
       `, [symbols]),
       pool.query(`SELECT DISTINCT ON (symbol) symbol, gamma_regime FROM gex_snapshots WHERE symbol = ANY($1) ORDER BY symbol, snapshot_ts DESC`, [symbols]),
       pool.query(`SELECT DISTINCT ON (symbol) symbol, iv_rank FROM volatility_history WHERE symbol = ANY($1) AND iv_rank IS NOT NULL ORDER BY symbol, metric_date DESC`, [symbols]),
+      // Recent OHLCV for a money-flow read (MFI) per ETF -- the "flow" dimension.
+      pool.query(`
+        SELECT symbol, date, high, low, close, volume FROM (
+          SELECT symbol, date, high, low, close, volume,
+                 ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS rn
+          FROM price_history
+          WHERE source = 'polygon_licensed' AND symbol = ANY($1) AND volume IS NOT NULL
+        ) x WHERE rn <= 16 ORDER BY symbol, date ASC
+      `, [symbols]),
     ]);
 
     const gammaBy = new Map(gammaResult.rows.map(r => [r.symbol, r.gamma_regime]));
     const ivBy = new Map(ivResult.rows.map(r => [r.symbol, number(r.iv_rank)]));
+    const barsBy = new Map();
+    for (const b of barsResult.rows) {
+      if (!barsBy.has(b.symbol)) barsBy.set(b.symbol, []);
+      barsBy.get(b.symbol).push(b);
+    }
+    const mfiBy = new Map();
+    for (const [sym, bars] of barsBy) {
+      const m = deriveMfi(bars);
+      mfiBy.set(sym, m.status === 'ready' ? m.value : null);
+    }
     const rows = signalResult.rows.map(r => {
       const close = number(r.close);
       const close5 = number(r.close5);
@@ -594,6 +638,7 @@ async function loadSectorRotation() {
         ret20: close != null && close20 ? (close / close20 - 1) * 100 : null,
         ivRank: ivBy.get(r.symbol) ?? null,
         gammaRegime: gammaBy.get(r.symbol) ?? null,
+        mfi: mfiBy.get(r.symbol) ?? null,
       };
     });
 
@@ -636,7 +681,8 @@ function buildBriefing({ dateLabel, breadth, stateMatrix, rotation, spyGamma, qq
   if (g.positive_pct != null) parts.push(`${g.positive_pct}% 标的处正 Gamma`);
   if (iv.median != null) parts.push(`IV Rank 中位 ${Math.round(iv.median)}`);
   parts.push(`状态 强势上行 ${bull} / 回调 ${s('S2')} / 空头 ${bear}${s('S0') ? `，${s('S0')} 只高波动观望` : ''}`);
-  if (leaders.length) parts.push(`板块 ${leaders.map(x => x.label).join('、')} 领跑${laggards.length ? `、${laggards.map(x => x.label).join('、')} 落后` : ''}`);
+  const withGrade = x => `${x.label}${x.grade ? `·${x.grade}` : ''}`;
+  if (leaders.length) parts.push(`板块 ${leaders.map(withGrade).join('、')} 领跑${laggards.length ? `、${laggards.map(withGrade).join('、')} 落后` : ''}`);
   if (earnings?.length) parts.push(`未来一周 ${earnings.length} 只财报（${earnings.slice(0, 4).map(e => e.symbol).join('、')}${earnings.length > 4 ? '…' : ''}）`);
   const headline = `${parts.join('，')}。`;
 
@@ -653,8 +699,8 @@ function buildBriefing({ dateLabel, breadth, stateMatrix, rotation, spyGamma, qq
       breadth: { iv_median: iv.median ?? null, elevated_pct: iv.elevated_pct ?? null },
       states: { S1: s('S1'), S2: s('S2'), S3: s('S3'), S4: s('S4'), S5: s('S5'), S6: s('S6'), S0: s('S0') },
       rotation: {
-        leaders: leaders.map(x => ({ symbol: x.symbol, label: x.label, rs: x.rs })),
-        laggards: laggards.map(x => ({ symbol: x.symbol, label: x.label, rs: x.rs })),
+        leaders: leaders.map(x => ({ symbol: x.symbol, label: x.label, rs: x.rs, grade: x.grade, flow: x.flow })),
+        laggards: laggards.map(x => ({ symbol: x.symbol, label: x.label, rs: x.rs, grade: x.grade, flow: x.flow })),
       },
     },
     earnings_ahead: earnings || [],
