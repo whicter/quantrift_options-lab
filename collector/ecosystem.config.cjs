@@ -25,11 +25,17 @@ module.exports = {
         OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES: '30',
         OPTION_REFRESH_SCHEDULE_SECONDS: '300',
         // Queue depth, not per-cycle count, is what the scheduler targets. The
-        // worker's own REFRESH_WORKER_BATCH_SIZE still bounds execution rate;
-        // raising that is gated behind the shared provider limiter (E7/E8).
+        // worker's own REFRESH_WORKER_BATCH_SIZE still bounds execution rate.
         OPTION_REFRESH_QUEUE_TARGET: '20',
         OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE: '20',
-        REFRESH_WORKER_BATCH_SIZE: '2',
+        // Raised 2 -> 10 now that E7 (shared provider rate limiter) is the hard
+        // 429 gate, so batch size is no longer a rate-limit risk (task.md:238).
+        // Measured cost is ~2.83s/symbol (6 Polygon calls: 1 underlying prev +
+        // 5 DTE buckets), so batch=10 is ~28s/cycle, leaving ~32s of the 60s
+        // poll for compute_gex/materialize/DB/variance. Cuts a full cold-fill of
+        // ~81 symbols from ~41min to ~9min. Do NOT raise concurrency via multiple
+        // worker processes (E8) until its single-process assumptions are resolved.
+        REFRESH_WORKER_BATCH_SIZE: '10',
         // Polygon paid plans (incl. the $29 Options subscription) allow unlimited
         // API calls, so this is only a runaway-loop backstop, not a cost throttle.
         // The default 1000 was starving mid-day refreshes: ~81 symbols refreshed
