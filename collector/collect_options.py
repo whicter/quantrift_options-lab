@@ -65,14 +65,16 @@ def load_symbols() -> list[str]:
     return symbols
 
 
-def make_provider():
-    if OPTION_PROVIDER == 'ib_internal':
+def make_provider(provider_name: str | None = None):
+    """Build an option provider without mutating process-global selection."""
+    provider = (provider_name or OPTION_PROVIDER).strip().lower()
+    if provider == 'ib_internal':
         return IbOptionChainProvider()
-    if OPTION_PROVIDER == 'tt_internal':
+    if provider == 'tt_internal':
         return TastytradeOptionChainProvider()
-    if OPTION_PROVIDER == 'polygon_licensed':
+    if provider == 'polygon_licensed':
         return PolygonOptionChainProvider()
-    raise ValueError(f'Unknown OPTION_PROVIDER={OPTION_PROVIDER}')
+    raise ValueError(f'Unknown OPTION_PROVIDER={provider}')
 
 
 def create_job(conn, symbol: str, provider: str) -> int:

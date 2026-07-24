@@ -36,6 +36,9 @@ module.exports = {
         // ~81 symbols from ~41min to ~9min. Do NOT raise concurrency via multiple
         // worker processes (E8) until its single-process assumptions are resolved.
         REFRESH_WORKER_BATCH_SIZE: '10',
+        // Bounded in-process concurrency; provider pacing remains global and
+        // PendingDerivations/materialization stays single-threaded.
+        REFRESH_WORKER_CONCURRENCY: '3',
         // Polygon paid plans (incl. the $29 Options subscription) allow unlimited
         // API calls, so this is only a runaway-loop backstop, not a cost throttle.
         // The default 1000 was starving mid-day refreshes: ~81 symbols refreshed

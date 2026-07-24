@@ -9,6 +9,8 @@
    - `2026-07-21 — 快照表 retention` ✅：两张物化表无限膨胀拖慢库,已加 `prune_snapshots` 自动清理,scanner_results 929MB→545MB。
    - `2026-07-21 — 预算行被双 runtime 打回 1000` ✅：盘中整段停摆的根因,默认预算 1000→1,000,000,顺带修 metrics `date` 序列化 bug。
    - `2026-07-20 — 现价陈旧 bug` 🟡 **1 项未完成**：P1(spot 4→1 天)/P2(延迟盘中价路径,默认关)/**P3(现价时间戳标注)**/**P4(日线 cron 可靠性:加第二次 18:35 PT 运行 + 新鲜度守卫)**均已完成(后两项 2026-07-23);仅剩 **P2.1 免费 IB 盘中价(唯一免费真盘中价路径,用户已确认要做,需开盘时段验收——市场闭市期间无法验收)**。Polygon Options 档股票盘中数据 403 死路,已铁证。
+   - `2026-07-24 — 单 worker 刷新吞吐` ✅：`REFRESH_WORKER_BATCH_SIZE` 从 2 提到 10。实测约 2.83 秒/标的，81 个标的冷启动估算约 41 分钟降至约 9 分钟；E7 共享限流器仍是 429 闸门。多进程 bounded parallel workers 仍未启用，避免重复全局派生和未验证的单进程状态竞争。可复现记录：`docs/validation/REFRESH_WORKER_BATCH_2026-07-24.md`。
+   - `2026-07-24 — 有上限的进程内并行` ✅：新增 `REFRESH_WORKER_CONCURRENCY=3`。每个 job 使用独立 DB connection/provider，Polygon 仍由 PostgreSQL 全局 limiter 节流；全局 OI delta/scanner derivation 仍在 batch 主线程只执行一次。多 PM2 worker 仍未启用。可复现记录：`docs/validation/BOUNDED_REFRESH_CONCURRENCY_2026-07-24.md`。
    - `2026-07-19 — 调度器饥饿 bug` ✅：16 个"从未成功报价"标的霸占优先级饿死 STX/SRVR/MU 等;修排序 + 禁用 VIX。
 1. `2026-07-17 — IV Rank 自给自足` — 2 项，**当前主线**：Phase 2.5（分页+月期权回退+滚动 grid cache+分批持久化）与 **Phase 3 前向口径统一（constant-30d,2026-07-23 完成）**已完成 → 下一步 Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
@@ -114,7 +116,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 **修复(已完成)**:
 - [x] **代码默认 1000 → 1,000,000**:`run_refresh_worker.py` + `ecosystem.config.cjs` + `.env.example`。Polygon 付费无限,预算只是防跑飞兜底,默认必须远高于真实日用量(~1-3k),这样任何 env 没设的进程也不会把生产卡死。生产预算行已手动抬到 1,000,000(remaining 998,995)。
 - [x] **顺带修 metrics job `date` JSON 序列化 bug**:`run_symbol_metrics_snapshot` 的 summary 带原始 `datetime.date`(`market_date`),被 `finish_job` 的 `Json()` 序列化时炸 `Object of type date is not JSON serializable`,让 stale-metrics job 全失败(job 10049 实例)。改 `finish_job` 用 `default=str` 容错编码器(`_job_json`),date/Decimal 一律转字符串,不再因记账字段炸整个 job。
-- **验证**:collector 238/238(+2:summary 序列化容错、默认预算高值断言)。reload 后近 5 分钟写 20 条新快照,universe 从"9 小时前"开始追平(受 `REFRESH_WORKER_BATCH_SIZE=2` 吞吐限制持续补齐,那是单独的已知项)。metrics job 不再失败。可复现记录:`docs/validation/BUDGET_STARVATION_2026-07-21.md`。
+- **验证**:collector 238/238(+2:summary 序列化容错、默认预算高值断言)。reload 后近 5 分钟写 20 条新快照,universe 从"9 小时前"开始追平；后续单 worker 批次已在 2026-07-24 从 2 提到 10。metrics job 不再失败。可复现记录:`docs/validation/BUDGET_STARVATION_2026-07-21.md` 与 `docs/validation/REFRESH_WORKER_BATCH_2026-07-24.md`。
 - **残留(交给 Option A / 运维)**:根治双 runtime 争用要么彻底停掉 Railway 侧的 option 刷新(确认 `run_railway_refresh_cycle` 不再被任何 Railway cron 触发),要么走 Option A 单 owner。当前用高默认值让 clobber 无害化,不再饿死,但两 runtime 仍在写同一行。
 
 ## 2026-07-20 — 现价陈旧 bug：4 天前收盘价冒充"现价"（严重,进行中）
@@ -155,7 +157,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 **修复**:
 - [x] `load_refresh_state` 的 `latest_snapshots` 查询去掉 bid/ask 过滤,改用**任意** `option_chain_snapshots.snapshot_ts`——排序只回答"该不该刷新",不该已经答过的"要不要报价"再问一遍。
 - [x] `symbol_universe.VIX.scan_enabled` 设为 `FALSE`(数据变更,非代码;`metadata.disabled_reason='index_underlying_unsupported'` 留痕)。`sync_universe.py` 的 `ON CONFLICT DO UPDATE` 只碰 `active`/`updated_at`,不会把它重新打开。
-- **验证**:collector `unittest discover` 232/232(新增 `LoadRefreshStateTests` 3 个)。真实 DB dry-run:修复前 `select_candidates` 输出被 VIX 等 16 个"从未成功"标的常年霸占前排、STX/SRVR 永不出现;修复后 SRVR/STX 正确排到最前(按真实陈旧度 1440/1437 分钟),后面紧跟其余 10 个饿死的标的。`pm2 reload` 后两轮调度周期(~7 分钟)内 STX/SRVR/SMH/DTCR/AEHR 生产环境已刷新成功;VIX 不再出现在 `provider_fetch_jobs` 里,30 分钟失败循环停止。剩余未清空的标的(MU 等)受限于已知的 `REFRESH_WORKER_BATCH_SIZE=2 过于保守`(见下方"全项目 review·架构"节),非本次 bug 范围,会随吞吐量继续清空。
+- **验证**:collector `unittest discover` 232/232(新增 `LoadRefreshStateTests` 3 个)。真实 DB dry-run:修复前 `select_candidates` 输出被 VIX 等 16 个"从未成功"标的常年霸占前排、STX/SRVR 永不出现;修复后 SRVR/STX 正确排到最前(按真实陈旧度 1440/1437 分钟),后面紧跟其余 10 个饿死的标的。`pm2 reload` 后两轮调度周期(~7 分钟)内 STX/SRVR/SMH/DTCR/AEHR 生产环境已刷新成功;VIX 不再出现在 `provider_fetch_jobs` 里,30 分钟失败循环停止。剩余未清空的标的会继续由刷新吞吐优化处理。
 - 可复现记录:`docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
 
 ---
@@ -235,7 +237,8 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 ### 架构（尤其数据获取 / 用户体验)
 
-- [ ] **REFRESH_WORKER_BATCH_SIZE=2 过于保守**:81 symbol 的 watchlist 在低并发下补队列耗时长,是"analyze 页面长期 stale/后台补全中"体验的直接成因之一(STX 事故的邻近病灶,非同一根因)。现在 E7 的共享 provider rate limiter 已经是硬限速闸门,batch size 本身不再是 429 风险来源,可以安全调大。需要先跑一次真实吞吐测量再定具体数字。
+- [x] **单 worker 刷新批次过小（已完成 2026-07-24）**：`REFRESH_WORKER_BATCH_SIZE` 已从 2 调至 10。依据实测约 2.83 秒/标的（6 次 Polygon 请求），单轮约 28 秒，给 GEX/物化/数据库派生留下约 32 秒；81 个标的冷启动估算从约 41 分钟降至约 9 分钟。E7 共享 provider rate limiter 仍负责 429 保护。生产需要 reload collector 配置后才生效；回滚为 `REFRESH_WORKER_BATCH_SIZE=2`。
+- [x] **单 worker 进程内有上限并行（已完成 2026-07-24）**：`REFRESH_WORKER_CONCURRENCY=3` 仅并行独立 symbol job，不增加 PM2 实例；每个 job 独立 psycopg2 connection/provider，`PendingDerivations` 加锁，batch 结束后全局派生仍各跑一次。回滚为设置 `REFRESH_WORKER_CONCURRENCY=1` 并从 ecosystem 文件 reload。多 PM2 worker/跨进程 E8 仍未完成。
   - **已先修复报价链路（2026-07-19，待开盘验收）**：后台 refresh job 过去只把无报价 Polygon snapshot 写为成功，虽然 scheduler 以“最新有 bid/ask”判定覆盖，却未写入 `require_quotes`，因此不会触发 fallback。现在仅在美股常规交易时 job 写入 `require_quotes=true`；worker 按 `polygon_licensed → ib_internal` 尝试，直到拿到有效 bid/ask。休市时仍保存真实 OI/Greeks/结构快照，但不把它当作可执行报价。PM2 改为 `IB_MARKET_DATA_TYPE=1` 并已重载。collector 229/229 通过；2026-07-19 休市实测 Polygon 已写 1,876 条结构合约、0 条 bid/ask，符合休市预期，开盘后需用两合约 IB diagnostic 和实际 refresh job 验收。
 - [ ] **on-demand 首次访问延迟**:未采集过的 symbol 首次 analyze 请求要等一整轮 provider fetch,用户体感是"卡住"。可选优化方向:乐观 UI(先显示排队态 + 预计时间)、或提高该 symbol 在 scheduler 里的临时优先级(已有五级优先级机制,只是 on-demand 请求当前未必接到最高档)。
 - [ ] **Mac Studio 单点故障**:即便 Option B 消除了预算互抢,产品刷新链路仍 100% 依赖 Mac Studio 常开。断电/重启/网络中断 = 全站数据停摆,且此前确认过恢复要靠人工 PM2 reload。IV Rank 自算(本节上方进行中的项目)是解决这个的唯一路径,而不是加更多本地容灾。
@@ -433,7 +436,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 | ✅ E5 | P2.8.1 统一 freshness 口径 | 已完成（2026-07-17）：`server/src/domain/status/freshness.js` 是唯一 freshness 契约；Analyze 按 product 返回 `fresh/stale/missing/queued/failed` + `is_stale` + age + refresh 状态。 | 无 |
 | ✅ E6 | P2.8.3 queue-fill scheduler | 已完成（2026-07-17）：按队列深度补满（target 20）+ 五级优先级 + cooldown；候选来源由 `watchlist.txt` 改为 `symbol_universe`。 | 无 |
 | ✅ E7 | P2.8.5 shared provider rate limiter | 已完成（2026-07-17）：`provider_rate_limits` 表 + 原子 slot 认领 + 共享 429 惩罚；数据库时钟为唯一权威。file lock 仅在无 DB 时降级使用。 | 无 |
-| E8 | P2.8.4 bounded parallel refresh workers | 必须在 E7 之后，否则并发放大 429。 | 无 |
+| E8 | P2.8.4 bounded parallel refresh workers | 已完成单进程 `REFRESH_WORKER_CONCURRENCY=3`；多 PM2 worker 仍未启用。跨进程阶段必须先协调全局派生、恢复/去重状态。 | `docs/validation/BOUNDED_REFRESH_CONCURRENCY_2026-07-24.md` |
 | ✅ E9 | P2.8.7 减少每 symbol 冗余请求 | 已完成（2026-07-17）：Polygon option 采集前用 DB 最新 daily close 作 spot hint，仅缺失/stale 时才打 `/prev`。 | 无 |
 | 🟡 E10 | V3A-4 后端 Analyze DTO | 后端已完成（2026-07-17）：positioning/scenario/DTO 引擎 + `GET /api/analyze/:symbol/summary`，结论文案与情景已在服务端生成、provider 名对普通用户降级、测试+真实 DB 验证。前端切流（Analyze.jsx 改读 `/summary`、删除 `analyzeData.js` 重复计算）与 E11 一并做，受 visual-verification 限制。 | 前端切流受 E13 同一 runtime 限制 |
 | E11 | P2.8.8 stale-while-refresh 前端体验 | 依赖 E5 与 E10 的 DTO 字段。 | 无 |
@@ -1338,8 +1341,8 @@ PostgreSQL
   - Tests：`tests/test_option_refresh_scheduler.py` 16 个（原 4 个全部保留且未修改断言）。新增：fill 到 target、队列满不入队、超额不返回负容量、per-cycle cap、tier 分配、recent_active 优先于 universe、**后台 tier 永不超过 on-demand**、高 tier 胜过更旧数据、tier 内 missing 优先、无 tier 时保持原排序、入队携带 tier priority、无 tier 默认 universe_scan。
   - 验证：collector 163/163（151 → 163）。
   - 真实 runtime 证据（2026-07-17，`pm2 reload ecosystem.config.cjs --update-env` 后）：universe 读到 **80** 个 symbol（watchlist 仅 67，证明 on-demand symbol 确实会被文件路径漏掉）；tier 分布 core 5 / recent_active 4 / universe_scan 71；`recent_active` 正确识别出刚被 Analyze 驱动的 NFLX/RKLB/MUU/TSLL。queue_depth 0 → capacity 20，本轮实际入队 **20 个**（core 3、recent_active 3、universe_scan 14），且 core tier 的 job 已在 `running` 而 universe_scan 仍 `queued`——证明 worker 的 `ORDER BY priority DESC` 与 tier 阶梯实际生效。
-  - 未改动 `REFRESH_WORKER_BATCH_SIZE`：填满队列本身不提高 provider 并发，执行速率仍由 worker batch/poll 决定，提高它属于 E8 且必须在 E7 shared limiter 之后。
-  - Rollback：`OPTION_REFRESH_QUEUE_TARGET=2` 即恢复旧吞吐；无 schema migration。
+  - 2026-07-24 已将 `REFRESH_WORKER_BATCH_SIZE` 从 2 提到 10；填满队列本身不提高 provider 并发，执行速率仍由单 worker batch/poll 决定。多进程并发仍属于 E8，不能把本次单 worker 调参误认为 E8 已完成。
+  - Rollback：将 `REFRESH_WORKER_BATCH_SIZE` 恢复为 `2`；无 schema migration。
   - **E6 后续修复（2026-07-17，生产观测触发）**：reload 后日志出现 `provider budget exhausted: budget=1000`。E6 把吞吐从 2/cycle 提到填满 20,当天很快耗尽 `provider_request_usage` 里 polygon_licensed option_chain_snapshot 的自设日预算 1000,之后 scheduler 仍按队列深度填 20,worker 领取后立即在预算上失败——纯 churn,把 job 行刷成 failed。修复:`fill_count` 增加第三个上限 `remaining_budget`,`load_remaining_budget` 读同一张 `provider_request_usage`,预算耗尽时 capacity=0、scheduler 记 `budget exhausted` 并 idle,不再入队必然失败的 job。Tests +7(budget cap、耗尽入队 0、无 cap 同旧行为、大预算不抬高至超过队列需求、None/gap/非负）。真实验证:当天 remaining=0 → capacity=0（此前会填 20）。
   - **预算已提高（2026-07-17 已决策并落地，见本文件顶部事件记录 + commit `ae58097`/`48b1cbc`）**：`PROVIDER_DAILY_BUDGET` 从 1000 提到 **50000**（`ecosystem.config.cjs` + `.env.example`）。Polygon 付费档 API 调用无限,故此值是 runaway backstop 非成本节流,1000 会在收盘前就饿死当天刷新。同批还做了两处:①`provider budget exhausted:` 设为不可重试（预算当天不回补,重试只是撞墙）；②Railway 刷新 cron 已按 Option B 停用（`railway.metrics.json` 去掉 `cronSchedule`）,Mac Studio 成唯一写者,消除两地争抢同一预算行。已知遗留:scheduler 预算 gate **fail-open**（`load_remaining_budget` 读不到 usage 行返回 None=无限额）,靠把预算设得远高于实际需求来避免触发,未在代码里改成 fail-closed。
 

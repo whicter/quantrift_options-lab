@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,9 @@ log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
 WORKER_BATCH_SIZE = int(os.getenv('REFRESH_WORKER_BATCH_SIZE', '10'))
+# Bounded in-process concurrency. Provider pacing remains global in PostgreSQL;
+# this only overlaps independent symbol work and bounded IB wait time.
+WORKER_CONCURRENCY = min(max(int(os.getenv('REFRESH_WORKER_CONCURRENCY', '3')), 1), 8)
 WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
 RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
 # Polygon's paid plan is unlimited, so this cap is only a runaway-loop backstop,
@@ -257,6 +262,7 @@ class PendingDerivations:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self.oi_delta = False
         self.scan = False
         # Explicit scanner_materialize jobs finish only once the deferred run
@@ -264,12 +270,14 @@ class PendingDerivations:
         self.scan_job_ids: list[int] = []
 
     def request_oi_delta(self) -> None:
-        self.oi_delta = True
+        with self._lock:
+            self.oi_delta = True
 
     def request_scan(self, job_id: int | None = None) -> None:
-        self.scan = True
-        if job_id is not None:
-            self.scan_job_ids.append(job_id)
+        with self._lock:
+            self.scan = True
+            if job_id is not None:
+                self.scan_job_ids.append(job_id)
 
 
 def run_pending_derivations(conn, pending: PendingDerivations) -> dict[str, Any]:
@@ -447,8 +455,7 @@ def fetch_and_persist_option_snapshot(
     provider_cache = provider_cache if provider_cache is not None else {}
     provider = provider_cache.get(provider_name)
     if provider is None:
-        collect_options.OPTION_PROVIDER = provider_name
-        provider = collect_options.make_provider()
+        provider = collect_options.make_provider(provider_name)
         provider_cache[provider_name] = provider
     # Only Polygon fetches a separate underlying request; tt/ib carry spot in
     # their own chain payloads, so the hint is provider-specific.
@@ -901,10 +908,20 @@ def run() -> None:
             return
         log.info('Processing %s refresh jobs', len(jobs))
         blocked_providers: set[str] = {'tastytrade'} if TT_CIRCUIT_OPEN else set()
-        provider_cache: dict[str, Any] = {}
         pending = PendingDerivations()
-        for job in jobs:
-            handle_job(conn, job, blocked_providers, provider_cache, pending)
+
+        def process_job(job: dict[str, Any]) -> None:
+            # psycopg2 connections and provider instances are not shared across
+            # threads. The database-backed provider limiter still coordinates
+            # request starts across concurrent jobs and hosts.
+            job_conn = psycopg2.connect(DB_URL)
+            try:
+                handle_job(job_conn, job, set(blocked_providers), {}, pending)
+            finally:
+                job_conn.close()
+
+        with ThreadPoolExecutor(max_workers=min(WORKER_CONCURRENCY, len(jobs))) as executor:
+            list(executor.map(process_job, jobs))
         derivation_summary = run_pending_derivations(conn, pending)
         log.info('Batch derivations: %s', derivation_summary)
     finally:

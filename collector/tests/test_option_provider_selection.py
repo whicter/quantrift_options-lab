@@ -11,6 +11,17 @@ from providers.polygon_option_chain_provider import _select_dte_bucket_contracts
 
 
 class OptionProviderSelectionTest(unittest.TestCase):
+    def test_make_provider_accepts_explicit_name_without_mutating_global(self):
+        import collect_options
+
+        original = collect_options.OPTION_PROVIDER
+        with patch.object(collect_options, 'PolygonOptionChainProvider', return_value='polygon') as polygon:
+            provider = collect_options.make_provider('polygon_licensed')
+
+        self.assertEqual(provider, 'polygon')
+        self.assertEqual(collect_options.OPTION_PROVIDER, original)
+        polygon.assert_called_once_with()
+
     def test_polygon_contract_cap_preserves_30_to_45_dte_bucket(self):
         today = date.today()
         contracts = []

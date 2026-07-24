@@ -9,6 +9,10 @@ Daily data collection into Railway PostgreSQL.
 - `materialize_scan.py`: latest IV/price/GEX snapshots → `scanner_results_snapshots`
 - `run_refresh_worker.py`: consumes queued `provider_fetch_jobs` with budget checks
 
+## Refresh throughput
+
+The collector remains a single PM2 process. `REFRESH_WORKER_BATCH_SIZE=10` and bounded in-process `REFRESH_WORKER_CONCURRENCY=3` are the current values. Jobs use independent DB connections/provider instances; the PostgreSQL-backed provider limiter remains global, and global derivations run once on the batch thread. Do not add PM2 replicas until E8 multi-process coordination is complete. Reload from the ecosystem file after changing PM2 environment. See `docs/validation/REFRESH_WORKER_BATCH_2026-07-24.md` and `docs/validation/BOUNDED_REFRESH_CONCURRENCY_2026-07-24.md`.
+
 ## Setup (Mac Studio)
 
 ```bash
@@ -254,3 +258,6 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 # Unusual Whales flow (credential-gated)
 
 `collect_unusual_whales.py` consumes the account WebSocket JSON stream and persists official option-flow and TRF events. Required when enabled: `DATABASE_URL`, `UW_WS_URL`, `UW_API_TOKEN`; set the exact account subscription message in `UW_WS_SUBSCRIBE_JSON`. Without `UW_FLOW_ENABLED=true`, direct execution exits successfully while the PM2 configuration holds one low-frequency idle process until it is enabled and restarted. Do not guess the connection URL or subscription envelope.
+# Refresh throughput
+
+The collector remains a single PM2 process. `REFRESH_WORKER_BATCH_SIZE=10` and bounded in-process `REFRESH_WORKER_CONCURRENCY=3` are the current values. Jobs use independent DB connections/provider instances; the PostgreSQL-backed provider limiter remains global, and global derivations run once on the batch thread. Do not add PM2 replicas until E8 multi-process coordination is complete. Reload from the ecosystem file after changing PM2 environment. See `docs/validation/REFRESH_WORKER_BATCH_2026-07-24.md` and `docs/validation/BOUNDED_REFRESH_CONCURRENCY_2026-07-24.md`.

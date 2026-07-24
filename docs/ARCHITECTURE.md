@@ -943,6 +943,10 @@ iv_history + gex_snapshots + option_contract_snapshots + price_history
       trend_score, trend_label, gex_regime, signal_score, ...
 ```
 
+**刷新吞吐边界（2026-07-24）**
+
+当前 collector 仍是单 PM2 进程，但 job 执行已采用有上限的进程内并行：`REFRESH_WORKER_BATCH_SIZE=10`、`REFRESH_WORKER_CONCURRENCY=3`。每个 job 使用独立 PostgreSQL connection 和 provider instance；E7 的 PostgreSQL provider limiter 仍是所有线程/主机共享的 429 闸门。`PendingDerivations`、全局物化、stale-running recovery 和 queued-job 去重仍只在 batch 主线程执行。该实现不等于多 PM2 worker；多进程属于 E8 后续阶段，完成前不得增加 PM2 实例。生产配置修改后必须从 ecosystem 文件 reload collector。
+
 **OI Delta / Unusual（派生，无外部 API）**
 ```text
 option_contract_snapshots（最新 snapshot vs 同一来源的前一纽约交易日 snapshot 比较）

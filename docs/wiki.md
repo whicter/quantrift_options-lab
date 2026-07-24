@@ -1240,6 +1240,7 @@ The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily sco
 `/market` 把"一堆数字"收成用户能直接读的市场判断,自上而下四层,全是既有数据的只读派生、零新采集:
 
 - **每日简报（R1.2,`/api/market/briefing`）**:一句话综述——市场倾向(S1 vs S5)+ 正 Gamma % + IV Rank 中位 + 状态分布 + 板块领跑/落后 + 本周财报;callouts 带财报/期权异动。服务端合成 headline(为后续物化+分享留口)。
+- **刷新吞吐（2026-07-24）**：collector 单 PM2 进程的 `REFRESH_WORKER_BATCH_SIZE` 从 2 调到 10，并以 `REFRESH_WORKER_CONCURRENCY=3` 重叠独立 symbol job。每个 job 独立 DB connection/provider；共享 provider limiter 负责 429 保护；全局派生仍由 batch 主线程一次执行。这不是多 PM2 worker，多进程仍需单独解决全局派生与恢复状态竞争。
 - **期权原生 Breadth（R2.2,`/api/market/breadth`）**:% 正/负 Gamma、IV Rank 中位+分位、PCR 分布 + % above MA50/200。每块带 `counted`,零样本返 null 不返假 0。三家竞品都没有的期权版体征。
 - **Symbol State Matrix（R1.1,`/api/market/state-matrix`）**:全 universe 分成 6+兜底状态(强势上行/上行回调/突破/中性/企稳/空头/高波动),结构优先 first-match-wins,每标的带 reasons。**标签描述状态、不给买卖动作**(合规边界)。
 - **板块轮动 RRG（R1.3,`/api/market/sector-rotation`）**:26 板块/主题 ETF 相对 SPY 的强弱×动量四象限。因 SIC sector 字段 65% 空且不含 ETF,用 ETF 当板块代理(也是 RRG 标准)。散点+联动列表解决点重叠。**资金流维度(2026-07-24 增强)**:复用 `deriveMfi` 算每 ETF 的 MFI → `flow`(流入/流出/中性)+ `grade`(S–D from rs);**位置=趋势、flow=钱是否真进,二者会背离**(A 级领先但资金流出=价格领先、钱在撤)。
