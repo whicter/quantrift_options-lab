@@ -1235,6 +1235,17 @@ Universe filter semantics:
 
 The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily score, 30M score, breakout evidence, GEX regime and IV Rank. `30M Breakout` is not a label inferred from daily trend: it requires a close beyond the previous 20 regular-session 30M range plus `volume/current-average >= 1.2`, and the intraday date must match the latest daily market date.
 
+### 决策语言层 · `/market` 页（R1/R2,2026-07-23~24）
+
+`/market` 把"一堆数字"收成用户能直接读的市场判断,自上而下四层,全是既有数据的只读派生、零新采集:
+
+- **每日简报（R1.2,`/api/market/briefing`）**:一句话综述——市场倾向(S1 vs S5)+ 正 Gamma % + IV Rank 中位 + 状态分布 + 板块领跑/落后 + 本周财报;callouts 带财报/期权异动。服务端合成 headline(为后续物化+分享留口)。
+- **期权原生 Breadth（R2.2,`/api/market/breadth`）**:% 正/负 Gamma、IV Rank 中位+分位、PCR 分布 + % above MA50/200。每块带 `counted`,零样本返 null 不返假 0。三家竞品都没有的期权版体征。
+- **Symbol State Matrix（R1.1,`/api/market/state-matrix`）**:全 universe 分成 6+兜底状态(强势上行/上行回调/突破/中性/企稳/空头/高波动),结构优先 first-match-wins,每标的带 reasons。**标签描述状态、不给买卖动作**(合规边界)。
+- **板块轮动 RRG（R1.3,`/api/market/sector-rotation`）**:26 板块/主题 ETF 相对 SPY 的强弱×动量四象限。因 SIC sector 字段 65% 空且不含 ETF,用 ETF 当板块代理(也是 RRG 标准)。散点+联动列表解决点重叠。
+
+**信任层 · `/ledger`「模型记录」（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准;多到期结构标 not_evaluable 不臆造。定位=模型验证非跟单,结果随候选到期积累。
+
 Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 - 本周定调：last five actual daily bars and a transparent composite score;
 - Gamma 迁徙：one actual latest GEX/by-strike snapshot per New York market date;
