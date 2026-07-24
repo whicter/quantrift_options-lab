@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { getMarketStateMatrix } from '../lib/api';
 import { buildStateMatrixView } from '../lib/stateMatrix';
 import MarketInternals from '../components/MarketInternals';
+import SectorRotation from '../components/SectorRotation';
 
 const CHIP_LIMIT = 12; // symbols shown per column before the "+N" fold
 
@@ -81,6 +82,8 @@ export default function Market() {
           </p>
         </section>
       )}
+
+      <SectorRotation />
     </main>
   );
 }

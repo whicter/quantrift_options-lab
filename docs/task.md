@@ -2,7 +2,7 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **107 项** `- [ ]`（2026-07-23 核对；07-22 的 112 项减去 07-23 完成的 5 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix**。另 07-22 的 OI-by-strike 5 项也已 07-23 全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **106 项** `- [ ]`（2026-07-23 核对；07-22 的 112 项减去 07-23 完成的 6 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix + R1.3 板块轮动 RRG**。另 07-22 的 OI-by-strike 5 项也已 07-23 全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
@@ -14,7 +14,7 @@
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
 2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
-2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 8 项(原 10,**R2.2 期权原生 Breadth + R1.1 Symbol State Matrix 均 2026-07-23 前后端完成**)：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R1 决策语言层 2 项(每日简报/板块轮动;R1.1 已完成)、R2 信任层 1 项(候选结果台账;R2.2 已完成)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
+2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 7 项(原 10,**R2.2 Breadth + R1.1 State Matrix + R1.3 板块轮动 均 2026-07-23 前后端完成**)：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R1 决策语言层 1 项(每日简报;R1.1/R1.3 已完成)、R2 信任层 1 项(候选结果台账;R2.2 已完成)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -364,7 +364,11 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - **验证**:server 195/195(纯函数单测 9 条,含"标签不含入场/止损/买卖"合规断言)。**live 74 标的**:S1 20 / S2 21 / S3 0 / S6 9 / S4 4 / S5 9 / S0 11。**调优**:初版 5 日动量任意转负就判 S2 导致 AAPL(−0.5% 噪声)误入,加 ±1.5% `momBand` 后 8 个噪声回调归回 S1,分布更真实。可复现:`docs/validation/STATE_MATRIX_2026-07-23.md`。
   - **待做**:前端 `/market` 页(决策语言层的家,以后 R1.3 轮动/R1.2 简报并入,现有 breadth Market Internals 也搬进去)——先出 mockup 给用户选布局再实现(同 R2.2 节奏)。**scanner 多样性**(先按状态分桶再出候选)另作后续步骤。
 - [ ] **R1.2 每日市场简报(对标 nextpick briefing)**:市场级 synthesis——universe 状态分布(穷人版 breadth)、板块聚合、SPY/QQQ gamma 环境、IV 面貌(IV rank 分布)、top 期权异动、明日财报。每日物化一份,可分享链接/图卡。
-- [ ] **R1.3 板块轮动视图(对标 RRG)**:按 sector 聚合已有 per-symbol 数据(universe 元数据已有 sector 字段):平均动量状态、% above MA、gamma regime 分布、IV rank 分布;相对强度 vs 强度动量四象限散点(简版 RRG)。零新采集。
+- [x] **R1.3 板块轮动视图(对标 RRG;前后端均完成 2026-07-23)**:简版 RRG——26 板块/主题 ETF 相对 SPY 的强弱×动量四象限。
+  - **数据现实决定用 ETF 当板块代理**:`symbol_universe.sector`(SIC 派生)65% 为空且**完全不含 ETF**,按它聚合会残缺误导。改用 ETF 本身当板块(XLE=能源、SMH=半导体…,含 11 个 GICS SPDR + 主题),既更诚实**也是 RRG 的标准做法**(RRG 本就画板块 ETF)。
+  - **后端**:`server/src/routes/market.js` 纯 `buildSectorRotation` + `GET /api/market/sector-rotation`。`rs`=ETF 20 日相对收益−基准;`momentum`=近期相对步伐(`ret5−bench.ret5`)−月均每 5 日相对步伐(`rs/4`),即相对强弱是否在加速;(rs,mom)符号→四象限(领先/走弱/改善/落后)。SPY 无收益则 fail closed。
+  - **前端(散点+列表联动,用户 2026-07-23 mockup 拍板;解决点重叠)**:纯 `lib/sectorRotation.js`(`dotPosition` 把 rs/mom clamp 映射到象限散点 x/y%、`buildRotationView` 按象限分组)+ `components/SectorRotation.jsx`(左散点携带流向位置感、右象限列表永远读得清、hover 一个另一个高亮 + tooltip,无图表库、延续自绘约定)。接在 `/market` State Matrix 下方。
+  - **验证**:server 199/199(纯函数 4 条,含象限映射/基准缺失 fail closed/非 ETF 忽略/标签无买卖)、frontend 92/92(纯定位/分组 5 条)+ lint + build 干净。**live 26 ETF**:领先 6(XLE 领跑+能源/防御)、走弱 3、改善 11(含 SMH/SOXX/XLK——半导体科技相对最弱但动量在回)、落后 6;讲出"钱从半导体/科技→能源+防御"的真实轮动,且半导体高 IV(SMH 85)与其 S0 分类互印证。可复现:`docs/validation/SECTOR_ROTATION_2026-07-23.md`。
 - [ ] **R2.1 候选结果台账(信任层,对标 nextpick bot 记录的诚实版)**:V3A-2 已物化每批候选(表已在生产)——加结果评分:到期/N 日后逐候选记实际盈亏、POP 校准(预测 68% 的桶实际赢率)、按策略族胜率;成熟后开公开"模型记录"页。**一石二鸟:这正是拟合候选打分权重所需的标注数据**(呼应已记录的"打分权重未经验证"技术债与 Confluence CF-5 的权重拟合前置)。定位=模型验证,不是跟单信号。
 - [x] **R2.2 期权原生 Breadth(前后端均完成 2026-07-23)**:`GET /api/market/breadth`(`server/src/routes/market.js::sendMarketBreadth`)——纯 SQL 聚合 scan-enabled universe:①趋势 % above MA50/MA200(SQL 内 `AVG(close) FILTER (rn<=N)`,bars 不足不计);②**期权版体征**(三家竞品都没有)% 正/负 Gamma(latest `gex_snapshots.gamma_regime`)、IV Rank 中位数+p25/p75+% elevated(latest `volatility_history.iv_rank`,仅 ready)、PCR 中位数+四分位(`pcr_oi`)。每块带 `counted` 诚实披露样本量(薄数据不冒充全面),`pct()` 零样本返回 null 不返回假 0。
   - **前端(方案 B「Market Internals 面板」,用户 2026-07-23 拍板,先出渲染 mockup 对比)**:`components/MarketInternals.jsx` + 纯 view-model `lib/marketBreadth.js`(`buildBreadthView` 把响应转成渲染坐标:Gamma 拆分条宽度、IV/PCR 的 p25-p75 分位带 left/right + 中位标线位置、每块 counted 为 0 时塌缩成 null 显"暂不可用")。挂在首页 hero 与 workflow 卡片之间(`.home-internals`)。配色沿用产品 tokens(正=绿/负=红/IV=蓝/PCR=黄),`gamma_as_of` 按 ET 显示(与 P3 一致)。

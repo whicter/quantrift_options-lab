@@ -460,12 +460,151 @@ async function sendMarketStateMatrix(req, res) {
   }
 }
 
+// ---- Sector Rotation (R1.3, RRG-lite) ----
+// Curated sector/theme ETFs used as rotation points. The symbol_universe SIC
+// `sector` field is 65% null and never classifies ETFs, so a sector-ETF RRG vs
+// SPY is both more honest and the canonical RRG. Each ETF IS its sector.
+const SECTOR_ETFS = {
+  XLK: { label: '科技', group: 'sector' },
+  XLF: { label: '金融', group: 'sector' },
+  XLE: { label: '能源', group: 'sector' },
+  XLV: { label: '医疗', group: 'sector' },
+  XLI: { label: '工业', group: 'sector' },
+  XLY: { label: '可选消费', group: 'sector' },
+  XLP: { label: '必需消费', group: 'sector' },
+  XLU: { label: '公用事业', group: 'sector' },
+  XLB: { label: '原材料', group: 'sector' },
+  XLRE: { label: '房地产', group: 'sector' },
+  XLC: { label: '通信服务', group: 'sector' },
+  SMH: { label: '半导体', group: 'theme' },
+  SOXX: { label: '半导体(SOXX)', group: 'theme' },
+  IGV: { label: '软件', group: 'theme' },
+  IBB: { label: '生物科技', group: 'theme' },
+  GDX: { label: '金矿', group: 'theme' },
+  GDXJ: { label: '小型金矿', group: 'theme' },
+  IYR: { label: '地产(IYR)', group: 'theme' },
+  VNQ: { label: '地产(VNQ)', group: 'theme' },
+  ITB: { label: '住宅建筑', group: 'theme' },
+  XHB: { label: '住宅建筑(XHB)', group: 'theme' },
+  KIE: { label: '保险', group: 'theme' },
+  IYT: { label: '运输', group: 'theme' },
+  TAN: { label: '太阳能', group: 'theme' },
+  ICLN: { label: '清洁能源', group: 'theme' },
+  BOTZ: { label: '机器人/AI', group: 'theme' },
+};
+
+const ROTATION_BENCHMARK = process.env.ROTATION_BENCHMARK || 'SPY';
+
+function round2(v) {
+  return v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100;
+}
+
+/**
+ * Simplified RRG over sector/theme ETFs (R1.3). Pure and unit-tested.
+ *
+ * Relative strength `rs` = ETF 20-day return minus the benchmark's; momentum =
+ * recent relative pace (`ret5 - bench.ret5`) minus the month's average per-5-day
+ * relative pace (`rs / 4`), i.e. is the ETF's relative strength accelerating.
+ * The (rs, momentum) sign pair maps to the four RRG quadrants. This is a
+ * cross-sectional rotation snapshot, not a trade signal.
+ */
+function buildSectorRotation(rows, benchmarkSymbol = ROTATION_BENCHMARK) {
+  const bySym = new Map(rows.map(r => [r.symbol, r]));
+  const bench = bySym.get(benchmarkSymbol);
+  if (!bench || bench.ret5 == null || bench.ret20 == null) {
+    return { status: 'missing', reason: 'benchmark_unavailable', benchmark: benchmarkSymbol };
+  }
+
+  const quadrantCounts = { leading: 0, weakening: 0, improving: 0, lagging: 0 };
+  const sectors = [];
+  for (const [symbol, meta] of Object.entries(SECTOR_ETFS)) {
+    const r = bySym.get(symbol);
+    if (!r || r.ret5 == null || r.ret20 == null) continue;
+    const rs = r.ret20 - bench.ret20;
+    const momentum = (r.ret5 - bench.ret5) - rs / 4;
+    const quadrant = rs >= 0
+      ? (momentum >= 0 ? 'leading' : 'weakening')
+      : (momentum >= 0 ? 'improving' : 'lagging');
+    quadrantCounts[quadrant] += 1;
+    sectors.push({
+      symbol,
+      label: meta.label,
+      group: meta.group,
+      rs: round2(rs),
+      momentum: round2(momentum),
+      quadrant,
+      ret20: round2(r.ret20),
+      ret5: round2(r.ret5),
+      iv_rank: r.ivRank,
+      gamma_regime: r.gammaRegime,
+      above_ma50: r.close != null && r.ma50 != null ? r.close >= r.ma50 : null,
+    });
+  }
+  sectors.sort((a, b) => (b.rs ?? -Infinity) - (a.rs ?? -Infinity));
+  return {
+    status: sectors.length ? 'ready' : 'missing',
+    benchmark: benchmarkSymbol,
+    benchmark_ret20: round2(bench.ret20),
+    quadrant_counts: quadrantCounts,
+    sectors,
+  };
+}
+
+async function sendSectorRotation(req, res) {
+  try {
+    const symbols = [...Object.keys(SECTOR_ETFS), ROTATION_BENCHMARK];
+    const [signalResult, gammaResult, ivResult] = await Promise.all([
+      pool.query(`
+        WITH recent AS (
+          SELECT p.symbol, p.close,
+                 ROW_NUMBER() OVER (PARTITION BY p.symbol ORDER BY p.date DESC) AS rn
+          FROM price_history p
+          WHERE p.source = 'polygon_licensed' AND p.close IS NOT NULL AND p.symbol = ANY($1)
+        )
+        SELECT symbol,
+               MAX(close) FILTER (WHERE rn = 1)  AS close,
+               MAX(close) FILTER (WHERE rn = 6)  AS close5,
+               MAX(close) FILTER (WHERE rn = 21) AS close20,
+               AVG(close) FILTER (WHERE rn <= 50) AS ma50,
+               COUNT(*) AS bars
+        FROM recent GROUP BY symbol
+      `, [symbols]),
+      pool.query(`SELECT DISTINCT ON (symbol) symbol, gamma_regime FROM gex_snapshots WHERE symbol = ANY($1) ORDER BY symbol, snapshot_ts DESC`, [symbols]),
+      pool.query(`SELECT DISTINCT ON (symbol) symbol, iv_rank FROM volatility_history WHERE symbol = ANY($1) AND iv_rank IS NOT NULL ORDER BY symbol, metric_date DESC`, [symbols]),
+    ]);
+
+    const gammaBy = new Map(gammaResult.rows.map(r => [r.symbol, r.gamma_regime]));
+    const ivBy = new Map(ivResult.rows.map(r => [r.symbol, number(r.iv_rank)]));
+    const rows = signalResult.rows.map(r => {
+      const close = number(r.close);
+      const close5 = number(r.close5);
+      const close20 = number(r.close20);
+      return {
+        symbol: r.symbol,
+        close,
+        ma50: Number(r.bars) >= 50 ? number(r.ma50) : null,
+        ret5: close != null && close5 ? (close / close5 - 1) * 100 : null,
+        ret20: close != null && close20 ? (close / close20 - 1) * 100 : null,
+        ivRank: ivBy.get(r.symbol) ?? null,
+        gammaRegime: gammaBy.get(r.symbol) ?? null,
+      };
+    });
+
+    return res.json(buildSectorRotation(rows));
+  } catch (error) {
+    console.error('GET /api/market/sector-rotation error:', error.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
 router.get('/regime', sendMarketRegime);
 router.get('/breadth', sendMarketBreadth);
 router.get('/state-matrix', sendMarketStateMatrix);
+router.get('/sector-rotation', sendSectorRotation);
 
 module.exports = {
   router, deriveMomentum, deriveMarketRegime, sendMarketRegime,
   buildBreadth, percentile, sendMarketBreadth,
   classifyState, buildStateMatrix, sendMarketStateMatrix, STATE_META, STATE_THRESHOLDS,
+  buildSectorRotation, sendSectorRotation, SECTOR_ETFS,
 };

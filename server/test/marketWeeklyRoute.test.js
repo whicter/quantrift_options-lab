@@ -7,6 +7,7 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: {
 const {
   deriveMomentum, deriveMarketRegime, buildBreadth, percentile,
   classifyState, buildStateMatrix, STATE_META,
+  buildSectorRotation, SECTOR_ETFS,
 } = require('../src/routes/market');
 const { deriveWeekly } = require('../src/routes/weekly');
 
@@ -167,6 +168,62 @@ test('state labels describe state, never prescribe entry/stop/target', () => {
   const forbidden = ['入场', '止损', '目标价', '买入', '卖出', 'buy', 'sell'];
   for (const meta of STATE_META) {
     for (const word of forbidden) assert.ok(!meta.label.includes(word), `${meta.label} must not contain ${word}`);
+  }
+});
+
+// ---- R1.3 Sector Rotation (RRG-lite) ----
+test('sector rotation: quadrants from relative strength and its momentum vs the benchmark', () => {
+  const rows = [
+    { symbol: 'SPY', close: 100, ma50: 95, ret5: 1.0, ret20: 4.0 },
+    // rs = 8-4 = +4 (strong); mom = (2-1) - 4/4 = 1 - 1 = 0 -> leading (mom>=0)
+    { symbol: 'XLK', close: 100, ma50: 90, ret5: 2.0, ret20: 8.0, ivRank: 60, gammaRegime: 'positive' },
+    // rs = 6-4 = +2 (strong); mom = (-1-1) - 2/4 = -2.5 -> weakening
+    { symbol: 'XLF', close: 100, ma50: 99, ret5: -1.0, ret20: 6.0 },
+    // rs = 1-4 = -3 (weak); mom = (3-1) - (-3)/4 = 2 + 0.75 = 2.75 -> improving
+    { symbol: 'XLE', close: 100, ma50: 101, ret5: 3.0, ret20: 1.0 },
+    // rs = -6-4 = -10 (weak); mom = (-3-1) - (-10)/4 = -4 + 2.5 = -1.5 -> lagging
+    { symbol: 'XLU', close: 100, ma50: 105, ret5: -3.0, ret20: -6.0 },
+  ];
+  const r = buildSectorRotation(rows, 'SPY');
+  assert.equal(r.status, 'ready');
+  const q = Object.fromEntries(r.sectors.map(s => [s.symbol, s.quadrant]));
+  assert.equal(q.XLK, 'leading');
+  assert.equal(q.XLF, 'weakening');
+  assert.equal(q.XLE, 'improving');
+  assert.equal(q.XLU, 'lagging');
+  assert.deepEqual(r.quadrant_counts, { leading: 1, weakening: 1, improving: 1, lagging: 1 });
+  // benchmark itself is not a rotation point
+  assert.ok(!r.sectors.some(s => s.symbol === 'SPY'));
+  // sorted by relative strength descending
+  assert.deepEqual(r.sectors.map(s => s.symbol), ['XLK', 'XLF', 'XLE', 'XLU']);
+  // carries context + rs relative to benchmark
+  const xlk = r.sectors.find(s => s.symbol === 'XLK');
+  assert.equal(xlk.rs, 4);
+  assert.equal(xlk.label, '科技');
+  assert.equal(xlk.above_ma50, true);
+});
+
+test('sector rotation fails closed when the benchmark has no return', () => {
+  const r = buildSectorRotation([{ symbol: 'XLK', ret5: 1, ret20: 2 }], 'SPY');
+  assert.equal(r.status, 'missing');
+  assert.equal(r.reason, 'benchmark_unavailable');
+});
+
+test('sector rotation skips ETFs missing returns and never lists non-ETF symbols', () => {
+  const rows = [
+    { symbol: 'SPY', ret5: 1, ret20: 4 },
+    { symbol: 'XLK', ret5: 2, ret20: 8 },
+    { symbol: 'XLF', ret5: null, ret20: 6 }, // missing -> skipped
+    { symbol: 'TSLA', ret5: 5, ret20: 20 }, // not an ETF in the map -> ignored
+  ];
+  const r = buildSectorRotation(rows, 'SPY');
+  assert.deepEqual(r.sectors.map(s => s.symbol), ['XLK']);
+});
+
+test('every sector-ETF label describes a sector/theme, not an action', () => {
+  const forbidden = ['买', '卖', '入场', '止损', 'buy', 'sell'];
+  for (const meta of Object.values(SECTOR_ETFS)) {
+    for (const w of forbidden) assert.ok(!meta.label.includes(w));
   }
 });
 
