@@ -4,7 +4,10 @@ const test = require('node:test');
 const dbPath = require.resolve('../src/db');
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query: async () => ({ rows: [] }) } };
 
-const { deriveMomentum, deriveMarketRegime, buildBreadth, percentile } = require('../src/routes/market');
+const {
+  deriveMomentum, deriveMarketRegime, buildBreadth, percentile,
+  classifyState, buildStateMatrix, STATE_META,
+} = require('../src/routes/market');
 const { deriveWeekly } = require('../src/routes/weekly');
 
 function dailyBars(count = 60) {
@@ -92,6 +95,79 @@ test('breadth percentages disclose zero counts as null, never a fake 0', () => {
   assert.equal(b.iv_rank.median, null);
   assert.equal(b.pcr.median, null);
   assert.equal(b.gamma.counted, 0);
+});
+
+// ---- R1.1 Symbol State Matrix ----
+const TH = { ivrHigh: 80, rvolSpike: 2.5, rvolBreakout: 1.5, extHigh: 3, momBand: 1.5 };
+const base = { close: 100, ma50: 95, ma200: 90, ret5: 1, ret20: 8, ext50: 5.3, hi20: 101, rvol: 1.0, ivRank: 40, gammaRegime: 'positive' };
+
+test('state: insufficient history yields the insufficient state', () => {
+  assert.equal(classifyState({ close: 100, ma50: null, ma200: null }, TH).state, 'insufficient');
+});
+
+test('state: S0 high-vol gate wins over trend (IV rank or RVol spike)', () => {
+  assert.equal(classifyState({ ...base, ivRank: 85 }, TH).state, 'S0');
+  assert.equal(classifyState({ ...base, ivRank: 40, rvol: 3.0 }, TH).state, 'S0');
+});
+
+test('state: S3 breakout fires on a fresh volume break of the prior 20-day high', () => {
+  const r = classifyState({ ...base, close: 105, hi20: 101, rvol: 1.8 }, TH);
+  assert.equal(r.state, 'S3');
+  assert.ok(r.reasons.some(x => x.includes('突破')));
+});
+
+test('state: S1 strong uptrend vs S2 pullback within an uptrend', () => {
+  // clean uptrend, no breakout (rvol below breakout threshold), not pulling back
+  assert.equal(classifyState({ ...base, close: 100, hi20: 110, rvol: 1.0, ret5: 1.5 }, TH).state, 'S1');
+  // a tiny down tick (-0.5%) is noise, NOT a pullback -> stays S1
+  assert.equal(classifyState({ ...base, close: 100, ma50: 95, ma200: 90, ret5: -0.5, hi20: 110 }, TH).state, 'S1');
+  // uptrend structure but price dipped below MA50
+  assert.equal(classifyState({ ...base, close: 94, ma50: 95, ma200: 90, hi20: 110 }, TH).state, 'S2');
+  // uptrend structure but a meaningful short-term pullback (<= -1.5%)
+  assert.equal(classifyState({ ...base, close: 100, ma50: 95, ma200: 90, ret5: -2.0, hi20: 110 }, TH).state, 'S2');
+});
+
+test('state: S5 downtrend vs S4 stabilizing within a downtrend', () => {
+  assert.equal(classifyState({ close: 80, ma50: 85, ma200: 90, ret5: -2, ret20: -12, hi20: 88, rvol: 1.0, ivRank: 40 }, TH).state, 'S5');
+  // downtrend structure but reclaiming MA50
+  assert.equal(classifyState({ close: 86, ma50: 85, ma200: 90, ret5: -1, ret20: -8, hi20: 88, rvol: 1.0, ivRank: 40 }, TH).state, 'S4');
+  // downtrend structure but a meaningful short-term rebound (>= +1.5%)
+  assert.equal(classifyState({ close: 84, ma50: 85, ma200: 90, ret5: 2.0, ret20: -8, hi20: 88, rvol: 1.0, ivRank: 40 }, TH).state, 'S4');
+  // a tiny +0.5% bounce is noise -> stays S5
+  assert.equal(classifyState({ close: 80, ma50: 85, ma200: 90, ret5: 0.5, ret20: -12, hi20: 88, rvol: 1.0, ivRank: 40 }, TH).state, 'S5');
+});
+
+test('state: S6 neutral fallback when MAs are interleaved', () => {
+  // close>ma200 but ma50<ma200 -> neither clean up nor down structure
+  assert.equal(classifyState({ close: 92, ma50: 88, ma200: 90, ret5: 0.2, ret20: 1, hi20: 95, rvol: 1.0, ivRank: 40 }, TH).state, 'S6');
+});
+
+test('buildStateMatrix distributes symbols and zero-fills every state bucket', () => {
+  const rows = [
+    { symbol: 'UP', close: 100, ma50: 95, ma200: 90, ret5: 1, ret20: 8, ext50: 5.3, hi20: 110, rvol: 1, ivRank: 40 },
+    { symbol: 'DN', close: 80, ma50: 85, ma200: 90, ret5: -2, ret20: -12, ext50: -5.9, hi20: 88, rvol: 1, ivRank: 40 },
+    { symbol: 'VOL', close: 100, ma50: 95, ma200: 90, ret5: 1, ret20: 8, ext50: 5.3, hi20: 110, rvol: 1, ivRank: 88 },
+    { symbol: 'THIN', close: 50, ma50: null, ma200: null },
+  ];
+  const { distribution, symbols } = buildStateMatrix(rows, TH);
+  assert.equal(symbols.find(s => s.symbol === 'UP').state, 'S1');
+  assert.equal(symbols.find(s => s.symbol === 'DN').state, 'S5');
+  assert.equal(symbols.find(s => s.symbol === 'VOL').state, 'S0');
+  assert.equal(symbols.find(s => s.symbol === 'THIN').state, 'insufficient');
+  assert.equal(distribution.S1, 1);
+  assert.equal(distribution.S5, 1);
+  assert.equal(distribution.S0, 1);
+  assert.equal(distribution.insufficient, 1);
+  assert.equal(distribution.S3, 0); // present and zero, not missing
+  // every state in the metadata is a key in the distribution
+  for (const meta of STATE_META) assert.ok(meta.id in distribution);
+});
+
+test('state labels describe state, never prescribe entry/stop/target', () => {
+  const forbidden = ['入场', '止损', '目标价', '买入', '卖出', 'buy', 'sell'];
+  for (const meta of STATE_META) {
+    for (const word of forbidden) assert.ok(!meta.label.includes(word), `${meta.label} must not contain ${word}`);
+  }
 });
 
 test('weekly product uses real GEX, max pain and OI delta without synthetic history', () => {

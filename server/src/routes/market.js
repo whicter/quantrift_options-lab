@@ -276,10 +276,196 @@ async function sendMarketBreadth(req, res) {
   }
 }
 
+// ---- Symbol State Matrix (R1.1) ----
+// Ordered so the frontend can render buckets in a stable, meaningful sequence.
+const STATE_META = [
+  { id: 'S1', label: '强势上行', tone: 'bull' },
+  { id: 'S2', label: '上行·回调中', tone: 'bull-soft' },
+  { id: 'S3', label: '区间突破', tone: 'bull' },
+  { id: 'S6', label: '区间/中性', tone: 'neutral' },
+  { id: 'S4', label: '下行·企稳试探', tone: 'bear-soft' },
+  { id: 'S5', label: '空头', tone: 'bear' },
+  { id: 'S0', label: '高波动/事件', tone: 'warn' },
+  { id: 'insufficient', label: '数据不足', tone: 'muted' },
+];
+
+const STATE_THRESHOLDS = {
+  ivrHigh: Number(process.env.STATE_IVR_HIGH ?? 80),
+  rvolSpike: Number(process.env.STATE_RVOL_SPIKE ?? 2.5),
+  rvolBreakout: Number(process.env.STATE_RVOL_BREAKOUT ?? 1.5),
+  extHigh: Number(process.env.STATE_EXT_HIGH ?? 3),
+  // A pullback/stabilization must be a meaningful short-term move, not a -0.5%
+  // day of noise — otherwise S2/S4 swallow every healthy trend on any down tick.
+  momBand: Number(process.env.STATE_MOM_BAND ?? 1.5),
+};
+
+/**
+ * Classify one symbol into a market state (R1.1). Pure and unit-tested.
+ *
+ * Structure-first, first-match-wins so states never overlap: a high-vol/volume
+ * gate, then a fresh volume breakout, then up/down trend structure split into
+ * extended-vs-pullback / capitulation-vs-stabilizing, then a neutral fallback.
+ * Labels describe the market STATE, never prescribe an action (no entry/stop/
+ * target) — this is a cross-sectional classification, not a buy/sell signal.
+ * `gamma`/`ivRank` ride along as context; only ivRank/rvol gate S0.
+ */
+function classifyState(s, th = STATE_THRESHOLDS) {
+  if (s.close == null || s.ma50 == null || s.ma200 == null) {
+    return { state: 'insufficient', reasons: ['历史不足 200 根日线'] };
+  }
+  const reasons = [];
+  const ivrHigh = s.ivRank != null && s.ivRank >= th.ivrHigh;
+  const rvolSpike = s.rvol != null && s.rvol >= th.rvolSpike;
+  if (ivrHigh || rvolSpike) {
+    if (ivrHigh) reasons.push(`IV Rank ${Math.round(s.ivRank)} ≥ ${th.ivrHigh}`);
+    if (rvolSpike) reasons.push(`RVol ${s.rvol.toFixed(1)}× ≥ ${th.rvolSpike}`);
+    return { state: 'S0', reasons };
+  }
+  if (s.hi20 != null && s.close > s.hi20 && s.rvol != null && s.rvol >= th.rvolBreakout) {
+    reasons.push(`收盘突破前 20 日高 ${s.hi20.toFixed(2)}`);
+    reasons.push(`放量 RVol ${s.rvol.toFixed(1)}× ≥ ${th.rvolBreakout}`);
+    return { state: 'S3', reasons };
+  }
+  const upStruct = s.close > s.ma200 && s.ma50 > s.ma200;
+  const downStruct = s.close < s.ma200 && s.ma50 < s.ma200;
+  if (upStruct) {
+    const pulling = s.close < s.ma50 || (s.ret5 != null && s.ret5 <= -th.momBand);
+    if (pulling) {
+      reasons.push('多头结构 (价 > MA200, MA50 > MA200)');
+      reasons.push(s.close < s.ma50 ? '回踩至 MA50 下方' : `5 日动量 ${s.ret5.toFixed(1)}% (回落)`);
+      return { state: 'S2', reasons };
+    }
+    reasons.push('多头排列 (价 > MA50 > MA200)');
+    if (s.ret20 != null) reasons.push(`20 日 ${s.ret20 >= 0 ? '+' : ''}${s.ret20.toFixed(1)}%`);
+    if (s.ext50 != null && s.ext50 >= th.extHigh) reasons.push(`距 MA50 +${s.ext50.toFixed(1)}% (追高区)`);
+    return { state: 'S1', reasons };
+  }
+  if (downStruct) {
+    const stabilizing = s.close > s.ma50 || (s.ret5 != null && s.ret5 >= th.momBand);
+    if (stabilizing) {
+      reasons.push('空头结构 (价 < MA200, MA50 < MA200)');
+      reasons.push(s.close > s.ma50 ? '重回 MA50 上方' : `5 日动量 +${s.ret5.toFixed(1)}% (反弹)`);
+      return { state: 'S4', reasons };
+    }
+    reasons.push('空头排列 (价 < MA50 < MA200)');
+    if (s.ret20 != null) reasons.push(`20 日 ${s.ret20.toFixed(1)}%`);
+    return { state: 'S5', reasons };
+  }
+  reasons.push('MA 交织，无清晰趋势');
+  return { state: 'S6', reasons };
+}
+
+/**
+ * Assemble the state matrix from per-symbol signal rows (R1.1). Pure.
+ * Each row: { symbol, close, ma50, ma200, ret5, ret20, ext50, hi20, rvol,
+ * gammaRegime, ivRank }. Returns per-symbol classifications plus a distribution
+ * count keyed by state id (every state present, zero-filled), so a bucket with
+ * no members reads as 0, not missing.
+ */
+function buildStateMatrix(rows, th = STATE_THRESHOLDS) {
+  const distribution = Object.fromEntries(STATE_META.map(s => [s.id, 0]));
+  const symbols = rows.map(row => {
+    const { state, reasons } = classifyState(row, th);
+    distribution[state] = (distribution[state] || 0) + 1;
+    return {
+      symbol: row.symbol,
+      state,
+      reasons,
+      iv_rank: row.ivRank,
+      gamma_regime: row.gammaRegime,
+      ext50: row.ext50,
+      ret20: row.ret20,
+      rvol: row.rvol,
+    };
+  });
+  return { distribution, symbols };
+}
+
+async function sendMarketStateMatrix(req, res) {
+  try {
+    const [signalResult, gammaResult, ivResult] = await Promise.all([
+      pool.query(`
+        WITH universe AS (SELECT symbol FROM symbol_universe WHERE scan_enabled = TRUE),
+        recent AS (
+          SELECT p.symbol, p.close, p.volume,
+                 ROW_NUMBER() OVER (PARTITION BY p.symbol ORDER BY p.date DESC) AS rn
+          FROM price_history p JOIN universe u ON u.symbol = p.symbol
+          WHERE p.source = 'polygon_licensed' AND p.close IS NOT NULL
+        )
+        SELECT symbol,
+               MAX(close) FILTER (WHERE rn = 1)  AS close,
+               MAX(close) FILTER (WHERE rn = 6)  AS close5,
+               MAX(close) FILTER (WHERE rn = 21) AS close20,
+               AVG(close) FILTER (WHERE rn <= 50)  AS ma50,
+               AVG(close) FILTER (WHERE rn <= 200) AS ma200,
+               MAX(close) FILTER (WHERE rn BETWEEN 2 AND 21) AS hi20,
+               MAX(volume) FILTER (WHERE rn = 1) AS vol1,
+               AVG(volume) FILTER (WHERE rn BETWEEN 2 AND 21) AS avgvol20,
+               COUNT(*) AS bars
+        FROM recent GROUP BY symbol
+      `),
+      pool.query(`
+        SELECT DISTINCT ON (g.symbol) g.symbol, g.gamma_regime
+        FROM gex_snapshots g
+        JOIN symbol_universe u ON u.symbol = g.symbol AND u.scan_enabled = TRUE
+        ORDER BY g.symbol, g.snapshot_ts DESC
+      `),
+      pool.query(`
+        SELECT DISTINCT ON (v.symbol) v.symbol, v.iv_rank
+        FROM volatility_history v
+        JOIN symbol_universe u ON u.symbol = v.symbol AND u.scan_enabled = TRUE
+        WHERE v.iv_rank IS NOT NULL
+        ORDER BY v.symbol, v.metric_date DESC
+      `),
+    ]);
+
+    const gammaBy = new Map(gammaResult.rows.map(r => [r.symbol, r.gamma_regime]));
+    const ivBy = new Map(ivResult.rows.map(r => [r.symbol, number(r.iv_rank)]));
+
+    const rows = signalResult.rows.map(r => {
+      const close = number(r.close);
+      const ma50 = number(r.ma50);
+      const close5 = number(r.close5);
+      const close20 = number(r.close20);
+      const vol1 = number(r.vol1);
+      const avgvol20 = number(r.avgvol20);
+      const bars = Number(r.bars);
+      return {
+        symbol: r.symbol,
+        close,
+        ma50: bars >= 50 ? ma50 : null,
+        ma200: bars >= 200 ? number(r.ma200) : null,
+        ret5: close != null && close5 ? (close / close5 - 1) * 100 : null,
+        ret20: close != null && close20 ? (close / close20 - 1) * 100 : null,
+        ext50: close != null && ma50 ? (close / ma50 - 1) * 100 : null,
+        hi20: number(r.hi20),
+        rvol: vol1 != null && avgvol20 ? vol1 / avgvol20 : null,
+        gammaRegime: gammaBy.get(r.symbol) ?? null,
+        ivRank: ivBy.get(r.symbol) ?? null,
+      };
+    });
+
+    const { distribution, symbols } = buildStateMatrix(rows);
+    return res.json({
+      status: symbols.length ? 'ready' : 'missing',
+      universe_count: symbols.length,
+      thresholds: STATE_THRESHOLDS,
+      states: STATE_META,
+      distribution,
+      symbols,
+    });
+  } catch (error) {
+    console.error('GET /api/market/state-matrix error:', error.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
 router.get('/regime', sendMarketRegime);
 router.get('/breadth', sendMarketBreadth);
+router.get('/state-matrix', sendMarketStateMatrix);
 
 module.exports = {
   router, deriveMomentum, deriveMarketRegime, sendMarketRegime,
   buildBreadth, percentile, sendMarketBreadth,
+  classifyState, buildStateMatrix, sendMarketStateMatrix, STATE_META, STATE_THRESHOLDS,
 };

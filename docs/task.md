@@ -357,7 +357,11 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 - [ ] **竞品复查(等用户试用后)**:本次分析中 **alphastockpro 的 Pro/Elite 内页在登录墙后**(Trend Matrix/3D Matrix/Momentum Radar/30-Min Breakout Scanner/Reddit Trends/Tactical Swings 等只以其官方功能清单还原,未见实页),**nextpick 的 app 内页为 JS 渲染**(Sector Flow RRG 实图/Stock Analysis 详情/AI 研报样例/bot 交易日志只以首页自述还原)。**用户计划注册试用两家**;拿到访问权后重新逐页深挖(截图+具体算法证据),更新 COMPETITOR_ANALYSIS 文档并校正 R1-R4 优先级。
 - **R0 — 主线不动摇(进行中)**:IV Rank 自给自足 Phase 2.5 → 3 → 4 → 5(Mac 可关机)。所有新功能不得挤占该主线。
-- [ ] **R1.1 Symbol State Matrix(决策语言层,对标 alphastockpro Trend Matrix)**:规则分类全 universe ~200 标的为 5-6 个可操作状态(强势上行/回调买点/底部试探/区间突破/空头/高波动观望),输入全部已有(Kalman 趋势+多周期动量+GEX 环境+IV Rank+RVol),每分类带 reasons(synthesis 层同款)。**顺带解决 scanner 多样性问题**(先按状态分桶再出候选,呼应"全项目 review·算法"节的多样性条目)。
+- [~] **R1.1 Symbol State Matrix(决策语言层,对标 alphastockpro Trend Matrix;后端已完成 2026-07-23,前端 /market 页 mockup-first 待接)**:规则分类全 universe 为 6+兜底状态(用户 2026-07-23 拍板 6+兜底;**合规安全命名——描述状态、不给动作**,不碰"带入场/止损/目标价的买卖信号"边界)。
+  - **状态机(结构优先,first-match-wins,零重叠)**:S0 高波动/事件(gate:IV Rank≥80 或 RVol≥2.5)→ S3 区间突破(破前 20 日高 + RVol≥1.5)→ 多头结构(价>MA200 且 MA50>MA200)分 S2 上行·回调中(价<MA50 或 5 日≤−1.5%)/ S1 强势上行 → 空头结构分 S4 下行·企稳试探(价>MA50 或 5 日≥+1.5%)/ S5 空头 → S6 区间/中性兜底;数据不足 200 根 = insufficient。gamma 只作展示上下文、不参与分类(按批准的表)。阈值 env 可调(`STATE_IVR_HIGH/RVOL_SPIKE/RVOL_BREAKOUT/EXT_HIGH/MOM_BAND`)。
+  - **实现**:`server/src/routes/market.js` 纯 `classifyState`/`buildStateMatrix` + `GET /api/market/state-matrix`(SQL 一趟聚合 scan universe 的 close/MA50/MA200/5日20日收益/前20日高/RVol,join gamma+iv_rank)。返回每标的 `{state, reasons[], 原始信号}` + 各状态零填充分布。
+  - **验证**:server 195/195(纯函数单测 9 条,含"标签不含入场/止损/买卖"合规断言)。**live 74 标的**:S1 20 / S2 21 / S3 0 / S6 9 / S4 4 / S5 9 / S0 11。**调优**:初版 5 日动量任意转负就判 S2 导致 AAPL(−0.5% 噪声)误入,加 ±1.5% `momBand` 后 8 个噪声回调归回 S1,分布更真实。可复现:`docs/validation/STATE_MATRIX_2026-07-23.md`。
+  - **待做**:前端 `/market` 页(决策语言层的家,以后 R1.3 轮动/R1.2 简报并入,现有 breadth Market Internals 也搬进去)——先出 mockup 给用户选布局再实现(同 R2.2 节奏)。**scanner 多样性**(先按状态分桶再出候选)另作后续步骤。
 - [ ] **R1.2 每日市场简报(对标 nextpick briefing)**:市场级 synthesis——universe 状态分布(穷人版 breadth)、板块聚合、SPY/QQQ gamma 环境、IV 面貌(IV rank 分布)、top 期权异动、明日财报。每日物化一份,可分享链接/图卡。
 - [ ] **R1.3 板块轮动视图(对标 RRG)**:按 sector 聚合已有 per-symbol 数据(universe 元数据已有 sector 字段):平均动量状态、% above MA、gamma regime 分布、IV rank 分布;相对强度 vs 强度动量四象限散点(简版 RRG)。零新采集。
 - [ ] **R2.1 候选结果台账(信任层,对标 nextpick bot 记录的诚实版)**:V3A-2 已物化每批候选(表已在生产)——加结果评分:到期/N 日后逐候选记实际盈亏、POP 校准(预测 68% 的桶实际赢率)、按策略族胜率;成熟后开公开"模型记录"页。**一石二鸟:这正是拟合候选打分权重所需的标注数据**(呼应已记录的"打分权重未经验证"技术债与 Confluence CF-5 的权重拟合前置)。定位=模型验证,不是跟单信号。
