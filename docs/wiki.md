@@ -884,7 +884,8 @@ Current formulas:
 - Put Wall：strike with max absolute put-side GEX
 - PCR OI：total put OI / total call OI
 - PCR Volume：total put volume / total call volume
-- Max Pain V1：aggregate across selected contracts
+- Max Pain V1（GEX 口径）：aggregate across selected narrow-chain contracts；存 `gex_snapshots.max_pain`，供 GEX DTO。
+- Max Pain 全链（2026-07-23 新增，OI 图口径）：单开一条 OI-only 宽抓取（现价 ±`1.5σ×IV×√t` 自适应窗口，clamp [8%,60%]），`max_pain_from_oi` 最小化全链 Σ(intrinsic×OI)。存 `option_chain_snapshots.oi_by_strike` JSONB；`/api/chain/stats/:symbol` 优先返回（`aggregation:wide_oi_only_adaptive_window`，附 `max_pain`/`window_pct`），旧快照回退窄链。Tab4 OI 图因此连续、Max Pain 看得到远端 OI 堆积。二者口径不同，故意并存。详见 ARCHITECTURE §40.1。
 - Gamma Flip：Black-Scholes gamma recalculated across spot ±10% grid; if no zero crossing, use nearest abs(net GEX) fallback
 
 2026-07-14 PLTR GEX runtime evidence:
