@@ -1682,6 +1682,8 @@ Alerting is observational：它不暂停 collector、不改变 provider fallback
 
 Analyze 并行读取 metrics、daily prices、GEX、unusual、S/R（含 Focus/OBV/MFI）、Volume Profile 和 chain stats。S/R/Focus/OBV/MFI 只读取 `price_history`；Volume Profile 的 `30m` 模式读取 regular-session `price_history_30m`（默认近 20 天），`1d` 模式读取最多 250 根 `price_history`，两种模式默认 40 个价格桶，并返回 POC、70% Value Area 与 LVN；IV skew/term structure 只读取 `option_contract_snapshots` 中实际存在且 `iv > 0` 的合约。PostgreSQL `DATE` 在 API 边界统一序列化为 `YYYY-MM-DD`，DTE/当日完整性使用 `America/New_York`。
 
+**价格头 as-of 标注（P3，2026-07-23）**：Analyze 显示的现价会在盘中期权快照 spot（`applyGex` 用 `underlying_price` 覆盖）与日线前收盘（`price_history.close`）之间切换。为杜绝"前收盘冒充现价"，price 现在随身带一个 `priceAsOf`：种子为 `{kind:'close',date}`，intraday spot 胜出时覆盖为 `{kind:'intraday',ts,freshness}`。价格头据此渲染 `formatPriceAsOf`——盘中"截至 MM-DD HH:MM ET（· 延迟）"（ET 时区真实换算，非裸 UTC），前收盘"截至 YYYY-MM-DD 收盘"。服务端 `analyzeDto` 同步输出 `price_as_of`（`/summary` cutover 后消费）。可复现：`docs/validation/CURRENT_PRICE_ASOF_LABEL_2026-07-23.md`。
+
 Confluence 是独立的只读派生 API：`GET /api/analyze/:symbol/confluence`。route 只读取最多 250 根 `price_history` 和最新兼容模型的 `gex_snapshots`；`server/src/domain/confluence/engine.js` 保持纯函数，收集 Volume Profile、Market Structure、ATR、Moving Average、Gamma 与 Fibonacci 六类信号，再按 `0.5 × ATR14` 聚类。它使用版本化的固定先验 `confluence-v1-prior`，每个 Zone 返回 `reasons` 和原始输入摘要，尚不写入 scanner 或 UI，直到 CF-3 G5 回放通过。
 
 `server/scripts/replay-confluence.js` 是 G5 的可复现只读 harness。它对每个日线前缀分别调用 Confluence 和现有单点 pivot S/R `+/-0.5%` 控制组，后续 5 个日线只做评分；历史 Gamma 始终为零。当前全样本 G5 未达标，故该 API 不被前端调用，部署层无新增表、job 或权限。

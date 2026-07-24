@@ -266,7 +266,9 @@ body {
   margin-bottom: 16px;
 }
 .az-symbol { font-size: 24px; font-weight: 800; }
+.az-price-block { display: flex; flex-direction: column; gap: 2px; }
 .az-price { font-size: 18px; color: var(--text-dim); }
+.az-price-asof { font-size: 11px; color: var(--text-dim); opacity: 0.7; }
 .az-iv-unavailable {
   display: inline-flex;
   align-items: center;

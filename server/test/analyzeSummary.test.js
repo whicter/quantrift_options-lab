@@ -105,3 +105,15 @@ test('the DTO points recommendation at the server-side candidate endpoint', () =
   assert.equal(dto.recommendation_ref, '/api/analyze/AAPL/candidate');
   assert.equal(dto.scenarios.up_trigger, 220);
 });
+
+test('the DTO carries an intraday price as-of from the snapshot ts', () => {
+  const dto = buildAnalyzeSummary('AAPL', usableGex());
+  assert.equal(dto.price_as_of.kind, 'intraday');
+  assert.equal(dto.price_as_of.ts, '2026-07-17T15:00:00Z');
+  assert.equal(dto.price_as_of.freshness, 'fresh');
+});
+
+test('the DTO omits price as-of when positioning has no price', () => {
+  const dto = buildAnalyzeSummary('AAPL', { freshness: 'missing' });
+  assert.equal(dto.price_as_of, null);
+});

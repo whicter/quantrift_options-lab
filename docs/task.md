@@ -8,7 +8,7 @@
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
    - `2026-07-21 — 快照表 retention` ✅：两张物化表无限膨胀拖慢库,已加 `prune_snapshots` 自动清理,scanner_results 929MB→545MB。
    - `2026-07-21 — 预算行被双 runtime 打回 1000` ✅：盘中整段停摆的根因,默认预算 1000→1,000,000,顺带修 metrics `date` 序列化 bug。
-   - `2026-07-20 — 现价陈旧 bug` 🟡 **3 项未完成**：P1(spot 4→1 天)/P2(延迟盘中价路径,默认关)已完成;**P2.1 免费 IB 盘中价(唯一免费真盘中价路径,用户已确认要做)**、P3(现价时间戳标注)、P4(日线 cron 可靠性)待做。Polygon Options 档股票盘中数据 403 死路,已铁证。
+   - `2026-07-20 — 现价陈旧 bug` 🟡 **2 项未完成**：P1(spot 4→1 天)/P2(延迟盘中价路径,默认关)/**P3(现价时间戳标注,2026-07-23 完成)**已完成;**P2.1 免费 IB 盘中价(唯一免费真盘中价路径,用户已确认要做,需开盘时段验收)**、P4(日线 cron 可靠性)待做。Polygon Options 档股票盘中数据 403 死路,已铁证。
    - `2026-07-19 — 调度器饥饿 bug` ✅：16 个"从未成功报价"标的霸占优先级饿死 STX/SRVR/MU 等;修排序 + 禁用 VIX。
 1. `2026-07-17 — IV Rank 自给自足` — 3 项，**当前主线、下一个开发项 = Phase 3**：Phase 2.5 已完成（分页 + 月期权回退 + 滚动 grid cache + 分批持久化；核心 SPY/QQQ/IWM/GLD/TLT/TSLA 均达 252+）→ Phase 3 前向口径统一（上线前必须项，设计已写）→ Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
@@ -132,7 +132,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - [x] **P1 `SPOT_HINT_MAX_AGE_DAYS` 4→1(已完成)**:消除"多天前价"。实测周一查 TSLA/SPY/MU 的 `latest_db_spot()` 均返回 None(最新日线周五 07-17=3 天前),强制走 `/prev` 拿前收盘 380.84,不再拿周四 391.06。
 - [x] **P2 `fetch_underlying` 加延迟盘中价路径(已完成,默认关)**:新增 `_fetch_intraday_last` + `intraday_spot_enabled`(env `OPTION_INTRADAY_SPOT_ENABLED`,默认 **false**)。因 Polygon 分钟盘中确认 NOT_AUTHORIZED,默认不发那个注定失败的请求(避免 200 标的×每 5 分钟的噪声);升级 Stocks 订阅后置 true 即自动生效。优先级:intraday(开启时)→ spot_hint(近日收盘)→ `/prev`;任何异常优雅回退不炸快照;raw 带 `endpoint`/`as_of`。单测覆盖开启命中/关闭不请求/未授权回退/盘后走 prev 四条路径。collector 236/236。
 - [ ] **P2.1 ⭐盘中用 IB 当 underlying 现价源(唯一免费的真盘中价,用户已确认要做)**:Polygon Options 档股票盘中数据 403 已铁证死路,IB Gateway 盘中能给真标的价(实测 TSLA 07-20 10:22 ET `ib_internal` underlying=374.43)。设计:常规交易时段 underlying 现价走 IB(Polygon 仍供期权链/GEX);盘后仍用 Polygon `/prev`。需独立设计 + 开盘时段验收 + 处理 IB entitlement 边界(last/Greeks 可用,bid/ask 受限,IB `10091/10167`)。**这是当前唯一不花钱拿到真盘中现价的路径**。
-- [ ] **P3 现价永远带真实时间戳标注**("截至 X 收盘 / HH:MM"):当前 plan 下盘中显示的是**前收盘**,更必须标清楚,绝不把前收盘静默当"现价"。前端 + DTO。
+- [x] **P3 现价永远带真实时间戳标注(已完成 2026-07-23)**:Analyze 价格头以前裸渲染 `result.price`,而该值会在盘中期权快照 spot 与日线前收盘之间静默切换、无任何标注——正是"前收盘冒充现价"。修复:①`createRealAnalysis` 种子加 `priceAsOf{kind:'close',date}`(日线前收盘口径);②`applyGex` 当 `underlying_price` 胜出时覆盖为 `{kind:'intraday',ts:snapshot_ts,freshness}`,否则保留日线口径(GEX 不可用分支 `...data` 天然透传);③价格头下渲染 `formatPriceAsOf`——盘中显示"截至 MM-DD HH:MM ET(· 延迟)"(ET 时区真实换算),前收盘显示"截至 YYYY-MM-DD 收盘"。④服务端 `analyzeDto` 同步加 `price_as_of`(cutover 后前端消费,保持口径一致)。单测:frontend `analyzeData.test.js` 2 条(intraday 覆盖盖时间戳 / GEX 不可用保留收盘口径)、server `analyzeSummary.test.js` 2 条。验证:frontend 76/76、server 184/184、lint+build 干净。可复现:`docs/validation/CURRENT_PRICE_ASOF_LABEL_2026-07-23.md`。
 - [ ] **P4 日线 cron 可靠性**:周五那根不该等到周一;已手动补 07-17,但缺日回补机制仍需修。
 - **架构澄清(回答"日线 cron 是什么/用户查询是否该拿最新")**:
   - `quantrift-options-prices`(`collect_prices.py`)采的是 **400 天日线 OHLCV + 35 天 30 分钟 K 线**,写 `price_history`/`price_history_30m`,再跑 `derive_volatility`。它喂的是**价格图表、技术指标(MA/RSI/HV/MFI)、HV/IV rank**,**不是"现价"来源**。叫"日线 cron"因为它取日线 bar、每工作日盘后跑一次。

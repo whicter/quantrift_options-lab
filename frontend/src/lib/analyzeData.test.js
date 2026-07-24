@@ -42,6 +42,34 @@ test('stale GEX remains visible when required real fields exist', () => {
   assert.equal(result.gexNotice.title, '延迟期权快照');
 });
 
+test('usable GEX price override stamps an intraday as-of from the snapshot ts', () => {
+  const seed = { ...mockSeed, priceAsOf: { kind: 'close', date: '2026-07-16', ts: null } };
+  const result = applyGex(seed, {
+    symbol: 'PLTR',
+    freshness: 'fresh',
+    confidence: 'high',
+    source: 'polygon_licensed',
+    snapshot_ts: '2026-07-23T18:32:00Z',
+    raw_metrics: { model_version: 'gex-v2-1pct-positioning-proxy', unit: 'usd_delta_change_per_1pct_move' },
+    underlying_price: '319.69',
+    global_gex: '1000',
+    call_wall: '340',
+    put_wall: '300',
+    strikes: [{ strike: '340', net_gex: '1000' }],
+  });
+  assert.equal(result.price, 319.69);
+  assert.equal(result.priceAsOf.kind, 'intraday');
+  assert.equal(result.priceAsOf.ts, '2026-07-23T18:32:00Z');
+  assert.equal(result.priceAsOf.freshness, 'fresh');
+});
+
+test('unusable GEX keeps the daily-close as-of instead of faking an intraday one', () => {
+  const seed = { ...mockSeed, priceAsOf: { kind: 'close', date: '2026-07-16', ts: null } };
+  const result = applyGex(seed, { symbol: 'PLTR', freshness: 'missing' });
+  assert.equal(result.priceAsOf.kind, 'close');
+  assert.equal(result.priceAsOf.date, '2026-07-16');
+});
+
 test('missing GEX clears mock walls and does not keep mock strategy legs', () => {
   const result = applyGex(mockSeed, {
     symbol: 'PLTR',

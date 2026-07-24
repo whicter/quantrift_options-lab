@@ -65,6 +65,15 @@ function buildAnalyzeSummary(symbol, gex, opts = {}) {
     },
     positioning,
     scenarios,
+    // Honest as-of for the displayed price: this DTO's price is always the
+    // option-snapshot spot, so the as-of is that snapshot's timestamp. Parity
+    // with the frontend price header (frontend priceAsOf); a prior close is
+    // never surfaced here without its own timestamp.
+    price_as_of: positioning.available && positioning.underlying_price != null ? {
+      kind: 'intraday',
+      ts: gex?.snapshot_ts ?? null,
+      freshness: gex?.freshness ?? null,
+    } : null,
     // Recommendation stays at GET /api/analyze/:symbol/candidate, which already
     // builds legs server-side. Referenced here so the client has one contract.
     recommendation_ref: `/api/analyze/${symbol}/candidate`,

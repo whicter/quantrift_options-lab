@@ -70,7 +70,14 @@ export function applyGex(data, gexData) {
     }))
     .filter(row => row.strike != null && row.gex != null);
 
-  const price = toNumber(gexData.underlying_price) ?? data.price;
+  const gexPrice = toNumber(gexData.underlying_price);
+  const price = gexPrice ?? data.price;
+  // When the option-snapshot spot wins, the as-of is that snapshot's timestamp
+  // (an in-session/delayed price). Otherwise keep the daily-close as-of that the
+  // seed set, so the header never labels a prior close as a live intraday price.
+  const priceAsOf = gexPrice != null
+    ? { kind: 'intraday', ts: gexData.snapshot_ts ?? null, date: null, freshness: gexData.freshness ?? null }
+    : data.priceAsOf;
   const callWall = toNumber(gexData.call_wall) ?? data.callWall;
   const putWall = toNumber(gexData.put_wall) ?? data.putWall;
   const gammaFlip = toNumber(gexData.gamma_flip);
@@ -87,6 +94,7 @@ export function applyGex(data, gexData) {
     partialData: undefined,
     gexNotice: buildGexNotice(gexData),
     price,
+    priceAsOf,
     gexTotal,
     gexByStrike: gexByStrike.length ? gexByStrike : data.gexByStrike,
     putWall,

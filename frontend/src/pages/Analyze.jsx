@@ -70,6 +70,27 @@ function applyMetrics(data, metrics) {
   };
 }
 
+// Honest as-of label for the price header. An intraday spot shows its snapshot
+// time in ET; a daily close is explicitly labeled 收盘 so a prior close can
+// never masquerade as a live price.
+function formatPriceAsOf(priceAsOf) {
+  if (!priceAsOf) return null;
+  if (priceAsOf.kind === 'close') {
+    return priceAsOf.date ? `截至 ${priceAsOf.date} 收盘` : null;
+  }
+  if (priceAsOf.kind === 'intraday') {
+    if (!priceAsOf.ts) return '盘中快照';
+    const d = new Date(priceAsOf.ts);
+    if (Number.isNaN(d.getTime())) return null;
+    const et = d.toLocaleString('en-US', {
+      timeZone: 'America/New_York', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    return `截至 ${et} ET${priceAsOf.freshness === 'fresh' ? '' : ' · 延迟'}`;
+  }
+  return null;
+}
+
 // This is the only analysis seed used in production. Every displayed market
 // value is subsequently supplied by a real API response or remains null.
 function createRealAnalysis(symbol, priceData) {
@@ -87,6 +108,14 @@ function createRealAnalysis(symbol, priceData) {
       count: priceData?.count,
       freshness: priceData?.freshness,
       isStale: Boolean(priceData?.is_stale),
+    } : null,
+    // Honest as-of for the price header. Seeds to the daily close; applyGex
+    // overrides it to the intraday spot's timestamp when GEX supplies a fresher
+    // underlying_price. A prior daily close must never render as a live price.
+    priceAsOf: latest ? {
+      kind: 'close',
+      date: String(priceData?.latest_date || latest.date).slice(0, 10),
+      ts: null,
     } : null,
     dataMeta: null,
     ivRank: null,
@@ -562,7 +591,12 @@ export default function Analyze() {
                 <div className="az-symbol">{result.symbol}</div>
               );
             })()}
-            <div className="az-price">${result.price}</div>
+            <div className="az-price-block">
+              <div className="az-price">${result.price}</div>
+              {formatPriceAsOf(result.priceAsOf) && (
+                <div className="az-price-asof">{formatPriceAsOf(result.priceAsOf)}</div>
+              )}
+            </div>
             <div style={{ flex: 1 }} />
             <div style={{ minWidth: 200 }}>
               {result.dataMeta ? <IVGauge value={result.ivRank} /> : (
