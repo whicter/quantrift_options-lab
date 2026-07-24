@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -50,6 +51,22 @@ class PolygonOptionChainProvider:
         # exhausting its contract cap around DTE ~30.
         self.term_structure_strike_pct = float(os.getenv('OPTION_TERM_STRUCTURE_STRIKE_PCT', '4'))
         self.term_structure_max_pages = int(os.getenv('OPTION_TERM_STRUCTURE_MAX_PAGES', '10'))
+        # OI-by-strike is a dedicated OI-only wide fetch (no Greeks/quotes, so it
+        # is cheap enough to span a much wider strike range than the narrow
+        # Greeks-bearing chain that GEX needs). Its window adapts per symbol to
+        # the option-implied move (spot * IV * sqrt(t)), because a fixed % or a
+        # fixed strike count is wrong by an order of magnitude across the
+        # universe (SPY 15% IV vs SOXL 189% IV). Floor/cap bound the strike
+        # count so a low-IV name still gets enough strikes and a dense/high-IV
+        # one does not explode.
+        self.oi_by_strike_enabled = os.getenv('OPTION_OI_BY_STRIKE_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
+        self.oi_window_sigma = float(os.getenv('OPTION_OI_WINDOW_SIGMA', '1.5'))
+        self.oi_window_min_pct = float(os.getenv('OPTION_OI_WINDOW_MIN_PCT', '8'))
+        self.oi_window_max_pct = float(os.getenv('OPTION_OI_WINDOW_MAX_PCT', '60'))
+        self.oi_max_strikes_per_side = int(os.getenv('OPTION_OI_MAX_STRIKES_PER_SIDE', '60'))
+        self.oi_min_strikes_per_side = int(os.getenv('OPTION_OI_MIN_STRIKES_PER_SIDE', '15'))
+        self.oi_max_pages = int(os.getenv('OPTION_OI_MAX_PAGES', '12'))
+        self.oi_default_iv = float(os.getenv('OPTION_OI_DEFAULT_IV', '0.4'))
         self.request_delay = float(os.getenv('POLYGON_REQUEST_DELAY', '0.12'))
         self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
         self._session = requests.Session()
@@ -292,6 +309,63 @@ class PolygonOptionChainProvider:
         contracts = [c for c in (self._parse_contract(symbol, item) for item in raw) if c is not None]
         return build_term_structure(contracts, spot, today)
 
+    def fetch_oi_by_strike(self, symbol: str, spot: float, iv: float | None = None) -> dict:
+        """Wide OI-by-strike + full-chain max pain, via an OI-only fetch.
+
+        The strike window adapts to the symbol's implied move (see
+        adaptive_oi_window_pct), then the count is bounded by
+        oi_{min,max}_strikes_per_side so a low-IV name still gets enough strikes
+        and a dense one is capped. Snapshot results carry OI without needing the
+        Greeks/quotes the narrow GEX chain pays for, so this stays cheap even at
+        ~50 strikes/side. Returns {points, max_pain, window_pct} or empty on any
+        failure -- best effort, never raises into the caller.
+        """
+        symbol = symbol.upper()
+        if not self.oi_by_strike_enabled or spot is None or spot <= 0:
+            return {'points': [], 'max_pain': None, 'window_pct': None}
+        try:
+            window_pct = adaptive_oi_window_pct(
+                spot, iv, self.max_dte, n_sigma=self.oi_window_sigma,
+                min_pct=self.oi_window_min_pct, max_pct=self.oi_window_max_pct,
+                default_iv=self.oi_default_iv,
+            )
+            today = date.today()
+            params: dict[str, Any] = {
+                'expiration_date.gte': (today + timedelta(days=self.min_dte)).isoformat(),
+                'expiration_date.lte': (today + timedelta(days=self.max_dte)).isoformat(),
+                'strike_price.gte': round(spot * (1 - window_pct / 100), 4),
+                'strike_price.lte': round(spot * (1 + window_pct / 100), 4),
+                'limit': self.page_limit,
+            }
+            raw: list[dict] = []
+            url: str | None = f'{self.base_url}/v3/snapshot/options/{symbol}'
+            current_params: dict | None = params
+            pages = 0
+            while url and pages < self.oi_max_pages:
+                self.stock_pacer.wait()
+                resp = self._session.get(url, params=current_params, timeout=self.timeout)
+                if getattr(resp, 'status_code', 200) != 200:
+                    break
+                data = resp.json()
+                raw.extend(data.get('results') or [])
+                url = data.get('next_url') or None
+                current_params = None
+                pages += 1
+                if url and self.request_delay > 0:
+                    time.sleep(self.request_delay)
+            contracts = [c for c in (self._parse_contract(symbol, item) for item in raw)
+                         if c is not None and c.open_interest is not None]
+            contracts = _bound_oi_strikes(contracts, spot, self.oi_min_strikes_per_side, self.oi_max_strikes_per_side)
+            points = build_oi_by_strike(contracts, spot)
+            return {
+                'points': points,
+                'max_pain': max_pain_from_oi(points),
+                'window_pct': round(window_pct, 2),
+            }
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            log.warning('%s: OI-by-strike fetch failed (%s)', symbol, exc)
+            return {'points': [], 'max_pain': None, 'window_pct': None}
+
     def _parse_contract(self, symbol: str, item: dict) -> OptionContractSnapshot | None:
         details = item.get('details') or {}
         expiry_str = details.get('expiration_date')
@@ -361,6 +435,74 @@ class PolygonOptionChainProvider:
             provider_contract_id=ticker or None,
             raw=item,
         )
+
+
+def adaptive_oi_window_pct(spot: float, iv: float | None, max_dte: int,
+                           n_sigma: float = 1.5, min_pct: float = 8.0,
+                           max_pct: float = 60.0, default_iv: float = 0.4) -> float:
+    """Half-width (percent) of the OI strike window, sized to the implied move.
+
+    An expected 1-sigma move to the furthest expiry is `spot * iv * sqrt(t)`, so
+    `n_sigma` of that as a percent of spot is `100 * n_sigma * iv * sqrt(t)`.
+    Clamped to [min_pct, max_pct] so a low-IV name (SPY ~15%) still gets a usable
+    band and a high-IV one (SOXL ~189%) does not request the whole chain. IV is
+    a decimal (0.48 = 48%); a missing IV falls back to `default_iv`.
+    """
+    iv_val = iv if (iv is not None and iv > 0) else default_iv
+    t_years = max(max_dte, 1) / 365.0
+    pct = 100.0 * n_sigma * iv_val * math.sqrt(t_years)
+    return max(min_pct, min(max_pct, pct))
+
+
+def _bound_oi_strikes(contracts, spot: float, min_per_side: int, max_per_side: int):
+    """Keep at most `max_per_side` distinct strikes on each side of spot. The
+    adaptive window already sets the reach; this caps the count so a dense chain
+    (SPY $1 strikes) does not blow past the intended strike budget. min_per_side
+    is advisory — if the window returned fewer, we keep what exists."""
+    below = sorted({c.strike for c in contracts if c.strike is not None and c.strike <= spot}, reverse=True)[:max_per_side]
+    above = sorted({c.strike for c in contracts if c.strike is not None and c.strike > spot})[:max_per_side]
+    keep = set(below) | set(above)
+    return [c for c in contracts if c.strike in keep]
+
+
+def build_oi_by_strike(contracts, spot: float) -> list[dict]:
+    """Aggregate OI per strike across expiries: [{strike, call_oi, put_oi,
+    total_oi}], sorted by strike. `contracts` may carry only OI (no Greeks)."""
+    if not contracts or spot is None or spot <= 0:
+        return []
+    by_strike: dict = {}
+    for c in contracts:
+        if c.strike is None or c.open_interest is None or c.open_interest < 0:
+            continue
+        row = by_strike.setdefault(c.strike, {'strike': c.strike, 'call_oi': 0, 'put_oi': 0, 'total_oi': 0})
+        if c.right == 'C':
+            row['call_oi'] += c.open_interest
+        elif c.right == 'P':
+            row['put_oi'] += c.open_interest
+        row['total_oi'] += c.open_interest
+    return [by_strike[k] for k in sorted(by_strike)]
+
+
+def max_pain_from_oi(oi_by_strike: list[dict], contract_multiplier: int = 100) -> float | None:
+    """Full-chain max-pain strike: the strike minimizing total option-holder
+    intrinsic payout, summed over every strike's call and put OI. Needs the wide
+    OI set (a near-money slice gives only a local estimate)."""
+    rows = [r for r in (oi_by_strike or []) if r.get('strike') is not None]
+    if not rows:
+        return None
+    strikes = sorted(r['strike'] for r in rows)
+    best_strike = None
+    best_pain = None
+    for candidate in strikes:
+        pain = 0.0
+        for r in rows:
+            k = r['strike']
+            pain += max(candidate - k, 0) * (r.get('call_oi') or 0) * contract_multiplier
+            pain += max(k - candidate, 0) * (r.get('put_oi') or 0) * contract_multiplier
+        if best_pain is None or pain < best_pain:
+            best_pain = pain
+            best_strike = candidate
+    return best_strike
 
 
 def build_term_structure(

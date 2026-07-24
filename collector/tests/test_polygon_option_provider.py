@@ -303,3 +303,42 @@ class SpotHintTests(unittest.TestCase):
 
         self.assertEqual(float(snapshot.underlying.price), 380.84)
         self.assertEqual(snapshot.underlying.raw.get('endpoint'), 'prev_agg')
+
+
+class AdaptiveOiWindowTests(unittest.TestCase):
+    def test_window_scales_with_iv_and_clamps(self):
+        from providers.polygon_option_chain_provider import adaptive_oi_window_pct
+        # low IV -> clamped up to the floor; high IV -> clamped to the cap
+        spy = adaptive_oi_window_pct(742, 0.15, 90, min_pct=8, max_pct=60)
+        tsla = adaptive_oi_window_pct(370, 0.48, 90, min_pct=8, max_pct=60)
+        soxl = adaptive_oi_window_pct(137, 1.89, 90, min_pct=8, max_pct=60)
+        self.assertLess(spy, tsla)          # SPY narrower than TSLA
+        self.assertLess(tsla, soxl)
+        self.assertGreaterEqual(spy, 8)     # floor
+        self.assertLessEqual(soxl, 60)      # cap
+        # missing IV uses the default, not a crash
+        self.assertGreater(adaptive_oi_window_pct(100, None, 30, default_iv=0.4), 0)
+
+    def test_build_oi_by_strike_aggregates_calls_and_puts(self):
+        from providers.polygon_option_chain_provider import build_oi_by_strike
+        from providers.base import OptionContractSnapshot
+        def c(strike, right, oi):
+            return OptionContractSnapshot(symbol='T', expiry=date.today(), strike=strike, right=right,
+                bid=None, ask=None, last=None, mark=None, volume=None, open_interest=oi,
+                iv=None, delta=None, gamma=None, theta=None, vega=None, rho=None)
+        rows = build_oi_by_strike([c(100,'C',5), c(100,'P',7), c(105,'C',3), c(95,'P',9)], spot=100)
+        self.assertEqual([r['strike'] for r in rows], [95, 100, 105])   # sorted
+        atm = next(r for r in rows if r['strike'] == 100)
+        self.assertEqual((atm['call_oi'], atm['put_oi'], atm['total_oi']), (5, 7, 12))
+
+    def test_max_pain_from_full_oi_beats_a_near_money_slice(self):
+        from providers.polygon_option_chain_provider import max_pain_from_oi
+        # Heavy put OI far below spot pulls max pain down; a near-money-only view
+        # would miss it. Max pain = strike minimizing total intrinsic payout.
+        wide = [
+            {'strike': 350, 'call_oi': 100, 'put_oi': 40000},
+            {'strike': 375, 'call_oi': 5000, 'put_oi': 5000},
+            {'strike': 400, 'call_oi': 20000, 'put_oi': 100},
+        ]
+        self.assertEqual(max_pain_from_oi(wide), 375)
+        self.assertIsNone(max_pain_from_oi([]))
