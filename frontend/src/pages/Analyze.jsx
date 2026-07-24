@@ -567,12 +567,6 @@ export default function Analyze() {
         </div>
       ) : error && <div className="az-error">{error}</div>}
 
-      <TechnicalLevelsPanel
-        data={technicalData}
-        loading={technicalLoading}
-        error={technicalError}
-      />
-
       {result && (
         <>
           {/* Symbol header */}
@@ -647,6 +641,15 @@ export default function Analyze() {
             {!result.partialData && activeTab === 0 && <Tab1Overview data={result} />}
             {activeTab === 1 && <Tab2Trend data={result} />}
             {!result.partialData && activeTab === 2 && <Tab3Options data={result} />}
+            {/* Technical Support Structure is price-derived (options-independent), so it
+                shows on this tab even when option data is partial. */}
+            {activeTab === 3 && (
+              <TechnicalLevelsPanel
+                data={technicalData}
+                loading={technicalLoading}
+                error={technicalError}
+              />
+            )}
             {!result.partialData && activeTab === 3 && <Tab4Signals data={result} />}
           </div>
         </>
