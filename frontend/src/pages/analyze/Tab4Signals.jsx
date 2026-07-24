@@ -244,7 +244,10 @@ export default function Tab4Signals({ data }) {
             <>
               <div className="az-oi-density-meta">
                 <span><i className="put" />Put OI</span><span><i className="call" />Call OI</span>
-                <span>{oiDensity.expiryCount} 个到期日 · {oiDensity.freshness === 'fresh' ? '数据较新' : '数据延迟'} · 数据截至 {String(oiDensity.snapshotTs || '').slice(0, 16).replace('T', ' ') || '--'}</span>
+                {Number.isFinite(oiDensity.maxPain) && (
+                  <span>Max Pain <strong>${oiDensity.maxPain}</strong>{Number.isFinite(oiDensity.windowPct) ? ` · ±${oiDensity.windowPct}% 全链` : ''}</span>
+                )}
+                <span>{oiDensity.aggregation === 'wide_oi_only_adaptive_window' ? `${oiByStrike.length} 档 strike` : `${oiDensity.expiryCount} 个到期日`} · {oiDensity.freshness === 'fresh' ? '数据较新' : '数据延迟'} · 数据截至 {String(oiDensity.snapshotTs || '').slice(0, 16).replace('T', ' ') || '--'}</span>
               </div>
               <ChipRuler oiByStrike={oiByStrike} putWall={putWall} callWall={callWall} price={price} />
             </>

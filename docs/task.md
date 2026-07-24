@@ -2,7 +2,7 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **112 项** `- [ ]`（2026-07-22 核对；原 111 项 + Analyze Technical Support Confluence 仅剩生产部署验收 1 项），按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **112 项** `- [ ]`（2026-07-22 核对；原 111 项 + Analyze Technical Support Confluence 仅剩生产部署验收 1 项。07-22 新增的 OI-by-strike 5 项已于 07-23 全部实现完成 ✅，不计入未完成），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
@@ -31,7 +31,7 @@
 
 ---
 
-## 2026-07-22 — OI-by-strike 图不连续 + Max Pain 不准（已定方案 = B×自适应,待实现,暂不做）
+## ✅ 2026-07-22 — OI-by-strike 图不连续 + Max Pain 不准（B×自适应,2026-07-23 已实现）
 
 **触发**:用户看 TSLA OI-by-strike 图稀疏"不连续",问 strike 为什么那么少 + 能不能算 Max Pain。
 
@@ -54,12 +54,13 @@
 - **维度 2「抓什么数据」= B(分开)**:GEX/Wall 那条保持**窄窗口(近价 ±1σ)+ 完整合约**(要 Greeks,近价足够);另开一条 **OI-only 宽抓取**(±1.5σ 自适应,**只抓 OI、不要 Greeks/报价**——OI 廉价,所以敢抓宽),专供 OI-by-strike 图 + 全链 Max Pain。
 - **为什么是这个组合**:每一块用"正确的宽度 × 该块真正需要的数据",零浪费——SPY 不会抓 130 个带 Greeks 的合约,SOXL 的 OI/Max Pain 能覆盖该覆盖的宽度。跟 B1 期限结构专用窄窗抓取(`68fb47e`)同一套路(那次窄 strike 多到期,这次宽 strike OI-only)。
 
-**待实现(暂不做,用户 token 不足)**:
-- [ ] 新增 OI-only 宽窗口采集(现价 ±1.5σ 自适应 window,只取 OI,Polygon snapshot 端点 OI 字段;写入独立的 OI-by-strike 存储或扩展现有)。
-- [ ] 窗口按 IV 自适应计算(替换固定 `strike_window_pct`),配 strike 数上下限兜底。
-- [ ] GEX 那条完整合约采集保持窄不变(成本不涨)。
-- [ ] `compute_max_pain` 改用宽 OI 数据源,得到真·全链 Max Pain;前端 OI 图自动变连续,Max Pain 展示到 Analyze。
-- [ ] 单测:自适应窗口对 SPY/TSLA/SOXL 各算出合理宽度 + 上下限截断;Max Pain 全链 vs 稀疏对比。
+**✅ 已实现(2026-07-23)**:
+- [x] **OI-only 宽窗口采集 + 自适应窗口**:`polygon_option_chain_provider.py` 新增 `adaptive_oi_window_pct`(窗口=现价±`n_sigma×IV×√t`,n_sigma=1.5,clamp [8%,60%])、`fetch_oi_by_strike`(OI-only 分页抓取,per-side strike 上/下限兜底,返回 `{points, max_pain, window_pct}`)、`build_oi_by_strike`/`max_pain_from_oi`(纯聚合+全链 Max Pain)。GEX 那条窄完整合约采集不变(成本不涨)。env:`OPTION_OI_BY_STRIKE_ENABLED`(默认 true)、`OPTION_OI_WINDOW_SIGMA/MIN_PCT/MAX_PCT/MAX_STRIKES_PER_SIDE/MIN_STRIKES_PER_SIDE`。
+- [x] **IV 传入**:worker 新增 `latest_db_iv`(`volatility_history.atm_iv` → `iv_history.iv30` 回退),`fetch_option_chain` 加 `iv_hint` 参数。
+- [x] **存储 + serving**:`OptionChainSnapshot.oi_by_strike` 字段;`option_chain_snapshots.oi_by_strike` JSONB 列(additive,已迁移生产);`collect_options.persist_snapshot` 写入;`server/src/routes/chain.js::deriveOiDensity` 优先用宽 OI(附 `max_pain`/`window_pct`,标 `aggregation:'wide_oi_only_adaptive_window'`),旧快照回退窄链。
+- [x] **前端展示**:`analyzeData.js` 透传 `maxPain`/`windowPct`;Tab4 OI 卡 meta 行显示"Max Pain $X · ±Y% 全链"+ strike 档数。图自动变连续。
+- [x] **验证**:collector 247/247、server 173/173、frontend 71/71。**live 端到端**:TSLA spot $319.69 → 宽 OI **62 个 strike**($225–412.5,±29.8%)、**全链 Max Pain $382.5**(vs 之前稀疏数据 $370);SPY/TSLA/SOXL 自适应窗口 ±11%/36%/60%(证明固定值错)。daemon 已 reload,后续采集自动写宽 OI。可复现记录:`docs/validation/OI_BY_STRIKE_MAXPAIN_2026-07-23.md`。
+- **注**:`compute_gex.py::compute_max_pain`(窄链版,存 `gex_snapshots.max_pain`)保留不动,GEX DTO 仍用它;OI 图/Analyze 展示的是新的全链 Max Pain(`oi_density.max_pain`)。二者口径不同已在文档标注。
 
 ## 2026-07-22 — Analyze Technical Support Confluence（当前主线已整合，生产部署待完成）
 

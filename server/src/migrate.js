@@ -637,6 +637,12 @@ async function migrate() {
     ALTER TABLE option_chain_snapshots
       ADD COLUMN IF NOT EXISTS term_structure JSONB;
 
+    -- Wide OI-by-strike + full-chain max pain from a dedicated OI-only fetch
+    -- (adaptive window), independent of the narrow Greeks chain. Additive; the
+    -- OI chart and max pain prefer it over the sparse stored contract set.
+    ALTER TABLE option_chain_snapshots
+      ADD COLUMN IF NOT EXISTS oi_by_strike JSONB;
+
     -- Per-symbol, per-product freshness summary. One row per (symbol, product).
     -- Records only observed facts: what landed, when, from where, and what the
     -- last refresh attempt did. Freshness itself is NOT stored -- it decays with

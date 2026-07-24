@@ -78,6 +78,38 @@ function deriveChainStats(snapshot, contracts) {
 }
 
 function deriveOiDensity(snapshot, contracts) {
+  // Prefer the dedicated wide OI-by-strike fetch (adaptive window, ~50
+  // strikes/side) over the narrow ~6-strike Greeks chain: the latter makes the
+  // chart sparse and max pain a near-money estimate. Fall back to the chain for
+  // snapshots collected before this field existed.
+  const stored = snapshot?.oi_by_strike;
+  const storedPoints = Array.isArray(stored?.points) ? stored.points : null;
+  if (storedPoints && storedPoints.length) {
+    const density = storedPoints
+      .map(p => ({
+        strike: Number(p.strike),
+        call_oi: Number(p.call_oi) || 0,
+        put_oi: Number(p.put_oi) || 0,
+        total_oi: Number(p.total_oi) || ((Number(p.call_oi) || 0) + (Number(p.put_oi) || 0)),
+      }))
+      .filter(p => Number.isFinite(p.strike))
+      .sort((a, b) => a.strike - b.strike);
+    const age = ageMinutes(snapshot?.snapshot_ts);
+    return {
+      status: density.length ? 'ready' : 'missing',
+      source: snapshot?.source || null,
+      snapshot_ts: snapshot?.snapshot_ts || null,
+      age_minutes: age,
+      freshness: age != null && age <= 180 ? 'fresh' : 'stale',
+      aggregation: 'wide_oi_only_adaptive_window',
+      window_pct: stored.window_pct ?? null,
+      max_pain: stored.max_pain ?? null,
+      expiry_count: null,
+      contract_count: density.length,
+      total_open_interest: density.reduce((sum, p) => sum + p.total_oi, 0),
+      points: density,
+    };
+  }
   const points = new Map();
   const expiries = new Set();
   contracts.forEach(row => {

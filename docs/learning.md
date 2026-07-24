@@ -637,6 +637,14 @@ GEX compute job：
 - **跨 expiry 聚合必须公开口径**：本产品按所有未到期 expiry 聚合到 strike，并返回 expiry/contract counts，用户不会误以为这是单一期权到期日。
 - **真实 smoke 要报告数量级**：PLTR 返回 7 expiries、84 contracts、11 strikes、total OI 307,713，证明 UI 输入不是 mock 或空数组。
 
+### 宽 OI 采集 + 全链 Max Pain (2026-07-23)
+
+- **窗口宽度和采集内容是两个正交决策**：GEX 需要 Greeks/quotes,所以那条链必须窄(成本高);但 OI 图和 Max Pain 只要 OI,可以单独跑一条"只取 OI"的宽采集,不涨 GEX 成本。把两者混在一条链上,要么 OI 图稀疏(窄),要么 GEX 成本爆炸(宽)。
+- **固定 % 或固定 strike 数在全宇宙必错一个数量级**:SPY IV 15% vs SOXL IV 189%,用同一个 ±X% 窗口,SPY 会圈进上百个无关 strike、SOXL 只圈到贴价几档。窗口必须按 `n_sigma×IV×√t`(预期波动)自适应,再 clamp 上下限兜底。live:SPY ±11% / TSLA ±36% / SOXL ±60%(触顶)。
+- **稀疏近价 Max Pain 是错的**:真·Max Pain 要最小化全链 Σ(intrinsic×OI)。TSLA 窄链 9 档给 $370,宽链 62 档(看到 $350 的 4.8 万 put OI、$405/$460 的 call OI)给 $382.5。
+- **两个 Max Pain 口径要显式区分,不能混**:GEX DTO 的 `gex_snapshots.max_pain`(窄链)保留不动;OI 图/Analyze 用新的全链 `oi_density.max_pain`。文档标明二者 strike 覆盖不同,否则读者会以为数据前后矛盾。
+- **加一条网络采集必须 best-effort**:`fetch_oi_by_strike` 任意失败返回空并继续,绝不因为多了一次 OI 抓取而让整个 snapshot 挂掉。
+
 ## Reddit Trends Lessons (2026-07-15)
 
 - **社区信号不能污染期权评分**：Reddit 热度是上下文列；缺失时 scanner candidate 和机会分保持不变。

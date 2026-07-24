@@ -172,6 +172,8 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats, volume
         expiryCount: chainStats.oi_density.expiry_count || 0,
         contractCount: chainStats.oi_density.contract_count || 0,
         totalOpenInterest: chainStats.oi_density.total_open_interest || 0,
+        maxPain: toNumber(chainStats.oi_density.max_pain),
+        windowPct: toNumber(chainStats.oi_density.window_pct),
         points: chainStats.oi_density.points || [],
       } : null,
     } : null,

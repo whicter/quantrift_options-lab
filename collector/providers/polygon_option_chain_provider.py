@@ -148,6 +148,7 @@ class PolygonOptionChainProvider:
         strike_window_pct: float | None = None,
         max_strikes_per_side: int | None = None,
         spot_hint: float | None = None,
+        iv_hint: float | None = None,
     ) -> OptionChainSnapshot:
         symbol = symbol.upper()
         snapshot_ts = datetime.now(timezone.utc)
@@ -230,6 +231,10 @@ class PolygonOptionChainProvider:
             log.warning('%s: ATM term-structure fetch failed (%s); using main-chain fallback', symbol, exc)
             term_structure = build_term_structure(contracts, spot, today)
 
+        # Wide OI-by-strike + full-chain max pain from a dedicated OI-only fetch,
+        # sized to this symbol's implied move. Never breaks the snapshot.
+        oi_by_strike = self.fetch_oi_by_strike(symbol, spot, iv_hint)
+
         if strike_limit:
             contracts = _apply_strike_limit(contracts, spot, strike_limit)
 
@@ -267,8 +272,10 @@ class PolygonOptionChainProvider:
                 'max_strikes_per_side': strike_limit,
                 'selected_expirations': sorted({contract.expiry.isoformat() for contract in contracts}),
                 'term_structure_expiry_count': len(term_structure),
+                'oi_by_strike_count': len(oi_by_strike.get('points') or []),
             },
             term_structure=term_structure,
+            oi_by_strike=oi_by_strike,
         )
 
     def fetch_atm_term_structure(self, symbol: str, spot: float) -> list[dict]:
@@ -362,7 +369,7 @@ class PolygonOptionChainProvider:
                 'max_pain': max_pain_from_oi(points),
                 'window_pct': round(window_pct, 2),
             }
-        except (requests.RequestException, ValueError, KeyError) as exc:
+        except Exception as exc:  # noqa: BLE001 - enrichment must never break the snapshot
             log.warning('%s: OI-by-strike fetch failed (%s)', symbol, exc)
             return {'points': [], 'max_pain': None, 'window_pct': None}
 

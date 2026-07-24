@@ -19,9 +19,10 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, responses, intraday=None):
+    def __init__(self, responses, intraday=None, raise_on_exhaust=False):
         self.headers = {}
         self.responses = list(responses)
+        self.raise_on_exhaust = raise_on_exhaust
         # fetch_underlying now always probes a delayed intraday minute bar first.
         # Route that call separately (default: empty -> caller falls back to the
         # daily-close hint or /prev) so existing per-endpoint response lists stay
@@ -33,6 +34,13 @@ class FakeSession:
         self.calls.append((url, params))
         if '/range/1/minute/' in url:
             return FakeResponse(self.intraday)
+        if not self.responses:
+            if self.raise_on_exhaust:
+                raise IndexError('FakeSession exhausted')
+            # fetch_option_chain now also runs a dedicated OI-by-strike snapshot
+            # fetch after the term-structure one; tests that do not queue a
+            # response for it get an empty (harmless) result and fall through.
+            return FakeResponse({'status': 'OK', 'results': []})
         return FakeResponse(self.responses.pop(0))
 
 
@@ -80,8 +88,8 @@ class PolygonOptionProviderTests(unittest.TestCase):
         dtes = {(contract.expiry - today).days for contract in snapshot.contracts}
         self.assertEqual(dtes, {2, 35})
         option_calls = [call for call in session.calls if '/v3/snapshot/options/' in call[0]]
-        # main chain, 30-45 supplement, then the term-structure fetch
-        self.assertEqual(len(option_calls), 3)
+        # main chain, 30-45 supplement, then term-structure + OI-by-strike fetches
+        self.assertGreaterEqual(len(option_calls), 3)
         self.assertEqual(option_calls[1][1]['expiration_date.gte'], (today + timedelta(days=30)).isoformat())
 
     def test_term_structure_uses_a_narrow_dedicated_fetch(self):
@@ -117,9 +125,11 @@ class PolygonOptionProviderTests(unittest.TestCase):
 
         ts_dtes = {row['dte'] for row in snapshot.term_structure}
         self.assertEqual(ts_dtes, {2, 35, 60})
-        # the dedicated fetch used the narrow ±4% window, not the ±15% chain window
-        ts_call = [call for call in session.calls if '/v3/snapshot/options/' in call[0]][-1]
-        self.assertEqual(ts_call[1]['strike_price.gte'], round(100 * 0.96, 4))
+        # the dedicated term-structure fetch used the narrow ±4% window; identify
+        # it by that window (a later OI-by-strike fetch uses a wider window).
+        ts_calls = [c for c in session.calls
+                    if '/v3/snapshot/options/' in c[0] and c[1] and c[1].get('strike_price.gte') == round(100 * 0.96, 4)]
+        self.assertTrue(ts_calls)
 
     def test_term_structure_falls_back_to_main_chain_on_fetch_error(self):
         # If the dedicated fetch fails, the snapshot still ships with a term
@@ -131,7 +141,7 @@ class PolygonOptionProviderTests(unittest.TestCase):
             {'status': 'OK', 'results': [{'c': 100}]},
             {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
-        ])
+        ], raise_on_exhaust=True)
         env = {
             'POLYGON_API_KEY': 'test-key',
             'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
@@ -342,3 +352,48 @@ class AdaptiveOiWindowTests(unittest.TestCase):
         ]
         self.assertEqual(max_pain_from_oi(wide), 375)
         self.assertIsNone(max_pain_from_oi([]))
+
+
+class OiByStrikeSnapshotTests(unittest.TestCase):
+    def _provider(self, session, **extra_env):
+        env = {
+            'POLYGON_API_KEY': 'test-key', 'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
+            'POLYGON_REQUEST_DELAY': '0', 'POLYGON_STOCK_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_option_provider_test',
+            **extra_env,
+        }
+        with patch.dict(os.environ, env, clear=False), \
+             patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
+            return PolygonOptionChainProvider()
+
+    def test_snapshot_carries_wide_oi_and_max_pain(self):
+        today = date.today()
+        e = today + timedelta(days=35)
+        def oi(strike, right, n):
+            it = option_item(e, right, strike); it['open_interest'] = n; return it
+        session = FakeSession([
+            {'status': 'OK', 'results': [{'c': 100}]},                       # /prev
+            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},  # main chain
+            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},  # supplement/term
+            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},  # term-structure
+            # dedicated OI fetch: wide strikes with real OI
+            {'status': 'OK', 'results': [oi(90,'P',400), oi(100,'C',50), oi(100,'P',60), oi(110,'C',300)]},
+        ])
+        provider = self._provider(session)
+        snap = provider.fetch_option_chain('TEST', spot_hint=100.0, iv_hint=0.4)
+        self.assertIsNotNone(snap.oi_by_strike)
+        self.assertTrue(snap.oi_by_strike['points'])
+        self.assertIsNotNone(snap.oi_by_strike['max_pain'])
+        self.assertIsNotNone(snap.oi_by_strike['window_pct'])
+
+    def test_disabled_flag_skips_oi_fetch(self):
+        today = date.today(); e = today + timedelta(days=35)
+        session = FakeSession([
+            {'status': 'OK', 'results': [{'c': 100}]},
+            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},
+            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},
+            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},
+        ])
+        provider = self._provider(session, OPTION_OI_BY_STRIKE_ENABLED='false')
+        snap = provider.fetch_option_chain('TEST', spot_hint=100.0, iv_hint=0.4)
+        self.assertEqual(snap.oi_by_strike['points'], [])

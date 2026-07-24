@@ -126,9 +126,9 @@ def persist_snapshot(conn, snapshot) -> int:
               symbol, underlying_price, underlying_bid, underlying_ask, snapshot_ts,
               source, provider_status, provider_snapshot_id, contract_count,
               completeness_pct, missing_greeks_ratio, missing_oi_ratio, raw_metadata,
-              term_structure
+              term_structure, oi_by_strike
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -146,6 +146,7 @@ def persist_snapshot(conn, snapshot) -> int:
                 missing_oi_ratio,
                 json_payload(snapshot.raw_metadata),
                 json_payload(getattr(snapshot, 'term_structure', None)),
+                json_payload(getattr(snapshot, 'oi_by_strike', None)),
             ),
         )
         snapshot_id = cur.fetchone()[0]

@@ -82,6 +82,32 @@ test('aggregates real call and put open interest across nonexpired expiries by s
   assert.equal(result.total_open_interest, 485);
 });
 
+test('prefers the wide stored OI-by-strike over the sparse contract chain', () => {
+  const withWide = {
+    ...snapshot,
+    oi_by_strike: {
+      window_pct: 29.8,
+      max_pain: 105,
+      points: [
+        { strike: 90, call_oi: 10, put_oi: 4000, total_oi: 4010 },
+        { strike: 100, call_oi: 500, put_oi: 500, total_oi: 1000 },
+        { strike: 110, call_oi: 3000, put_oi: 20, total_oi: 3020 },
+      ],
+    },
+  };
+  const result = deriveOiDensity(withWide, contracts);
+  assert.equal(result.aggregation, 'wide_oi_only_adaptive_window');
+  assert.equal(result.points.length, 3);         // wide set, not the 2-strike chain
+  assert.equal(result.max_pain, 105);
+  assert.equal(result.window_pct, 29.8);
+  assert.equal(result.points[0].strike, 90);
+});
+
+test('falls back to the chain when no wide OI is stored', () => {
+  const result = deriveOiDensity(snapshot, contracts);
+  assert.equal(result.aggregation, 'all_nonexpired_expiries');
+});
+
 test('route returns explicit missing when no IV snapshot exists', async () => {
   queryResults.push({ rows: [] }, { rows: [] });
   const res = responseRecorder();

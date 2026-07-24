@@ -217,16 +217,19 @@ class SpotHintWorkerTests(unittest.TestCase):
 
         class _Provider:
             source = 'polygon_licensed'
-            def fetch_option_chain(self, symbol, spot_hint=None):
+            def fetch_option_chain(self, symbol, spot_hint=None, iv_hint=None):
                 captured['spot_hint'] = spot_hint
+                captured['iv_hint'] = iv_hint
                 return _FakeSnapshot()
 
         with patch.object(run_refresh_worker, 'latest_db_spot', return_value=205.0), \
+             patch.object(run_refresh_worker, 'latest_db_iv', return_value=0.42), \
              patch.object(run_refresh_worker.collect_options, 'persist_snapshot', return_value=1):
             run_refresh_worker.fetch_and_persist_option_snapshot(
                 _FakeConn(), 'AAPL', 'polygon_licensed', {'polygon_licensed': _Provider()},
             )
         self.assertEqual(captured['spot_hint'], 205.0)
+        self.assertEqual(captured['iv_hint'], 0.42)
 
     def test_non_polygon_job_does_not_pass_a_spot_hint(self):
         import run_refresh_worker

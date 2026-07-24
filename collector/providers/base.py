@@ -101,6 +101,11 @@ class OptionChainSnapshot:
     # supply it. [{expiration_date, dte, atm_strike, atm_iv, atm_call_iv,
     # atm_put_iv, contract_count}, ...] sorted by expiry.
     term_structure: list[dict[str, Any]] | None = None
+    # Wide OI-by-strike + full-chain max pain from a dedicated OI-only fetch,
+    # independent of the narrow Greeks chain. None when the provider does not
+    # supply it. {points: [{strike, call_oi, put_oi, total_oi}], max_pain,
+    # window_pct}.
+    oi_by_strike: dict[str, Any] | None = None
 
 
 class OptionChainProvider(Protocol):

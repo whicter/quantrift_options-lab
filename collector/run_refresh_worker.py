@@ -365,6 +365,30 @@ def latest_db_spot(conn, symbol: str, max_age_days: int = SPOT_HINT_MAX_AGE_DAYS
     return float(row[0]) if row and row[0] is not None else None
 
 
+def latest_db_iv(conn, symbol: str) -> float | None:
+    """Most recent ATM IV for a symbol (decimal, e.g. 0.48), for sizing the
+    adaptive OI window. Prefers the derived volatility series, falls back to the
+    provider metrics table. None when unknown -> the provider uses its default."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT atm_iv FROM volatility_history
+            WHERE symbol = %s AND atm_iv IS NOT NULL AND atm_iv > 0
+            ORDER BY metric_date DESC LIMIT 1
+            """,
+            (symbol,),
+        )
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            return float(row[0])
+        cur.execute(
+            "SELECT iv30 FROM iv_history WHERE symbol = %s AND iv30 IS NOT NULL AND iv30 > 0 ORDER BY date DESC LIMIT 1",
+            (symbol,),
+        )
+        row = cur.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def fetch_and_persist_option_snapshot(
     conn,
     symbol: str,
@@ -381,7 +405,8 @@ def fetch_and_persist_option_snapshot(
     # their own chain payloads, so the hint is provider-specific.
     if provider_name == 'polygon_licensed':
         spot_hint = latest_db_spot(conn, symbol)
-        snapshot = provider.fetch_option_chain(symbol, spot_hint=spot_hint)
+        iv_hint = latest_db_iv(conn, symbol)
+        snapshot = provider.fetch_option_chain(symbol, spot_hint=spot_hint, iv_hint=iv_hint)
     else:
         snapshot = provider.fetch_option_chain(symbol)
     snapshot_id = collect_options.persist_snapshot(conn, snapshot)

@@ -1925,6 +1925,16 @@ OI rows are aggregated across all nonexpired expiries by strike into `call_oi`, 
 
 The request path reads persisted snapshots only and performs no provider call. PLTR runtime smoke against Railway returned 7 expiries, 84 contracts, 11 strike points and total OI 307,713 from `polygon_licensed`.
 
+### 40.1 Wide OI-by-strike + full-chain Max Pain (2026-07-23)
+
+The narrow Greeks chain (`OPTION_MAX_STRIKES_PER_SIDE=6`, tuned for GEX cost) made the OI chart sparse (TSLA stored only 9 strikes) and Max Pain a near-money estimate. The fix separates two orthogonal decisions — **window width** (adaptive to the symbol's implied move) and **what to fetch** (a dedicated OI-only wide fetch, kept apart from the Greeks chain GEX needs, so GEX cost stays flat).
+
+`polygon_option_chain_provider.py` adds `adaptive_oi_window_pct(spot, iv, max_dte, n_sigma=1.5, min_pct=8, max_pct=60)` = `100·n_sigma·iv·√t` clamped — SPY 0.15 → ±11%, TSLA 0.48 → ±36%, SOXL 1.89 → ±60% (a fixed % or strike count is wrong across the universe by an order of magnitude). `fetch_oi_by_strike(symbol, spot, iv)` does an OI-only paginated snapshot fetch over that window (no Greeks/quotes, so ~50 strikes/side stays cheap), bounds strikes per side, and returns `{points, max_pain, window_pct}`; `max_pain_from_oi` is full-chain (strike minimizing total intrinsic payout across every strike). It is best-effort — any failure returns empty and never breaks the snapshot. env: `OPTION_OI_BY_STRIKE_ENABLED` (default true), `OPTION_OI_WINDOW_SIGMA/MIN_PCT/MAX_PCT/MAX_STRIKES_PER_SIDE/MIN_STRIKES_PER_SIDE`.
+
+The worker passes an IV hint (`latest_db_iv`: `volatility_history.atm_iv` → `iv_history.iv30`) into `fetch_option_chain(iv_hint=...)`. Storage is the additive `option_chain_snapshots.oi_by_strike` JSONB column (`OptionChainSnapshot.oi_by_strike` field; `collect_options.persist_snapshot` writes it). `chain.js::deriveOiDensity` prefers the stored wide OI (marks `aggregation:'wide_oi_only_adaptive_window'`, adds `max_pain`/`window_pct`) and falls back to the narrow chain (`all_nonexpired_expiries`) for pre-existing snapshots. Frontend `analyzeData.js` passes `maxPain`/`windowPct`; Tab4 shows "Max Pain $X · ±Y% 全链" and the strike count, and the chart is continuous.
+
+Two max-pain values coexist by design: `compute_gex.py::compute_max_pain` (narrow chain, `gex_snapshots.max_pain`, backs the GEX DTO) is unchanged; the OI chart/Analyze use the new full-chain `oi_density.max_pain`. Live: TSLA spot $319.69 → 62 wide OI strikes ($225–412.5, ±29.8%), full-chain Max Pain $382.5 (vs sparse $370). Rollback: `OPTION_OI_BY_STRIKE_ENABLED=false`; the column/JSON are harmless if unused. Repro: `docs/validation/OI_BY_STRIKE_MAXPAIN_2026-07-23.md`.
+
 ## 41. Reddit Community Trends
 
 The community product is an independent, optional data plane:
