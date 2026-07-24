@@ -4,7 +4,7 @@ const test = require('node:test');
 const dbPath = require.resolve('../src/db');
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query: async () => ({ rows: [] }) } };
 
-const { deriveMomentum, deriveMarketRegime } = require('../src/routes/market');
+const { deriveMomentum, deriveMarketRegime, buildBreadth, percentile } = require('../src/routes/market');
 const { deriveWeekly } = require('../src/routes/weekly');
 
 function dailyBars(count = 60) {
@@ -48,6 +48,50 @@ test('market regime combines momentum with gamma and IV risk penalties', () => {
   assert.equal(regime.status, 'ready');
   assert.equal(regime.score, 67);
   assert.equal(regime.label, 'Risk-on');
+});
+
+test('percentile interpolates and handles thin/empty inputs', () => {
+  assert.equal(percentile([10, 20, 30, 40], 0.5), 25);
+  assert.equal(percentile([10, 20, 30, 40], 0.25), 17.5);
+  assert.equal(percentile([42], 0.5), 42);
+  assert.equal(percentile([], 0.5), null);
+});
+
+test('options-native breadth aggregates trend, gamma, IV rank and PCR', () => {
+  const trendRows = [
+    { latest: 110, ma50: 100, ma200: 90, bars: 250 },   // above both
+    { latest: 95, ma50: 100, ma200: 90, bars: 250 },    // below ma50, above ma200
+    { latest: 80, ma50: 100, ma200: 90, bars: 40 },     // too few bars -> excluded from both
+  ];
+  const gammaRows = [
+    { gamma_regime: 'positive', pcr_oi: 0.8 },
+    { gamma_regime: 'negative', pcr_oi: 1.2 },
+    { gamma_regime: null, pcr_oi: null },               // no gamma, no pcr
+  ];
+  const ivRanks = [30, 60, 90, null];
+
+  const b = buildBreadth(trendRows, gammaRows, ivRanks);
+  assert.equal(b.trend.counted_ma50, 2);                // the 40-bar row excluded
+  assert.equal(b.trend.above_ma50_pct, 50);             // 1 of 2
+  assert.equal(b.trend.counted_ma200, 2);
+  assert.equal(b.trend.above_ma200_pct, 100);           // both above ma200
+  assert.equal(b.gamma.counted, 2);                     // null regime excluded
+  assert.equal(b.gamma.positive_pct, 50);
+  assert.equal(b.gamma.negative_pct, 50);
+  assert.equal(b.iv_rank.counted, 3);                   // null excluded
+  assert.equal(b.iv_rank.median, 60);
+  assert.equal(b.iv_rank.elevated_pct, 66.7);           // 60 and 90 >= 50, of 3
+  assert.equal(b.pcr.counted, 2);
+  assert.equal(b.pcr.median, 1);                        // (0.8 + 1.2)/2
+});
+
+test('breadth percentages disclose zero counts as null, never a fake 0', () => {
+  const b = buildBreadth([], [], []);
+  assert.equal(b.trend.above_ma50_pct, null);
+  assert.equal(b.gamma.positive_pct, null);
+  assert.equal(b.iv_rank.median, null);
+  assert.equal(b.pcr.median, null);
+  assert.equal(b.gamma.counted, 0);
 });
 
 test('weekly product uses real GEX, max pain and OI delta without synthetic history', () => {

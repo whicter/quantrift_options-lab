@@ -23,6 +23,66 @@ function average(values) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
+function percentile(values, p) {
+  const clean = values.filter(v => v != null && Number.isFinite(v)).sort((a, b) => a - b);
+  if (!clean.length) return null;
+  if (clean.length === 1) return clean[0];
+  const idx = (clean.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return clean[lo];
+  return clean[lo] + (clean[hi] - clean[lo]) * (idx - lo);
+}
+
+function pct(count, total) {
+  return total > 0 ? Math.round((count / total) * 1000) / 10 : null;
+}
+
+/**
+ * Options-native market breadth (R2.2). Pure so the aggregation is unit-tested.
+ * Inputs are latest-per-symbol arrays over the scan universe:
+ *  - trendRows: { latest, ma50, ma200, bars }
+ *  - gammaRows: { gamma_regime, pcr_oi }
+ *  - ivRanks:   number[]  (iv_rank per symbol, 0-100)
+ * Percentages are share of the symbols that actually had that datum, disclosed
+ * via each block's `counted`, so a thin product does not silently read as broad.
+ */
+function buildBreadth(trendRows, gammaRows, ivRanks) {
+  const ma50able = trendRows.filter(r => r.latest != null && r.ma50 != null && r.bars >= 50);
+  const ma200able = trendRows.filter(r => r.latest != null && r.ma200 != null && r.bars >= 200);
+  const gammaKnown = gammaRows.filter(r => r.gamma_regime);
+  const pcrs = gammaRows.map(r => r.pcr_oi).filter(v => v != null && Number.isFinite(v));
+  const ranks = ivRanks.filter(v => v != null && Number.isFinite(v));
+
+  return {
+    trend: {
+      above_ma50_pct: pct(ma50able.filter(r => r.latest >= r.ma50).length, ma50able.length),
+      above_ma200_pct: pct(ma200able.filter(r => r.latest >= r.ma200).length, ma200able.length),
+      counted_ma50: ma50able.length,
+      counted_ma200: ma200able.length,
+    },
+    gamma: {
+      positive_pct: pct(gammaKnown.filter(r => r.gamma_regime === 'positive').length, gammaKnown.length),
+      negative_pct: pct(gammaKnown.filter(r => r.gamma_regime === 'negative').length, gammaKnown.length),
+      neutral_pct: pct(gammaKnown.filter(r => r.gamma_regime !== 'positive' && r.gamma_regime !== 'negative').length, gammaKnown.length),
+      counted: gammaKnown.length,
+    },
+    iv_rank: {
+      median: percentile(ranks, 0.5),
+      p25: percentile(ranks, 0.25),
+      p75: percentile(ranks, 0.75),
+      elevated_pct: pct(ranks.filter(v => v >= 50).length, ranks.length),
+      counted: ranks.length,
+    },
+    pcr: {
+      median: percentile(pcrs, 0.5),
+      p25: percentile(pcrs, 0.25),
+      p75: percentile(pcrs, 0.75),
+      counted: pcrs.length,
+    },
+  };
+}
+
 function deriveMomentum(dailyRows, intradayRows) {
   const daily = dailyRows.map(row => ({ close: number(row.close), date: isoDate(row.date) })).filter(row => row.close != null);
   const intraday = intradayRows.map(row => ({
@@ -146,6 +206,80 @@ async function sendMarketRegime(req, res) {
   }
 }
 
-router.get('/regime', sendMarketRegime);
+async function sendMarketBreadth(req, res) {
+  try {
+    const [trendResult, gammaResult, ivResult] = await Promise.all([
+      // Latest close vs MA50/MA200 per scan-enabled symbol, computed in SQL.
+      pool.query(`
+        WITH universe AS (
+          SELECT symbol FROM symbol_universe WHERE scan_enabled = TRUE
+        ),
+        recent AS (
+          SELECT p.symbol, p.close,
+                 ROW_NUMBER() OVER (PARTITION BY p.symbol ORDER BY p.date DESC) AS rn
+          FROM price_history p
+          JOIN universe u ON u.symbol = p.symbol
+          WHERE p.source = 'polygon_licensed' AND p.close IS NOT NULL
+        )
+        SELECT symbol,
+               MAX(close) FILTER (WHERE rn = 1) AS latest,
+               AVG(close) FILTER (WHERE rn <= 50) AS ma50,
+               AVG(close) FILTER (WHERE rn <= 200) AS ma200,
+               COUNT(*) AS bars
+        FROM recent
+        GROUP BY symbol
+      `),
+      // Latest GEX per scan-enabled symbol: gamma regime + PCR.
+      pool.query(`
+        SELECT DISTINCT ON (g.symbol) g.symbol, g.snapshot_ts, g.gamma_regime, g.pcr_oi
+        FROM gex_snapshots g
+        JOIN symbol_universe u ON u.symbol = g.symbol AND u.scan_enabled = TRUE
+        ORDER BY g.symbol, g.snapshot_ts DESC
+      `),
+      // Latest derived IV rank per scan-enabled symbol (ready rows only).
+      pool.query(`
+        SELECT DISTINCT ON (v.symbol) v.symbol, v.metric_date, v.iv_rank
+        FROM volatility_history v
+        JOIN symbol_universe u ON u.symbol = v.symbol AND u.scan_enabled = TRUE
+        WHERE v.iv_rank IS NOT NULL
+        ORDER BY v.symbol, v.metric_date DESC
+      `),
+    ]);
 
-module.exports = { router, deriveMomentum, deriveMarketRegime, sendMarketRegime };
+    const trendRows = trendResult.rows.map(r => ({
+      latest: number(r.latest), ma50: number(r.ma50), ma200: number(r.ma200), bars: Number(r.bars),
+    }));
+    const gammaRows = gammaResult.rows.map(r => ({
+      gamma_regime: r.gamma_regime, pcr_oi: number(r.pcr_oi),
+    }));
+    const ivRanks = ivResult.rows.map(r => number(r.iv_rank));
+
+    const newestGex = gammaResult.rows.reduce((max, r) => {
+      const ts = r.snapshot_ts ? new Date(r.snapshot_ts).getTime() : 0;
+      return ts > max ? ts : max;
+    }, 0);
+
+    const breadth = buildBreadth(trendRows, gammaRows, ivRanks);
+    return res.json({
+      status: trendRows.length || gammaRows.length || ivRanks.length ? 'ready' : 'missing',
+      universe_count: new Set([
+        ...trendResult.rows.map(r => r.symbol),
+        ...gammaResult.rows.map(r => r.symbol),
+        ...ivResult.rows.map(r => r.symbol),
+      ]).size,
+      gamma_as_of: newestGex ? new Date(newestGex).toISOString() : null,
+      ...breadth,
+    });
+  } catch (error) {
+    console.error('GET /api/market/breadth error:', error.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
+router.get('/regime', sendMarketRegime);
+router.get('/breadth', sendMarketBreadth);
+
+module.exports = {
+  router, deriveMomentum, deriveMarketRegime, sendMarketRegime,
+  buildBreadth, percentile, sendMarketBreadth,
+};
