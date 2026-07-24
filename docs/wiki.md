@@ -1376,6 +1376,8 @@ Scanner 对每个具体候选单返回两个可复核的模型对象，而不是
 
 IV Rank 需要 252 个交易日的 ATM IV，不把短历史的 min/max 当作一年期排名。回填器使用 Polygon 历史 option EOD bars：先完整分页 contract reference，并优先选择挂牌历史更长的第三个星期五月期权；对同日 Call/Put 收盘价作 BS 反解，再插值为 constant-30-day IV。每 25 个交易日持久化一次，所以重跑不会丢失已完成部分。
 
+**前向口径必须与回填一致(Phase 3,2026-07-23)**：252 天序列由回填段 + 前向每日段拼接，两段口径不一致会在拼接点产生人为 IV 跳变，污染 IV Rank(相对指标)。回填是 constant-30d(call+put)，前向此前是浮动 30-45 DTE 单张 ATM **call**——不一致。现前向也改成 constant-30d：`derive_volatility.fetch_cm30_observations` 取每 bracketing 到期的 ATM strike call+put **快照 IV**(Polygon snapshot 自带 IV，前向不需 BS 反解)插值到 30 天，写 `iv_source='polygon_snapshot_cm30'`。`iv_source` 三态区分方法(`polygon_backfill_bs`/`polygon_snapshot_cm30`/弃用的浮动 `polygon_derived`)。env `IV_CM30_ENABLED` 默认 true。实测同日新旧差:TSLA +5.44 vol 点(旧 call-only 丢 put skew)。详见 `docs/validation/IV_CM30_FORWARD_UNIFICATION_2026-07-23.md`。
+
 某个标的仍未 ready 不等于回填器可以补零。2026-07-18 核对发现 XLB/XLE/XLK/XLU/XLY/XSD 的 Polygon EOD option-bar 历史不足 252 天；页面和 API 必须保留 `iv_rank_ready=false`，并让来源和 observation count 可追溯。
 
 ### IB Historical Farm 与报价字段
