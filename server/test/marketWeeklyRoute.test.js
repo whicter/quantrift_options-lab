@@ -7,7 +7,7 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: {
 const {
   deriveMomentum, deriveMarketRegime, buildBreadth, percentile,
   classifyState, buildStateMatrix, STATE_META,
-  buildSectorRotation, SECTOR_ETFS,
+  buildSectorRotation, SECTOR_ETFS, buildBriefing,
 } = require('../src/routes/market');
 const { deriveWeekly } = require('../src/routes/weekly');
 
@@ -225,6 +225,61 @@ test('every sector-ETF label describes a sector/theme, not an action', () => {
   for (const meta of Object.values(SECTOR_ETFS)) {
     for (const w of forbidden) assert.ok(!meta.label.includes(w));
   }
+});
+
+// ---- R1.2 Daily Market Briefing ----
+const briefingInputs = {
+  dateLabel: '2026-07-24',
+  breadth: { gamma: { positive_pct: 55 }, iv_rank: { median: 59.5, elevated_pct: 64 } },
+  stateMatrix: { distribution: { S1: 20, S2: 21, S3: 0, S4: 4, S5: 9, S6: 9, S0: 11 } },
+  rotation: {
+    sectors: [
+      // rs-desc, as buildSectorRotation always returns
+      { symbol: 'XLE', label: '能源', quadrant: 'leading', rs: 6.8 },
+      { symbol: 'XLV', label: '医疗', quadrant: 'leading', rs: 2.9 },
+      { symbol: 'BOTZ', label: '机器人/AI', quadrant: 'lagging', rs: -8.1 },
+      { symbol: 'TAN', label: '太阳能', quadrant: 'lagging', rs: -10.1 },
+    ],
+  },
+  spyGamma: 'negative',
+  qqqGamma: 'positive',
+  earnings: [{ symbol: 'MSFT', date: '2026-07-29' }, { symbol: 'META', date: '2026-07-29' }, { symbol: 'AAPL', date: '2026-07-30' }],
+  unusual: [{ symbol: 'NFLX', abs_oi: 945237 }],
+};
+
+test('briefing synthesizes a market tilt + headline from the reused aggregates', () => {
+  const b = buildBriefing(briefingInputs);
+  assert.equal(b.tilt, '偏多头');           // S1 20 > S5 9
+  assert.match(b.headline, /2026-07-24 市场偏多头/);
+  assert.match(b.headline, /55% 标的处正 Gamma/);
+  assert.match(b.headline, /IV Rank 中位 60/);   // 59.5 rounded
+  assert.match(b.headline, /强势上行 20 \/ 回调 21 \/ 空头 9/);
+  assert.match(b.headline, /11 只高波动观望/);
+  assert.match(b.headline, /能源、医疗 领跑/);
+  assert.match(b.headline, /未来一周 3 只财报（MSFT、META、AAPL）/);
+});
+
+test('briefing callouts carry rotation leaders/laggards and gamma labels', () => {
+  const b = buildBriefing(briefingInputs);
+  assert.deepEqual(b.callouts.rotation.leaders.map(x => x.symbol), ['XLE', 'XLV']);
+  // laggards are the weakest rs (end of the rs-desc list), worst first
+  assert.deepEqual(b.callouts.rotation.laggards.map(x => x.symbol), ['TAN', 'BOTZ']);
+  assert.equal(b.spy_gamma_label, '负Gamma');
+  assert.equal(b.qqq_gamma_label, '正Gamma');
+  assert.equal(b.earnings_ahead.length, 3);
+  assert.equal(b.top_unusual[0].symbol, 'NFLX');
+});
+
+test('briefing tilts bearish when downtrend outnumbers strong uptrend', () => {
+  const b = buildBriefing({ ...briefingInputs, stateMatrix: { distribution: { S1: 3, S5: 15 } } });
+  assert.equal(b.tilt, '偏空头');
+});
+
+test('briefing degrades gracefully when aggregates are empty', () => {
+  const b = buildBriefing({ dateLabel: '2026-07-24', breadth: {}, stateMatrix: {}, rotation: {}, earnings: [], unusual: [] });
+  assert.equal(b.tilt, '多空均衡');
+  assert.match(b.headline, /2026-07-24 市场多空均衡/);
+  assert.deepEqual(b.earnings_ahead, []);
 });
 
 test('weekly product uses real GEX, max pain and OI delta without synthetic history', () => {

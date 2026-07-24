@@ -206,9 +206,8 @@ async function sendMarketRegime(req, res) {
   }
 }
 
-async function sendMarketBreadth(req, res) {
-  try {
-    const [trendResult, gammaResult, ivResult] = await Promise.all([
+async function loadBreadth() {
+  const [trendResult, gammaResult, ivResult] = await Promise.all([
       // Latest close vs MA50/MA200 per scan-enabled symbol, computed in SQL.
       pool.query(`
         WITH universe AS (
@@ -259,17 +258,22 @@ async function sendMarketBreadth(req, res) {
       return ts > max ? ts : max;
     }, 0);
 
-    const breadth = buildBreadth(trendRows, gammaRows, ivRanks);
-    return res.json({
-      status: trendRows.length || gammaRows.length || ivRanks.length ? 'ready' : 'missing',
-      universe_count: new Set([
-        ...trendResult.rows.map(r => r.symbol),
-        ...gammaResult.rows.map(r => r.symbol),
-        ...ivResult.rows.map(r => r.symbol),
-      ]).size,
-      gamma_as_of: newestGex ? new Date(newestGex).toISOString() : null,
-      ...breadth,
-    });
+  const breadth = buildBreadth(trendRows, gammaRows, ivRanks);
+  return {
+    status: trendRows.length || gammaRows.length || ivRanks.length ? 'ready' : 'missing',
+    universe_count: new Set([
+      ...trendResult.rows.map(r => r.symbol),
+      ...gammaResult.rows.map(r => r.symbol),
+      ...ivResult.rows.map(r => r.symbol),
+    ]).size,
+    gamma_as_of: newestGex ? new Date(newestGex).toISOString() : null,
+    ...breadth,
+  };
+}
+
+async function sendMarketBreadth(req, res) {
+  try {
+    return res.json(await loadBreadth());
   } catch (error) {
     console.error('GET /api/market/breadth error:', error.message);
     return res.status(500).json({ error: 'database error' });
@@ -381,9 +385,8 @@ function buildStateMatrix(rows, th = STATE_THRESHOLDS) {
   return { distribution, symbols };
 }
 
-async function sendMarketStateMatrix(req, res) {
-  try {
-    const [signalResult, gammaResult, ivResult] = await Promise.all([
+async function loadStateMatrix() {
+  const [signalResult, gammaResult, ivResult] = await Promise.all([
       pool.query(`
         WITH universe AS (SELECT symbol FROM symbol_universe WHERE scan_enabled = TRUE),
         recent AS (
@@ -445,15 +448,20 @@ async function sendMarketStateMatrix(req, res) {
       };
     });
 
-    const { distribution, symbols } = buildStateMatrix(rows);
-    return res.json({
-      status: symbols.length ? 'ready' : 'missing',
-      universe_count: symbols.length,
-      thresholds: STATE_THRESHOLDS,
-      states: STATE_META,
-      distribution,
-      symbols,
-    });
+  const { distribution, symbols } = buildStateMatrix(rows);
+  return {
+    status: symbols.length ? 'ready' : 'missing',
+    universe_count: symbols.length,
+    thresholds: STATE_THRESHOLDS,
+    states: STATE_META,
+    distribution,
+    symbols,
+  };
+}
+
+async function sendMarketStateMatrix(req, res) {
+  try {
+    return res.json(await loadStateMatrix());
   } catch (error) {
     console.error('GET /api/market/state-matrix error:', error.message);
     return res.status(500).json({ error: 'database error' });
@@ -550,10 +558,9 @@ function buildSectorRotation(rows, benchmarkSymbol = ROTATION_BENCHMARK) {
   };
 }
 
-async function sendSectorRotation(req, res) {
-  try {
-    const symbols = [...Object.keys(SECTOR_ETFS), ROTATION_BENCHMARK];
-    const [signalResult, gammaResult, ivResult] = await Promise.all([
+async function loadSectorRotation() {
+  const symbols = [...Object.keys(SECTOR_ETFS), ROTATION_BENCHMARK];
+  const [signalResult, gammaResult, ivResult] = await Promise.all([
       pool.query(`
         WITH recent AS (
           SELECT p.symbol, p.close,
@@ -590,9 +597,113 @@ async function sendSectorRotation(req, res) {
       };
     });
 
-    return res.json(buildSectorRotation(rows));
+  return buildSectorRotation(rows);
+}
+
+async function sendSectorRotation(req, res) {
+  try {
+    return res.json(await loadSectorRotation());
   } catch (error) {
     console.error('GET /api/market/sector-rotation error:', error.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
+// ---- Daily Market Briefing (R1.2) ----
+const GAMMA_ZH = { positive: '正', negative: '负' };
+
+/**
+ * Compose a market-level daily briefing (R1.2). Pure so the synthesis text is
+ * unit-testable. Reuses the already-built breadth / state-matrix / rotation
+ * objects plus regime gamma, upcoming earnings, and top option activity. It is a
+ * market summary, not a trade signal.
+ */
+function buildBriefing({ dateLabel, breadth, stateMatrix, rotation, spyGamma, qqqGamma, earnings, unusual }) {
+  const g = breadth?.gamma || {};
+  const iv = breadth?.iv_rank || {};
+  const dist = stateMatrix?.distribution || {};
+  const s = k => dist[k] || 0;
+  const bull = s('S1');
+  const bear = s('S5');
+  const tilt = bull > bear ? '偏多头' : bear > bull ? '偏空头' : '多空均衡';
+
+  const sectors = rotation?.sectors || [];
+  const leaders = sectors.filter(x => x.quadrant === 'leading').slice(0, 2);
+  const laggards = sectors.filter(x => x.quadrant === 'lagging').slice(-2).reverse();
+
+  const parts = [];
+  parts.push(`${dateLabel} 市场${tilt}`);
+  if (g.positive_pct != null) parts.push(`${g.positive_pct}% 标的处正 Gamma`);
+  if (iv.median != null) parts.push(`IV Rank 中位 ${Math.round(iv.median)}`);
+  parts.push(`状态 强势上行 ${bull} / 回调 ${s('S2')} / 空头 ${bear}${s('S0') ? `，${s('S0')} 只高波动观望` : ''}`);
+  if (leaders.length) parts.push(`板块 ${leaders.map(x => x.label).join('、')} 领跑${laggards.length ? `、${laggards.map(x => x.label).join('、')} 落后` : ''}`);
+  if (earnings?.length) parts.push(`未来一周 ${earnings.length} 只财报（${earnings.slice(0, 4).map(e => e.symbol).join('、')}${earnings.length > 4 ? '…' : ''}）`);
+  const headline = `${parts.join('，')}。`;
+
+  return {
+    date: dateLabel,
+    tilt,
+    headline,
+    callouts: {
+      regime: {
+        positive_gamma_pct: g.positive_pct ?? null,
+        spy_gamma: spyGamma ?? null,
+        qqq_gamma: qqqGamma ?? null,
+      },
+      breadth: { iv_median: iv.median ?? null, elevated_pct: iv.elevated_pct ?? null },
+      states: { S1: s('S1'), S2: s('S2'), S3: s('S3'), S4: s('S4'), S5: s('S5'), S6: s('S6'), S0: s('S0') },
+      rotation: {
+        leaders: leaders.map(x => ({ symbol: x.symbol, label: x.label, rs: x.rs })),
+        laggards: laggards.map(x => ({ symbol: x.symbol, label: x.label, rs: x.rs })),
+      },
+    },
+    earnings_ahead: earnings || [],
+    top_unusual: unusual || [],
+    spy_gamma_label: spyGamma ? `${GAMMA_ZH[spyGamma] || spyGamma}Gamma` : null,
+    qqq_gamma_label: qqqGamma ? `${GAMMA_ZH[qqqGamma] || qqqGamma}Gamma` : null,
+  };
+}
+
+async function sendMarketBriefing(req, res) {
+  try {
+    const [breadth, stateMatrix, rotation, regimeRes, earningsRes, unusualRes] = await Promise.all([
+      loadBreadth(),
+      loadStateMatrix(),
+      loadSectorRotation(),
+      pool.query(`SELECT DISTINCT ON (symbol) symbol, gamma_regime FROM gex_snapshots WHERE symbol IN ('SPY','QQQ') ORDER BY symbol, snapshot_ts DESC`),
+      pool.query(`
+        SELECT symbol, earnings_date FROM (
+          SELECT DISTINCT ON (symbol) symbol, earnings_date
+          FROM iv_history WHERE earnings_date IS NOT NULL
+          ORDER BY symbol, date DESC
+        ) latest
+        WHERE earnings_date >= (NOW() AT TIME ZONE 'America/New_York')::date
+          AND earnings_date <= (NOW() AT TIME ZONE 'America/New_York')::date + 7
+        ORDER BY earnings_date ASC
+      `),
+      pool.query(`
+        SELECT symbol, SUM(ABS(oi_delta)) AS abs_oi
+        FROM option_oi_delta_snapshots
+        WHERE created_at > NOW() - INTERVAL '1 day' AND status = 'confirmed' AND oi_delta IS NOT NULL
+        GROUP BY symbol ORDER BY abs_oi DESC LIMIT 8
+      `),
+    ]);
+
+    const gammaBy = new Map(regimeRes.rows.map(r => [r.symbol, r.gamma_regime]));
+    const dateLabel = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    const briefing = buildBriefing({
+      dateLabel,
+      breadth,
+      stateMatrix,
+      rotation,
+      spyGamma: gammaBy.get('SPY') ?? null,
+      qqqGamma: gammaBy.get('QQQ') ?? null,
+      earnings: earningsRes.rows.map(r => ({ symbol: r.symbol, date: isoDate(r.earnings_date) })),
+      unusual: unusualRes.rows.map(r => ({ symbol: r.symbol, abs_oi: Number(r.abs_oi) })),
+    });
+    return res.json({ status: 'ready', ...briefing });
+  } catch (error) {
+    console.error('GET /api/market/briefing error:', error.message);
     return res.status(500).json({ error: 'database error' });
   }
 }
@@ -601,10 +712,12 @@ router.get('/regime', sendMarketRegime);
 router.get('/breadth', sendMarketBreadth);
 router.get('/state-matrix', sendMarketStateMatrix);
 router.get('/sector-rotation', sendSectorRotation);
+router.get('/briefing', sendMarketBriefing);
 
 module.exports = {
   router, deriveMomentum, deriveMarketRegime, sendMarketRegime,
   buildBreadth, percentile, sendMarketBreadth,
   classifyState, buildStateMatrix, sendMarketStateMatrix, STATE_META, STATE_THRESHOLDS,
   buildSectorRotation, sendSectorRotation, SECTOR_ETFS,
+  buildBriefing, sendMarketBriefing,
 };
