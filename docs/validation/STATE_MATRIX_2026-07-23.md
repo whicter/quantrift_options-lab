@@ -62,16 +62,54 @@ was misclassified as a pullback and S2 ballooned to 29. Adding a ±1.5% `momBand
 (a pullback/stabilization must be a meaningful move) moved 8 noise cases back to
 S1 — S1 12→20, S2 29→21 — a truer distribution.
 
+## Frontend (2026-07-23)
+
+Design chosen from a rendered mockup comparing two matrix layouts; the user
+picked **方案 A — state columns (Trend Matrix style)**, the layout alphastockpro
+is benchmarked on, over 方案 B (state cards). A new `/market` page is the
+decision-language hub.
+
+- `frontend/src/lib/stateMatrix.js` — pure `buildStateMatrixView(res)`: groups
+  symbols into canonical-ordered buckets (zero-filling empty states so a state
+  with no members still renders its column), builds the distribution-bar segments
+  (insufficient excluded, % of total), and derives a compact per-symbol `signal`
+  via `compactSignal` (state trigger, never an imperative).
+- `frontend/src/pages/Market.jsx` — page: the options-native breadth panel
+  (`MarketInternals`, migrated up from home) on top, then a distribution bar, then
+  seven state columns. Each symbol chip links to Analyze, shows its compact
+  signal, and carries the full `reasons` as a hover tooltip; an empty bucket shows
+  "今日无". A footer discloses the active thresholds.
+- Nav gains a 市场 entry; the breadth panel is removed from home (home keeps the
+  slim regime strip). `api.js` gains `getMarketStateMatrix`.
+
+## Verification
+
+- Server: `classifyState`/`buildStateMatrix` unit-tested (9); suite 195/195.
+- Frontend: `buildStateMatrixView`/`compactSignal` unit-tested (5, incl. a
+  no-imperative assertion on the signal labels); suite 87/87; eslint + build clean.
+- Live over the production DB (2026-07-23, 74 symbols): S1 20, S2 21, S3 0
+  (quiet Friday, no volume breakouts), S6 9, S4 4, S5 9, S0 11, insufficient 0.
+  Spot-checks read true: semis (SMH/SOXX/AMAT/MSFT) cluster in S0 on elevated IV;
+  TSLA/PLTR/NFLX in S5; megacaps in S1/S2.
+
+### Tuning note
+
+The first cut triggered S2 on any negative 5-day return, so AAPL at -0.5% (noise)
+was misclassified as a pullback and S2 ballooned to 29. Adding a ±1.5% `momBand`
+(a pullback/stabilization must be a meaningful move) moved 8 noise cases back to
+S1 — S1 12→20, S2 29→21 — a truer distribution.
+
 ## Remaining
 
-Frontend `/market` page (the decision-language hub; R1.3 rotation and R1.2
-briefing will join it, and the existing breadth Market Internals moves in). Built
-mockup-first (like R2.2) so the layout is approved before implementation. The
-scanner-diversity integration (bucket by state before generating candidates) is a
-separate follow-on step.
+The scanner-diversity integration (bucket by state before generating candidates)
+is a separate follow-on step; R1.3 rotation and R1.2 briefing will join `/market`.
 
 ## Files
 
 - `server/src/routes/market.js` — `STATE_META`, `STATE_THRESHOLDS`,
   `classifyState`, `buildStateMatrix`, `sendMarketStateMatrix`, `/state-matrix`.
 - `server/test/marketWeeklyRoute.test.js` — 9 tests.
+- `frontend/src/lib/stateMatrix.js` (+ `.test.js`, 5), `frontend/src/pages/Market.jsx`,
+  `frontend/src/lib/api.js` (`getMarketStateMatrix`), `frontend/src/App.jsx` (route),
+  `frontend/src/components/NavBar.jsx` (市场 link), `frontend/src/pages/Home.jsx`
+  (breadth migrated out), `frontend/src/index.css` (`.market-page`, `.sm-*`, tone tokens).

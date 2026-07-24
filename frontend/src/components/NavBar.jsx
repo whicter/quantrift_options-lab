@@ -15,6 +15,9 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
     <nav className="navbar">
       <Link className="navbar-brand" to="/">Quantrift</Link>
       <div className="navbar-links">
+        <NavLink to="/market" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+          市场
+        </NavLink>
         <NavLink to="/learn" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           策略库
         </NavLink>

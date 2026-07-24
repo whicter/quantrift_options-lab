@@ -165,6 +165,10 @@ export function getMarketBreadth() {
   return getJson('/api/market/breadth');
 }
 
+export function getMarketStateMatrix() {
+  return getJson('/api/market/state-matrix');
+}
+
 export function getWeekly(symbol) {
   return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
 }

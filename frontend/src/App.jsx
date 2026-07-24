@@ -5,6 +5,7 @@ import Learn from './pages/Learn';
 import Analyze from './pages/Analyze';
 import Scan from './pages/Scan';
 import Weekly from './pages/Weekly';
+import Market from './pages/Market';
 import Home from './pages/Home';
 import Account from './pages/Account';
 import Portfolio from './pages/Portfolio';
@@ -40,6 +41,7 @@ export default function App({ authConfigured = false }) {
       <div key={theme}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/market" element={<Market />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/analyze" element={<Analyze />} />
           <Route path="/scan" element={<Scan />} />

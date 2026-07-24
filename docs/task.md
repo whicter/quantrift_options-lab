@@ -2,7 +2,7 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **108 项** `- [ ]`（2026-07-23 核对；07-22 的 112 项减去 07-23 完成的 4 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth**。另 07-22 的 OI-by-strike 5 项也已 07-23 全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **107 项** `- [ ]`（2026-07-23 核对；07-22 的 112 项减去 07-23 完成的 5 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix**。另 07-22 的 OI-by-strike 5 项也已 07-23 全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
@@ -14,7 +14,7 @@
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
 2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
-2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 9 项(原 10,**R2.2 期权原生 Breadth 已 2026-07-23 前后端完成**)：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R1 决策语言层 3 项(State Matrix/每日简报/板块轮动)、R2 信任层 1 项(候选结果台账;R2.2 已完成)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
+2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 8 项(原 10,**R2.2 期权原生 Breadth + R1.1 Symbol State Matrix 均 2026-07-23 前后端完成**)：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R1 决策语言层 2 项(每日简报/板块轮动;R1.1 已完成)、R2 信任层 1 项(候选结果台账;R2.2 已完成)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -357,7 +357,8 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 - [ ] **竞品复查(等用户试用后)**:本次分析中 **alphastockpro 的 Pro/Elite 内页在登录墙后**(Trend Matrix/3D Matrix/Momentum Radar/30-Min Breakout Scanner/Reddit Trends/Tactical Swings 等只以其官方功能清单还原,未见实页),**nextpick 的 app 内页为 JS 渲染**(Sector Flow RRG 实图/Stock Analysis 详情/AI 研报样例/bot 交易日志只以首页自述还原)。**用户计划注册试用两家**;拿到访问权后重新逐页深挖(截图+具体算法证据),更新 COMPETITOR_ANALYSIS 文档并校正 R1-R4 优先级。
 - **R0 — 主线不动摇(进行中)**:IV Rank 自给自足 Phase 2.5 → 3 → 4 → 5(Mac 可关机)。所有新功能不得挤占该主线。
-- [~] **R1.1 Symbol State Matrix(决策语言层,对标 alphastockpro Trend Matrix;后端已完成 2026-07-23,前端 /market 页 mockup-first 待接)**:规则分类全 universe 为 6+兜底状态(用户 2026-07-23 拍板 6+兜底;**合规安全命名——描述状态、不给动作**,不碰"带入场/止损/目标价的买卖信号"边界)。
+- [x] **R1.1 Symbol State Matrix(决策语言层,对标 alphastockpro Trend Matrix;前后端均完成 2026-07-23)**:规则分类全 universe 为 6+兜底状态(用户 2026-07-23 拍板 6+兜底;**合规安全命名——描述状态、不给动作**,不碰"带入场/止损/目标价的买卖信号"边界)。
+  - **前端(方案 A「状态分桶列 / Trend Matrix 式」,用户 2026-07-23 mockup 拍板)**:新 `/market` 页(`pages/Market.jsx` + 纯 view-model `lib/stateMatrix.js::buildStateMatrixView`——按状态元数据顺序分桶、零填充空桶、分布条分段、每标的 `compactSignal` 生成简短状态触发信号)。页面构成:顶部**期权原生 Breadth 面板**(`MarketInternals` 从首页迁来)+ 状态分布条 + 7 列状态桶(点标的→Analyze,小字=触发信号非买卖建议,S3 空桶显"今日无")。导航加"市场"入口;首页移除 breadth、保留精简 regime 条。frontend 87/87 + lint + build 干净。
   - **状态机(结构优先,first-match-wins,零重叠)**:S0 高波动/事件(gate:IV Rank≥80 或 RVol≥2.5)→ S3 区间突破(破前 20 日高 + RVol≥1.5)→ 多头结构(价>MA200 且 MA50>MA200)分 S2 上行·回调中(价<MA50 或 5 日≤−1.5%)/ S1 强势上行 → 空头结构分 S4 下行·企稳试探(价>MA50 或 5 日≥+1.5%)/ S5 空头 → S6 区间/中性兜底;数据不足 200 根 = insufficient。gamma 只作展示上下文、不参与分类(按批准的表)。阈值 env 可调(`STATE_IVR_HIGH/RVOL_SPIKE/RVOL_BREAKOUT/EXT_HIGH/MOM_BAND`)。
   - **实现**:`server/src/routes/market.js` 纯 `classifyState`/`buildStateMatrix` + `GET /api/market/state-matrix`(SQL 一趟聚合 scan universe 的 close/MA50/MA200/5日20日收益/前20日高/RVol,join gamma+iv_rank)。返回每标的 `{state, reasons[], 原始信号}` + 各状态零填充分布。
   - **验证**:server 195/195(纯函数单测 9 条,含"标签不含入场/止损/买卖"合规断言)。**live 74 标的**:S1 20 / S2 21 / S3 0 / S6 9 / S4 4 / S5 9 / S0 11。**调优**:初版 5 日动量任意转负就判 S2 导致 AAPL(−0.5% 噪声)误入,加 ±1.5% `momBand` 后 8 个噪声回调归回 S1,分布更真实。可复现:`docs/validation/STATE_MATRIX_2026-07-23.md`。
