@@ -4,6 +4,7 @@ import { getMarketStateMatrix } from '../lib/api';
 import { buildStateMatrixView } from '../lib/stateMatrix';
 import MarketInternals from '../components/MarketInternals';
 import SectorRotation from '../components/SectorRotation';
+import MarketBriefing from '../components/MarketBriefing';
 
 const CHIP_LIMIT = 12; // symbols shown per column before the "+N" fold
 
@@ -24,6 +25,8 @@ export default function Market() {
           点标的看触发原因。上方是期权原生市场体征，下方是逐标的状态矩阵。
         </p>
       </header>
+
+      <MarketBriefing />
 
       <MarketInternals />
 

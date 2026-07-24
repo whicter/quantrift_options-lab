@@ -173,6 +173,10 @@ export function getSectorRotation() {
   return getJson('/api/market/sector-rotation');
 }
 
+export function getMarketBriefing() {
+  return getJson('/api/market/briefing');
+}
+
 export function getWeekly(symbol) {
   return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
 }

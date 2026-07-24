@@ -182,6 +182,25 @@ body {
 .home-live-strip > div { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 16px 22px; border-right: 1px solid rgba(255,255,255,0.1); min-width: 0; }
 .home-live-strip span, .home-live-strip small { color: #8793a5; font-size: 10px; text-transform: uppercase; }
 .home-live-strip strong { color: #eef3fa; font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
+/* Daily Market Briefing (R1.2) */
+.brief { background: var(--bg-card); border: 1px solid var(--border); border-left: 3px solid var(--border-light); border-radius: 14px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.brief-bull { border-left-color: var(--green); }
+.brief-bear { border-left-color: var(--red); }
+.brief-neutral { border-left-color: var(--text-muted); }
+.brief-top { display: flex; align-items: baseline; gap: 10px; }
+.brief-kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); font-weight: 700; }
+.brief-date { font-size: 11.5px; color: var(--text-muted); }
+.brief-headline { margin: 0; font-size: 15px; line-height: 1.7; color: var(--text); font-weight: 600; text-wrap: pretty; }
+.brief-callouts { display: flex; flex-wrap: wrap; gap: 10px 22px; padding-top: 4px; border-top: 1px solid var(--border); }
+.brief-co { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.brief-co-lbl { font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); font-weight: 650; white-space: nowrap; }
+.brief-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.brief-chip { font-size: 11.5px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
+.brief-chip small { color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+.brief-chip:hover { background: var(--bg-hover); border-color: var(--border-light); }
+.brief-more { font-size: 11px; color: var(--text-muted); align-self: center; }
+.brief-foot { margin: 0; font-size: 11px; color: var(--text-muted); }
+
 /* Market Internals panel (R2.2) */
 .home-internals { max-width: 1180px; margin: 0 auto; padding: 40px 42px 0; }
 .mi-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; font-variant-numeric: tabular-nums; }
