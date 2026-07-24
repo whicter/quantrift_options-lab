@@ -698,6 +698,7 @@ public.price_history_30m
 - `server/src/migrate.js` 已包含两张 price history 表及索引。
 - 2026-07-14 已在 Railway PostgreSQL 创建 `public.price_history`。
 - `collector/collect_prices.py` 默认 `PRICE_PROVIDER=polygon`；日线 400 bars、30M 35 calendar days，source=`polygon_licensed`。IB 与 Stooq 仅为显式 fallback。
+- **可靠性（P4，2026-07-23）**：cron 每工作日跑两次 `35 13,18 * * 1-5`——13:35 PT（收盘后 35 分钟，当日 EOD 可能未 finalize）与 18:35 PT（=21:35 ET，过 settle）。每次重取 400 天并 upsert，故第二次运行自愈第一次的缺口，当日 finalize 的 bar 同日补上（修此前"周五缺到周一"）。运行末尾 `check_price_freshness` 用纯函数 `settled_market_date`（按 ET settle 小时 `PRICE_EOD_SETTLE_HOUR_ET`=20 判定该有哪根 bar，周末回退周五，holiday 未建模）对比 DB 最新 bar，落后即 WARNING——只观测、绝不 fail run。可复现：`docs/validation/DAILY_PRICE_CRON_RELIABILITY_2026-07-23.md`。
 - `server/src/routes/prices.js` 暴露 `GET /api/prices/:symbol?limit=60&interval=day|30m`。
 - 前端 `/analyze` Tab2 和 `/weekly` Sec1 会优先使用 `price_history`，没有价格历史时保留清晰 fallback/提示。
 - yfinance 不作为默认路径；后续如接入订阅价格源，应新增 provider adapter，不改变前端 API contract。
@@ -847,7 +848,7 @@ collector/ecosystem.config.cjs
   │       ├── refresh worker (60s)
   │       └── scanner materialization (300s)
   └── quantrift-options-prices
-      └── collect_prices.py (Mon-Fri 13:35 PT)
+      └── collect_prices.py (Mon-Fri 13:35 & 18:35 PT)
 ```
 
 启动与持久化：`pm2 start collector/ecosystem.config.cjs && pm2 save`。旧 LaunchAgent、wrapper 和 `~/.quantrift_options_collector` 已移除。
@@ -892,7 +893,7 @@ Tastytrade API  GET /market-metrics?symbols=...
 **Price history（日线 OHLCV）**
 ```text
 IB Gateway API  reqHistoricalData（daily OHLCV）
-  → collect_prices.py（PM2 cron，Mon-Fri 13:35 PT）
+  → collect_prices.py（PM2 cron，Mon-Fri 13:35 & 18:35 PT）
   → price_history
       symbol, date, open, high, low, close, volume
 ```

@@ -54,7 +54,12 @@ module.exports = {
       script: 'collect_prices.py',
       interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
       autorestart: false,
-      cron_restart: '35 13 * * 1-5',
+      // Two weekday runs: 13:35 PT (~35 min after the 16:00 ET close, may miss a
+      // still-pending EOD bar) and 18:35 PT (= 21:35 ET, past the EOD settle) so
+      // a late-finalized daily bar is picked up the same day rather than waiting
+      // for the next weekday. Each run refetches 400 days and upserts, so the
+      // second run also self-heals any gap the first left.
+      cron_restart: '35 13,18 * * 1-5',
       env: {
         PRICE_PROVIDER: 'polygon',
         SYMBOLS: 'watchlist',
