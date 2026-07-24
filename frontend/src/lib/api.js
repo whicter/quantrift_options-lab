@@ -161,6 +161,10 @@ export function getMarketRegime() {
   return getJson('/api/market/regime');
 }
 
+export function getMarketBreadth() {
+  return getJson('/api/market/breadth');
+}
+
 export function getWeekly(symbol) {
   return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
 }

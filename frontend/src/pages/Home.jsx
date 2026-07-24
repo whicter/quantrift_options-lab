@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMarketRegime } from '../lib/api';
+import MarketInternals from '../components/MarketInternals';
 import heroMark from '../assets/hero.png';
 
 const PRODUCTS = [
@@ -62,6 +63,10 @@ export default function Home() {
           ))}
           <div><span>Research workflow</span><strong>Research-ready setups</strong><small>analysis to decision support</small></div>
         </div>
+      </section>
+
+      <section className="home-internals">
+        <MarketInternals />
       </section>
 
       <section className="home-workflows">
