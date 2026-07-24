@@ -177,6 +177,10 @@ export function getMarketBriefing() {
   return getJson('/api/market/briefing');
 }
 
+export function getScannerLedger() {
+  return getJson('/api/scanner/ledger');
+}
+
 export function getWeekly(symbol) {
   return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
 }

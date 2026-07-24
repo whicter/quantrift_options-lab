@@ -2,7 +2,7 @@
 
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
-这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **105 项** `- [ ]`（2026-07-23 核对；07-22 的 112 项减去 07-23 完成的 7 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix + R1.3 板块轮动 RRG + R1.2 每日市场简报**。另 07-22 的 OI-by-strike 5 项也已 07-23 全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
+这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **104 项** `- [ ]`（2026-07-24 核对；07-22 的 112 项减去已完成的 8 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix + R1.3 板块轮动 RRG + R1.2 每日市场简报 + R2.1 候选结果台账**。另 07-22 的 OI-by-strike 5 项也已全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
@@ -14,7 +14,7 @@
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
 2c. `2026-07-18 — Confluence 支撑阻力引擎` — CF-1 / CF-2 / CF-3 已完成并提交；G5 未通过，CF-4 依 gate 不接入 UI；CF-5 已归档为 v2 搁置项。
-2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 6 项(原 10,**R1 决策语言层全部完成:R2.2 Breadth + R1.1 State Matrix + R1.3 板块轮动 + R1.2 每日简报,均 2026-07-23 前后端完成**)：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R2 信任层 1 项(候选结果台账;R2.2 已完成)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
+2d. `2026-07-18 — 竞品分析 Roadmap R0-R4` — 5 项(原 10,**R1 决策语言层 + R2 信任层全部完成:R2.2 Breadth/R1.1 State Matrix/R1.3 板块轮动/R1.2 每日简报/R2.1 候选结果台账,均 2026-07-23~24 前后端完成**)：竞品复查(等用户试用 alphastockpro/nextpick 后重挖)、R3 叙事层 3 项(财报日历/新闻摄取 MVP/主题聚类)、R4 打磨商业化。全档见 docs/COMPETITOR_ANALYSIS_2026-07-18.md。
 3. `2026-07-16 — Page Copy Audit Remediation` — 9 项：`Deferred / requires a separate decision` 2 项 + `Post-audit remaining work (ordered)` 7 项。
 4. `🚀 V2 — Real Data`（`数据层决策（已确定）`小节）— 7 项：多数是外部前置操作（UPS 采购、VPS/IBKR 2FA、SMTP/VAPID secrets、Railway TT device challenge），详见该节内"已确认无法由本仓库完成"清单。
 5. `✅ Phase 3I — Polygon Licensed Provider` — 1 项：Polygon key rotation，需账户持有人操作。
@@ -374,11 +374,12 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - **后端**:`server/src/routes/market.js` 纯 `buildSectorRotation` + `GET /api/market/sector-rotation`。`rs`=ETF 20 日相对收益−基准;`momentum`=近期相对步伐(`ret5−bench.ret5`)−月均每 5 日相对步伐(`rs/4`),即相对强弱是否在加速;(rs,mom)符号→四象限(领先/走弱/改善/落后)。SPY 无收益则 fail closed。
   - **前端(散点+列表联动,用户 2026-07-23 mockup 拍板;解决点重叠)**:纯 `lib/sectorRotation.js`(`dotPosition` 把 rs/mom clamp 映射到象限散点 x/y%、`buildRotationView` 按象限分组)+ `components/SectorRotation.jsx`(左散点携带流向位置感、右象限列表永远读得清、hover 一个另一个高亮 + tooltip,无图表库、延续自绘约定)。接在 `/market` State Matrix 下方。
   - **验证**:server 199/199(纯函数 4 条,含象限映射/基准缺失 fail closed/非 ETF 忽略/标签无买卖)、frontend 92/92(纯定位/分组 5 条)+ lint + build 干净。**live 26 ETF**:领先 6(XLE 领跑+能源/防御)、走弱 3、改善 11(含 SMH/SOXX/XLK——半导体科技相对最弱但动量在回)、落后 6;讲出"钱从半导体/科技→能源+防御"的真实轮动,且半导体高 IV(SMH 85)与其 S0 分类互印证。可复现:`docs/validation/SECTOR_ROTATION_2026-07-23.md`。
-- [~] **R2.1 候选结果台账(信任层;后端已完成 2026-07-24,前端 + 结果随时间积累)**:定位=模型验证,不是跟单信号。**一石二鸟:这正是拟合打分权重所需的标注数据**。
+- [x] **R2.1 候选结果台账(信任层;前后端均完成 2026-07-24,结果随到期积累)**:定位=模型验证,不是跟单信号。**一石二鸟:这正是拟合打分权重所需的标注数据**。
   - **数据现实(两个真实门槛,非"要不要做")**:①`scanner_candidate_snapshots` **被 V3A-2 prune**(只留每 scan_key 最新 5 批),候选活不到到期——**必须新建 durable 表**;②**0 个候选已到期**(最早到期 2026-08-21,快照仅回溯到今天),结果台账**天然从空开始、随到期积累**(同 IV Rank 252 天门槛)。
   - **实现**:新表 `candidate_ledger`(durable、不 prune,`UNIQUE(candidate_key,expiry)` 首见即入场,已迁移生产)。纯引擎 `server/src/domain/scanner/ledger.cjs`:`evaluateOutcome`(单到期 defined-risk 按到期标的收盘算逐腿 intrinsic → 实际盈亏/胜负/ROR;**日历/对角多到期标 `not_evaluable`**——远腿需重定价、不臆测;缺价标 `no_price`)+ `aggregateLedger`(按策略族胜率、POP 校准分桶、只统计 win/loss、not_evaluable/no_price 单列披露)。`routes/ledger.js`:`captureLedger`(批完成后入账,`credit`→正/`debit`→负 entry_cash,POP unavailable 置空)、`evaluateLedger`(到期行查 `price_history` 到期收盘算结果)、`GET /api/scanner/ledger`。capture+evaluate 已 best-effort 接进 `materializeScannerCandidates.runMaterialization`(每 scan cycle 自动跑,绝不 fail 批次)。
   - **验证**:server 211/211(纯引擎 8 条:put 价差 max profit/loss、long call/straddle、日历 not_evaluable、缺价 no_price、聚合胜率+POP 校准、空安全)。**live seed**:捕获 4,735 候选(6 族),0 已结算(最早到期 08-21);单到期可评 ~1,240(single_leg/iron/credit_vertical/straddle/combo),time_spread 3,495 到期标 not_evaluable。可复现:`docs/validation/CANDIDATE_LEDGER_2026-07-24.md`。
-  - **待做**:前端"模型记录"页(现在多为"积累中",到期后填胜率/校准);"每 N 日横盘"评估口径(现只做到期);POP 目前多为 unavailable 占位(策略无静态 breakeven 模型)——校准要等有效 POP。
+  - **前端**:`/ledger`「模型记录」页(`pages/Ledger.jsx`)+ 导航入口。展示追踪/已结算/总胜率/待到期;`resolved=0` 显"积累中 + 最早到期"诚实态,到期后填按策略族胜率表 + POP 校准表;not_evaluable/no_price 单列披露。frontend 92/92 + lint + build 干净。
+  - **待做(非阻塞)**:"每 N 日横盘"评估口径(现只做到期);POP 目前多为 unavailable 占位(策略无静态 breakeven 模型)——校准要等有效 POP;结果本体要等 2026-08-21 起候选陆续到期才出现。
 - [x] **R2.2 期权原生 Breadth(前后端均完成 2026-07-23)**:`GET /api/market/breadth`(`server/src/routes/market.js::sendMarketBreadth`)——纯 SQL 聚合 scan-enabled universe:①趋势 % above MA50/MA200(SQL 内 `AVG(close) FILTER (rn<=N)`,bars 不足不计);②**期权版体征**(三家竞品都没有)% 正/负 Gamma(latest `gex_snapshots.gamma_regime`)、IV Rank 中位数+p25/p75+% elevated(latest `volatility_history.iv_rank`,仅 ready)、PCR 中位数+四分位(`pcr_oi`)。每块带 `counted` 诚实披露样本量(薄数据不冒充全面),`pct()` 零样本返回 null 不返回假 0。
   - **前端(方案 B「Market Internals 面板」,用户 2026-07-23 拍板,先出渲染 mockup 对比)**:`components/MarketInternals.jsx` + 纯 view-model `lib/marketBreadth.js`(`buildBreadthView` 把响应转成渲染坐标:Gamma 拆分条宽度、IV/PCR 的 p25-p75 分位带 left/right + 中位标线位置、每块 counted 为 0 时塌缩成 null 显"暂不可用")。挂在首页 hero 与 workflow 卡片之间(`.home-internals`)。配色沿用产品 tokens(正=绿/负=红/IV=蓝/PCR=黄),`gamma_as_of` 按 ET 显示(与 P3 一致)。
   - **验证**:server 纯函数 `buildBreadth`/`percentile` 单测 3 条(187/187);frontend 纯 `buildBreadthView`/`scalePos` 单测 6 条(82/82)+ lint + build 干净。**live 实测**(2026-07-23,80 标的):55% 正 Gamma / 45% 负、IV Rank 中位 59.5(p25-p75 39.9-72.8,56 个 ready)、43% above MA50 / 69% above MA200、PCR 中位 0.98。可复现:`docs/validation/OPTIONS_BREADTH_2026-07-23.md`。
