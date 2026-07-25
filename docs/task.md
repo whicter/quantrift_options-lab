@@ -24,7 +24,7 @@
        - **"加密货币"实为误判**:新增里没有真加密币代号——`AGIX` 是 KraneShares ETF(非同名代币)、`BTCI` 是 NEOS 比特币收益 ETF,均场内 ETF,保留。
        - **格式修正**:`BRK-B` → `BRK.B`(Polygon 用点号,连字符 400)。
        - 最终 watchlist **180 → 159**;新增 `IBIT`(iShares 比特币信托)、`ETHU`(2x Ether ETF)、`BRK.B`、补回 `CRCL`(用户确认漏删)。IBIT/ETHU 各回填 275 天。
-       - `TPS` Polygon 精确查询 404 + 模糊搜索无匹配,**跳过待用户澄清**。
+       - `TPS` Polygon 精确查询 404 + 模糊搜索无匹配 → 用户澄清:**曾对应 ProShares UltraShort TIPS 反向国债 ETF,该代码目前在美股已不活跃**(退市),正好解释 404。已从 watchlist 移除,并在 `symbol_universe` 显式 `scan_enabled=false, active=false` + `metadata.disabled_reason='delisted_or_inactive'` 留痕(**必须显式禁用**——移出 watchlist 不会自动禁用,同 2026-07-19 VIX 先例;`sync_universe` 的 ON CONFLICT 只重置 `active`、不碰 `scan_enabled`,故该禁用持久)。
      - 🐛 **顺带发现并修复真 bug — `occ_ticker` 不剥标点,带点号标的静默回填 0 天**:BRK.B 首次回填 275/275 天处理、**0 天计算成功**。根因:OCC 期权代码根符号剥标点(`BRK.B` 的期权是 `O:BRKB...`),但 `occ_ticker` 直接拼成 `O:BRK.B...`,每次 aggregate 请求都 404,而 provider 错误被 best-effort 吞掉→静默返回 0。修复:root 只取 alnum 字符。影响所有带点号标的(BRK.B/BF.B 等)。单测 +1(BRK.B、BF.B),collector **272/272**。
      - ⚠️ **待用户决策(已汇报,未擅自执行)**:用户从 watchlist 移除了 **136 个标的**(含全部 XL* 板块 ETF、AMAT/KLAC/QCOM 等),但 `sync_universe.py` **只增不减**,这 136 个仍 `scan_enabled=true` 被持续扫描——当前 `scan_enabled` 总数 **301** vs watchlist **159**,扫描器在做约 2 倍于预期的工作。是否批量禁用待用户确认(可逆,不删历史数据)。
 1. `2026-07-17 — IV Rank 自给自足` — 2 项，**当前主线**：Phase 2.5（分页+月期权回退+滚动 grid cache+分批持久化）与 **Phase 3 前向口径统一（constant-30d,2026-07-23 完成）**已完成 → 下一步 Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
