@@ -620,6 +620,14 @@ body {
   border-radius: 6px;
   padding: 6px 10px;
 }
+.az-rec-context {
+  font-size: 12px;
+  color: var(--blue);
+  background: var(--blue-dim);
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
 .az-rec-legs { display: flex; flex-direction: column; gap: 6px; }
 .az-rec-leg {
   display: flex;

@@ -54,3 +54,28 @@ test('preserves the server reason when no candidate satisfies the real quote fil
   assert.equal(result.recommendation, null);
   assert.equal(result.unavailableReason, '没有满足流动性门槛的完整策略腿');
 });
+
+test('gammaNote passes through unconditionally, independent of directionConflict (2026-07-24 gamma tilt)', () => {
+  const withGamma = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: {
+      strategy: 'Long Call', pricing: 'Debit $200 · Max loss $200', dte: 45,
+      credit: null, debit: 2, maxLoss: 2, pop: { status: 'unavailable' },
+      directionConflict: false, directionNote: null,
+      gammaNote: '负 Gamma 环境：做市商对冲往往放大波动，利于做多 Gamma',
+      legs: [{ action: 'BUY', right: 'C', strike: 105, delta: 0.3, dte: 45 }],
+    },
+  });
+  assert.equal(withGamma.recommendation.directionNote, null); // no trend conflict
+  assert.equal(withGamma.recommendation.gammaNote, '负 Gamma 环境：做市商对冲往往放大波动，利于做多 Gamma');
+
+  const withoutGamma = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: {
+      strategy: 'Long Call', pricing: 'Debit $200 · Max loss $200', dte: 45,
+      credit: null, debit: 2, maxLoss: 2, pop: { status: 'unavailable' },
+      legs: [{ action: 'BUY', right: 'C', strike: 105, delta: 0.3, dte: 45 }],
+    },
+  });
+  assert.equal(withoutGamma.recommendation.gammaNote, null);
+});

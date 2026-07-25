@@ -35,6 +35,7 @@ export function toAnalyzeRecommendation(candidateResponse) {
       strategy: candidate.strategy,
       reason: candidate.pricing || candidate.summary || `筛选匹配分 ${candidate.score}`,
       directionNote: candidate.directionConflict ? (candidate.directionNote || '与当前趋势方向相反') : null,
+      gammaNote: candidate.gammaNote || null,
       params: {
         pop,
         dte: candidate.dte,

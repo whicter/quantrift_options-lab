@@ -12,6 +12,7 @@
    - `2026-07-24 — 单 worker 刷新吞吐` ✅：`REFRESH_WORKER_BATCH_SIZE` 从 2 提到 10。实测约 2.83 秒/标的，81 个标的冷启动估算约 41 分钟降至约 9 分钟；E7 共享限流器仍是 429 闸门。多进程 bounded parallel workers 仍未启用，避免重复全局派生和未验证的单进程状态竞争。可复现记录：`docs/validation/REFRESH_WORKER_BATCH_2026-07-24.md`。
    - `2026-07-24 — 有上限的进程内并行` ✅：新增 `REFRESH_WORKER_CONCURRENCY=3`。每个 job 使用独立 DB connection/provider，Polygon 仍由 PostgreSQL 全局 limiter 节流；全局 OI delta/scanner derivation 仍在 batch 主线程只执行一次。多 PM2 worker 仍未启用。可复现记录：`docs/validation/BOUNDED_REFRESH_CONCURRENCY_2026-07-24.md`。
    - `2026-07-19 — 调度器饥饿 bug` ✅：16 个"从未成功报价"标的霸占优先级饿死 STX/SRVR/MU 等;修排序 + 禁用 VIX。
+   - `2026-07-24 — Watchlist 新增 DRAM` ✅：用户问"watchlist 有 DRAM 吗"→ 查得美股无 DRAM 纯正标的(SK 海力士/三星均韩交所无 ADR,MU/SNDK/STX 分别是美光/闪存/硬盘,都不是 DRAM 本体)→ 用户随后指出 **DRAM 本身就是个 ticker**(Roundhill Memory ETF,2026-04-02 上市,25 交易日破 $5B AUM,持仓 70%+ 三星/海力士/美光)→ live 验证 Polygon 有该 ticker 参考数据 + 真实期权合约(`O:DRAM260731C00030000`)→ 加入 `watchlist.txt` + 跑 `sync_universe.py` 注册进 `symbol_universe`(`scan_enabled=true`)+ 跑 `backfill_iv_history.py DRAM --days 400` 回填上市以来全部 **75 个交易日**(2026-04-07~07-23,ATM IV 峰值 108.6%)。**75/252 天,离 IV Rank ready 还早(预计 ~2027-04)——数据年龄限制,非 bug**,归为"真·稀疏/新上市"既有分类。附:发现 `sync_universe.py` 不在任何 cron/daemon 里,是手动脚本,新增 watchlist 标的需手动跑一次才会真正进库。
 1. `2026-07-17 — IV Rank 自给自足` — 2 项，**当前主线**：Phase 2.5（分页+月期权回退+滚动 grid cache+分批持久化）与 **Phase 3 前向口径统一（constant-30d,2026-07-23 完成）**已完成 → 下一步 Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。
@@ -143,6 +144,24 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - **"现价"的正确来源是期权刷新 worker 每 5 分钟写的 `option_chain_snapshots.underlying_price`**(P1 修复后:盘中走 IB/延迟、盘后走 `/prev`,不再复用陈旧日线)。本次 bug 是**两条都陈旧**——日线 cron 冻在 07-16,期权 worker 又把这个陈旧日线当 spot 复用(4 天容忍度)。P1 已解耦:worker 不再信任 >1 天的日线。
   - **产品是"后台刷新"模型,不是"每次查询同步拉 provider"**(见 CLAUDE.md「user requests 不同步调 provider」):用户查询读 DB 里最新快照,后台每 5 分钟刷新。所以"用户每次拿最新、允许延迟"**已经是设计**——前提是后台刷新真的新鲜。修 bug = 让后台刷新的价真的新鲜(P1 已保证前收盘级,P2.1 补上盘中级),而不是改成每次查询同步拉(那会撞 rate limit + 延迟,且违反既定架构)。未覆盖标的的首次查询已有 priority-100 on-demand 入队,是这个模型内的补充。
 - **plan 边界(非本仓库可解)**:Polygon 真·盘中分钟需升级 Stocks 订阅(花钱)。当前免费能做到:盘后/盘中默认=前收盘(P1+P2 已保证不再多天陈旧);若做 P2.1 则盘中=IB 实时标的价。
+
+---
+
+## ✅ 2026-07-24 — 候选推荐加入做市商 Gamma 环境权重（Long Gamma / Short Gamma 策略分类）
+
+**触发**:用户分享一篇讲"Long Gamma 策略"(低 IV 买入、盘整突破后执行、赚趋势+波动率同步收益)的小红书帖子,问期权策略按希腊字母暴露怎么分类;随后要求"尝试添加这些,包括推荐的策略也要考虑这些"。
+
+**分类框架**(先搜证确认,非凭空):Gamma 和 Theta 在 Black-Scholes 框架下几乎精确反向(Theta ≈ −½×Gamma×S²×σ²),所以"long gamma"≈"short theta"。按 Gamma×Vega 分四象限,买方策略(Long Call/Put/Straddle)= long gamma + long vega + short theta;卖方策略(Credit Spread/Iron Condor/Short Strangle 等)= short gamma + short vega + long theta;Calendar/Diagonal 是特例(short gamma 但 long vega)。
+
+**发现(实现前先查代码,不是先写)**:`candidateEngine.cjs` 里已经有一套完整的 `directionalWeight(strategy, environment)` 方向性打分系统(trend 权重 + IV rank 权重),但 `environment` 参数在**生产的两个真实调用点(`scan.js`、`materializeScannerCandidates.js`)从未被传入**——函数签名默认 `environment = null`,而两处调用都是裸调用不带第 5 个参数。也就是说**这套加权逻辑从写完那天起就是死代码,从未在生产生效过**。根因是函数的早退守卫写成 `if (!environment || !environment.trendRegime) return 中性`——任何没带 `trendRegime` 的 environment 都会被整体短路,包括本该独立生效的 gamma/IV 逻辑。
+
+**实现**:
+- [x] **新增 `STRATEGY_GAMMA_PROFILE`**:13 个 `ACTIONABLE_STRATEGIES` 全部分类为 `long_gamma`(Long Call/Put/Straddle)或 `short_gamma`(所有 credit 结构 + 裸卖单腿 + Jade Lizard + Calendar/Diagonal)。
+- [x] **重写 `directionalWeight` 守卫**:从 `!environment.trendRegime` 改为 `!environment`,让 trend/IV/gamma 三路信号各自独立生效(无 environment 时返回值不变,回归安全)。
+- [x] **加 gamma 权重分支**:负 Gamma(做市商 short gamma,对冲放大波动)→ 给 long_gamma 策略 ×1.1、short_gamma 策略 ×0.9;正 Gamma(做市商 long gamma,对冲抑制波动)→ 反过来。**这是软倾向、不是硬冲突**——不设 `conflict=true`(那个字段留给"策略方向和趋势相反"这种真冲突),而是独立的 `gammaNote` 字段(信息性提示,非警告)。
+- [x] **接入两个真实调用点**:`scan.js` 和 `materializeScannerCandidates.js` 现在都传 `{ gammaRegime: row.gamma_regime || null }`(数据本来就在 `row` 里,只是从未被传进去)。`materializeScannerCandidates.js` 顺带把 `gammaNote` 写进 `signals_json.gamma_note`,持久化可追溯。
+- [x] **前端透传 + 展示**:`candidateDto.cjs`/`analyzeRecommendation.js` 透传 `gammaNote`;`Tab1Overview.jsx` 新增 `.az-rec-context`(蓝色信息条,和黄色 `.az-rec-warning` 视觉区分)展示。
+- **验证**:server 单测 9 条(纯函数 7 条含"无 trendRegime 也要生效"回归测试、DTO 透传 2 条)+ `materializeScannerCandidates` 既有测试补一行断言;server 全量 **221/221**。frontend 单测 1 条(`gammaNote` 独立于 `directionConflict` 透传);frontend 全量 **93/93**、lint+build 干净。**live 验证**(生产真实数据):TSLL 负 Gamma regime → Long Put 从 score 54.0 加权到 effectiveScore 59.4(×1.1),note="负 Gamma 环境:做市商对冲往往放大波动,利于做多 Gamma"。可复现:`docs/validation/GAMMA_REGIME_STRATEGY_WEIGHT_2026-07-24.md`。
 
 ---
 

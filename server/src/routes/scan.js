@@ -440,7 +440,7 @@ async function sendScan(req, res) {
     const candidates = rows.flatMap(row => {
       // buildActionableSetups returns setups sorted best-first; keep only the top
       // few per symbol so no single liquid name floods the scanner.
-      const setups = buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies)
+      const setups = buildActionableSetups(row.option_contracts, row, selectionOverrides, strategies, { gammaRegime: row.gamma_regime || null })
         .slice(0, SCAN_MAX_SETUPS_PER_SYMBOL);
       const { option_contracts: _rawContracts, payload, ...scannerSummary } = row;
       const gexModel = payload?.gex_model || {};

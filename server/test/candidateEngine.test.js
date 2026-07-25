@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildActionableSetup, buildActionableSetups, directionalWeight, toIsoDate } = require('../src/domain/scanner/candidateEngine.cjs');
+const {
+  buildActionableSetup, buildActionableSetups, directionalWeight, toIsoDate,
+  STRATEGY_GAMMA_PROFILE,
+} = require('../src/domain/scanner/candidateEngine.cjs');
 
 function contract({ expiry, dte, strike, right, bid, ask, delta, iv, oi = 500, volume = 50 }) {
   return { expiry, dte, strike, right, bid, ask, delta, iv, openInterest: oi, volume };
@@ -210,6 +213,76 @@ test('directionalWeight leaves scoring unchanged when no environment is given', 
   assert.equal(w.weight, 1);
   assert.equal(w.conflict, false);
   assert.equal(w.note, null);
+  assert.equal(w.gammaNote, null);
+});
+
+// ---- Dealer gamma regime tilt (2026-07-24) ----
+// Negative gamma (dealers short gamma) -> hedging flows amplify moves -> favors
+// long-gamma (long-premium) strategies. Positive gamma (dealers long gamma) ->
+// hedging dampens/pins price -> favors short-gamma (premium-selling) strategies.
+// This is an independent, informational tilt -- never a `conflict`.
+
+test('gamma tilt works with ONLY gammaRegime, no trendRegime required', () => {
+  // Regression guard: the old guard short-circuited on !environment.trendRegime,
+  // which would have silently disabled gamma weighting in production forever
+  // (neither real call site supplies trendRegime today).
+  const w = directionalWeight('Long Call', { gammaRegime: 'negative' });
+  assert.ok(w.weight > 1);
+  assert.equal(w.conflict, false);
+  assert.equal(w.note, null); // gamma tilt is informational, not a trend conflict
+  assert.match(w.gammaNote, /负 Gamma/);
+});
+
+test('negative gamma regime boosts long-gamma strategies, positive discounts them', () => {
+  const negative = directionalWeight('Long Straddle', { gammaRegime: 'negative' });
+  const positive = directionalWeight('Long Straddle', { gammaRegime: 'positive' });
+  assert.ok(negative.weight > 1);
+  assert.ok(positive.weight < 1);
+  assert.match(negative.gammaNote, /放大波动/);
+  assert.match(positive.gammaNote, /抑制波动/);
+});
+
+test('positive gamma regime boosts short-gamma (premium-selling) strategies, negative discounts them', () => {
+  const positive = directionalWeight('Iron Condor', { gammaRegime: 'positive' });
+  const negative = directionalWeight('Iron Condor', { gammaRegime: 'negative' });
+  assert.ok(positive.weight > 1);
+  assert.ok(negative.weight < 1);
+  assert.match(positive.gammaNote, /收取权利金/);
+});
+
+test('gamma tilt is independent of and composes with the trend tilt', () => {
+  const both = directionalWeight('Long Call', { trendRegime: 'bull', gammaRegime: 'negative' });
+  const trendOnly = directionalWeight('Long Call', { trendRegime: 'bull' });
+  // bullish alignment (x1.15) further boosted by the long-gamma tilt (x1.1)
+  assert.ok(both.weight > trendOnly.weight);
+  assert.equal(both.conflict, false);
+});
+
+test('an unrecognized gammaRegime value is a no-op, not an error', () => {
+  const w = directionalWeight('Long Call', { gammaRegime: 'unknown' });
+  assert.equal(w.weight, 1);
+  assert.equal(w.gammaNote, null);
+});
+
+test('every actionable strategy has a gamma profile classification', () => {
+  const { ACTIONABLE_STRATEGIES } = require('../src/domain/scanner/candidateEngine.cjs');
+  for (const strategy of ACTIONABLE_STRATEGIES) {
+    assert.ok(
+      STRATEGY_GAMMA_PROFILE[strategy] === 'long_gamma' || STRATEGY_GAMMA_PROFILE[strategy] === 'short_gamma',
+      `${strategy} is missing a gamma profile`,
+    );
+  }
+});
+
+test('buildActionableSetups carries gammaNote through to the candidate', () => {
+  const contracts = [
+    contract({ expiry: '2026-08-29', dte: 45, strike: 105, right: 'C', bid: 2.0, ask: 2.1, delta: 0.30, iv: 0.28 }),
+  ];
+  const [candidate] = buildActionableSetups(
+    contracts, { price_close: 100 }, {}, ['Long Call'], { gammaRegime: 'negative' },
+  );
+  assert.ok(candidate);
+  assert.match(candidate.gammaNote, /负 Gamma/);
 });
 
 test('directionalWeight deprioritizes and flags a trend-opposed strategy', () => {

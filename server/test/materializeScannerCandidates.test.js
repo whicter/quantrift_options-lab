@@ -79,6 +79,10 @@ test('buildCandidateBatch ranks globally by score and counts the universe', () =
   assert.ok(Array.isArray(first.legs_json) && first.legs_json.length >= 1);
   assert.equal(first.freshness_json.input_snapshot_ts, '2026-07-17T17:55:00.000Z');
   assert.equal(first.signals_json.gamma_regime, 'positive');
+  // 2026-07-24: row.gamma_regime is now wired into buildActionableSetups'
+  // environment, so a short-gamma candidate (this row's bear-call-spread-shaped
+  // chain) picks up a favorable gamma_note in a positive-gamma regime.
+  assert.match(first.signals_json.gamma_note, /Gamma/);
 });
 
 test('buildCandidateBatch dedupes identical setups across rows to the best score', () => {

@@ -16,6 +16,7 @@ function toCandidateDto(candidate, { inputSnapshotTs = null } = {}) {
     score: candidate.score,
     directionConflict: candidate.directionConflict ?? false,
     directionNote: candidate.directionNote ?? null,
+    gammaNote: candidate.gammaNote ?? null,
     credit: candidate.credit,
     debit: candidate.debit,
     maxLoss: candidate.maxLoss,

@@ -197,6 +197,9 @@ export default function Tab1Overview({ data }) {
           {recommendation.directionNote && (
             <div className="az-rec-warning">{recommendation.directionNote}：该候选按流动性/结构分入选，方向上与当前趋势不一致，仅作研究参考</div>
           )}
+          {recommendation.gammaNote && (
+            <div className="az-rec-context">{recommendation.gammaNote}</div>
+          )}
           {recommendation.params.maxLoss === null && (
             <div className="az-rec-warning">裸卖策略风险无限，建议加保护腿转为 defined-risk</div>
           )}

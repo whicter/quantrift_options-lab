@@ -53,23 +53,54 @@ const STRATEGY_STANCE = {
   'Long Straddle': 'vol_long',
 };
 
+// Gamma exposure of each strategy at initiation, used to tilt candidates by the
+// dealer gamma regime (2026-07-24). Long-premium strategies (long calls/puts/
+// straddles) are long gamma; short-premium and credit structures (verticals,
+// iron condor/butterfly, short strangle, covered-style single legs, jade
+// lizard) are short gamma. Calendar/diagonal spreads are classified short_gamma:
+// the near-dated short leg dominates gamma close to its own expiry, matching the
+// textbook "calendar = short gamma, long vega" profile even though the position
+// is not evaluated for vega here.
+const STRATEGY_GAMMA_PROFILE = {
+  'Long Call': 'long_gamma',
+  'Long Put': 'long_gamma',
+  'Long Straddle': 'long_gamma',
+  'Bull Put Spread': 'short_gamma',
+  'Bear Call Spread': 'short_gamma',
+  'Iron Condor': 'short_gamma',
+  'Iron Butterfly': 'short_gamma',
+  'Short Strangle': 'short_gamma',
+  'Short Put': 'short_gamma',
+  'Short Call': 'short_gamma',
+  'Jade Lizard': 'short_gamma',
+  'Calendar Spread': 'short_gamma',
+  'Diagonal Spread': 'short_gamma',
+};
+
 /**
  * Directional weight for a candidate given the market environment. Returns a
- * score multiplier and, when the strategy fights the trend, a conflict flag +
- * label so the UI can show it rather than silently drop it.
+ * score multiplier; when the strategy fights the trend, a conflict flag + label
+ * so the UI can show it rather than silently drop it; and, independently, a
+ * `gammaNote` — informational (not a warning) context on how the dealer gamma
+ * regime relates to the strategy's own gamma exposure.
  *
- * environment = { trendRegime: 'bull'|'bear'|'neutral', gammaRegime, ivRank }.
- * Absent or partial environment leaves scoring unchanged (weight 1), which keeps
- * callers that pass no environment byte-for-byte identical.
+ * environment = { trendRegime: 'bull'|'bear'|'neutral', gammaRegime: 'positive'|
+ * 'negative', ivRank }. Each signal is applied independently when present;
+ * a fully absent environment leaves scoring unchanged (weight 1), which keeps
+ * callers that pass no environment byte-for-byte identical. Note the guard is
+ * on `environment` itself, not `environment.trendRegime` — a gamma-only
+ * environment (no trend data available) must still apply the gamma tilt below.
  */
 function directionalWeight(strategy, environment) {
-  if (!environment || !environment.trendRegime) return { weight: 1, conflict: false, note: null };
+  if (!environment) return { weight: 1, conflict: false, note: null, gammaNote: null };
   const stance = STRATEGY_STANCE[strategy] || 'neutral';
-  const trend = environment.trendRegime;
+  const trend = environment.trendRegime || null;
   const ivRank = num(environment.ivRank);
+  const gammaRegime = environment.gammaRegime || null;
   let weight = 1;
   let conflict = false;
   let note = null;
+  let gammaNote = null;
 
   if (trend === 'bull') {
     if (stance === 'bullish') weight *= 1.15;
@@ -91,7 +122,25 @@ function directionalWeight(strategy, environment) {
     else if (ivRank >= 60 && longPremium) weight *= 0.9;
   }
 
-  return { weight, conflict, note };
+  // Dealer gamma regime tilts long-gamma vs short-gamma strategies (2026-07-24).
+  // Negative gamma (dealers short gamma) means dealer hedging flows tend to
+  // amplify moves -> favors long-gamma (long-premium) strategies. Positive
+  // gamma (dealers long gamma) means dealer hedging tends to dampen/pin price
+  // -> favors short-gamma (premium-selling) strategies. This is a soft market-
+  // structure tilt, not a directional call the strategy is "wrong" about, so it
+  // never sets `conflict` -- only the separate, non-alarming `gammaNote`.
+  if (gammaRegime === 'positive' || gammaRegime === 'negative') {
+    const gammaProfile = STRATEGY_GAMMA_PROFILE[strategy] || null;
+    if (gammaProfile === 'long_gamma') {
+      if (gammaRegime === 'negative') { weight *= 1.1; gammaNote = '负 Gamma 环境：做市商对冲往往放大波动，利于做多 Gamma'; }
+      else { weight *= 0.9; gammaNote = '正 Gamma 环境：做市商对冲往往抑制波动，对做多 Gamma 不利'; }
+    } else if (gammaProfile === 'short_gamma') {
+      if (gammaRegime === 'positive') { weight *= 1.1; gammaNote = '正 Gamma 环境：做市商对冲往往抑制波动，利于收取权利金'; }
+      else { weight *= 0.9; gammaNote = '负 Gamma 环境：做市商对冲往往放大波动，对收权利金策略不利'; }
+    }
+  }
+
+  return { weight, conflict, note, gammaNote };
 }
 const POP_MODEL_VERSION = 'pop-v1-lognormal-breakeven';
 const EXPECTED_MOVE_MODEL_VERSION = 'expected-move-v1-atm-iv-sqrt-time';
@@ -750,6 +799,7 @@ function buildActionableSetups(rawContracts, row, overrides = {}, strategies = A
         effectiveScore: candidate.score * bias.weight,
         directionConflict: bias.conflict,
         directionNote: bias.note,
+        gammaNote: bias.gammaNote,
       };
     })
     .sort((a, b) => b.effectiveScore - a.effectiveScore || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0));
@@ -771,6 +821,7 @@ function buildActionableSetup(strategy, rawContracts, row, overrides = {}, envir
 }
 
 module.exports = {
-  ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, STRATEGY_STANCE, buildActionableSetups, buildActionableSetup,
+  ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, STRATEGY_STANCE, STRATEGY_GAMMA_PROFILE,
+  buildActionableSetups, buildActionableSetup,
   directionalWeight, expectedMoveForExpiry, popForCandidate, toIsoDate,
 };

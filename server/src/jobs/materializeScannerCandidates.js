@@ -14,7 +14,7 @@
  * CLI: node src/jobs/materializeScannerCandidates.js [scanKey]
  */
 
-const { buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
+const { buildActionableSetups, ACTIONABLE_STRATEGIES } = require('../domain/scanner/candidateEngine.cjs');
 
 // Bump whenever candidate enumeration, scoring, or dedupe changes so a stored
 // batch can be told apart from one produced by a different algorithm.
@@ -109,6 +109,7 @@ function candidateRow(symbol, row, candidate) {
       expected_move: candidate.expectedMove ?? null,
       pop: candidate.pop ?? null,
       gamma_regime: row.gamma_regime ?? null,
+      gamma_note: candidate.gammaNote ?? null,
       call_wall: num(row.call_wall),
       put_wall: num(row.put_wall),
       signal_score: num(row.signal_score),
@@ -132,7 +133,7 @@ function buildCandidateBatch({ rows = [], overrides = {} } = {}) {
   for (const row of rows) {
     if (row && row.symbol) universe.add(row.symbol);
     if (!row || !row.symbol) continue;
-    const setups = buildActionableSetups(row.option_contracts, row, overrides);
+    const setups = buildActionableSetups(row.option_contracts, row, overrides, ACTIONABLE_STRATEGIES, { gammaRegime: row.gamma_regime || null });
     for (const candidate of setups) collected.push({ row, symbol: row.symbol, candidate });
   }
 
