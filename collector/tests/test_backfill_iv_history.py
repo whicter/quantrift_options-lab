@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 from datetime import date
 
 import backfill_iv_history as bf
@@ -179,6 +180,74 @@ class VolatilityRowTest(unittest.TestCase):
         self.assertEqual(row['atm_iv'], 0.28)
         self.assertEqual(row['iv_source'], 'polygon_backfill_bs')
         self.assertEqual(row['atm_dte'], 30)
+
+
+class RetryBackoffTest(unittest.TestCase):
+    """Polygon's paid plan has no monthly quota but does enforce a per-second
+    rate limit. `_get` must survive 429/5xx, otherwise the error escapes from
+    `underlying_closes` (outside the per-day try/except) and kills the whole
+    symbol -- which is exactly what happened the first time this backfill was
+    run in parallel (2026-07-25)."""
+
+    class _Resp:
+        def __init__(self, status, payload=None, retry_after=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers = {'Retry-After': retry_after} if retry_after else {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f'HTTP {self.status_code}')
+
+    def _client(self, responses):
+        client = object.__new__(bf.PolygonHistory)
+        client.base = 'https://api.polygon.io'
+        client._grid_cache = {}
+        seq = list(responses)
+        client.session = unittest.mock.Mock()
+        client.session.get = lambda *a, **k: seq.pop(0)
+        return client
+
+    def test_retries_429_then_succeeds(self):
+        client = self._client([
+            self._Resp(429),
+            self._Resp(429),
+            self._Resp(200, {'results': [{'c': 1.5}]}),
+        ])
+        with unittest.mock.patch.object(bf.time, 'sleep') as slept:
+            out = client._get('/v2/aggs/x')
+        self.assertEqual(out, {'results': [{'c': 1.5}]})
+        self.assertEqual(slept.call_count, 2)
+
+    def test_honors_retry_after_header(self):
+        client = self._client([
+            self._Resp(429, retry_after='7'),
+            self._Resp(200, {'ok': True}),
+        ])
+        with unittest.mock.patch.object(bf.time, 'sleep') as slept:
+            client._get('/v2/aggs/x')
+        self.assertEqual(slept.call_args[0][0], 7)
+
+    def test_retries_5xx_too(self):
+        client = self._client([self._Resp(503), self._Resp(200, {'ok': True})])
+        with unittest.mock.patch.object(bf.time, 'sleep'):
+            self.assertEqual(client._get('/v2/aggs/x'), {'ok': True})
+
+    def test_gives_up_after_max_retries(self):
+        client = self._client([self._Resp(429)] * (bf.MAX_RETRIES + 1))
+        with unittest.mock.patch.object(bf.time, 'sleep'):
+            with self.assertRaises(RuntimeError):
+                client._get('/v2/aggs/x')
+
+    def test_non_retryable_error_raises_immediately(self):
+        client = self._client([self._Resp(404)])
+        with unittest.mock.patch.object(bf.time, 'sleep') as slept:
+            with self.assertRaises(RuntimeError):
+                client._get('/v2/aggs/x')
+        slept.assert_not_called()
 
 
 if __name__ == '__main__':

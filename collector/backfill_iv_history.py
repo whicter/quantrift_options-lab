@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import time
 from datetime import date, datetime, timedelta
 
 import requests
@@ -44,6 +45,10 @@ GRID_MAX_PAGES = int(os.getenv('IV_BACKFILL_GRID_MAX_PAGES', '10'))
 EXPIRY_WALK_LIMIT = int(os.getenv('IV_BACKFILL_EXPIRY_WALK_LIMIT', '8'))
 GRID_CACHE_BUCKET_DAYS = int(os.getenv('IV_BACKFILL_GRID_CACHE_BUCKET_DAYS', '3'))
 BACKFILL_WRITE_BATCH_DAYS = int(os.getenv('IV_BACKFILL_WRITE_BATCH_DAYS', '25'))
+# Retry/backoff for Polygon's per-second rate limit (429) and transient 5xx.
+MAX_RETRIES = int(os.getenv('IV_BACKFILL_MAX_RETRIES', '5'))
+BACKOFF_BASE_SECONDS = float(os.getenv('IV_BACKFILL_BACKOFF_BASE_SECONDS', '2'))
+BACKOFF_MAX_SECONDS = float(os.getenv('IV_BACKFILL_BACKOFF_MAX_SECONDS', '30'))
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +147,30 @@ class PolygonHistory:
         self._grid_cache: dict = {}
 
     def _get(self, path_or_url, params=None):
+        """GET with bounded retry/backoff on 429 and 5xx.
+
+        Polygon's paid plan has no monthly call quota but still enforces a
+        per-second rate limit. Running this backfill single-threaded happened to
+        stay under it, so the script never handled 429 -- but any parallelism
+        trips it immediately, and the error surfaces from `underlying_closes`
+        (outside the per-day try/except), killing the whole symbol. Retrying with
+        exponential backoff makes both the serial and parallel paths survive it.
+        `Retry-After` is honored when present.
+        """
         url = path_or_url if str(path_or_url).startswith('http') else self.base + path_or_url
-        resp = self.session.get(url, params=params, timeout=25)
-        resp.raise_for_status()
-        return resp.json()
+        delay = BACKOFF_BASE_SECONDS
+        for attempt in range(MAX_RETRIES + 1):
+            resp = self.session.get(url, params=params, timeout=25)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                if attempt == MAX_RETRIES:
+                    resp.raise_for_status()
+                wait = float(resp.headers.get('Retry-After') or 0) or delay
+                time.sleep(min(wait, BACKOFF_MAX_SECONDS))
+                delay = min(delay * 2, BACKOFF_MAX_SECONDS)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        raise RuntimeError('unreachable')
 
     def underlying_closes(self, symbol: str, start: date, end: date) -> dict:
         """{date: close} for the underlying over [start, end] from Polygon daily aggs."""
