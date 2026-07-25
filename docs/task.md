@@ -17,6 +17,16 @@
      - 第一轮「SNDK, CRCL」:**SNDK 已在库(328 行历史,8 行已出 iv_rank,零动作)**;**CRCL**(Circle Internet Group,USDC 发行方,2025-06-05 上市)live 验证 Polygon 有 ticker + 期权(`O:CRCL260731C00035000`)后加入 `watchlist.txt` + 注册 + 回填(1 天因 Polygon 25s read timeout 跳过,273/274 天写入)。
      - 第二轮「INTC, META, HOOD, EU, XYZ, COIN, IBM, DELL」:**6 个已在库零动作**(INTC/META/HOOD/EU/IBM/DELL,均 `scan_enabled=true`);新增 **XYZ**(Block, Inc.,原 SQ 改 ticker,2015 年原始上市)、**COIN**(Coinbase Global,2021-04-14 上市),均 live 验证有 ticker+期权后加入+注册+回填(各 274/274 天)。
      - **三个新标的(CRCL/COIN/XYZ)回填后立即跑 `derive_volatility.run(symbols=[...])` 触发 readiness 判定,均已 `iv_rank_ready=true` 并算出真实 IV Rank**(非占位):COIN 66.89、XYZ 61.91、CRCL 32.21。三者历史都跨过 252 天门槛(vs DRAM 75 天不足),因为都不是新上市。
+   - `2026-07-25 — Watchlist 用户大批量重排 + 清洗` ✅：用户一次性把 watchlist 改成 180 个(结构大改,非追加),要求"共同基金和加密货币去掉"并加入 IBIT/ETHU。
+     - **批量 live 验证**(111 个新增 + IBIT/ETHU 逐个查 Polygon ticker reference + options contracts,不靠猜):
+       - **移除共同基金 2 个**:`FXAIX`/`VTSAX`(Polygon 404,证实场外共同基金无期权)。
+       - **移除无期权 22 个**:`AMFN`(OTC 股)、`CIK`/`FOF`/`JHS`/`QQQX`(封闭式基金)、`PBOC`/`TDAX`/`XHLF`/`VBIL`/`VGRO`/`RW`/`HVAC`/`AOK`/`AVIV`/`FLCA`/`IBII`/`MFI`/`MLPI`/`NLST`/`OILU`/`PTMC`/`REXC`(较新 ETF/小盘,期权合约端点返回零)。**理由:无期权标的进 scanner 队列会产生永远失败的采集任务,重演 2026-07-19 调度器饥饿事故**。
+       - **"加密货币"实为误判**:新增里没有真加密币代号——`AGIX` 是 KraneShares ETF(非同名代币)、`BTCI` 是 NEOS 比特币收益 ETF,均场内 ETF,保留。
+       - **格式修正**:`BRK-B` → `BRK.B`(Polygon 用点号,连字符 400)。
+       - 最终 watchlist **180 → 159**;新增 `IBIT`(iShares 比特币信托)、`ETHU`(2x Ether ETF)、`BRK.B`、补回 `CRCL`(用户确认漏删)。IBIT/ETHU 各回填 275 天。
+       - `TPS` Polygon 精确查询 404 + 模糊搜索无匹配,**跳过待用户澄清**。
+     - 🐛 **顺带发现并修复真 bug — `occ_ticker` 不剥标点,带点号标的静默回填 0 天**:BRK.B 首次回填 275/275 天处理、**0 天计算成功**。根因:OCC 期权代码根符号剥标点(`BRK.B` 的期权是 `O:BRKB...`),但 `occ_ticker` 直接拼成 `O:BRK.B...`,每次 aggregate 请求都 404,而 provider 错误被 best-effort 吞掉→静默返回 0。修复:root 只取 alnum 字符。影响所有带点号标的(BRK.B/BF.B 等)。单测 +1(BRK.B、BF.B),collector **272/272**。
+     - ⚠️ **待用户决策(已汇报,未擅自执行)**:用户从 watchlist 移除了 **136 个标的**(含全部 XL* 板块 ETF、AMAT/KLAC/QCOM 等),但 `sync_universe.py` **只增不减**,这 136 个仍 `scan_enabled=true` 被持续扫描——当前 `scan_enabled` 总数 **301** vs watchlist **159**,扫描器在做约 2 倍于预期的工作。是否批量禁用待用户确认(可逆,不删历史数据)。
 1. `2026-07-17 — IV Rank 自给自足` — 2 项，**当前主线**：Phase 2.5（分页+月期权回退+滚动 grid cache+分批持久化）与 **Phase 3 前向口径统一（constant-30d,2026-07-23 完成）**已完成 → 下一步 Phase 4 TT 对比 harness → Phase 5 cutover（Mac 可关机）。
 2. `2026-07-17 — 全项目 review（架构/算法/功能）` — 15 项：架构 5 / 算法 5 / 功能 5，均未开始，等待用户排优先级。
 2b. `2026-07-18 — Analyze 页 synthesis 层 + bug 修复` — **19 项全部完成 ✅**（A 纯 bug 5 / C synthesis 结论引擎 7 / D 策略方向化 3 / B 数据补强 4；含 B1 全到期期限结构 + 密集 ETF 专用窄窗抓取）。

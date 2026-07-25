@@ -12,6 +12,13 @@ class OccTickerTest(unittest.TestCase):
         # fractional strike
         self.assertEqual(bf.occ_ticker('SPY', date(2026, 3, 20), 512.5, True), 'O:SPY260320C00512500')
 
+    def test_strips_punctuation_from_the_occ_root(self):
+        # Berkshire B trades as BRK.B but its options are O:BRKB... . Building
+        # O:BRK.B... 404s on every aggregate request, which silently backfilled
+        # 0 days (observed 2026-07-25: 275/275 processed, 0 computed).
+        self.assertEqual(bf.occ_ticker('BRK.B', date(2026, 7, 31), 270.0, True), 'O:BRKB260731C00270000')
+        self.assertEqual(bf.occ_ticker('BF.B', date(2026, 1, 16), 45.0, False), 'O:BFB260116P00045000')
+
 
 class NearestStrikeTest(unittest.TestCase):
     def test_picks_closest(self):

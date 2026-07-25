@@ -51,8 +51,16 @@ BACKFILL_WRITE_BATCH_DAYS = int(os.getenv('IV_BACKFILL_WRITE_BATCH_DAYS', '25'))
 # ---------------------------------------------------------------------------
 
 def occ_ticker(symbol: str, expiry: date, strike: float, is_call: bool) -> str:
-    """OCC option ticker, e.g. O:AAPL250718C00090000 (strike 90 -> 00090000)."""
-    return f"O:{symbol.upper()}{expiry.strftime('%y%m%d')}{'C' if is_call else 'P'}{round(strike * 1000):08d}"
+    """OCC option ticker, e.g. O:AAPL250718C00090000 (strike 90 -> 00090000).
+
+    The OCC root strips punctuation from the equity symbol: Berkshire B trades as
+    `BRK.B` but its options are `O:BRKB...`. Without this, every dotted ticker
+    silently backfills 0 days -- every option aggregate request 404s because the
+    constructed ticker does not exist (observed 2026-07-25 on BRK.B: 275/275
+    trading days processed, 0 computed).
+    """
+    root = ''.join(ch for ch in symbol.upper() if ch.isalnum())
+    return f"O:{root}{expiry.strftime('%y%m%d')}{'C' if is_call else 'P'}{round(strike * 1000):08d}"
 
 
 def nearest_strike(strikes, spot: float):
