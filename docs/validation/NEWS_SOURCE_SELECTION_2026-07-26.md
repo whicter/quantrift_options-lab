@@ -62,13 +62,42 @@ Rationale:
   intraday spot, so adding news does not introduce a new failure mode, only
   extends an accepted one.
 
-## Remaining before implementation
+## Follow-up: request pattern, pacing, and lookback depth (same day, before coding)
 
-- How far back IB historical news can be queried (not yet tested).
-- Whether requesting news for the full ~292-symbol watchlist in one pass
-  triggers any IB-side pacing (the local Gateway has no public-internet rate
-  limit like Polygon's `provider_rate_limits`, but batch behavior at this scale
-  is untested).
+Answered the two open questions with live tests — and along the way corrected a
+wrong conclusion from my own first pass.
+
+**Wrong first conclusion, corrected**: an initial pacing test fired 6 requests at
+fixed intervals (1–5s) and checked results immediately after each `sleep`,
+finding only some had data (e.g. gap=1s → 0/6, gap=5s → 4/6) — read as "IB drops
+requests sent too close together." Re-run with the check decoupled from the send
+loop (send all 6 at the given gap, then wait a fixed 12s settle before checking
+any) showed **6/6 succeed at gap=1s, 2s, and 3s** — the original result was
+purely round-trip latency being mistaken for dropped requests, not real
+throttling. Lesson: never conflate "when I checked" with "whether it happened"
+when testing an async callback API.
+
+**Correct request pattern**: request-then-wait-for-its-own-`historicalNewsEnd`
+event (bounded by a timeout), not a blind fixed-interval fire loop. This is also
+simply the correct way to use the callback API, not a workaround.
+
+**Realistic per-symbol cost** (last-2-days window, limit 20, all 8 provider
+codes, 8 real symbols: AAPL/MSFT/TSLA/NVDA/SPY/GOOGL/AMD/META): **~8.1s/symbol
+average** (range 2.1–9.6s), all hit the 20-headline limit (`hasMore` — plenty of
+news exists even in a 2-day window for liquid names). **Projected full
+292-symbol sweep: ~39 minutes.** This rules out 5-minute-cycle refresh (like the
+option worker) and supports an **hourly cadence**, matching the existing
+`derive_volatility` (hourly) and Reddit-trends (30 min) collectors.
+
+**Lookback depth**: properly re-tested (again waiting for each request's own end
+event, not a fixed guess) with `limit=300` and widening windows for AAPL —
+180/400/800-day windows all returned real data with a consistent oldest article
+at **2023-08-04**, but 1500- and 3000-day windows returned **0** with no error.
+This points to an **undocumented maximum lookback span somewhere between 800 and
+1500 days** on `reqHistoricalNews` — a query whose start date exceeds it
+silently returns nothing rather than erroring. **Irrelevant to this MVP** (which
+only needs a rolling recent window, e.g. 24–48h), but worth knowing before any
+future "news archive" feature that wants years of history.
 
 ## Implementation sketch (not yet built)
 

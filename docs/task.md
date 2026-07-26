@@ -429,7 +429,8 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
     - **IB Gateway 新闻 API**(`reqNewsProviders`/`reqHistoricalNews`/`reqNewsArticle`):live 实测 **已订阅 8 个新闻源**——Dow Jones 全套(Global Equity Trader/Trader News/Top Stories 全球+亚太+欧洲/Newsletters)+ Briefing.com(General Market/Analyst Actions)。实测 TSLA 近 7 天拉到 10 条真实财经报道(Barron's/Dow Jones 分析),**按 conId 精确关联标的**(不用猜)。$0(已订阅,零增量成本)。
     - **决策:只用 IB,不做双源**。GDELT 关联不准+限流紧,双源意味着两套关联逻辑+两套去重,复杂度翻倍换来的是更差的那一半;IB 已验证质量更好、关联精确、零成本。GDELT 降级为"以后如果 IB Gateway 常掉线才考虑的兜底",不在本次 MVP 范围。
   - **实现骨架**:新采集器 `collect_news.py`,骨架照抄 `collect_reddit_trends.py`(`fetch → aggregate → persist_snapshot(JSONB metadata)`,同样接入 `ecosystem.config.cjs` 定时);标的关联走 IB `conId`(不复用 Reddit 那套 `extract_symbols` 字符串匹配,因为 IB 新闻自带精确关联,没有这个问题);新表存 `provider_code`/`article_id`(为以后 `reqNewsArticle` 取全文留字段);`GET /api/news/:symbol` + Analyze 新区块。
-  - **待摸清(开工前)**:IB 历史新闻能回溯多久;批量拉 292 个标的会不会触发 IB 自己的限流(不同于 Polygon 的 `provider_rate_limits`,IB 走本地 Gateway,理论无公网限流但未实测批量场景)。
+  - **开工前两问已 live 测完(2026-07-26)**:①**节奏**——正确模式是"发请求→等它自己的 `historicalNewsEnd`(带超时)",不是固定间隔盲发;真实测(近2天窗口,8 个真实标的)**约 8.1 秒/标的**,292 个标的全量扫一遍约 **39 分钟**→ 排除 5 分钟级刷新,**定为每小时一次**(对齐 `derive_volatility`/Reddit 已有节奏)。②**回溯深度**——存在一个未文档化的最大回溯跨度(介于 800~1500 天之间,超过静默返回空而非报错),但 **MVP 只要近期滚动窗口(24-48 小时),与此无关**。
+    - **过程中纠正了我自己的一个误判**:第一次测节奏得出"IB 会丢弃挨得太近的请求"(gap=1s→0/6 命中),后来发现是**测量本身的缺陷**——检查时机紧跟在 `sleep` 之后,把"往返延迟"误判成"被丢弃";把发送和核对解耦(先发完一批固定间隔的请求,再统一多等一段核对)后,**gap=1/2/3秒下全部 6/6 命中**,证明不存在丢请求这回事。
   - **合规边界(不变)**:只做客观摘要+来源链接,不做"AI 荐股"式文案、不包装成买卖信号、不编造无来源支撑的解读。
 - [ ] **R3.3 主题聚类(newshock 式)**:仅当 R3.2 验证用户参与度后再做。
 - [ ] **R4 打磨/商业化**:EN/ZH 双语(对标 alphastockpro,吃第二个市场)、分享卡片、CSV 导出(Pro 权益)、Stripe 就绪后参考 $249-499/年与 credits 制定价锚。部分被外部密钥阻塞。
