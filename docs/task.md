@@ -423,7 +423,14 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - **前端(方案 B「Market Internals 面板」,用户 2026-07-23 拍板,先出渲染 mockup 对比)**:`components/MarketInternals.jsx` + 纯 view-model `lib/marketBreadth.js`(`buildBreadthView` 把响应转成渲染坐标:Gamma 拆分条宽度、IV/PCR 的 p25-p75 分位带 left/right + 中位标线位置、每块 counted 为 0 时塌缩成 null 显"暂不可用")。挂在首页 hero 与 workflow 卡片之间(`.home-internals`)。配色沿用产品 tokens(正=绿/负=红/IV=蓝/PCR=黄),`gamma_as_of` 按 ET 显示(与 P3 一致)。
   - **验证**:server 纯函数 `buildBreadth`/`percentile` 单测 3 条(187/187);frontend 纯 `buildBreadthView`/`scalePos` 单测 6 条(82/82)+ lint + build 干净。**live 实测**(2026-07-23,80 标的):55% 正 Gamma / 45% 负、IV Rank 中位 59.5(p25-p75 39.9-72.8,56 个 ready)、43% above MA50 / 69% above MA200、PCR 中位 0.98。可复现:`docs/validation/OPTIONS_BREADTH_2026-07-23.md`。
 - [ ] **R3.1 财报/事件日历页**:`earnings_date` 已采集,纯展示;+财报前后 IV 行为曲线(IV 历史已回填,可画"财报 IV 冲高-坍缩")。
-- [ ] **R3.2 新闻摄取 MVP(对标 newshock,叙事层)**:免费源(GDELT/RSS)→ LLM 分类为事件卡(严重度+关联标的+为什么重要)→ Analyze per-symbol 事件流;**升级波动归因的"消息面"槽位**(从"隔夜跳空"粒度到具体 headline)。排 IV Rank cutover 后或并行于 Railway。
+- [ ] **R3.2 新闻摄取 MVP(对标 newshock,叙事层;定源已定 2026-07-26)**:目标——把 `synthesis.js::volatilityAttribution` 里已经写好的免责声明("无新闻源,'消息面'仅指隔夜跳空或事件日历,不指向具体新闻",行 240/348)从"隔夜跳空"粒度升级到具体 headline;Analyze 页新增"近期消息"区块(headline+来源+时间+链接)。**MVP 不做 LLM 分类**,先上 $0 版验证参与度,v2 再加 Claude Haiku 事件分类(约 $5-30/月,已估算)。
+  - **数据源选型(2026-07-26,live 实测二选一,非拍脑袋)**:
+    - **GDELT DOC 2.0 API**:免费、无需 key,但 live 测得 **429、"每 5 秒限 1 次请求"**(且实测比文档写的更严——等 20 秒重试仍 429)。292 个标的一轮下来 ≈ 25 分钟,勉强够每小时刷新但无余量;且新闻与标的的关联要靠**字符串猜测**(标题里找公司名/ticker),不准(如"Block"既是公司名又是常见词)。
+    - **IB Gateway 新闻 API**(`reqNewsProviders`/`reqHistoricalNews`/`reqNewsArticle`):live 实测 **已订阅 8 个新闻源**——Dow Jones 全套(Global Equity Trader/Trader News/Top Stories 全球+亚太+欧洲/Newsletters)+ Briefing.com(General Market/Analyst Actions)。实测 TSLA 近 7 天拉到 10 条真实财经报道(Barron's/Dow Jones 分析),**按 conId 精确关联标的**(不用猜)。$0(已订阅,零增量成本)。
+    - **决策:只用 IB,不做双源**。GDELT 关联不准+限流紧,双源意味着两套关联逻辑+两套去重,复杂度翻倍换来的是更差的那一半;IB 已验证质量更好、关联精确、零成本。GDELT 降级为"以后如果 IB Gateway 常掉线才考虑的兜底",不在本次 MVP 范围。
+  - **实现骨架**:新采集器 `collect_news.py`,骨架照抄 `collect_reddit_trends.py`(`fetch → aggregate → persist_snapshot(JSONB metadata)`,同样接入 `ecosystem.config.cjs` 定时);标的关联走 IB `conId`(不复用 Reddit 那套 `extract_symbols` 字符串匹配,因为 IB 新闻自带精确关联,没有这个问题);新表存 `provider_code`/`article_id`(为以后 `reqNewsArticle` 取全文留字段);`GET /api/news/:symbol` + Analyze 新区块。
+  - **待摸清(开工前)**:IB 历史新闻能回溯多久;批量拉 292 个标的会不会触发 IB 自己的限流(不同于 Polygon 的 `provider_rate_limits`,IB 走本地 Gateway,理论无公网限流但未实测批量场景)。
+  - **合规边界(不变)**:只做客观摘要+来源链接,不做"AI 荐股"式文案、不包装成买卖信号、不编造无来源支撑的解读。
 - [ ] **R3.3 主题聚类(newshock 式)**:仅当 R3.2 验证用户参与度后再做。
 - [ ] **R4 打磨/商业化**:EN/ZH 双语(对标 alphastockpro,吃第二个市场)、分享卡片、CSV 导出(Pro 权益)、Stripe 就绪后参考 $249-499/年与 credits 制定价锚。部分被外部密钥阻塞。
 
