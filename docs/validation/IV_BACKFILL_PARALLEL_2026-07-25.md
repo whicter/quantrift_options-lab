@@ -62,10 +62,42 @@ Per the `occ_ticker` lesson (same day), completion is verified by
 `computed`/`written` counts, not exit codes. Two distinct zero-cases exist and
 mean different things:
 
-- `days: 275, computed: 0` → **bug** (every request failed; this is how the
-  dotted-ticker `occ_ticker` defect hid).
 - `days: 0, computed: 0` → **legitimately no data** — the symbol has no
   underlying price history in the window (e.g. `ACAC`, a delisted SPAC).
+- `days > 0, computed: 0` → **suspicious, must be diagnosed** — this is the shape
+  the dotted-ticker `occ_ticker` defect produced. But it is *not* automatically a
+  bug: the same shape appears when a symbol has price history and simply has no
+  options to invert. Check the underlying's option-contract count before
+  concluding either way (this run: 6 such symbols, all legitimate — see below).
+
+## Final result (all 120 symbols, completed 2026-07-25 ~18:2x)
+
+Ran clean to completion: **3 workers, zero crashes, zero 429 kills** — the
+retry/backoff held. Wall clock ~2.7h (vs ~7.3h projected serial).
+
+| Outcome | Count | Meaning |
+|---|---:|---|
+| ✅ real IV history written | 105 | `computed > 0` |
+| ➖ `days: 0` | 9 | no underlying price history in the window |
+| ➖ `days > 0, computed: 0` | 6 | had prices but **no options to invert** |
+
+The 6 in the last row were the ones the verification discipline exists to catch —
+each was diagnosed against Polygon rather than assumed, and **all six are correct
+behavior, not the `occ_ticker`-style defect**:
+
+- `BATL`, `LINK`, `NOEM`, `MINE`, `SGP` — zero option contracts exist at all
+  (price history without an options chain ⇒ nothing to BS-invert).
+- `WR` — a **recycled ticker**: expired contracts only go back to 2018 (the old
+  Westar Energy, acquired that year), while today's WR is the newly listed Corgi
+  U.S. War Machine ETF whose only expiries are 2026-08/09. The backfill window
+  (2025-06 → 2026-07) falls in the gap between the two, so there is genuinely
+  nothing to price.
+
+Post-run `derive_volatility.run()` over all 292 watchlist symbols:
+`iv_rank_ready: 189`, 846 ATM rows, 191 HV rows.
+
+Final watchlist coverage: **207 at ≥250 days (IV Rank usable)**, 76 with partial
+history (young listings — expected), 9 with no IV data (no options / delisted).
 
 ## Files
 
