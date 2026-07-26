@@ -99,7 +99,69 @@ silently returns nothing rather than erroring. **Irrelevant to this MVP** (which
 only needs a rolling recent window, e.g. 24–48h), but worth knowing before any
 future "news archive" feature that wants years of history.
 
-## Implementation sketch (not yet built)
+## Post-implementation bug: `reqHistoricalNews` returns stale/inconsistent results (same day)
+
+Built `IBNewsProvider.fetch_recent_news()` on `reqHistoricalNews` per the sketch
+above. Live end-to-end test against 5 real liquid symbols (AAPL/TSLA/NVDA/MU/SPY,
+48h then 96h windows) returned **0 items for all 5, both times**. Diagnosed
+step by step:
+
+- Ruled out "weekend news drought" (96h window should reach back to a weekday
+  with confirmed real AAPL news from earlier raw dumps) — still 0.
+- Instrumented the exact production logic inline: `conid` resolved correctly
+  for all 5 symbols, `reqHistoricalNews` completed successfully (`hasMore`,
+  20 raw items/symbol) — but every single symbol's raw items were **all older
+  than the cutoff** after filtering. Not a per-symbol coincidence; systematic.
+- Printed raw timestamps: the newest AAPL article returned was
+  `2026-07-22 03:05:00.0` — several days stale relative to "now".
+- **Reproduced the same identical query minutes apart and got a different,
+  older "newest" article than an earlier query in the same session had
+  returned** (`2026-07-24 15:30:00.0` seen earlier vs `2026-07-22 03:05:00.0`
+  seen later, for what should be an equivalent AAPL/all-provider-codes query).
+- Ruled out `totalResults` as the cause: `limit=20` and `limit=300` on the
+  identical query, run back-to-back, agreed on the exact same "newest 3"
+  timestamps — only the "oldest" reached differed (as expected from a larger
+  page). So the missing recent articles were not a pagination-size artifact.
+
+**Root cause, confirmed via IB's own docs** (`https://interactivebrokers.github.io/tws-api/news.html`):
+`reqHistoricalNews` explicitly returns "a historical list of news stories that
+**are cached in the system**" — with zero documented SLA on cache refresh
+interval, consistency, or maximum staleness anywhere in IB's docs or the public
+`twsapi` groups.io archive. The live symptom (same query, minutes apart,
+regressing to an older "newest" result) is consistent with querying a cache
+that is not guaranteed to re-scan on every call, not with a code bug on our
+side (conId resolution, event handling, and timestamp parsing were all
+independently verified correct).
+
+**Fix: switched to the live news feed instead of the cached historical one.**
+IB exposes a second, distinct news mechanism: `reqMktData` with genericTick
+`292` (`mdoff,292`), delivered via the `tickNews` callback — a live push
+subscription, not a cache query. Live-tested against the same 5 symbols:
+newest AAPL headline was **49 minutes old** at check time (vs. multiple *days*
+stale from `reqHistoricalNews` on an identical symbol set minutes earlier).
+Rewrote `IBNewsProvider.fetch_recent_news()` to subscribe via `reqMktData` in
+batches (IB's market-data-line cap is 100/account by default; batch size 80
+with headroom), hold each batch open ~20s to catch the initial burst, then
+`cancelMktData` before the next batch. Confirmed end-to-end on the real
+production method (not just an ad-hoc script): 8 real items back for
+TSLA/AAPL out of 5 symbols in ~20s (single batch, well under the 80-symbol
+cap) — vs. 0 items in every prior attempt with `reqHistoricalNews`.
+
+**Side effect, worth revisiting**: batched live subscription is also far
+faster than the sequential `reqHistoricalNews` design this session had
+originally sized the hourly cadence around (~8.1s/symbol × 292 ≈ 39 minutes).
+A full 292-symbol sweep now needs only `ceil(292/80) ≈ 4` batches × ~20s ≈
+**~80 seconds total** — cadence could plausibly move from hourly to every
+5–10 minutes if desired. Left the schedule at hourly for now (not re-litigated
+in this pass); revisit if fresher-than-hourly news turns out to matter.
+
+**Lesson captured in `docs/learning.md`**: when a timestamp-scoped "give me
+recent X" query returns systematically stale or inconsistent results, check
+whether the API has two mechanisms — a cached/archival query vs. a live
+push/subscribe sibling — before assuming it's a code bug. Verified this
+against IB's own documentation wording, not just inferred from symptoms.
+
+## Implementation sketch (built; see Files below)
 
 - New collector `collect_news.py`, skeleton mirrors `collect_reddit_trends.py`
   (`fetch → aggregate → persist_snapshot` with JSONB metadata), wired into
@@ -121,4 +183,7 @@ source states.
 
 ## Files
 
-- (none yet — this is the pre-implementation source-selection record)
+- `collector/providers/ib_news_provider.py` — `IBNewsProvider.fetch_recent_news()`, live `reqMktData`+`tickNews` subscription (not `reqHistoricalNews`).
+- `collector/collect_news.py` — load universe, fetch, persist into `news_articles` (accumulating dedup table).
+- `server/src/migrate.js` — `news_articles` table + `news_articles_symbol_published` index.
+- `collector/tests/test_ib_news_provider.py`, `collector/tests/test_collect_news.py`.

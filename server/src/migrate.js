@@ -759,6 +759,26 @@ async function migrate() {
       ON candidate_ledger (expiry) WHERE outcome IS NULL;
     CREATE INDEX IF NOT EXISTS candidate_ledger_resolved_family
       ON candidate_ledger (strategy_family) WHERE outcome IS NOT NULL;
+
+    -- News ingestion (R3.2, 2026-07-26). Articles are FACTS (a specific
+    -- headline was published by a specific provider at a specific time), so
+    -- this is an accumulating table like price_history/iv_history, not a
+    -- rematerialized snapshot like scanner_results_snapshots -- there is no
+    -- per-run batch row. Dedup key (symbol, provider_code, article_id) makes
+    -- a repeated hourly sweep over an overlapping window idempotent.
+    CREATE TABLE IF NOT EXISTS news_articles (
+      id             BIGSERIAL   PRIMARY KEY,
+      symbol         TEXT        NOT NULL,
+      published_at   TIMESTAMPTZ NOT NULL,
+      provider_code  TEXT        NOT NULL,
+      article_id     TEXT        NOT NULL,
+      headline       TEXT        NOT NULL,
+      source         TEXT        NOT NULL DEFAULT 'ib_internal',
+      fetched_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (symbol, provider_code, article_id)
+    );
+    CREATE INDEX IF NOT EXISTS news_articles_symbol_published
+      ON news_articles (symbol, published_at DESC);
   `);
 
   console.log('Migrations complete.');
