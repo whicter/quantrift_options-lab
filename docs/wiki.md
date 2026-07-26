@@ -1247,6 +1247,8 @@ The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily sco
 
 **信任层 · `/ledger`「模型记录」（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准;多到期结构标 not_evaluable 不臆造。定位=模型验证非跟单,结果随候选到期积累。
 
+**新闻摄取 MVP（R3.2,2026-07-26）**:Analyze「近期消息」区块 + `GET /api/news/:symbol`。数据源只用 IB Gateway(live 实测对比 GDELT 后拍板,GDELT 429 限流紧且标的关联要靠字符串猜测,不准)。**关键教训**:一开始接的是 `reqHistoricalNews`,实测发现它读的是一个没有刷新 SLA 的服务端缓存,同一查询隔几分钟重跑"最新一条"会变旧——改用 `reqMktData`+genericTick 292(`tickNews`,实时推送)才拿到真正新鲜的新闻。采集节奏是每 5 分钟一次的 PM2 定时任务,不是常驻订阅——Mac/IB Gateway 本来就 7×24 开着,两种方案在"要不要开机"上没有区别,MVP 只验证参与度,展示型延迟几分钟无感。`volatilityAttribution` 的"消息面"归因有真实新闻时会引用具体 headline(仍是"仅参考、不构成因果"的措辞),没有则退回原来的隔夜跳空代理。**MVP 暂无文章链接**(`tickNews` 不带 URL,取全文/链接要等以后接 `reqNewsArticle`)。详见 `docs/validation/NEWS_SOURCE_SELECTION_2026-07-26.md`。
+
 Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 - 本周定调：last five actual daily bars and a transparent composite score;
 - Gamma 迁徙：one actual latest GEX/by-strike snapshot per New York market date;
