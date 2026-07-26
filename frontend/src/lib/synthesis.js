@@ -236,14 +236,19 @@ export function consistencyDetector({ trend, gammaRegime, ivChange, rvol, obvTre
 
 /**
  * C6 / Q2 — volatility attribution. Where did today's move come from? A fixed
- * sequence of measurable tests, each with an input and threshold. There is no
- * news source, so "消息面" can only be attributed as far as an overnight gap or
- * an earnings-calendar hit -- never a specific headline, and the copy says so.
+ * sequence of measurable tests, each with an input and threshold. When
+ * `recentHeadlines` (R3.2, real IB-sourced headlines) has an item, the gap
+ * decomposition clause names it instead of the generic overnight-gap proxy --
+ * still hedged (a real headline in the window, not a proven cause), never a
+ * causal/buy-sell claim. Without headlines, "消息面" falls back to the
+ * overnight-gap/earnings-calendar proxy as before.
  *
  * Inputs: `priceHistory` daily OHLC (>=2 bars), `iv30Pct` annualized ATM IV %,
- * `rvol`, `obvTrend`, `earnings.daysAway`, `localGamma`.
+ * `rvol`, `obvTrend`, `earnings.daysAway`, `localGamma`, `recentHeadlines`
+ * (optional, newest-first array of `{ headline, providerCode }`).
  */
-export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, earnings, localGamma } = {}) {
+export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, earnings, localGamma, recentHeadlines } = {}) {
+  const latestHeadline = Array.isArray(recentHeadlines) && recentHeadlines.length > 0 ? recentHeadlines[0] : null;
   const bars = Array.isArray(priceHistory) ? priceHistory.filter(b => num(b?.close) != null) : [];
   if (bars.length < 2) return { available: false, reason: '价格历史不足，无法归因波动来源。' };
 
@@ -304,7 +309,9 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
       gapShare = gap / (gap + range);
       if (gapShare > 0.6) {
         if (!primary) primary = 'overnight';
-        clauses.push(`盘中波动 ${Math.round(gapShare * 100)}% 来自隔夜跳空，隔夜信息（消息面/外盘）主导`);
+        clauses.push(latestHeadline
+          ? `盘中波动 ${Math.round(gapShare * 100)}% 来自隔夜跳空，近期相关消息：《${latestHeadline.headline}》（${latestHeadline.providerCode}）`
+          : `盘中波动 ${Math.round(gapShare * 100)}% 来自隔夜跳空，隔夜信息（消息面/外盘）主导`);
       } else if (gapShare < 0.3) {
         if (!primary) primary = 'intraday';
         clauses.push('波动主要发生在盘中，更偏结构/资金驱动而非隔夜消息');
@@ -345,7 +352,9 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
     primary: primary || 'unclear',
     clauses,
     text: `${magnitudeClause}。${body}。`,
-    note: '模型归因，基于公开数据；无新闻源，"消息面"仅指隔夜跳空或事件日历，不指向具体新闻。',
+    note: latestHeadline
+      ? '模型归因，基于公开数据；"消息面"引用的是近期采集到的真实新闻标题（来源可查），仅作参考，不构成因果证明，不构成买卖建议。'
+      : '模型归因，基于公开数据；无新闻源，"消息面"仅指隔夜跳空或事件日历，不指向具体新闻。',
   };
 }
 
@@ -513,6 +522,7 @@ export function buildSynthesis(data = {}) {
     obvTrend: data.obv?.trend,
     earnings: data.earnings,
     localGamma: data.localGamma,
+    recentHeadlines: data.recentNews?.items,
   });
   const unusualTop = Array.isArray(data.unusualActivity) && data.unusualActivity.length
     ? data.unusualActivity[0]

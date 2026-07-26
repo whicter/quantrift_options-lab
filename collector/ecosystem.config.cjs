@@ -105,6 +105,23 @@ module.exports = {
       },
     },
     {
+      name: 'quantrift-news',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_news.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      // Live reqMktData+tickNews subscription, batched under IB's 100-line
+      // market-data cap (batch_size=80) -- a full universe sweep costs ~80s,
+      // comfortably inside this window with no overlap risk. See
+      // docs/validation/NEWS_SOURCE_SELECTION_2026-07-26.md for why this is a
+      // cron, not a persistent process, for the MVP.
+      cron_restart: '*/5 * * * *',
+      env: {
+        NEWS_INGESTION_ENABLED: 'true',
+        NEWS_WINDOW_HOURS: '6',
+      },
+    },
+    {
       name: 'quantrift-universe-metadata',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_universe_metadata.py',

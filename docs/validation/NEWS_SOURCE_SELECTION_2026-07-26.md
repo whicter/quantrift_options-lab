@@ -175,6 +175,66 @@ against IB's own documentation wording, not just inferred from symptoms.
 - Upgrades `synthesis.js::volatilityAttribution`'s "消息面" clause from
   overnight-gap granularity to a real headline when one exists for the day.
 
+## Cadence decision: scheduled cron, not a persistent process (same day)
+
+Considered upgrading to a persistent PM2 process (continuous `reqMktData`
+subscription, true real-time push) instead of a periodic cron run, now that a
+full sweep costs ~80s instead of the originally-projected ~39 minutes. Decided
+against it for the MVP:
+
+- **The Mac/IB Gateway dependency is identical either way.** IB Gateway only
+  runs locally (project rule: never expose 4001/4002 publicly), and the Mac
+  Studio host is already running 7×24 regardless (`quantrift-options-collector`
+  multi-day uptime, `ib-market-data-fetcher` 36h+, several `ib-bot-*` processes
+  20h+ at last check). Choosing cron vs. persistent does not change whether the
+  machine needs to stay on.
+- **The MVP's own goal is engagement validation, not real-time delivery.** A
+  few minutes of staleness on a display-only "recent headlines" panel is
+  invisible to a user; the value of second-level freshness only shows up for
+  push/alerting features, which are out of scope for this MVP.
+- **A persistent-process precedent already exists** (`quantrift-unusual-whales-flow`,
+  continuous WebSocket ingestion, 9+ days stable uptime at 4.7MB) — so the
+  upgrade path is proven and low-risk to take later; not deferring due to
+  technical risk, purely to avoid over-building before validating engagement.
+
+**Decision: scheduled cron, every 5 minutes** (`cron_restart: '*/5 * * * *'`,
+`autorestart: false`, same PM2 shape as `collect_reddit_trends.py`'s `*/30 * * * *`).
+A full-universe sweep (~80s at batch size 80) comfortably fits inside a 5-minute
+window with no overlap risk.
+
+## End-to-end MVP verification (same day)
+
+Built and verified the remaining MVP pieces: `GET /api/news/:symbol`
+(`server/src/routes/news.js`), the Analyze Tab3 "近期消息" card
+(`az-news-*` in `Tab3Options.jsx`/`index.css`), `applyNews` (`frontend/src/lib/news.js`,
+dedupes IB's multi-provider-variant broadcasts of the same real story by
+headline text before display), and `volatilityAttribution` (`frontend/src/lib/synthesis.js`)
+accepting `recentHeadlines` to name a real headline instead of the generic
+overnight-gap proxy when one exists.
+
+**Automated checks**: server 225/225, frontend 95/95 + lint + build + check:dist,
+collector 284/284 — all clean.
+
+**Live run against the real production universe** (300 symbols, `collect_news.py`
+executed directly, not through the cron): `{'status': 'written', 'universe': 300,
+'fetched': 49, 'written': 49, 'symbols_with_news': 12}`. Confirmed real rows in
+`news_articles` (e.g. `GOOGL 2026-07-26 19:54 DJ-N "Dow Jones Futures: U.S., Iran
+Seek Deal; Apple Leads Earnings Wave, Fed Meeting Ahead -- IBD"`). Started the
+server and confirmed `GET /api/news/AAPL?limit=5` returns real headlines with
+correct shape end-to-end (symbol, window_hours, count, latest_published_at,
+items).
+
+**Not verified**: browser automation was unavailable this session (permission
+denied), so the Analyze page's new card was never visually confirmed rendering
+in a live browser — only its data plumbing (reducer unit tests, API contract,
+build output) was checked. A visual pass is still owed before calling the
+frontend side fully done.
+
+**Known MVP gap, by design**: no article link. `tickNews` supplies
+headline/provider/article ID only, not a URL; a real link needs `reqNewsArticle`
+(deferred to v2 — `provider_code`/`article_id` are already persisted so that
+addition needs no schema change).
+
 ## Compliance boundary (unchanged)
 
 Objective headlines + source attribution only. No "AI stock-picking" copy, no
@@ -185,5 +245,12 @@ source states.
 
 - `collector/providers/ib_news_provider.py` — `IBNewsProvider.fetch_recent_news()`, live `reqMktData`+`tickNews` subscription (not `reqHistoricalNews`).
 - `collector/collect_news.py` — load universe, fetch, persist into `news_articles` (accumulating dedup table).
+- `collector/ecosystem.config.cjs` — `quantrift-news` PM2 app, `cron_restart: '*/5 * * * *'`.
 - `server/src/migrate.js` — `news_articles` table + `news_articles_symbol_published` index.
-- `collector/tests/test_ib_news_provider.py`, `collector/tests/test_collect_news.py`.
+- `server/src/routes/news.js` + registration in `server/src/index.js` — `GET /api/news/:symbol`.
+- `frontend/src/lib/api.js` — `getNews()`.
+- `frontend/src/lib/news.js` — `applyNews` reducer + `providerLabel` display map.
+- `frontend/src/pages/Analyze.jsx` — wired `getNews`/`applyNews` into the fetch-and-assemble flow.
+- `frontend/src/pages/analyze/Tab3Options.jsx` + `frontend/src/index.css` (`az-news-*`) — "近期消息" card.
+- `frontend/src/lib/synthesis.js` — `volatilityAttribution` accepts `recentHeadlines`.
+- `collector/tests/test_ib_news_provider.py`, `collector/tests/test_collect_news.py`, `server/test/newsRoute.test.js`, `frontend/src/lib/synthesis.test.js` (2 new cases).

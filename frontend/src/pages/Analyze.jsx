@@ -1,10 +1,11 @@
 import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getAnalyzeCandidate, getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getPrices, getSupportResistance, getTechnicalLevels, getUnusual, getVolumeProfile } from '../lib/api';
+import { getAnalyzeCandidate, getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getNews, getPrices, getSupportResistance, getTechnicalLevels, getUnusual, getVolumeProfile } from '../lib/api';
 import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
 import { toAnalyzeRecommendation } from '../lib/analyzeRecommendation';
 import { applyExternalFlow } from '../lib/externalFlow';
+import { applyNews } from '../lib/news';
 import { normalizeTickerInput, sanitizeTickerForSubmit } from '../lib/symbolInput';
 import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
@@ -455,7 +456,7 @@ export default function Analyze() {
     setTechnicalError('');
 
     try {
-      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, volumeProfile, candidateResponse, technicalResult] = await Promise.all([
+      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, newsData, volumeProfile, candidateResponse, technicalResult] = await Promise.all([
         getAnalyzeStatus(sym).catch(() => null),
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
@@ -465,6 +466,7 @@ export default function Analyze() {
         getSupportResistance(sym).catch(() => null),
         getChainStats(sym).catch(() => null),
         getExternalFlow(sym, 30).catch(() => null),
+        getNews(sym, 20).catch(() => null),
         getVolumeProfile(sym).catch(() => null),
         getAnalyzeCandidate(sym).catch(() => null),
         getTechnicalLevels(sym)
@@ -479,14 +481,14 @@ export default function Analyze() {
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats, volumeProfile), flowData), onDemandStatus });
+          setResult({ ...applyNews(applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats, volumeProfile), flowData), newsData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
         }
         const priceHistory = normalizePriceHistory(priceData);
         if (priceHistory.length > 0) {
-          setResult({ ...applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats, volumeProfile), flowData), onDemandStatus });
+          setResult({ ...applyNews(applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildPriceOnlyAnalysis(sym, priceData), unusualData), supportResistance, chainStats, volumeProfile), flowData), newsData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: 1 }, { replace: true });
           setError('');
         } else {
@@ -502,12 +504,12 @@ export default function Analyze() {
         trend: deriveTrendFromPriceHistory(withPrice.priceHistory, withPrice.trend),
       }, gexData), unusualData);
       const candidateState = toAnalyzeRecommendation(candidateResponse);
-      const data = applyExternalFlow(applyDerivedAnalysis({
+      const data = applyNews(applyExternalFlow(applyDerivedAnalysis({
         ...dataWithSignals,
         recommendation: candidateState.recommendation,
         recommendationUnavailableReason: candidateState.unavailableReason,
         onDemandStatus,
-      }, supportResistance, chainStats, volumeProfile), flowData);
+      }, supportResistance, chainStats, volumeProfile), flowData), newsData);
       setResult(data);
       syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
     } catch {

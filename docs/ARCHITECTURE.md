@@ -2068,3 +2068,51 @@ evidence without claiming the G5 model version. The route uses the current `live
 entitlement and the frontend uses the shared authenticated API helper. Current-main server,
 collector, frontend, lint and build verification pass. Production acceptance remains Railway API
 first, followed by the Vercel panel and SPY UI smoke.
+
+## 47. News Ingestion (R3.2)
+
+```text
+IB Gateway reqMktData + genericTick 292 (tickNews, live push)
+  |
+  v
+collect_news.py (batched subscribe: batch_size=80 under the 100 market-data-line
+                  cap, listen_seconds=20 per batch, then cancelMktData)
+  |
+  +--> news_articles (accumulating fact log, UNIQUE(symbol, provider_code, article_id))
+  |
+  v
+GET /api/news/:symbol --> Analyze Tab3 "近期消息" + synthesis.js volatilityAttribution
+```
+
+This deliberately does not use `reqHistoricalNews`. That call reads from an IB-side
+cache with no documented refresh SLA (IB's own docs: "a historical list of news
+stories that are cached in the system") and was observed live returning a
+several-days-stale "newest" article, inconsistently, across identical back-to-back
+queries — see `docs/validation/NEWS_SOURCE_SELECTION_2026-07-26.md` for the full
+diagnosis. `reqMktData`+`tickNews` is a live push subscription instead: each batch
+of symbols is held open just long enough (`listen_seconds`) to catch the initial
+burst IB delivers on subscribe, then cancelled before the next batch. A full
+292-symbol sweep costs ~80 seconds (4 batches), run every 5 minutes via PM2
+`cron_restart` (`quantrift-news` in `ecosystem.config.cjs`) rather than as a
+persistent process — the MVP only needs display-freshness, not push/alerting, and
+the Mac/IB Gateway host already runs continuously regardless of which model is
+chosen. `quantrift-unusual-whales-flow` is the existing persistent-process
+precedent if a future feature needs second-level freshness.
+
+`news_articles` is an accumulating fact table (like `price_history`/`iv_history`),
+not a per-run snapshot batch (unlike `community_trend_snapshots`): a headline is a
+fact that was published once, so repeated overlapping-window sweeps must dedupe,
+never duplicate. `GET /api/news/:symbol` treats an empty result as a normal quiet
+state, not staleness — this is an append-only log, not a per-symbol snapshot
+product, so it carries no `freshness`/`is_stale` gating unlike `/api/unusual` or
+`/api/flow`. The frontend dedupes by headline text before display, since IB
+broadcasts the same real story through multiple provider-code variants (e.g.
+`DJ-N`/`DJ-RT`/`DJ-RTG`) with identical headline text — all rows are kept in
+storage (each is a distinct provider-attributed fact) but shown once.
+
+There is no article URL in this MVP: `tickNews` supplies headline/provider/article
+ID only, not a link. `article_id`/`provider_code` are persisted specifically so a
+future `reqNewsArticle` full-text/link fetch needs no schema change; that is out
+of scope for R3.2. Live verification (2026-07-26): a full-universe run against the
+production 300-symbol watchlist wrote 49 real headlines across 12 symbols; `GET
+/api/news/AAPL` served them correctly (dedup and window filtering both verified).

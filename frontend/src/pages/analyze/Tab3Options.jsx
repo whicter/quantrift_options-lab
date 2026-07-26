@@ -3,6 +3,7 @@ import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
 import { compactMoney } from '../../lib/scannerPresentation';
 import { gexEnvironmentConclusion, pcrConclusion, expectedMoveConclusion, termStructureConclusion } from '../../lib/synthesis';
+import { providerLabel } from '../../lib/news';
 
 function GEXChart({ gexByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -114,7 +115,7 @@ function money(value) {
 }
 
 export default function Tab3Options({ data }) {
-  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, ivRank, localGamma, gammaFlip, unusualActivity, unusualMeta, externalFlow, conclusion, chainStats } = data;
+  const { gexByStrike, gexTotal, putWall, callWall, pcr, pcrVol, price, iv30, ivRank, localGamma, gammaFlip, unusualActivity, unusualMeta, externalFlow, recentNews, conclusion, chainStats } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = compactMoney(gexTotal);
 
@@ -269,6 +270,29 @@ export default function Tab3Options({ data }) {
             </div>
           </>
         ) : <div className="az-empty-copy">外部事件流尚未形成可用的数据快照，不展示推断值。</div>}
+      </div>
+
+      {/* Recent news (R3.2) */}
+      <div className="az-card">
+        <div className="az-card-title">近期消息</div>
+        {recentNews?.latestPublishedAt && (
+          <div className="az-news-meta">
+            最新 {String(recentNews.latestPublishedAt).slice(0, 16).replace('T', ' ')}
+          </div>
+        )}
+        {recentNews && recentNews.items.length > 0 ? (
+          <div className="az-news-list">
+            {recentNews.items.map(item => (
+              <div className="az-news-row" key={item.articleId}>
+                <span className="az-news-source">{providerLabel(item.providerCode)}</span>
+                <span className="az-news-headline">{item.headline}</span>
+                <span className="az-news-time">{String(item.publishedAt).slice(0, 16).replace('T', ' ')}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="az-empty-copy">过去 {recentNews?.windowHours || 48} 小时该标的没有采集到新闻标题，或新闻功能尚未启用。</div>
+        )}
       </div>
 
       {/* Conclusion */}
