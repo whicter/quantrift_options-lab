@@ -10,16 +10,37 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+// How many top-ranked candidates per symbol enter the ledger. The ledger's
+// purpose is to score what the product actually put in front of a user, so it
+// must track recommendations -- not the enumeration they were chosen from.
+const LEDGER_CAPTURE_TOP_N_PER_SYMBOL = Math.max(
+  parseInt(process.env.LEDGER_CAPTURE_TOP_N_PER_SYMBOL ?? 3, 10) || 3, 1,
+);
+
 /**
- * Capture each candidate of a completed batch into the durable ledger, once
- * (first-seen = entry). entry_cash is credit-positive / debit-negative; POP is
- * dropped when the engine marked it unavailable (a placeholder, not a real
- * probability). Existing (candidate_key, expiry) rows are left untouched so the
- * entry price is fixed at first sighting.
+ * Capture the top-ranked candidates of a completed batch into the durable
+ * ledger, once (first-seen = entry). entry_cash is credit-positive /
+ * debit-negative; POP is dropped when the engine marked it unavailable (a
+ * placeholder, not a real probability). Existing (candidate_key, expiry) rows
+ * are left untouched so the entry price is fixed at first sighting.
+ *
+ * Only the top N per symbol are captured. Until 2026-07-30 this captured the
+ * ENTIRE batch -- ~11,000 rows per run, the full strike/expiry enumeration the
+ * engine ranks internally, not the handful a user is ever shown. That made the
+ * ledger useless for its one job: 23,430 rows accumulated in under a week, of
+ * which 64% were Diagonal/Calendar permutations that are multi-expiry and
+ * therefore structurally `not_evaluable`, which is why 98.7% of resolved rows
+ * could never be scored. Ranking is already computed and stored by
+ * buildCandidateBatch, so this is a filter, not a new judgement.
  */
 async function captureLedger(db, batchId) {
   const { rowCount } = await db.query(
-    `INSERT INTO candidate_ledger
+    `WITH ranked AS (
+       SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.symbol ORDER BY s.rank ASC) AS symbol_rank
+       FROM scanner_candidate_snapshots s
+       WHERE s.batch_id = $1 AND s.expiry IS NOT NULL
+     )
+     INSERT INTO candidate_ledger
        (candidate_key, symbol, strategy, strategy_family, expiry, entry_date,
         entry_spot, entry_cash, max_loss, pop, single_expiry, legs_json, algorithm_version)
      SELECT s.candidate_key, s.symbol, s.strategy, s.strategy_family, s.expiry,
@@ -32,11 +53,11 @@ async function captureLedger(db, batchId) {
             (SELECT COUNT(DISTINCT l->>'expiry') = 1 FROM jsonb_array_elements(s.legs_json) l),
             s.legs_json,
             b.algorithm_version
-     FROM scanner_candidate_snapshots s
-     JOIN scanner_candidate_batches b ON b.id = s.batch_id
-     WHERE s.batch_id = $1 AND s.expiry IS NOT NULL
+     FROM ranked s
+     JOIN scanner_candidate_batches b ON b.id = $1
+     WHERE s.symbol_rank <= $2
      ON CONFLICT (candidate_key, expiry) DO NOTHING`,
-    [batchId],
+    [batchId, LEDGER_CAPTURE_TOP_N_PER_SYMBOL],
   );
   return rowCount;
 }

@@ -1,0 +1,49 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+
+const dbPath = require.resolve('../src/db');
+const routePath = require.resolve('../src/routes/ledger');
+require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { async query() { return { rows: [] }; } } };
+delete require.cache[routePath];
+const { captureLedger } = require(routePath);
+
+function recordingDb() {
+  const calls = [];
+  return {
+    calls,
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rowCount: 0, rows: [] };
+    },
+  };
+}
+
+test('capture is limited to the top N candidates per symbol, not the whole batch', async () => {
+  // Regression for the defect that made the ledger unusable (2026-07-30): this
+  // used to insert every row of the batch -- ~11,000 enumerated strike/expiry
+  // permutations per run -- so 23,430 rows accumulated in under a week and 64%
+  // of them were multi-expiry Diagonal/Calendar structures that can never be
+  // scored. The ledger must record what was recommended, not what was ranked.
+  const db = recordingDb();
+  await captureLedger(db, 2056);
+
+  const { sql, params } = db.calls[0];
+  assert.match(sql, /ROW_NUMBER\(\) OVER \(PARTITION BY s\.symbol ORDER BY s\.rank ASC\)/);
+  assert.match(sql, /WHERE s\.symbol_rank <= \$2/);
+  assert.equal(params[0], 2056);
+  assert.ok(params[1] >= 1, 'a positive per-symbol cap must be passed');
+});
+
+test('first-seen entry pricing is still preserved on repeat capture', async () => {
+  // The entry price must stay fixed at first sighting, so a candidate already
+  // in the ledger is never rewritten by a later batch.
+  const db = recordingDb();
+  await captureLedger(db, 2056);
+  assert.match(db.calls[0].sql, /ON CONFLICT \(candidate_key, expiry\) DO NOTHING/);
+});
+
+test('candidates without an expiry are still excluded', async () => {
+  const db = recordingDb();
+  await captureLedger(db, 2056);
+  assert.match(db.calls[0].sql, /s\.expiry IS NOT NULL/);
+});
