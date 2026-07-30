@@ -122,6 +122,23 @@ module.exports = {
       },
     },
     {
+      name: 'quantrift-backup-facts',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'backup_facts.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      // Daily at 02:15 PT, well clear of the 13:35/18:35 price runs. Dumps only
+      // the irreplaceable fact tables (~9MB gzipped), not the ~97% of the
+      // database that is regenerable snapshot churn. Added after the 2026-07-30
+      // volume-full outage, which showed this database can die outright and
+      // that Railway's own backups sit in the same account (single point of
+      // failure) -- see docs/validation/DB_VOLUME_FULL_OUTAGE_2026-07-30.md.
+      cron_restart: '15 2 * * *',
+      env: {
+        FACT_BACKUP_KEEP: '14',
+      },
+    },
+    {
       name: 'quantrift-universe-metadata',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_universe_metadata.py',
