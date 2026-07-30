@@ -131,24 +131,79 @@ pruned on a retention window — worthless hours later, and 97% of the volume.
   at 1 TB the same bug runs to ~$150/month before anything stops it. Volumes
   grow on demand but generally cannot shrink.
 
-## Still open (pre-existing, surfaced by reading the recovery logs)
+## Pre-existing defects found by reading the recovery logs (all fixed 2026-07-30)
 
-These are **not** outage damage — they were failing before the crash too:
+These were **not** outage damage — they were failing before the crash too. The
+outage just made someone read the logs.
 
-1. **`BRK` is an invalid ticker in `symbol_universe`.** Berkshire trades as
-   `BRK.A`/`BRK.B`; the bare `BRK` yields `Polygon prev agg returned no results
-   for BRK` on every refresh. Note this is distinct from the `occ_ticker`
-   dotted-symbol bug — the symbol here is simply wrong, not mis-encoded.
-2. **Duplicate-key crash on GME option contracts**:
-   `duplicate key value violates unique constraint
-   option_contract_snapshots_snapshot_id_expiry_strike_option__key`, key
-   `(19393, 2026-10-16, 20.0000, C)`. The provider returned the same contract
-   twice inside one chain and persistence does not dedupe.
-3. **Dead/obscure tickers burning retries** (`KPK`, `LSL`, `LTV`, `TITI`), plus
-   two zombie jobs stuck `running` since 2026-07-26.
-4. **Railway volume alerts were enabled but did not warn in time** — the volume
-   filled and the site was down for over a day before it was noticed. Thresholds
-   should be set to 70% / 85%.
+**1. Duplicate-key crash destroyed whole snapshots.** GME hit
+`duplicate key value violates unique constraint
+option_contract_snapshots_snapshot_id_expiry_strike_option__key`, key
+`(19393, 2026-10-16, 20.0000, C)` — the provider returned the same contract
+twice inside one chain. Because the whole chain is written in **one
+`execute_values` call**, a single duplicated row aborted the entire symbol's
+snapshot: every contract lost, not just the repeated one. `collect_options.py::persist_snapshot`
+now dedupes on the table's own unique key `(expiry, strike, right)`, keeps the
+first occurrence, and **logs a warning with the drop count** so a provider that
+starts duplicating heavily stays visible rather than being silently trimmed.
+Covered by `tests/test_persist_snapshot_dedupe.py` (3 cases, including that a
+same-strike put and a same-strike different-expiry call are *not* duplicates).
+
+**2. Five invalid tickers, verified live before touching anything.** All were
+checked against both Polygon reference and options-contracts endpoints rather
+than inferred from a single job error:
+
+| symbol | reference | option contracts | action |
+|---|---|---|---|
+| `BRK` | **404** | 0 | disabled — not a tradable ticker |
+| `BRK.A` | 200 | **0** | left alone (not in the universe) |
+| `BRK.B` | 200 | 1+ | **kept enabled** — the correct Berkshire line, already in `watchlist.txt` |
+| `KPK` / `LSL` / `LTV` / `TITI` | **404** | 0 | disabled — delisted/nonexistent |
+
+`BRK` was never in `watchlist.txt`: `sync_universe.py` adopted it because it had
+appeared in a history table, and that script **only ever adds/activates**, so it
+could never leave on its own and had to be disabled explicitly. This is distinct
+from the `occ_ticker` dotted-symbol bug — that symbol was mis-encoded, this one
+is simply wrong. `KPK`/`LSL`/`LTV`/`TITI` were removed from `watchlist.txt`
+*and* disabled in `symbol_universe`, since removal from the seed file alone does
+not stop scanning. Scan-enabled universe: 303 → **296**.
+
+**3. Two zombie jobs** stranded in `running` since 2026-07-26 (TITI, BABA) were
+reclaimed as `failed` with an explicit reason.
+
+## Still open (needs the Railway UI, cannot be done from code)
+
+**Volume alert thresholds.** Alerts were *enabled* but did not warn in time —
+the volume filled and the site was down for over a day before anyone noticed.
+Thresholds should be set to **70% / 85%**. With 50 GB provisioned this should
+never fire, which is exactly the point.
+
+## Note on `tickNews` delivery being intermittent
+
+While verifying the R3.2 news collector after the reload, repeated subscriptions
+returned **inconsistent** results: identical calls minutes apart returned 10
+headlines, then 0, then 5. A reqId-range hypothesis was tested and **disproved**
+— subscribing the same symbol at reqId `0` and reqId `4000` on one connection
+returned 5 headlines each, so low reqIds are not the cause. The delivery of the
+seed burst is simply not guaranteed per subscription.
+
+This is **tolerable by design and does not need a fix**: `news_articles` is an
+accumulating table deduped on `(symbol, provider_code, article_id)`, and the
+collector runs every 5 minutes, so a run that receives nothing costs nothing and
+the next run picks the headlines up. A live end-to-end run confirmed it working:
+`{'universe': 296, 'fetched': 11, 'written': 1, 'symbols_with_news': 3}` — 11
+headlines received, 10 already known, 1 genuinely new. Worth remembering that
+neither IB news path (`reqHistoricalNews` cache, `tickNews` push) offers a
+delivery guarantee; the accumulating-dedupe design is what makes either usable.
+
+## PM2 note
+
+`quantrift-news` and `quantrift-backup-facts` existed only in
+`ecosystem.config.cjs` and had **never run** — the config was edited but
+`pm2 reload` was never issued. Both are now started, and `pm2 save` was run so
+the LaunchAgent's `pm2 resurrect` restores all seven Quantrift apps rather than
+the previously saved five. Editing `ecosystem.config.cjs` alone changes nothing
+at runtime.
 
 ## Verification
 
@@ -156,4 +211,4 @@ These are **not** outage damage — they were failing before the crash too:
   `/api/market/state-matrix` 200 (2.06 s), `/api/news/AAPL` 200 (1.20 s),
   `/api/scan` 200 (**1.04 s**, down from 27.34 s).
 - Collector resumed writing option snapshots (first post-recovery write: `IHI`).
-- Frontend: lint + 95/95 tests + build + `check:dist` clean.
+- Collector suite 287/287; frontend lint + 95/95 + build + `check:dist` clean.

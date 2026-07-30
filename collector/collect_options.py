@@ -161,6 +161,27 @@ def persist_snapshot(conn, snapshot) -> int:
             'bid_size', 'ask_size', 'contract_symbol', 'local_symbol',
             'con_id', 'provider_contract_id', 'raw_contract',
         ]
+        # Providers occasionally return the same contract twice inside one chain
+        # (observed 2026-07-30: GME, key (2026-10-16, 20.0000, C)). That violates
+        # option_contract_snapshots_snapshot_id_expiry_strike_option__key, and
+        # because the whole chain is one execute_values call, a single duplicate
+        # used to abort the entire symbol's snapshot -- losing every contract,
+        # not just the repeated one. Dedupe on the table's own unique key,
+        # keeping the first occurrence, and log any drop so a provider that
+        # starts duplicating heavily is visible instead of silently trimmed.
+        seen_keys = set()
+        deduped = []
+        for contract in snapshot.contracts:
+            key = (contract.expiry, contract.strike, contract.right)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append(contract)
+        dropped = len(snapshot.contracts) - len(deduped)
+        if dropped:
+            log.warning('%s: dropped %s duplicate contract row(s) from provider chain',
+                        snapshot.symbol, dropped)
+
         values = [
             (
                 snapshot_id,
@@ -188,7 +209,7 @@ def persist_snapshot(conn, snapshot) -> int:
                 contract.provider_contract_id,
                 json_payload(contract.raw),
             )
-            for contract in snapshot.contracts
+            for contract in deduped
         ]
         with conn.cursor() as cur:
             execute_values(
