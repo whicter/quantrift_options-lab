@@ -223,6 +223,21 @@ function selectionRules(overrides = {}) {
   const dteMax = num(overrides.dteMax) ?? 90;
   const deltaMin = num(overrides.deltaMin) ?? 0.05;
   const deltaMax = num(overrides.deltaMax) ?? 0.50;
+  // Long-premium single legs get their own delta band. The 0.05-0.50 default
+  // above is a premium-SELLER convention (selling a ~0.20 delta option is
+  // standard practice), and delta approximates the risk-neutral probability of
+  // finishing in the money -- so applying that same band to a BUYER restricts
+  // it to strikes with <=50% chance of finishing ITM, then charges it a premium
+  // on top. That is the mechanical reason every Long Call / Long Put candidate
+  // came out around 30% POP regardless of the symbol or the market.
+  //
+  // 0.35-0.75 with a 0.55 target: at 0.55 the option starts marginally ITM, so
+  // probability and leverage are both meaningful. Above ~0.75 it behaves like
+  // the underlying (high capital, little convexity); below ~0.35 it is a
+  // lottery ticket, which is the regime the old band forced. An explicit user
+  // delta filter still wins -- this only supplies the default.
+  const longDeltaMin = unrestricted ? 0.35 : deltaMin;
+  const longDeltaMax = unrestricted ? 0.75 : deltaMax;
   return {
     dteMin,
     dteMax,
@@ -230,6 +245,9 @@ function selectionRules(overrides = {}) {
     deltaMin,
     deltaMax,
     targetDelta: unrestricted ? 0.20 : (deltaMin + deltaMax) / 2,
+    longDeltaMin,
+    longDeltaMax,
+    targetLongDelta: unrestricted ? 0.55 : (longDeltaMin + longDeltaMax) / 2,
     maxSpreadPct: num(overrides.maxSpreadPct) ?? 25,
     minContractOi: num(overrides.minContractOi) ?? 10,
     minContractVolume: num(overrides.minContractVolume) ?? 0,
@@ -237,9 +255,12 @@ function selectionRules(overrides = {}) {
   };
 }
 
-function contractEligible(contract, rules, { requireDelta = true } = {}) {
+function contractEligible(contract, rules, { requireDelta = true, longPremium = false } = {}) {
   const spread = spreadPct(contract);
   const absDelta = contract.delta == null ? null : Math.abs(contract.delta);
+  // Buyers are judged against the long-premium band (see selectionRules).
+  const deltaFloor = longPremium ? rules.longDeltaMin : rules.deltaMin;
+  const deltaCeiling = longPremium ? rules.longDeltaMax : rules.deltaMax;
   return (
     contract.dte >= rules.dteMin
     && contract.dte <= rules.dteMax
@@ -249,17 +270,24 @@ function contractEligible(contract, rules, { requireDelta = true } = {}) {
     && contract.volume >= rules.minContractVolume
     && (!requireDelta || (
       absDelta != null
-      && absDelta >= rules.deltaMin
-      && absDelta <= rules.deltaMax
+      && absDelta >= deltaFloor
+      && absDelta <= deltaCeiling
     ))
   );
 }
 
 function scoreCandidate(candidate, rules) {
   const dteFit = Math.max(0, 25 - Math.abs(candidate.dte - rules.targetDte) * 0.9);
-  const deltaFit = candidate.shortDelta == null
-    ? 12
-    : Math.max(0, 25 - Math.abs(candidate.shortDelta - rules.targetDelta) * 120);
+  // Long-premium candidates used to take a flat 12 here because they have no
+  // shortDelta, so buyer ranking was decided purely by DTE fit, spread, OI and
+  // volume -- i.e. by how easy the contract is to trade, with the probability
+  // of the trade working out contributing nothing at all. They now score
+  // against their own delta target on the same scale as sellers.
+  const deltaFit = candidate.shortDelta != null
+    ? Math.max(0, 25 - Math.abs(candidate.shortDelta - rules.targetDelta) * 120)
+    : candidate.longDelta != null
+      ? Math.max(0, 25 - Math.abs(candidate.longDelta - rules.targetLongDelta) * 120)
+      : 12;
   const spreadFit = Math.max(0, 20 * (1 - candidate.avgSpreadPct / Math.max(rules.maxSpreadPct, 1)));
   const oiFit = Math.min(15, Math.log10(candidate.minOpenInterest + 1) * 4);
   const volumeFit = Math.min(5, Math.log10(candidate.totalVolume + 1) * 1.5);
@@ -549,8 +577,16 @@ function allSingleLegSetups(strategy, contracts, spot, rules) {
   if (isShort && !rules.allowUndefinedRisk) return [];
 
   return contracts
-    .filter(contract => contract.right === right && contractEligible(contract, rules))
-    .filter(contract => (right === 'C' ? contract.strike >= spot : contract.strike <= spot))
+    .filter(contract => contract.right === right && contractEligible(contract, rules, { longPremium: !isShort }))
+    // OTM-only is correct for the SHORT side (a seller wants the strike out of
+    // the money), but it was also excluding every in-the-money strike for the
+    // BUY side -- removing exactly the high-probability half of a buyer's
+    // choices. Buyers are now bounded by the long delta band instead, which is
+    // the meaningful constraint; the band's own ceiling keeps them out of the
+    // deep-ITM region where the option is just an expensive stock proxy.
+    .filter(contract => (isShort
+      ? (right === 'C' ? contract.strike >= spot : contract.strike <= spot)
+      : true))
     .map(contract => {
       const premium = isShort ? contract.bid : contract.ask;
       if (premium <= 0) return null;
@@ -570,6 +606,7 @@ function allSingleLegSetups(strategy, contracts, spot, rules) {
         returnOnRisk,
         breakevens: [right === 'C' ? contract.strike + premium : contract.strike - premium],
         shortDelta: isShort ? Math.abs(contract.delta) : null,
+        longDelta: isShort || contract.delta == null ? null : Math.abs(contract.delta),
         riskType: isShort ? 'advanced' : 'defined',
         ...candidateQuality([contract]),
         legs: [{ action: isShort ? 'SELL' : 'BUY', ...contract }],

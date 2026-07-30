@@ -88,8 +88,8 @@ test('unrestricted selector returns every qualifying strategy and setup instead 
 
 test('long call and long put use ask-side debit and expose finite max loss', () => {
   const contracts = [
-    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 1.9, ask: 2.0, delta: 0.20 }),
-    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 1.7, ask: 1.8, delta: -0.20 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 1.9, ask: 2.0, delta: 0.55 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 1.7, ask: 1.8, delta: -0.55 }),
   ];
 
   const calls = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Long Call']);
@@ -276,7 +276,7 @@ test('every actionable strategy has a gamma profile classification', () => {
 
 test('buildActionableSetups carries gammaNote through to the candidate', () => {
   const contracts = [
-    contract({ expiry: '2026-08-29', dte: 45, strike: 105, right: 'C', bid: 2.0, ask: 2.1, delta: 0.30, iv: 0.28 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 105, right: 'C', bid: 2.0, ask: 2.1, delta: 0.55, iv: 0.28 }),
   ];
   const [candidate] = buildActionableSetups(
     contracts, { price_close: 100 }, {}, ['Long Call'], { gammaRegime: 'negative' },
@@ -307,8 +307,8 @@ test('directionalWeight tilts premium selling vs buying by IV rank', () => {
 test('environment reorders the top pick away from a trend-opposed candidate', () => {
   // A bull regime: a Long Call and a Long Put both qualify; the Put must not win.
   const contracts = [
-    contract({ expiry: '2026-08-29', dte: 45, strike: 105, right: 'C', bid: 2.0, ask: 2.1, delta: 0.30, iv: 0.28 }),
-    contract({ expiry: '2026-08-29', dte: 45, strike: 95, right: 'P', bid: 2.0, ask: 2.1, delta: -0.30, iv: 0.28 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 105, right: 'C', bid: 2.0, ask: 2.1, delta: 0.55, iv: 0.28 }),
+    contract({ expiry: '2026-08-29', dte: 45, strike: 95, right: 'P', bid: 2.0, ask: 2.1, delta: -0.55, iv: 0.28 }),
   ];
   const withEnv = buildActionableSetups(contracts, { price_close: 100 }, {}, ['Long Call', 'Long Put'], { trendRegime: 'bull' });
   assert.ok(withEnv.length >= 1);

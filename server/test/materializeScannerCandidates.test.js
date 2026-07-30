@@ -29,8 +29,8 @@ function callSpreadRow(symbol, { spot = 100 } = {}) {
     snapshot_ts: '2026-07-17T18:05:00.000Z',
     quote_snapshot_ts: '2026-07-17T17:55:00.000Z',
     option_contracts: [
-      contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.22, iv: 0.3 }),
-      contract({ expiry: '2026-08-29', dte: 45, strike: 115, right: 'C', bid: 0.9, ask: 1.0, delta: 0.12, iv: 0.3 }),
+      contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.55, iv: 0.3 }),
+      contract({ expiry: '2026-08-29', dte: 45, strike: 115, right: 'C', bid: 0.9, ask: 1.0, delta: 0.40, iv: 0.3 }),
     ],
   };
 }
