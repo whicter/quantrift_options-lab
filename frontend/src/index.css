@@ -186,7 +186,12 @@ body {
 /* Top padding must clear the 44px fixed .navbar before its own breathing room
    (44 + 36). These pages scroll with the body, so without the offset the first
    line of content renders underneath the navbar. */
-.ledger-page { max-width: 960px; margin: 0 auto; padding: 80px 24px 80px; display: flex; flex-direction: column; gap: 20px; }
+/* html/body/#root default to overflow:hidden (see the shared rule above), so
+   every scrollable page must opt back in on its own root element -- home,
+   scan and analyze already do (height:100vh + overflow-y:auto). This page and
+   .market-page did not, so content past one viewport height was simply
+   clipped with no way to reach it, not just visually cramped. */
+.ledger-page { height: 100vh; overflow-y: auto; max-width: 960px; margin: 0 auto; padding: 80px 24px 80px; display: flex; flex-direction: column; gap: 20px; }
 .ledger-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--blue); font-weight: 700; }
 .ledger-head h1 { font-size: 25px; margin: 6px 0; }
 .ledger-head p { color: var(--text-dim); font-size: 13.5px; max-width: 74ch; margin: 0; }
@@ -285,8 +290,10 @@ body {
 .sm-tone-muted { background: var(--tone-muted); }
 
 /* ---- /market page (R1.1 State Matrix) ---- */
-/* 80px = 44px fixed navbar + 36px breathing room; see .ledger-page note. */
-.market-page { max-width: 1160px; margin: 0 auto; padding: 80px 24px 80px; display: flex; flex-direction: column; gap: 22px; }
+/* height:100vh + overflow-y:auto: see .ledger-page note above -- without it
+   this page cannot scroll at all under the shared html/body/#root
+   overflow:hidden. 80px top padding = 44px fixed navbar + 36px breathing room. */
+.market-page { height: 100vh; overflow-y: auto; max-width: 1160px; margin: 0 auto; padding: 80px 24px 80px; display: flex; flex-direction: column; gap: 22px; }
 .market-head .market-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--blue); font-weight: 700; }
 .market-head h1 { font-size: 25px; margin: 6px 0; letter-spacing: -0.01em; }
 .market-head p { color: var(--text-dim); font-size: 13.5px; max-width: 74ch; margin: 0; }
@@ -2052,7 +2059,10 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   border: 1px solid var(--border); background: var(--bg-input); color: var(--text);
   padding: 5px 10px; border-radius: 6px; font-size: 12px; text-decoration: none;
 }
-.account-page { width: min(960px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0; }
+/* height:100vh + overflow-y:auto + 80px top padding: same fix as .market-page/
+   .ledger-page -- html/body/#root default to overflow:hidden, and this page's
+   own 40px top padding also sat under the 44px fixed navbar. */
+.account-page { height: 100vh; overflow-y: auto; width: min(960px, calc(100% - 40px)); margin: 0 auto; padding: 80px 0 40px; }
 .account-page h1 { font-size: 28px; margin: 0 0 20px; }
 .account-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .account-summary > div { padding: 18px; border-right: 1px solid var(--border); }
@@ -2078,7 +2088,8 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   .account-plans > div { border-right: 0; border-bottom: 1px solid var(--border); }
 }
 
-.portfolio-page { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 32px 0 64px; }
+/* same fix as .account-page directly above. */
+.portfolio-page { height: 100vh; overflow-y: auto; width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 80px 0 64px; }
 .portfolio-page > h1 { margin: 0 0 20px; font-size: 28px; }
 .portfolio-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-block: 1px solid var(--border); }
 .portfolio-summary > div { padding: 14px 16px; border-right: 1px solid var(--border); }

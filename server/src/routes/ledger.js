@@ -90,7 +90,14 @@ async function sendLedger(req, res) {
          FROM candidate_ledger`,
       ),
     ]);
-    const agg = aggregateLedger(resolvedRes.rows.map(r => ({
+    // aggregateLedger's own `tracked` means "resolved rows passed into it"
+    // (ledger.cjs is tested on that meaning directly) -- a different concept
+    // from this route's `tracked` (every candidate ever captured, resolved or
+    // not). Destructure it out so the spread cannot silently overwrite the
+    // correct total with "count of resolved rows" (which is 0 until anything
+    // expires, and was clobbering the real total -- e.g. 23,342 captured
+    // candidates rendering as "追踪中 0" while "待到期" correctly showed 23,342).
+    const { tracked: _aggTracked, ...agg } = aggregateLedger(resolvedRes.rows.map(r => ({
       strategy_family: r.strategy_family, outcome: r.outcome,
       return_on_risk: num(r.return_on_risk), pop: num(r.pop),
     })));
@@ -99,7 +106,12 @@ async function sendLedger(req, res) {
       status: 'ready',
       tracked: Number(c.tracked || 0),
       pending: Number(c.pending || 0),
-      next_expiry: c.next_expiry ? String(c.next_expiry).slice(0, 10) : null,
+      // pg parses `date` columns into a JS Date at local midnight; String(date)
+      // gives its verbose form ("Wed Jul 29 2026 00:00:00 GMT...") rather than
+      // ISO, so slice(0,10) on that produced "Wed Jul 29" instead of a real
+      // date. toISOString().slice(0,10) matches this codebase's existing
+      // convention for date columns (technicalLevels.js, supportResistance.js).
+      next_expiry: c.next_expiry ? new Date(c.next_expiry).toISOString().slice(0, 10) : null,
       ...agg,
     });
   } catch (error) {
