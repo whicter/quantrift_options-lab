@@ -34,7 +34,10 @@ async function enqueueRefreshJob({
          WHERE symbol = $1
            AND job_type = $2
            AND provider = $3
-           AND created_at >= NOW() - ($5::int * INTERVAL '1 second')
+           AND (
+             status IN ('queued', 'running')
+             OR created_at >= NOW() - ($5::int * INTERVAL '1 second')
+           )
          ORDER BY created_at DESC
          LIMIT 1
        ),

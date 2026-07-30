@@ -36,6 +36,10 @@ test('unknown symbol is registered and enqueues the complete data bundle', async
     'price_history_snapshot', 'symbol_metrics_snapshot', 'option_chain_snapshot',
   ]);
   assert.ok(refreshCalls.every(call => call.requestParams.priority === 100));
+  const optionJob = refreshCalls.find(call => call.jobType === 'option_chain_snapshot');
+  assert.equal(optionJob.provider, 'polygon_licensed');
+  assert.equal(optionJob.requestParams.enqueue_quote_if_missing, true);
+  assert.equal('require_quotes' in optionJob.requestParams, false);
 });
 
 test('symbol with an existing chain but outdated GEX queues local recompute without refetching options', async () => {
@@ -106,10 +110,11 @@ test('existing chain without bid/ask quotes is queued for an immediate quote ref
 
   assert.equal(res.body.status, 'queued');
   assert.equal(res.body.coverage.option_quotes, false);
-  assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_chain_snapshot']);
+  assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_quote_snapshot']);
+  assert.equal(refreshCalls[0].provider, 'ib_internal');
   assert.equal(refreshCalls[0].requestParams.reason, 'analyze_on_demand_missing_option_quotes');
   assert.equal(refreshCalls[0].requestParams.require_quotes, true);
-  assert.equal(refreshCalls[0].requestParams.priority, 100);
+  assert.equal(refreshCalls[0].requestParams.priority, 90);
   assert.equal(refreshCalls[0].minIntervalSeconds, 60);
 });
 
@@ -124,7 +129,7 @@ test('failed quote collection is exposed without an enqueue loop', async () => {
   await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
 
   assert.equal(res.body.status, 'partial');
-  assert.equal(res.body.refresh.options, 'blocked');
+  assert.equal(res.body.refresh.option_quotes, 'blocked');
   assert.deepEqual(res.body.blockers, [{
     field: 'option_quotes',
     reason: 'option quote unavailable: tastytrade returned no usable bid/ask quotes',
@@ -144,7 +149,7 @@ test('transient quote collection failure is retried instead of becoming a blocke
 
   assert.equal(res.body.status, 'queued');
   assert.equal(res.body.blockers.length, 0);
-  assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_chain_snapshot']);
+  assert.deepEqual(refreshCalls.map(call => call.jobType), ['option_quote_snapshot']);
 });
 
 test('worker-specific quote authentication failure does not block a different collector', async () => {
@@ -159,6 +164,8 @@ test('worker-specific quote authentication failure does not block a different co
 
   assert.equal(res.body.status, 'queued');
   assert.equal(refreshCalls.length, 1);
+  assert.match(queries[1].sql, /job_type = 'option_quote_snapshot'/);
+  assert.doesNotMatch(queries[1].sql, /job_type = 'option_chain_snapshot'.*last_error/s);
   assert.doesNotMatch(queries[1].sql, /tastytrade auth unavailable/);
   assert.doesNotMatch(queries[1].sql, /provider auth unavailable/);
 });
@@ -234,7 +241,7 @@ test('missing product with an in-flight refresh reports queued, not missing', as
   assert.equal(res.body.products.gex.state, 'missing');
 });
 
-test('a blocked product reports failed rather than a permanent queued spinner', async () => {
+test('a quote blocker cannot block a missing Polygon chain and GEX refresh', async () => {
   queryResults.push({ rows: [] }, { rows: [{
     has_price: true, has_metrics: false, has_options: false, has_quoted_options: false, has_gex: false,
     active_jobs: 0, queue_depth: 0,
@@ -250,7 +257,9 @@ test('a blocked product reports failed rather than a permanent queued spinner', 
   await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
 
   assert.equal(res.body.products.metrics.state, 'failed');
-  assert.equal(res.body.products.option_chain.state, 'failed');
+  assert.equal(res.body.products.option_chain.state, 'queued');
+  assert.equal(res.body.products.option_quotes.state, 'queued');
+  assert.deepEqual(res.body.blockers, [{ field: 'metrics', reason: 'device challenge required' }]);
   // A blocked product must not suppress the products that do have real data.
   assert.equal(res.body.products.price_daily.state, 'fresh');
 });

@@ -49,8 +49,8 @@ async function deriveTrendRegime(symbol) {
   }
 }
 
-// Which enqueue decision, if any, governs each product's refresh state. The
-// option-chain job is what backfills quotes, so option_chain reports it.
+// Which enqueue decision, if any, governs each positioning product's refresh
+// state. Strategy quotes are a separate IB-only product below.
 const PRODUCT_REFRESH_KEY = {
   [freshness.PRODUCT_PRICE_DAILY]: 'price',
   [freshness.PRODUCT_PRICE_30M]: 'price',
@@ -98,17 +98,19 @@ function buildProductStates(coverage, refresh, now = new Date()) {
   // An option chain without a single usable bid/ask cannot produce a strategy
   // leg, so quotes are their own product state rather than an attribute of the
   // chain. Reported alongside, never folded into option_chain's freshness.
+  const quoteRefreshStatus = refresh.option_quotes
+    ?? (!coverage.has_options ? refresh.options ?? null : null);
   products.option_quotes = {
     state: coverage.has_quoted_options
       ? products[freshness.PRODUCT_OPTION_CHAIN].state
-      : freshness.resolveState(freshness.STATE_MISSING, refresh.options ?? null),
+      : freshness.resolveState(freshness.STATE_MISSING, quoteRefreshStatus),
     freshness: coverage.has_quoted_options
       ? products[freshness.PRODUCT_OPTION_CHAIN].freshness
       : freshness.STATE_MISSING,
     is_stale: coverage.has_quoted_options ? products[freshness.PRODUCT_OPTION_CHAIN].is_stale : false,
     age_minutes: coverage.has_quoted_options ? products[freshness.PRODUCT_OPTION_CHAIN].age_minutes : null,
     age_days: null,
-    refresh_status: refresh.options ?? null,
+    refresh_status: quoteRefreshStatus,
   };
 
   return products;
@@ -164,7 +166,7 @@ async function sendAnalyzeStatus(req, res) {
          EXISTS (
            SELECT 1 FROM provider_fetch_jobs
            WHERE symbol = $1
-             AND job_type = 'option_chain_snapshot'
+             AND job_type = 'option_quote_snapshot'
              AND status = 'failed'
              AND request_params->>'require_quotes' = 'true'
              AND last_error LIKE 'option quote unavailable:%'
@@ -172,7 +174,7 @@ async function sendAnalyzeStatus(req, res) {
          ) AS quotes_blocked,
          (SELECT last_error FROM provider_fetch_jobs
           WHERE symbol = $1
-            AND job_type = 'option_chain_snapshot'
+            AND job_type = 'option_quote_snapshot'
             AND status = 'failed'
             AND request_params->>'require_quotes' = 'true'
             AND last_error LIKE 'option quote unavailable:%'
@@ -210,14 +212,26 @@ async function sendAnalyzeStatus(req, res) {
         });
       }
     }
-    if (!coverage.has_options || !coverage.has_quoted_options) {
-      if (coverage.quotes_blocked) refresh.options = 'blocked';
+    if (!coverage.has_options) {
+      refresh.options = await enqueueRefreshJob({
+        symbol, jobType: 'option_chain_snapshot', provider: 'polygon_licensed',
+        requestParams: {
+          reason: 'analyze_on_demand',
+          priority: 100,
+          // The Polygon/GEX task succeeds first. If that snapshot has no
+          // executable quotes, the primary worker only queues the independent
+          // IB quote lane; it never waits for IB itself.
+          enqueue_quote_if_missing: true,
+        }, minIntervalSeconds: 60,
+      });
+    } else if (!coverage.has_quoted_options) {
+      if (coverage.quotes_blocked) refresh.option_quotes = 'blocked';
       else {
-        refresh.options = await enqueueRefreshJob({
-          symbol, jobType: 'option_chain_snapshot', provider: 'polygon_licensed',
+        refresh.option_quotes = await enqueueRefreshJob({
+          symbol, jobType: 'option_quote_snapshot', provider: 'ib_internal',
           requestParams: {
-            reason: coverage.has_options ? 'analyze_on_demand_missing_option_quotes' : 'analyze_on_demand',
-            priority: 100,
+            reason: 'analyze_on_demand_missing_option_quotes',
+            priority: 90,
             require_quotes: true,
           }, minIntervalSeconds: 60,
         });
@@ -248,7 +262,9 @@ async function sendAnalyzeStatus(req, res) {
       estimated_wait: queued ? ON_DEMAND_ESTIMATED_WAIT : null,
       blockers: [
         ...(coverage.metrics_blocked ? [{ field: 'metrics', reason: coverage.metrics_last_error }] : []),
-        ...(coverage.quotes_blocked ? [{ field: 'option_quotes', reason: coverage.quotes_last_error }] : []),
+        ...(coverage.has_options && coverage.quotes_blocked
+          ? [{ field: 'option_quotes', reason: coverage.quotes_last_error }]
+          : []),
       ],
     });
   } catch (err) {

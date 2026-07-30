@@ -745,7 +745,7 @@ Unusual Activity
 
 #### Options Positioning 数据层现状
 
-Production option snapshots 已切换到 `polygon_licensed`；TT/IB 仅保留为 fallback/research adapters。API 和前端继续只读 PostgreSQL snapshots，不直接调用 provider。
+Production positioning snapshots 已切换到 `polygon_licensed`。全市场 `option_chain_snapshot` 只负责 Polygon 结构链、GEX、OI delta 与 scanner 派生，不再同步 fallback 到 IB。TT/IB adapters 仍保留，但 IB 的产品用途收敛为用户按需触发的独立 `option_quote_snapshot`；API 和前端继续只读 PostgreSQL snapshots，不直接调用 provider。
 
 | 数据 | 当前状态 | 当前过渡路径 | 下一步产品工作 |
 |---|---|---|---|
@@ -1099,9 +1099,9 @@ Phase 3C implementation status：
   - `scanner_materialize`
 - `provider_request_usage` tracks daily provider request usage and budget.
 - `/api/admin/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
-- Runtime completed：Mac Studio PM2 直接运行 `collector/ecosystem.config.cjs`。`quantrift-options-collector` 每 300 秒 missing-first/oldest-first bounded enqueue 两个 symbols、每 60 秒消费 queue、每 300 秒 materialize scanner；失败 symbol 有 30 分钟 cooldown；`quantrift-options-prices` 工作日 13:35 PT 运行。
+- Runtime：Mac Studio PM2 直接运行 `collector/ecosystem.config.cjs`。`quantrift-options-collector` 每 300 秒按 tier/staleness 填充至 queue target 20、每 60 秒以 3 路进程内并发消费最多 10 个 Polygon/GEX jobs、每 300 秒 materialize scanner；失败 symbol 有 30 分钟 cooldown。`quantrift-options-quote-worker` 是独立的 1 路 IB 按需报价 lane，只消费 `option_quote_snapshot`，IB timeout 不占主 collector 的三路槽位。`quantrift-options-prices` 工作日两次运行以补 EOD finalize。
 - No runtime copy：旧 LaunchAgent、wrappers 和 `~/.quantrift_options_collector` 已移除；当前 repo 是唯一运行代码源。
-- Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 以 `RunAtLoad=true` 调用 `pm2 resurrect`，saved list 已含五个 Quantrift collector apps。因此市电恢复后 Mac 会启动并恢复 collector apps。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
+- Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 以 `RunAtLoad=true` 调用 `pm2 resurrect`。2026-07-30 已验证 saved list 含七个 Quantrift collector apps；本次新增 quote worker 后需 `startOrReload` 与 `pm2 save`，使第八个 app 进入 saved list。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
 
 ### 新增 API 端点规划（server/）
 
@@ -1397,6 +1397,10 @@ IV Rank 需要 252 个交易日的 ATM IV，不把短历史的 min/max 当作一
 ### IB Historical Farm 与报价字段
 
 IB historical farm 恢复只证明历史 close/fallback 及请求链路可用，不等于 API 获得实时 bid/ask。2026-07-18 的 SPY 诊断收到 delayed last、volume、OI 与 model Greeks，但 IB `10091/10167` 表示 API quote entitlement 不足，bid/ask 仍为空。产品可以把这些字段用于研究性 GEX/结构输入；任何需要可执行报价的策略腿仍须等待真实 bid/ask。
+
+2026-07-30 报价隔离：不能把“Polygon/GEX 全市场刷新”和“IB 策略腿定价”放进同一个同步 job。Polygon 快照即使 0 条可用 bid/ask，也先落库并完成 GEX；只有 Analyze 实际请求且缺策略报价的标的，才排一个优先级 90 的 `option_quote_snapshot`。主 worker SQL 排除该 job type，独立 quote worker SQL 只认该 job type；报价成功只触发 scanner rematerialization，不重算或覆盖 Polygon GEX。这样一个冷门标的的 IB contract walk/timeout 不会拖住其余 296 个标的。
+
+2026-07-30 UI 可读性规则：深/浅主题都必须使用同一组语义 token 构建层级，不能只在深色下看得清。Scanner 表头使用弹性列宽但不得省略标题；“期权定位”和“策略候选”每个原子事实单独 soft-indent 换行，允许正常折行但禁止 ellipsis/truncate。到期日+DTE 同行，OI+spread 同行，Gamma 符号+净 GEX 同行；Debit/Credit 只能出现一次。`快照延迟`、`社区样本` 等内部状态不作为默认行文输出，POP 不可计算时显示具体模型原因。
 
 ### 策略对比
 

@@ -5,6 +5,7 @@
 这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **104 项** `- [ ]`（2026-07-24 核对；07-22 的 112 项减去已完成的 8 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix + R1.3 板块轮动 RRG + R1.2 每日市场简报 + R2.1 候选结果台账**。另 07-22 的 OI-by-strike 5 项也已全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
+   - `2026-07-30 — 深浅主题、Scanner 信息层级与 IB 报价隔离` ✅：深/浅主题改为语义 surface/border/text token 并重做 Analyze/Scanner 小节层级；Scanner 表头完整弹性展示，定位/候选采用可换行 soft-indent 原子行，去掉 truncate、重复 Debit、快照延迟和社区样本噪声，POP 显示具体不可计算原因。数据侧将全市场 Polygon/GEX 主 lane 与用户按需 IB 报价拆成 `option_chain_snapshot` / `option_quote_snapshot` 两种 job；主 PM2 进程 3 路并发永不领取报价 job，独立 `quantrift-options-quote-worker` 单路消费，IB 不重算 GEX/OI delta。代码验证见 `docs/validation/UI_AND_IB_QUOTE_ISOLATION_2026-07-30.md`；PM2 运行态需在 Mac Studio pull 后 `startOrReload` + `pm2 save`。
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
    - `2026-07-21 — 快照表 retention` ✅：两张物化表无限膨胀拖慢库,已加 `prune_snapshots` 自动清理,scanner_results 929MB→545MB。
    - `2026-07-21 — 预算行被双 runtime 打回 1000` ✅：盘中整段停摆的根因,默认预算 1000→1,000,000,顺带修 metrics `date` 序列化 bug。
@@ -188,7 +189,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 **根因**:`schedule_option_refresh.py::load_refresh_state` 计算"该刷新谁"时,`latest_snapshots` 查询只认**带有效 bid/ask 的快照**(`EXISTS (...c.bid IS NOT NULL...)`)。scan_enabled 的 81 个标的里有 **16 个从未拿到过一次有效报价**(`VIX、BA、COST、GLD、GS、MUU、NFLX、SPCX、TLT、XBI、XHB、XLRE、XLV、XLY、XOP、XSD`),因此在 `latest_snapshots` 里**完全没有记录** → `select_candidates` 把"无记录"当成"从未采集过",排序排到最前 → 每 30 分钟冷却期一到,这 16 个标的就重新抢占大部分队列名额,把**曾经成功、只是比较旧**的标的永久挤到后面。实测:STX 卡 23.7 小时、SRVR/MU/SMH/DTCR/META/AEHR/XLU/KIE/SOXX/XLP/MRVL/ICLN 共 13 个卡 20 小时左右;**VIX 是单独的永久性失败**——它是指数不是个股,`fetch_underlying()` 调用股票 `/prev` 端点必然返回空(`Polygon prev agg returned no results for VIX`),6 小时内精准每 30 分钟失败一次、连续 11 次。
 
-判断某个具体 job 是否需要报价,已经由另一个独立信号 `require_quotes`(2026-07-19 `8e3df5f` 加的,仅常规交易时段为 true)管;`load_refresh_state` 这条排序查询不需要也不应该再叠加"必须带报价"这个门槛。
+`load_refresh_state` 只回答 Polygon positioning 是否该刷新，不再承担报价门槛。2026-07-30 起后台 scheduler 不写 `require_quotes`；策略报价是 Analyze 按需排入的独立 `option_quote_snapshot`，因此从未有报价的冷门标的不再周期性抢占全市场队列。
 
 **修复**:
 - [x] `load_refresh_state` 的 `latest_snapshots` 查询去掉 bid/ask 过滤,改用**任意** `option_chain_snapshots.snapshot_ts`——排序只回答"该不该刷新",不该已经答过的"要不要报价"再问一遍。
@@ -275,7 +276,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 - [x] **单 worker 刷新批次过小（已完成 2026-07-24）**：`REFRESH_WORKER_BATCH_SIZE` 已从 2 调至 10。依据实测约 2.83 秒/标的（6 次 Polygon 请求），单轮约 28 秒，给 GEX/物化/数据库派生留下约 32 秒；81 个标的冷启动估算从约 41 分钟降至约 9 分钟。E7 共享 provider rate limiter 仍负责 429 保护。生产需要 reload collector 配置后才生效；回滚为 `REFRESH_WORKER_BATCH_SIZE=2`。
 - [x] **单 worker 进程内有上限并行（已完成 2026-07-24）**：`REFRESH_WORKER_CONCURRENCY=3` 仅并行独立 symbol job，不增加 PM2 实例；每个 job 独立 psycopg2 connection/provider，`PendingDerivations` 加锁，batch 结束后全局派生仍各跑一次。回滚为设置 `REFRESH_WORKER_CONCURRENCY=1` 并从 ecosystem 文件 reload。多 PM2 worker/跨进程 E8 仍未完成。
-  - **已先修复报价链路（2026-07-19，待开盘验收）**：后台 refresh job 过去只把无报价 Polygon snapshot 写为成功，虽然 scheduler 以“最新有 bid/ask”判定覆盖，却未写入 `require_quotes`，因此不会触发 fallback。现在仅在美股常规交易时 job 写入 `require_quotes=true`；worker 按 `polygon_licensed → ib_internal` 尝试，直到拿到有效 bid/ask。休市时仍保存真实 OI/Greeks/结构快照，但不把它当作可执行报价。PM2 改为 `IB_MARKET_DATA_TYPE=1` 并已重载。collector 229/229 通过；2026-07-19 休市实测 Polygon 已写 1,876 条结构合约、0 条 bid/ask，符合休市预期，开盘后需用两合约 IB diagnostic 和实际 refresh job 验收。
+  - **报价链路最终架构（2026-07-19 初版，2026-07-30 替换同步 fallback）**：休市实测证明 Polygon 结构链可有 1,876 条真实合约但 0 条 bid/ask；这类快照仍应落库并计算 GEX。旧版在常规时段给后台 job 写 `require_quotes=true`，由同一 worker 同步跑 `polygon_licensed → ib_internal`，导致 IB timeout 占住全市场三路并发。现改为后台永不要求报价；仅 Analyze 缺策略腿时排独立 `option_quote_snapshot`，由单独 PM2 进程消费。`IB_MARKET_DATA_TYPE=1` 仍适用于该按需报价 lane。
 - [ ] **on-demand 首次访问延迟**:未采集过的 symbol 首次 analyze 请求要等一整轮 provider fetch,用户体感是"卡住"。可选优化方向:乐观 UI(先显示排队态 + 预计时间)、或提高该 symbol 在 scheduler 里的临时优先级(已有五级优先级机制,只是 on-demand 请求当前未必接到最高档)。
 - [ ] **Mac Studio 单点故障**:即便 Option B 消除了预算互抢,产品刷新链路仍 100% 依赖 Mac Studio 常开。断电/重启/网络中断 = 全站数据停摆,且此前确认过恢复要靠人工 PM2 reload。IV Rank 自算(本节上方进行中的项目)是解决这个的唯一路径,而不是加更多本地容灾。
 - [ ] **"15 分钟延迟数据"定位**:目前产品文案已经把这个说清楚了,但没有一处告诉用户"下一次刷新还要多久"。可以用 `symbol_data_state` 里已有的字段直接算出下次预计刷新时间展示给用户,成本很低。
@@ -449,7 +450,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - 2026-07-17 copy pass：Q2 直接说明动量与 Gamma 环境组合下可能出现的波动表现；Q3 改为明确的上方/下方关注价位，模型边界仅保留为句末一句。
   - 2026-07-17 strategy-candidate repair：Analyze 改为调用后端的 `/api/analyze/:symbol/candidate`；服务端从最新已报价链生成并只返回入选策略腿，前端不再把 `recommendation` 硬编码为 `null`，也不再接收完整合约链。
   - 2026-07-17 quote-readiness repair：期权链存在不再等于策略腿可用。Analyze 与 watchlist refresh 均把至少一条有效 bid/ask 视为独立完成条件；无报价链按高优先级排队补取，避免 GEX/OI 已有但策略候选永久为空。
-  - 2026-07-17 quote fallback repair：`require_quotes` 任务若 Polygon 快照没有有效 bid/ask，worker 自动尝试 fallback；自 2026-07-19 起当前默认 fallback 为 `ib_internal`。两个 provider 都无报价则写入明确的 non-retryable blocker。不会把 mark、last 或日线价格伪装成策略腿报价。
+  - 2026-07-17/19 quote fallback repair 已于 2026-07-30 被隔离架构取代：Polygon chain/GEX job 不再因缺 bid/ask 同步等待任何 fallback；Analyze 的 `option_quote_snapshot` 单独使用 `ib_internal`。IB 无报价仍写明确的 non-retryable blocker，且只阻塞该标的的 `option_quotes` 产品，不阻塞 Polygon chain/GEX。不会把 mark、last 或日线价格伪装成策略腿报价。
   - 2026-07-17 TT persistence repair：provider 原始 DXLink 元数据可能含 Python `Decimal`；snapshot 写入层统一 JSON 编码为数值，避免 TT 已拿到报价却在 `raw_metadata/raw_contract` 持久化时失败。
   - 2026-07-17 retry classification repair：仅“所有报价 provider 无有效 bid/ask”及认证不可用会阻断 24 小时；序列化等代码故障保留为可重新入队的失败，修复部署后可立即恢复。
   - 2026-07-17 Railway refresh execution repair：原 cloud cron 只执行 `collect.py`，而 API 入队由 `run_refresh_worker.py` 消费，造成 on-demand jobs 永远不执行。cron 现每 5 分钟运行 `run_railway_refresh_cycle.py`：watchlist scheduler → refresh worker → scanner materialization；TT metrics 仍保持禁用，不在该云任务中登录或拉取 IV metrics。
@@ -602,7 +603,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - 2026-07-16 验收：authenticated Mac Studio 手动运行写入 67/67 watchlist rows、0 errors；生产 `/api/metrics?symbols=AAPL,PLTR,TSLA` 返回当天 `fresh` hybrid metrics，`iv_rank_source=tastytrade`。本机 crontab 已核实为每个工作日 13:30 PT。
 - ✅ 数据覆盖状态 API：`GET /api/status/data` 读取 collector watchlist，并返回 `iv_history` 覆盖率、缺失标的、stale 标的、source 分布和最新日期
   - 同时返回 `price_history.table_exists`、价格覆盖数量和最新价格日期
-- ✅ IB 连接管理：IB option fallback 默认 `IB_OPTION_CLIENT_ID=42`，price fallback 默认 `IB_PRICE_CLIENT_ID=12`，不再复用含糊的 clientId=2；均可由环境变量覆盖并与 futures bots 隔离
+- ✅ IB 连接管理：按需 `option_quote_snapshot` 使用的 IB option adapter 默认 `IB_OPTION_CLIENT_ID=42`，price fallback 默认 `IB_PRICE_CLIENT_ID=12`，不再复用含糊的 clientId=2；均可由环境变量覆盖并与 futures bots 隔离
 - ✅ 服务层自动切换：derived IV Rank ready 后 API/scanner 使用 derived；batch collector、on-demand API 与 refresh worker 均停止为该 symbol 调用 Tastytrade（2026-07-15）
 
 **基础设施可靠性 / 云端迁移**
@@ -617,7 +618,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - [ ] Railway TT metrics run（阻塞于 provider device challenge）：2026-07-16 本机以现有用户名/密码成功登录并将 fresh remember-token 写入共享 PostgreSQL；紧接着 Railway cron 使用同一 fingerprint 认证，TT 返回 `403 device_challenge_required`。确认 Railway 网络、数据库和 token state 均可达，但 TT 将 US West runner 识别为新设备。镜像现默认 `TT_METRICS_ENABLED=false`，保证后续 Railway schedule 不会读取凭据或调用 TT。当前可用路径是 Mac Studio 的 authenticated collector 写同一 Railway PostgreSQL；只有在 Railway 上完成明确的 TT device challenge 后，才将变量改为 true 并恢复此 cloud-cron task。
 - [ ] Mac Studio 断电风险：加装 UPS（如 APC Back-UPS）并完成断电恢复演练
   - ✅ macOS 自动恢复已验证：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`；市电恢复后系统会自动重启。
-  - ✅ PM2 开机恢复已验证：LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`；`~/.pm2/dump.pm2` 包含 `quantrift-options-collector`、`quantrift-options-prices`、`quantrift-reddit-trends`、`quantrift-universe-metadata`、`quantrift-unusual-whales-flow`。
+  - ✅ PM2 开机恢复机制已验证：LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`。2026-07-30 配置新增 `quantrift-options-quote-worker`；必须在 Mac Studio `startOrReload` 后再次 `pm2 save`，才能让该新进程进入 dump 并随开机恢复。
   - [ ] UPS 采购、接入并进行断电/复电演练仍需物理硬件操作；验收需确认 Mac、IB Gateway、PM2 collector 均自动恢复且无未处理 jobs 丢失。
 - ✅ IB Gateway 云端迁移评估：结论为固定出口 Linux VPS + pinned Docker/IBC + private API；模板见 `ops/ib-gateway/`（2026-07-15）
   - 需解决：云端固定出口IP（避免触发IBKR异常登录验证）、2FA 首次人工确认 + 后续会话保活
@@ -665,7 +666,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 **✅ Phase 3D — Options Positioning Data Layer（已完成，Polygon 已在 Phase 3I 替代 IB internal 成为生产 provider）**
 
-> IB Gateway internal adapter 仍作为 research/fallback 代码保留，但不再是生产采集路径。Schema、GEX 计算、API、前端均为 provider-agnostic，无需改动。
+> IB Gateway internal adapter 仍作为 research/按需策略报价代码保留，但不再是全市场 positioning 采集 fallback。Schema、API、前端仍从 PostgreSQL snapshot 读取；GEX 只由 Polygon positioning snapshot 派生。
 
 目标达成：option chain → snapshots → GEX / Wall / Gamma Flip → API → UI 完整闭环已在 Polygon licensed provider 下验证通过。
 
@@ -1161,7 +1162,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - PM2 persistence：`pm2 save` completed and wrote `/Users/congrenhan/.pm2/dump.pm2`。
   - Auto-refresh runtime evidence：scheduler selected AAPL；TT returned `device_challenge_required` once，worker immediately used IB fallback；IB delayed collection completed AAPL with 78 actual contracts、completeness 94.87%、Greeks missing 0%、OI missing 10.26%。Production `/api/status/options` increased from 8/67 to 9/67 covered，then PM2 continued with AIQ。
   - Strategy behavior change：无。修复的是 contract identity 和数据可用性；未改变 entry/exit、position size、strategy parameters 或 order behavior。
-  - Rollback：`pm2 delete quantrift-options-collector quantrift-options-prices` 停止新 runtime；代码使用后续 commit 的 revert 回退。数据库 snapshot 为 append-only，本任务没有破坏性 schema migration。
+  - Rollback：`pm2 delete quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices` 停止相关 runtime；代码使用后续 commit 的 revert 回退。数据库 snapshot 为 append-only，本任务没有破坏性 schema migration。
   - Done：实现、单元测试、前端测试/build、真实 IB 采集、数据库 identity/completeness、GEX/OI delta/scanner 下游闭环均已验证。
 - ✅ 按 bounded batches 自动扩展完整 scanner ingestion pool：PM2 scheduler/worker 已运行并持续补 missing/stale snapshots。
 - ✅ 增加 collector coverage/failure alert（2026-07-15）：
@@ -1207,7 +1208,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 ### run_refresh_worker.py
 - ✅ `SUPPORTED_OPTION_PROVIDERS` 加入 `'polygon_licensed'`（之前遗漏导致 `unsupported option provider for worker: polygon_licensed` 错误）
-- ✅ `DEFAULT_OPTION_FALLBACK_PROVIDERS` 当前为 `'ib_internal'`：当 `require_quotes` 的 Polygon 快照没有有效 bid/ask 时，worker 尝试 IB，避免无报价链被误判为策略候选可用。
+- ✅ `DEFAULT_OPTION_FALLBACK_PROVIDERS='ib_internal'` 仅保留给非 Polygon transitional/ad-hoc job。生产 Polygon `option_chain_snapshot` provider sequence 固定为 Polygon 单一来源；策略报价通过独立 IB `option_quote_snapshot` 获取。
 
 ### ecosystem.config.cjs
 - ✅ `OPTION_REFRESH_PROVIDER: 'polygon_licensed'`
@@ -1219,7 +1220,7 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - ✅ PM2 全路径：`/opt/homebrew/bin/pm2`（via SSH 时 zsh 找不到 pm2）
 - ✅ option_chain_snapshot jobs succeeded（job 154/156/157）；source 从 `ib_internal` 逐渐切换为 `polygon_licensed`
 - ✅ MD5 checksum 验证：local 与 Mac Studio 上 4 个改动文件完全一致
-- ✅ Railway `quantrift-metrics-cron` 已配置服务级 `POLYGON_API_KEY` 并完成 2026-07-17 云端验收：2 个真实 `option_chain_snapshot` job 成功、写入 4,826 条 OI delta、物化 80 条 scanner rows。变量变更必须先 deploy 再手动运行 cron；缺 key 时 provider construction 会失败并误触 TT fallback。
+- ✅ Railway `quantrift-metrics-cron` 已配置服务级 `POLYGON_API_KEY` 并完成 2026-07-17 云端验收：2 个真实 `option_chain_snapshot` job 成功、写入 4,826 条 OI delta、物化 80 条 scanner rows。变量变更必须先 deploy 再手动运行 cron；2026-07-30 起缺 key 会让 Polygon positioning job 明确失败，不再误触本地 TT/IB fallback。
 
 ### Polygon 数据延迟说明（纠正）
 - Polygon $29/mo Options Starter 是 **15分钟延迟**，不是 EOD
@@ -1472,7 +1473,7 @@ PostgreSQL
 
 Deployment readiness：
 - 不把 collector 放进 API service；Railway 需要独立 `polygon-collector` service。
-- Mac Studio IB/TT collector 保留为 internal/fallback/ad hoc 路径。
+- Mac Studio TT collector 保留 authenticated metrics 路径；IB 保留为独立按需策略报价与 research/ad hoc 路径，不参与全市场 Polygon/GEX fallback。
 - 多 worker 上线前必须先合并 shared provider limiter；否则本地 file lock 在 Railway 多实例下无效。
 - 回滚方法：将 worker count 降回 1、queue target 降回 2、关闭 Railway collector service；additive `symbol_data_state` / pacing 表可保留。
 
@@ -2254,7 +2255,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - Schedule：Monday-Friday 13:35 PT / 16:35 ET
   - Environment：直接读取 repo 内 `collector/.env`
   - 旧 `com.quantrift.collect-prices` LaunchAgent、plist 和 `/Users/congrenhan/.quantrift_options_collector` 运行副本已停止并删除。
-  - 启动命令：`pm2 start collector/ecosystem.config.cjs && pm2 save`
+  - 启动命令：`pm2 startOrReload collector/ecosystem.config.cjs --update-env && pm2 save`
   - 验证命令：`pm2 status quantrift-options-prices`
 - ✅ 跑完整 watchlist 一次 `collect_prices.py`
   - 成功 symbols 数量：67 / 67

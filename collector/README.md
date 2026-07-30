@@ -129,7 +129,8 @@ venv311/bin/python run_refresh_worker.py
 The worker supports:
 
 - `symbol_metrics_snapshot`: refreshes one symbol's IV/HV/earnings metrics.
-- `option_chain_snapshot`: refreshes one option-chain snapshot with the configured supported internal provider, then attempts GEX, OI delta and scanner materialization.
+- `option_chain_snapshot`: refreshes the Polygon positioning chain, persists GEX, then requests OI delta and scanner materialization. It never waits for IB.
+- `option_quote_snapshot`: on-demand IB quote enrichment for strategy pricing. It persists a quote-bearing chain and refreshes candidates without recomputing or replacing Polygon GEX.
 - `scanner_materialize`: refreshes `scanner_results_snapshots` only.
 
 The worker records provider budget usage in `provider_request_usage`. If a licensed provider adapter is not configured, `licensed_options_provider` jobs fail closed and keep the error in `provider_fetch_jobs.last_error`.
@@ -192,13 +193,14 @@ PM2 executes the current repository directly. There is no copied runtime directo
 
 ```bash
 cd /Users/congrenhan/Documents/quantrift_options-lab
-pm2 start collector/ecosystem.config.cjs
+pm2 startOrReload collector/ecosystem.config.cjs --update-env
 pm2 save
-pm2 status quantrift-options-collector quantrift-options-prices
+pm2 status quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices
 pm2 logs quantrift-options-collector --lines 50 --nostream
 ```
 
-- `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects missing/old universe symbols to the bounded queue, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds. During the US regular session it requires executable bid/ask: Polygon remains primary and a quote-less snapshot falls back to IB.
+- `quantrift-options-collector`: long-running `run_collector_daemon.py`; every 300 seconds it selects missing/old universe symbols to the bounded Polygon queue, processes jobs every 60 seconds, and materializes scanner rows every 300 seconds. Quote-less Polygon snapshots still complete GEX and never fall back to IB in this process.
+- `quantrift-options-quote-worker`: long-running `run_quote_worker_daemon.py`; claims only user-requested `option_quote_snapshot` jobs with one independent IB lane. IB timeout or entitlement failure cannot consume a Polygon/GEX worker slot or delay the collector loop.
 - Auto-refresh uses `polygon_licensed`. A recent failed attempt gets a 30-minute cooldown, so provider failures do not create a request storm.
 - `quantrift-options-prices`: runs `collect_prices.py` at `13:35 America/Los_Angeles` Monday-Friday.
 - `quantrift-universe-metadata`: runs `collect_universe_metadata.py` as a Sunday 12:15 one-shot cron; it is normally stopped between runs while PM2 keeps the cron active.
@@ -245,7 +247,7 @@ pm2 logs quantrift-options-collector --lines 50 --nostream
 - 2026-07-16 authentication incident correction: `provider_auth_state` in PostgreSQL is the durable source of truth **for collectors bound to the same `DATABASE_URL`**. Every collector takes a transaction-scoped advisory lock, exchanges the stored token once, then commits the provider-supplied successor (or unchanged token when no successor is supplied). Railway needs both `TT_LOGIN` and `TT_REMEMBER_TOKEN`; the latter bootstraps only an absent row. A 401/403 performs no recovery-seed retry. The metrics image identifies itself as `railway-metrics-cron`; logs expose only a token fingerprint and consumer, so a later failure can be traced without revealing secrets.
 - Runtime boundary: a 2026-07-16 Railway run with a freshly seeded token returned `403 device_challenge_required`; TT treats the cloud runner as an untrusted device. Run TT metrics from the authenticated Mac Studio and persist to the same PostgreSQL database. Railway can continue hosting the API and database, but must not be the unattended TT login host unless its device challenge is explicitly completed.
 - Guard: the Railway metrics image sets `TT_METRICS_ENABLED=false`, so its scheduled container exits before reading credentials or calling TT. Local collection defaults to enabled. The active Mac Studio crontab runs `collect.py` at `13:30 PT` on weekdays (`16:30 ET`).
-- On-demand quote failures are scoped to the worker that observed them. A Railway TT device challenge must not suppress a later Mac Studio/IB refresh: only an explicit `option quote unavailable` terminal result is eligible for the API's temporary quote blocker.
+- On-demand quote failures are scoped to the dedicated IB quote worker. Only an explicit terminal `option quote unavailable` from `option_quote_snapshot` is eligible for the API's temporary quote blocker; it cannot mark Polygon chain/GEX refresh as failed.
 - A provider can fail before making a request (for example, a missing Polygon key). That is a provider-availability failure, not a terminal no-quote result; the refresh worker continues to the configured bounded fallback sequence instead of repeatedly requeueing the same unavailable primary.
 - IB Gateway cloud evaluation artifacts live in `ops/ib-gateway/`. The candidate is fixed-egress VPS only, with paper/read-only defaults, secret-file password and loopback API ports; a 72-hour soak and manual 2FA precede any collector move.
 - Product identity is separate from collectors: Clerk sessions map to PostgreSQL `users`/`subscriptions`; collectors never receive Clerk or Stripe credentials.

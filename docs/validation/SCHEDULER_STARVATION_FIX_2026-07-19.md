@@ -1,5 +1,11 @@
 # Option Refresh Scheduler Starvation Fix
 
+> Historical validation. On 2026-07-30 `require_quotes` and synchronous
+> Polygon-to-IB fallback were removed from the market-wide scheduler. Current
+> positioning jobs are Polygon-only; user-requested strategy quotes use the
+> isolated `option_quote_snapshot` lane. The starvation diagnosis below remains
+> useful history, but its quote execution path is superseded.
+
 Date: 2026-07-19
 
 ## Symptom

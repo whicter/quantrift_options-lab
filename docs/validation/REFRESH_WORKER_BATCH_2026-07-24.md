@@ -1,5 +1,11 @@
 # Refresh Worker Batch Validation — 2026-07-24
 
+> Historical validation. On 2026-07-30 the primary worker gained bounded
+> in-process concurrency 3, while IB quote enrichment moved to a separate
+> concurrency-1 PM2 process. The batch-10 evidence below remains the reason for
+> the batch limit, but its single-worker runtime description is no longer the
+> current architecture.
+
 ## Scope
 
 Validate the single-worker throughput tuning from `REFRESH_WORKER_BATCH_SIZE=2` to `10`.

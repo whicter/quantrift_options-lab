@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDataStatus, getMarketRegime, getScan } from '../lib/api';
 import ScannerAlerts from '../components/ScannerAlerts';
-import { communityHeatLabel, normalizeCommunityTrend } from '../lib/communityTrend';
-import { gammaRegimeLabel, gammaSummary, wallSummary } from '../lib/scannerPresentation';
+import { gammaBehavior, gammaHeadline, splitScannerDetails, wallSummary } from '../lib/scannerPresentation';
 import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
 import { dedupeScannerRows, nextScannerSort, scanCandidateId, sortScannerRows } from '../lib/scannerResults';
 import DataDetails from '../components/DataDetails';
@@ -143,14 +142,7 @@ function strategyAction(strategy) {
   return '点击进入分析页查看结构。';
 }
 
-function economicsSummary(setup) {
-  if (setup.returnOnRisk != null) return `RoR ${(setup.returnOnRisk * 100).toFixed(1)}%`;
-  if (setup.debit != null) return `Debit $${Math.round(setup.debit * 100).toLocaleString('en-US')}`;
-  if (setup.credit != null) return `Credit $${Math.round(setup.credit * 100).toLocaleString('en-US')} · 风险未限定`;
-  return '--';
-}
-
-function researchModelSummary(setup) {
+function researchModelLines(setup) {
   const move = setup.expected_move;
   const pop = setup.pop;
   const expectedMove = move?.status === 'available' && Number.isFinite(Number(move.expected_move))
@@ -158,8 +150,12 @@ function researchModelSummary(setup) {
     : 'EM 不可用';
   const probability = pop?.status === 'available' && Number.isFinite(Number(pop.probability))
     ? `POP ${(Number(pop.probability) * 100).toFixed(0)}%`
-    : 'POP 不可用';
-  return `${expectedMove} · ${probability}`;
+    : pop?.reason === 'strategy_has_no_static_expiry_breakeven_model'
+      ? 'POP 需跨期情景模型'
+      : pop?.reason === 'expected_move_unavailable'
+        ? 'POP 缺少 IV 输入'
+        : 'POP 暂无模型';
+  return [expectedMove, probability];
 }
 
 function oiDeltaSummary(unusual) {
@@ -209,7 +205,6 @@ function toScanRow(row, concreteSetup) {
       change5d: num(row.trend_change_5d),
       rsi14: num(row.trend_rsi14),
     },
-    community: normalizeCommunityTrend(row),
     recommendation,
     concreteSetup,
     earnings: {
@@ -867,20 +862,34 @@ export default function Scan() {
                     <span className="scan-direction" style={{ color: DIR_COLOR(d.direction.score) }} title={d.direction.change5d == null ? '' : `5日 ${d.direction.change5d.toFixed(1)}%`}>
                       {d.direction.label}
                     </span>
-                    <span className="scan-positioning" title={d.community.status === 'missing' ? '社区样本热度尚未采集' : `${d.community.windowHours} 小时社区样本：${d.community.mentions} 帖提及，互动分 ${d.community.score.toFixed(1)}；不代表整体市场情绪。`}>
+                    <span className="scan-positioning">
                       <span className={`scan-gex-pill ${d.gex.regime}`}>
-                        {gammaRegimeLabel(d.gex.regime)}
+                        {gammaHeadline(d.gex)}
                       </span>
-                      <small>{gammaSummary(d.gex)}</small>
-                      <small>{wallSummary(d.gex, d.price)}</small>
-                      <small>{oiDeltaSummary(d.unusual)} · 社区样本 {communityHeatLabel(d.community)}</small>
+                      {[
+                        gammaBehavior(d.gex.regime),
+                        wallSummary(d.gex, d.price),
+                        ...splitScannerDetails(oiDeltaSummary(d.unusual)),
+                      ].map((item, index) => <small key={`${d.id}:position:${index}`}>{item}</small>)}
                       <DataDetails metadata={d.gexMetadata} compact />
                     </span>
                     <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>
-                      <small>{d.concreteSetup.expiry.slice(5)} · {d.concreteSetup.dte} DTE · OI ≥ {d.concreteSetup.minOpenInterest} · Spr {d.concreteSetup.avgSpreadPct.toFixed(1)}%</small>
-                      <small>{d.concreteSetup.structure} · {d.concreteSetup.pricing} · {economicsSummary(d.concreteSetup)}</small>
-                      <small title="Expected Move 使用同到期、最接近现价的 Call/Put IV 均值与日历日；POP 仅在期末盈亏平衡点明确且 IV 输入完整时按对数正态模型计算。">{researchModelSummary(d.concreteSetup)}</small>
+                      {[
+                        `${d.concreteSetup.expiry.slice(5)} · ${d.concreteSetup.dte} DTE`,
+                        `OI ≥ ${d.concreteSetup.minOpenInterest} · Spr ${d.concreteSetup.avgSpreadPct.toFixed(1)}%`,
+                        ...splitScannerDetails(d.concreteSetup.structure, d.concreteSetup.pricing),
+                        ...researchModelLines(d.concreteSetup),
+                      ].map((item, index) => (
+                        <small
+                          key={`${d.id}:candidate:${index}`}
+                          title={item.startsWith('EM ') || item.startsWith('POP ')
+                            ? 'Expected Move 使用同到期、最接近现价的 Call/Put IV 均值与日历日。POP 仅在静态期末盈亏平衡点明确且 IV 输入完整时计算；Calendar / Diagonal 跨到期结构需要情景模型。'
+                            : undefined}
+                        >
+                          {item}
+                        </small>
+                      ))}
                     </span>
                     <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险的启发式综合评分，仅用于排序，不代表胜率、预期收益或投资建议。">
                       {d.concreteSetup.score}

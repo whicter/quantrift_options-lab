@@ -57,9 +57,15 @@ log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
 WORKER_BATCH_SIZE = int(os.getenv('REFRESH_WORKER_BATCH_SIZE', '10'))
-# Bounded in-process concurrency. Provider pacing remains global in PostgreSQL;
-# this only overlaps independent symbol work and bounded IB wait time.
+# Bounded in-process concurrency for the primary Polygon/GEX lane. Provider
+# pacing remains global in PostgreSQL; IB quote waits run in another process.
 WORKER_CONCURRENCY = min(max(int(os.getenv('REFRESH_WORKER_CONCURRENCY', '3')), 1), 8)
+QUOTE_WORKER_BATCH_SIZE = max(int(os.getenv('QUOTE_WORKER_BATCH_SIZE', '1')), 1)
+QUOTE_WORKER_CONCURRENCY = min(max(int(os.getenv('QUOTE_WORKER_CONCURRENCY', '1')), 1), 2)
+QUOTE_ENRICHMENT_PRIORITY = min(
+    max(int(os.getenv('QUOTE_ENRICHMENT_PRIORITY', '90')), 0),
+    99,
+)
 WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
 RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
 # Polygon's paid plan is unlimited, so this cap is only a runaway-loop backstop,
@@ -72,9 +78,9 @@ RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINU
 PROVIDER_DAILY_BUDGET = int(os.getenv('PROVIDER_DAILY_BUDGET', '1000000'))
 TT_CIRCUIT_OPEN = os.getenv('TT_CIRCUIT_OPEN', '').strip().lower() in ('1', 'true', 'yes')
 SUPPORTED_OPTION_PROVIDERS = {'ib_internal', 'tt_internal', 'polygon_licensed'}
-# Polygon remains the primary chain source.  When a snapshot has no executable
-# quote, use the locally subscribed IB Gateway before considering any other
-# transitional provider.
+# Transitional non-Polygon collection can still use a bounded provider fallback.
+# Polygon positioning jobs never use this list: they must finish or fail without
+# waiting on the local IB Gateway.
 DEFAULT_OPTION_FALLBACK_PROVIDERS = 'ib_internal'
 # P2.1: during the regular US session, source the underlying spot from IB Gateway
 # (a real in-session delayed last) instead of a prior daily close. The $29 Polygon
@@ -98,7 +104,17 @@ NON_RETRYABLE_ERROR_PREFIXES = (
 )
 
 
-def fetch_jobs(conn) -> list[dict[str, Any]]:
+def fetch_jobs(
+    conn,
+    *,
+    queue_lane: str = 'primary',
+    batch_size: int | None = None,
+) -> list[dict[str, Any]]:
+    if queue_lane not in {'primary', 'quotes'}:
+        raise ValueError(f'unsupported refresh queue lane: {queue_lane}')
+    batch_size = batch_size or (
+        QUOTE_WORKER_BATCH_SIZE if queue_lane == 'quotes' else WORKER_BATCH_SIZE
+    )
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -112,6 +128,11 @@ def fetch_jobs(conn) -> list[dict[str, Any]]:
               FROM provider_fetch_jobs
               WHERE status = 'queued'
                 AND attempts < %s
+                AND (
+                  (%s = 'quotes' AND job_type = 'option_quote_snapshot')
+                  OR
+                  (%s = 'primary' AND job_type <> 'option_quote_snapshot')
+                )
               ORDER BY COALESCE((request_params->>'priority')::int, 0) DESC,
                        created_at ASC
               LIMIT %s
@@ -119,7 +140,7 @@ def fetch_jobs(conn) -> list[dict[str, Any]]:
             )
             RETURNING id, symbol, job_type, provider, attempts, request_params
             """,
-            (WORKER_MAX_ATTEMPTS, WORKER_BATCH_SIZE),
+            (WORKER_MAX_ATTEMPTS, queue_lane, queue_lane, batch_size),
         )
         rows = cur.fetchall()
         cols = [desc[0] for desc in cur.description]
@@ -343,7 +364,15 @@ def option_fallback_providers(primary_provider: str) -> list[str]:
 
 def option_provider_sequence(primary_provider: str, blocked_providers: set[str] | None = None) -> list[str]:
     blocked_providers = blocked_providers or set()
-    providers = [primary_provider, *option_fallback_providers(primary_provider)]
+    # The market-wide positioning lane is Polygon-only. A missing Polygon key,
+    # timeout, or quote-less response must not turn into a synchronous IB wait
+    # that occupies one of the GEX worker slots. IB quote collection is handled
+    # by option_quote_snapshot in its own process.
+    providers = (
+        [primary_provider]
+        if primary_provider == 'polygon_licensed'
+        else [primary_provider, *option_fallback_providers(primary_provider)]
+    )
     return [
         provider for provider in providers
         if not (provider == 'tt_internal' and 'tastytrade' in blocked_providers)
@@ -486,6 +515,48 @@ def has_usable_option_quotes(snapshot: Any) -> bool:
     )
 
 
+def enqueue_option_quote_snapshot(conn, job: dict[str, Any]) -> bool:
+    """Queue one deduplicated, on-demand IB quote enrichment job.
+
+    This is intentionally a different job type and worker lane from Polygon
+    positioning. It persists a quote-bearing chain for strategy legs but never
+    recomputes or changes Polygon-derived GEX.
+    """
+    request_params = job.get('request_params') or {}
+    requested_priority = int(request_params.get('priority') or QUOTE_ENRICHMENT_PRIORITY)
+    priority = min(requested_priority, QUOTE_ENRICHMENT_PRIORITY)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO provider_fetch_jobs (
+              symbol, job_type, provider, status, attempts, request_params
+            )
+            SELECT %s, 'option_quote_snapshot', 'ib_internal', 'queued', 0, %s
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM provider_fetch_jobs
+              WHERE symbol = %s
+                AND job_type = 'option_quote_snapshot'
+                AND provider = 'ib_internal'
+                AND status IN ('queued', 'running')
+            )
+            """,
+            (
+                job['symbol'],
+                Json({
+                    'reason': 'analyze_on_demand_missing_option_quotes',
+                    'priority': priority,
+                    'source_job_id': job.get('id'),
+                    'require_quotes': True,
+                }),
+                job['symbol'],
+            ),
+        )
+        inserted = cur.rowcount > 0
+    conn.commit()
+    return inserted
+
+
 def finalize_option_snapshot(conn, snapshot_id: int, pending: PendingDerivations | None = None) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     try:
@@ -527,14 +598,15 @@ def run_option_chain_snapshot(
 ) -> dict[str, Any]:
     symbol = job['symbol']
     primary_provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
-    require_quotes = bool((job.get('request_params') or {}).get('require_quotes'))
+    request_params = job.get('request_params') or {}
 
     if primary_provider not in SUPPORTED_OPTION_PROVIDERS:
         raise RuntimeError(f'unsupported option provider for worker: {primary_provider}')
 
     attempted = []
     last_exc: Exception | None = None
-    for provider_name in option_provider_sequence(primary_provider, blocked_providers):
+    provider_sequence = option_provider_sequence(primary_provider, blocked_providers)
+    for provider_index, provider_name in enumerate(provider_sequence):
         attempted.append(provider_name)
         try:
             reserve_budget(conn, provider_name, job['job_type'])
@@ -550,21 +622,24 @@ def run_option_chain_snapshot(
             if is_provider_unavailable(exc):
                 if provider_name == 'tt_internal' and blocked_providers is not None:
                     blocked_providers.add('tastytrade')
-                log.error('job %s provider %s unavailable; trying fallback: %s', job['id'], provider_name, exc)
+                if provider_index + 1 < len(provider_sequence):
+                    log.error(
+                        'job %s provider %s unavailable; trying fallback: %s',
+                        job['id'],
+                        provider_name,
+                        exc,
+                    )
+                else:
+                    log.error(
+                        'job %s provider %s unavailable; no synchronous fallback: %s',
+                        job['id'],
+                        provider_name,
+                        exc,
+                    )
                 continue
             raise
 
-        if require_quotes and not has_usable_option_quotes(snapshot):
-            last_exc = RuntimeError(
-                f'option quote unavailable: {provider_name} returned no usable bid/ask quotes'
-            )
-            log.warning(
-                'job %s provider %s returned no usable bid/ask quotes; trying fallback',
-                job['id'],
-                provider_name,
-            )
-            continue
-
+        quotes_usable = has_usable_option_quotes(snapshot)
         summary = {
             'requested_provider': primary_provider,
             'provider': provider_name,
@@ -577,11 +652,72 @@ def run_option_chain_snapshot(
             # The provider that actually answered, which may be a fallback
             # rather than the one requested.
             'source': provider_name,
+            'has_usable_quotes': quotes_usable,
         }
         summary.update(finalize_option_snapshot(conn, snapshot_id, pending))
+        if (
+            provider_name == 'polygon_licensed'
+            and not quotes_usable
+            and request_params.get('enqueue_quote_if_missing')
+        ):
+            try:
+                inserted = enqueue_option_quote_snapshot(conn, job)
+                summary['quote_enrichment'] = 'queued' if inserted else 'already_active'
+            except Exception as exc:
+                conn.rollback()
+                summary['quote_enrichment'] = 'enqueue_failed'
+                summary['quote_enrichment_error'] = str(exc)
+                log.error(
+                    'job %s could not enqueue independent IB quote enrichment: %s',
+                    job['id'],
+                    exc,
+                )
         return summary
 
     raise last_exc or RuntimeError(f'no supported option provider available for {symbol}')
+
+
+def run_option_quote_snapshot(
+    conn,
+    job: dict[str, Any],
+    provider_cache: dict[str, Any] | None = None,
+    pending: PendingDerivations | None = None,
+) -> dict[str, Any]:
+    """Persist an on-demand quote chain without touching positioning/GEX."""
+    symbol = job['symbol']
+    provider_name = job['provider'] or 'ib_internal'
+    if provider_name != 'ib_internal':
+        raise RuntimeError(f'unsupported quote provider for worker: {provider_name}')
+
+    reserve_budget(conn, provider_name, job['job_type'])
+    snapshot_id, snapshot = fetch_and_persist_option_snapshot(
+        conn,
+        symbol,
+        provider_name,
+        provider_cache,
+    )
+    if not has_usable_option_quotes(snapshot):
+        raise RuntimeError(
+            f'option quote unavailable: {provider_name} returned no usable bid/ask quotes'
+        )
+
+    summary = {
+        'provider': provider_name,
+        'snapshot_id': snapshot_id,
+        'contract_count': len(snapshot.contracts),
+        'provider_status': snapshot.provider_status,
+        'snapshot_ts': snapshot.snapshot_ts.isoformat(),
+        'source': provider_name,
+        'quote_only': True,
+        'has_usable_quotes': True,
+    }
+    if pending is None:
+        materialize_scan.run()
+        summary['scanner_materialized'] = True
+    else:
+        pending.request_scan()
+        summary['scanner_deferred'] = True
+    return summary
 
 
 def run_gex_recompute(conn, job: dict[str, Any], pending: PendingDerivations | None = None) -> dict[str, Any]:
@@ -735,6 +871,8 @@ def should_retry(exc: Exception) -> bool:
 
 
 def auth_provider_for_job(job: dict[str, Any]) -> str | None:
+    if job['job_type'] == 'option_quote_snapshot':
+        return job['provider'] or 'ib_internal'
     if job['job_type'] == 'option_chain_snapshot':
         provider = job['provider'] or os.getenv('OPTION_PROVIDER', 'tt_internal')
         return 'tastytrade' if provider == 'tt_internal' else provider
@@ -866,6 +1004,8 @@ def handle_job(
                 return
         elif job['job_type'] == 'option_chain_snapshot':
             summary = run_option_chain_snapshot(conn, job, blocked_providers, provider_cache, pending)
+        elif job['job_type'] == 'option_quote_snapshot':
+            summary = run_option_quote_snapshot(conn, job, provider_cache, pending)
         elif job['job_type'] == 'gex_recompute':
             summary = run_gex_recompute(conn, job, pending)
         elif job['job_type'] == 'symbol_metrics_snapshot':
@@ -887,7 +1027,12 @@ def handle_job(
         log.error('job %s %s: %s', job_id, status, exc)
 
 
-def run() -> None:
+def run(
+    *,
+    queue_lane: str = 'primary',
+    batch_size: int | None = None,
+    concurrency: int | None = None,
+) -> None:
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
 
@@ -902,11 +1047,11 @@ def run() -> None:
         failed_unrunnable = fail_unrunnable_queued_jobs(conn)
         if failed_unrunnable:
             log.info('Failed %s unrunnable queued refresh jobs', failed_unrunnable)
-        jobs = fetch_jobs(conn)
+        jobs = fetch_jobs(conn, queue_lane=queue_lane, batch_size=batch_size)
         if not jobs:
-            log.info('No queued refresh jobs')
+            log.info('No queued refresh jobs in %s lane', queue_lane)
             return
-        log.info('Processing %s refresh jobs', len(jobs))
+        log.info('Processing %s refresh jobs in %s lane', len(jobs), queue_lane)
         blocked_providers: set[str] = {'tastytrade'} if TT_CIRCUIT_OPEN else set()
         pending = PendingDerivations()
 
@@ -920,7 +1065,10 @@ def run() -> None:
             finally:
                 job_conn.close()
 
-        with ThreadPoolExecutor(max_workers=min(WORKER_CONCURRENCY, len(jobs))) as executor:
+        lane_concurrency = concurrency or (
+            QUOTE_WORKER_CONCURRENCY if queue_lane == 'quotes' else WORKER_CONCURRENCY
+        )
+        with ThreadPoolExecutor(max_workers=min(lane_concurrency, len(jobs))) as executor:
             list(executor.map(process_job, jobs))
         derivation_summary = run_pending_derivations(conn, pending)
         log.info('Batch derivations: %s', derivation_summary)

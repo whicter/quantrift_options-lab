@@ -10,6 +10,13 @@ function compactUnit(value, unit, divisor, digits) {
   return `${value < 0 ? '-' : ''}$${formatted}${unit}`;
 }
 
+export function splitScannerDetails(...values) {
+  return values.flatMap(value => String(value ?? '')
+    .split(/\s*·\s*/)
+    .map(item => item.trim())
+    .filter(Boolean));
+}
+
 export function compactMoney(value) {
   const n = number(value);
   if (n == null) return '--';
@@ -33,16 +40,18 @@ export function gammaRegimeLabel(regime) {
   return 'Gamma 未采集';
 }
 
-export function gammaSummary({ total, regime, status }) {
+export function gammaHeadline({ total, regime }) {
   const exposure = number(total);
-  if (exposure == null) return '净 GEX 未采集';
-  const behavior = regime === 'negative'
+  const gex = exposure == null ? '净 GEX 未采集' : `净 GEX ${compactMoney(exposure)}`;
+  return `${gammaRegimeLabel(regime)} · ${gex}`;
+}
+
+export function gammaBehavior(regime) {
+  return regime === 'negative'
     ? '波动更可能放大'
     : regime === 'positive'
       ? '波动更可能收敛'
       : '波动影响中性';
-  const freshness = status === 'stale' ? '快照延迟' : status === 'missing' ? '未采集' : null;
-  return `${gammaRegimeLabel(regime)} · 净 GEX ${compactMoney(exposure)} · ${behavior}${freshness ? ` · ${freshness}` : ''}`;
 }
 
 export function wallSummary({ callWall, putWall, nearestWall }, spot) {

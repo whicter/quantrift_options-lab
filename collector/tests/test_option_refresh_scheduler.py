@@ -5,17 +5,6 @@ import schedule_option_refresh
 
 
 class OptionRefreshSchedulerTests(unittest.TestCase):
-    def test_live_quotes_are_only_required_during_regular_session(self):
-        self.assertTrue(schedule_option_refresh.require_live_quotes(
-            datetime(2026, 7, 20, 14, 0, tzinfo=timezone.utc),
-        ))
-        self.assertFalse(schedule_option_refresh.require_live_quotes(
-            datetime(2026, 7, 19, 14, 0, tzinfo=timezone.utc),
-        ))
-        self.assertFalse(schedule_option_refresh.require_live_quotes(
-            datetime(2026, 7, 20, 0, 30, tzinfo=timezone.utc),
-        ))
-
     def test_quote_missing_symbol_is_selected_as_missing_before_fresh_quoted_data(self):
         now = datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc)
         selected = schedule_option_refresh.select_candidates(
@@ -160,12 +149,13 @@ class PriorityTierTests(unittest.TestCase):
 
 
 class EnqueuePriorityTests(unittest.TestCase):
-    def test_enqueued_job_requests_quotes_when_session_requires_them(self):
+    def test_background_refresh_never_requests_ib_quote_fallback(self):
         conn = _RecordingConn()
-        schedule_option_refresh.enqueue_candidates(conn, ['SPY'], require_quotes=True)
+        schedule_option_refresh.enqueue_candidates(conn, ['SPY'])
 
         payload = conn.executed[0][1][2].adapted
-        self.assertTrue(payload['require_quotes'])
+        self.assertNotIn('require_quotes', payload)
+        self.assertNotIn('enqueue_quote_if_missing', payload)
 
     def test_enqueued_job_carries_its_tier_priority(self):
         conn = _RecordingConn()

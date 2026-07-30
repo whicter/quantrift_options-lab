@@ -15,6 +15,22 @@ class RefreshJobPriorityTests(unittest.TestCase):
 
         sql = cursor.execute.call_args.args[0]
         self.assertIn("ORDER BY COALESCE((request_params->>'priority')::int, 0) DESC", sql)
+        params = cursor.execute.call_args.args[1]
+        self.assertEqual(params[1:3], ('primary', 'primary'))
+
+    def test_quote_lane_claims_only_quote_jobs(self):
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+        cursor.description = []
+
+        run_refresh_worker.fetch_jobs(conn, queue_lane='quotes', batch_size=1)
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("job_type = 'option_quote_snapshot'", sql)
+        self.assertIn("job_type <> 'option_quote_snapshot'", sql)
+        self.assertEqual(params[1:3], ('quotes', 'quotes'))
+        self.assertEqual(params[-1], 1)
 
     def test_gex_recompute_uses_latest_persisted_chain_without_provider_call(self):
         conn = MagicMock()

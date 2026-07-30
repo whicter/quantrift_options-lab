@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import psycopg2
 from dotenv import load_dotenv
@@ -56,22 +55,6 @@ TIER_NAMES = {
     PRIORITY_UNIVERSE_SCAN: 'universe_scan',
     PRIORITY_COLD_BACKFILL: 'cold_backfill',
 }
-
-NEW_YORK = ZoneInfo('America/New_York')
-
-
-def require_live_quotes(now: datetime) -> bool:
-    """Require executable quotes only during the US regular session.
-
-    After-hours and weekend snapshots still carry valid positioning inputs, but
-    cannot honestly satisfy a strategy-leg quote request.
-    """
-    market_time = now.astimezone(NEW_YORK)
-    return (
-        market_time.weekday() < 5
-        and time(9, 30) <= market_time.time() < time(16, 0)
-    )
-
 
 def assign_tiers(symbols: list[str], scan_enabled: set[str], recent_active: set[str]) -> dict[str, int]:
     """Assign each symbol its refresh priority tier.
@@ -247,9 +230,9 @@ def load_refresh_state(conn, symbols: list[str]) -> tuple[dict[str, datetime], s
         # priority sort again and re-claim most of the queue, starving symbols
         # that succeeded before but are just chronologically older (observed:
         # STX/SRVR/MU going 20+ hours unrefreshed while 16 never-quoted symbols
-        # cycled through every cooldown window). Whether a *specific* job needs
-        # a live quote is decided separately by require_quotes on the job the
-        # worker picks up; this query only answers "is a refresh due".
+        # cycled through every cooldown window). Strategy quotes are now a
+        # separate on-demand job type; this query only answers "is a Polygon
+        # positioning refresh due".
         cur.execute(
             """
             SELECT DISTINCT ON (symbol) symbol, snapshot_ts
@@ -282,8 +265,6 @@ def enqueue_candidates(
     conn,
     symbols: list[str],
     tiers: dict[str, int] | None = None,
-    *,
-    require_quotes: bool = False,
 ) -> int:
     tiers = tiers or {}
     inserted = 0
@@ -311,7 +292,6 @@ def enqueue_candidates(
                         'reason': 'universe_auto_refresh',
                         'priority': priority,
                         'tier': TIER_NAMES.get(priority, 'universe_scan'),
-                        'require_quotes': require_quotes,
                     }),
                     symbol,
                 ),
@@ -354,8 +334,7 @@ def run() -> dict[str, Any]:
             capacity,
             tiers,
         )
-        quote_required = require_live_quotes(datetime.now(timezone.utc))
-        inserted = enqueue_candidates(conn, candidates, tiers, require_quotes=quote_required)
+        inserted = enqueue_candidates(conn, candidates, tiers)
     finally:
         conn.close()
 
@@ -363,7 +342,6 @@ def run() -> dict[str, Any]:
         'selected': candidates,
         'inserted': inserted,
         'provider': REFRESH_PROVIDER,
-        'require_quotes': quote_required,
         'queue_depth': queue_depth,
         'capacity': capacity,
         'remaining_budget': remaining_budget,

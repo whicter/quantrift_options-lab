@@ -3,7 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 WORKER_SOURCE = Path(__file__).resolve().parents[1] / 'run_refresh_worker.py'
@@ -49,7 +49,7 @@ class RefreshProviderContractTest(unittest.TestCase):
             RuntimeError('option quote unavailable: polygon_licensed returned no usable bid/ask quotes')
         ))
 
-    def test_default_quote_fallback_is_ib(self):
+    def test_transitional_non_polygon_fallback_defaults_to_ib(self):
         import run_refresh_worker
 
         self.assertEqual(run_refresh_worker.DEFAULT_OPTION_FALLBACK_PROVIDERS, 'ib_internal')
@@ -206,7 +206,7 @@ class RefreshProviderContractTest(unittest.TestCase):
             RuntimeError('tastytrade network unavailable: ConnectTimeout')
         ))
 
-    def test_quote_required_job_falls_back_when_primary_has_no_bid_ask(self):
+    def test_polygon_job_finishes_gex_before_queueing_independent_ib_quotes(self):
         import run_refresh_worker
 
         class FakeConn:
@@ -217,9 +217,7 @@ class RefreshProviderContractTest(unittest.TestCase):
 
         def fake_fetch(_conn, _symbol, provider, _provider_cache=None):
             calls.append(provider)
-            contracts = [] if provider == 'polygon_licensed' else [
-                SimpleNamespace(bid=1.0, ask=1.2),
-            ]
+            contracts = []
             return 200 + len(calls), SimpleNamespace(
                 contracts=contracts,
                 provider_status='ok',
@@ -229,7 +227,8 @@ class RefreshProviderContractTest(unittest.TestCase):
         with patch.dict('os.environ', {'OPTION_FALLBACK_PROVIDERS': 'tt_internal'}, clear=False), \
              patch.object(run_refresh_worker, 'reserve_budget'), \
              patch.object(run_refresh_worker, 'fetch_and_persist_option_snapshot', side_effect=fake_fetch), \
-             patch.object(run_refresh_worker, 'finalize_option_snapshot', return_value={}):
+             patch.object(run_refresh_worker, 'finalize_option_snapshot', return_value={'gex_id': 77}) as finalize, \
+             patch.object(run_refresh_worker, 'enqueue_option_quote_snapshot', return_value=True) as enqueue_quotes:
             summary = run_refresh_worker.run_option_chain_snapshot(
                 FakeConn(),
                 {
@@ -237,15 +236,22 @@ class RefreshProviderContractTest(unittest.TestCase):
                     'symbol': 'RKLB',
                     'job_type': 'option_chain_snapshot',
                     'provider': 'polygon_licensed',
-                    'request_params': {'require_quotes': True},
+                    'request_params': {
+                        'priority': 100,
+                        'enqueue_quote_if_missing': True,
+                    },
                 },
             )
 
-        self.assertEqual(calls, ['polygon_licensed', 'tt_internal'])
-        self.assertEqual(summary['provider'], 'tt_internal')
-        self.assertEqual(summary['fallback_from'], 'polygon_licensed')
+        self.assertEqual(calls, ['polygon_licensed'])
+        self.assertEqual(summary['provider'], 'polygon_licensed')
+        self.assertEqual(summary['gex_id'], 77)
+        self.assertEqual(summary['quote_enrichment'], 'queued')
+        finalize.assert_called_once()
+        self.assertEqual(finalize.call_args.args[1:], (201, None))
+        enqueue_quotes.assert_called_once()
 
-    def test_quote_required_job_falls_back_when_polygon_is_not_configured(self):
+    def test_polygon_positioning_job_never_falls_back_to_ib_when_unavailable(self):
         import run_refresh_worker
 
         class FakeConn:
@@ -264,26 +270,84 @@ class RefreshProviderContractTest(unittest.TestCase):
                 snapshot_ts=datetime(2026, 7, 15, tzinfo=timezone.utc),
             )
 
-        with patch.dict('os.environ', {'OPTION_FALLBACK_PROVIDERS': 'tt_internal'}, clear=False), \
+        with patch.dict('os.environ', {'OPTION_FALLBACK_PROVIDERS': 'ib_internal'}, clear=False), \
              patch.object(run_refresh_worker, 'reserve_budget'), \
              patch.object(run_refresh_worker, 'fetch_and_persist_option_snapshot', side_effect=fake_fetch), \
              patch.object(run_refresh_worker, 'finalize_option_snapshot', return_value={}):
-            summary = run_refresh_worker.run_option_chain_snapshot(
-                FakeConn(),
-                {
-                    'id': 102,
-                    'symbol': 'RKLB',
-                    'job_type': 'option_chain_snapshot',
-                    'provider': 'polygon_licensed',
-                    'request_params': {'require_quotes': True},
-                },
-            )
+            with self.assertRaisesRegex(RuntimeError, 'POLYGON_API_KEY'):
+                run_refresh_worker.run_option_chain_snapshot(
+                    FakeConn(),
+                    {
+                        'id': 102,
+                        'symbol': 'RKLB',
+                        'job_type': 'option_chain_snapshot',
+                        'provider': 'polygon_licensed',
+                    },
+                )
 
-        self.assertEqual(calls, ['polygon_licensed', 'tt_internal'])
-        self.assertEqual(summary['provider'], 'tt_internal')
+        self.assertEqual(calls, ['polygon_licensed'])
         self.assertTrue(run_refresh_worker.is_provider_unavailable(
             RuntimeError('POLYGON_API_KEY is required for PolygonOptionChainProvider')
         ))
+
+    def test_quote_job_persists_ib_quotes_without_recomputing_gex(self):
+        import run_refresh_worker
+
+        snapshot = SimpleNamespace(
+            contracts=[SimpleNamespace(bid=1.0, ask=1.2)],
+            provider_status='ok',
+            snapshot_ts=datetime(2026, 7, 15, tzinfo=timezone.utc),
+        )
+        pending = run_refresh_worker.PendingDerivations()
+        with patch.object(run_refresh_worker, 'reserve_budget'), \
+             patch.object(
+                 run_refresh_worker,
+                 'fetch_and_persist_option_snapshot',
+                 return_value=(303, snapshot),
+             ), \
+             patch.object(run_refresh_worker, 'finalize_option_snapshot') as finalize:
+            summary = run_refresh_worker.run_option_quote_snapshot(
+                SimpleNamespace(),
+                {
+                    'id': 103,
+                    'symbol': 'RKLB',
+                    'job_type': 'option_quote_snapshot',
+                    'provider': 'ib_internal',
+                },
+                pending=pending,
+            )
+
+        self.assertEqual(summary['provider'], 'ib_internal')
+        self.assertEqual(summary['snapshot_id'], 303)
+        self.assertTrue(summary['quote_only'])
+        self.assertTrue(pending.scan)
+        self.assertFalse(pending.oi_delta)
+        finalize.assert_not_called()
+
+    def test_quote_enrichment_enqueue_is_deduplicated_and_lower_priority(self):
+        import run_refresh_worker
+
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 1
+
+        inserted = run_refresh_worker.enqueue_option_quote_snapshot(
+            conn,
+            {
+                'id': 104,
+                'symbol': 'RKLB',
+                'request_params': {'priority': 100},
+            },
+        )
+
+        sql, params = cursor.execute.call_args.args
+        payload = params[1].adapted
+        self.assertTrue(inserted)
+        self.assertIn("job_type = 'option_quote_snapshot'", sql)
+        self.assertIn("status IN ('queued', 'running')", sql)
+        self.assertEqual(payload['priority'], 90)
+        self.assertEqual(payload['source_job_id'], 104)
+        conn.commit.assert_called_once()
 
     def test_worker_reuses_one_provider_instance_for_all_jobs(self):
         import run_refresh_worker

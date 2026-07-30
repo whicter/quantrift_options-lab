@@ -584,7 +584,7 @@ GEX compute job：
 ## Mac Power Recovery Lessons (2026-07-16)
 
 - **自动重启设置与供电持续性是两项独立控制**：`pmset -g custom` 已确认 AC Power `autorestart 1`，所以市电恢复可启动机器；它不提供断电期间的续航。
-- **开机不等于进程恢复**：还需验证 LaunchAgent。当前 `pm2.congrenhan` 在 `RunAtLoad` 运行 `pm2 resurrect`，且 `dump.pm2` 含五个 Quantrift collector apps；只有这两个条件同时满足，机器恢复后采集进程才会自动回来。
+- **开机不等于进程恢复**：还需验证 LaunchAgent。2026-07-30 已验证的 `dump.pm2` 含七个 Quantrift collector apps；本次新增 `quantrift-options-quote-worker` 后必须执行 `startOrReload` 与 `pm2 save`，把第八个 app 写入 saved list。只有 `RunAtLoad` 的 `pm2 resurrect` 与最新 saved list 同时成立，机器恢复后采集进程才会自动回来。
 - **UPS 验收必须是恢复演练**：接入 UPS 后要受控地验证 Mac、IB Gateway、PM2 process list、collector health、队列和数据库最新 snapshot 全部恢复，不能只把“已购买 UPS”当完成。
 
 ## IB Gateway Cloud Evaluation Lessons (2026-07-15)
@@ -702,6 +702,7 @@ GEX compute job：
 - **策略候选不可在最后一层被清空**：期权链、报价和 GEX 都 ready 时，前端把 `recommendation` 设成 `null` 会伪装成数据缺失。完整链只应在后端候选引擎读取，Analyze 只消费服务端筛出的策略腿 DTO 和真实的无候选原因。
 - **期权链完整度与可交易报价是不同条件**：GEX 只需要 Greeks/OI，策略腿还必须有有效 bid/ask。刷新调度若仅检查 `contract_count > 0`，会把无报价快照误判为完成，导致用户永远拿不到具体策略腿。
 - **无报价快照必须走定向回退，不是重复同源刷新**：`require_quotes` 的 Polygon job 若没有有效 bid/ask，保留该快照供 GEX/OI 使用，再在同一 job 尝试 IB；所有 provider 仍无报价时以 non-retryable blocker 结束。不能用 mark、last 或收盘价补成假 bid/ask。
+- **2026-07-30 架构替代说明**：上一条记录的是 2026-07-19 当时的同步 fallback 修复，现已被独立报价 lane 取代。当前 `option_chain_snapshot` 无论是否有 bid/ask 都以 Polygon 结构链完成 GEX/OI；只有 Analyze 实际需要策略定价时才创建 `option_quote_snapshot`，由独立 IB worker 处理。历史 lesson 保留用于说明为何不能伪造报价，不再描述当前调度行为。
 - **provider 原始 JSON 也属于采集事务的一部分**：TT/DXLink 事件可能含 `Decimal`。数据库列可以正常适配 Decimal，但 JSONB 不会；raw metadata 与 raw contract 必须在持久化边界统一转成 JSON 数字，否则“数据已获取”仍会因审计字段失败而整单回滚。
 - **blocker 只能表达不可通过重试解决的状态**：无报价和认证失败适合短期阻断；代码或序列化错误不应被标记成数据不可用，否则部署修复后用户请求仍被旧失败记录挡住。
 - **enqueue 与执行是两个独立运行面**：API 写入 `provider_fetch_jobs` 不会自行执行 provider。Railway 若只跑 `collect.py`，按需队列和 watchlist option scheduler 都会饿死；云端 one-shot cron 必须按顺序运行 scheduler、refresh worker、scanner materialization。当前 cadence 为工作日每 5 分钟。
@@ -741,11 +742,15 @@ GEX compute job：
 
 ### 18. 有“缺报价检测”不等于会触发报价回退
 
+> 历史记录：本节描述 2026-07-19 的修复。2026-07-30 起同步 fallback 已被独立 `option_quote_snapshot` lane 取代；当前行为以 `docs/ARCHITECTURE.md` 第 45 节为准。
+
 - **根因（2026-07-19）**：scheduler 的 freshness query 正确地只把有有效 bid/ask 的 snapshot 视为 quote-ready；但它创建的 background job 没有 `request_params.require_quotes`。worker 因此把 quote-less Polygon snapshot 作为成功结果结束，永远不尝试 fallback。
 - **修复**：仅在美股常规交易时 scheduler 写入 `require_quotes=true`；worker 将 `polygon_licensed → ib_internal` 作为默认顺序。休市不要求报价，避免把真实但无 bid/ask 的结构快照错误标记为失败。
 - **运行证据**：2026-07-19（周末）重载后的 collector 写入了 1,876 条 Polygon option-contract structural rows，bid/ask 为 0；这证明“无报价”是休市状态，不能据此判断 IB 订阅无效。开盘后必须再次验证 IB 真实 bid/ask、Greeks 与 fallback 写入。
 
 ### 19. 报价过滤器不能同时兼职"该不该刷新"的判断
+
+> 历史记录：本节的调度饥饿根因仍有效，但其中 `require_quotes` 决策已于 2026-07-30 删除。当前 scheduler 只按任意 Polygon positioning snapshot 判断 freshness，报价 readiness 由 Analyze 的独立 quote job 判断。
 
 - **和第 18 条是同一个查询埋的另一个坑**：`load_refresh_state` 把"最新快照"限定为带有效 bid/ask 的那条，是为了让第 18 条的 quote-readiness 判断正确；但这条查询的返回值同时被拿去做**调度排序**（谁最该被刷新）。一个从未成功拿到报价的标的（含 `VIX` 这种永久失败的——它是指数，走股票 `/prev` 端点必然报错）因此在排序里显示"从未采集"，比任何真实但较旧的快照都排得靠前，每 30 分钟冷却期一到就重新抢占大半队列容量，把 STX/SRVR 等曾经成功、只是较旧的标的饿了 20+ 小时。
 - **教训**：同一段 SQL 的返回值如果被两个不同目的复用（"这条快照能不能当报价用" vs "这个标的多久没刷新了"），过滤条件必须按各自目的分别定义，不能图省事共用一个查询——省下的代码量远不够抵消一个隐藏在排序里的资源饥饿 bug。
@@ -784,6 +789,9 @@ GEX compute job：
 - **前端没有请求超时 = 后端一挂就变成永久转圈,而不是报错(2026-07-30)**:数据库宕机时,四个页面全部无限「加载中」,**一个错误提示都没有**。排查发现 `api.js` 的 `getJson` 从来没设过 timeout——后端接了 TCP 但不回话时 fetch 永远 pending,于是每个页面**早就写好的 `.catch(...)` 错误分支根本够不着**。页面不是没做错误处理,是错误永远不会到达。加了 `AbortController` 超时后才恢复正常报错。**教训**:①"有错误处理"和"错误处理会被触发"是两件事,**挂起(hang)和失败(reject)是完全不同的失败模式**,只防后者等于没防;②这次真实的挂起长达 **300 秒**(Railway 网关超时才 502),用户体感就是"网站坏了";③任何 fetch 封装都该有默认 deadline,这属于基础设施而不是可选优化。
 - **备份要按"能不能重建"分类,不是全库一把梭(2026-07-30)**:这个库 4.2GB,但**真正不可再生的只有 127MB(3%)**——`candidate_ledger`(模型在某时点推荐了什么,原理上无法重建)、IV/价格历史(能重建但要 15 小时 + API 花费)、新闻/外部流(时点推送,没有历史回补接口)。剩下 97% 是每 5 分钟重新物化、几小时后就作废的快照,备份它们纯属浪费。按这个分类导出后,**压缩完只有 9.4MB**,快到可以每天跑。**教训**:①"要不要备份"的正确提问方式是"丢了能不能重建、重建代价多大",不是"这张表重不重要";②托管平台自带的备份和数据库在同一个账户下,是单点——这次事故证明库真的会死,独立备份不是多余;③**备份必须验证**(核对行数和列结构),脚本退出码为 0 只说明它跑完了,不说明导出的东西能用。
 - **市场结构的软倾向,不要冒充硬冲突(2026-07-24)**:Gamma regime 对策略是"利于/不利于"的软提示(正 Gamma 环境不代表 Long Straddle 一定错),和"策略方向与当前趋势相反"这种硬冲突性质不同——后者该标 `conflict:true` 走警告样式,前者只应该是独立的 `gammaNote` 信息条(蓝色,非黄色警告)。把两种语义混进同一个 `conflict`/`note` 字段,会让用户把"温和的市场结构提示"误读成"这个候选有问题"。
+- **优先级不能隔离阻塞 IO；要隔离 job type、claim query 和进程(2026-07-30)**:把 IB fallback 的 priority 调低，仍然解决不了它占住 3 个主 worker 槽位的问题；`ThreadPoolExecutor` 已经领取 job 后，后面再来的高优先级 Polygon 任务只能等。真正的隔离要同时满足三层：①`option_chain_snapshot` 与 `option_quote_snapshot` 是不同 job type；②主 worker SQL 明确 `job_type <> option_quote_snapshot`，quote worker SQL 明确只等于它；③IB 在独立 PM2 进程中单路消费。这样 timeout 只拖慢用户请求的那一个报价 lane，不能拖慢全市场 GEX。仅拆函数、仅加 async、仅改 priority 都不够。
+- **高密度表格的“紧凑”不等于截断；原子事实应 soft-indent 换行(2026-07-30)**:Scanner 为压缩宽度把 positioning/candidate 文本做 ellipsis，结果标题和关键腿信息被截掉；又把整段 `A · B · C` 塞进一行，Debit 因两个 summary 拼接重复出现。正确做法是数据层先把分隔符拆成原子 facts、去掉重复口径，再让每个 fact 独立一行并用小圆点 soft-indent；CSS 允许 wrap/overflow-wrap，禁止 truncate。需要绑定理解的两项留同行(到期日+DTE、OI+spread、Gamma sign+net GEX)，其余逐行。UI 不应默认打印“快照延迟”“社区样本”这类内部诊断词。
+- **主题优化必须同时提高两套主题的层级差，而不是只换色值(2026-07-30)**:浅色“不醒目”的根因不是单个蓝色不够深，而是页面背景、card、nested surface、border、muted text 的明度差过小；深色“不一目了然”也同样是层级不足。最终把 `bg/surface/surface-muted/input`、`border/light/strong`、`text/dim/muted` 设成语义梯度，并让 section header、metric accent、active state、focus ring 统一消费 token。验收必须逐页切换深/浅两套主题；只看一套会把另一套的硬编码颜色问题带回去。
 
 ### 21. 共享预算行 + upsert 覆盖 + 低默认值 = 双 runtime 定时饿死
 

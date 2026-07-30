@@ -58,6 +58,26 @@ module.exports = {
       },
     },
     {
+      // User-requested strategy pricing is deliberately isolated from the
+      // market-wide Polygon/GEX process. A slow IB request can occupy only this
+      // one lane and cannot delay the collector's next refresh cycle.
+      name: 'quantrift-options-quote-worker',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'run_quote_worker_daemon.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: true,
+      restart_delay: 5000,
+      env: {
+        COLLECTOR_RUNTIME: 'mac-ib-quote-worker',
+        QUOTE_WORKER_POLL_SECONDS: '5',
+        QUOTE_WORKER_BATCH_SIZE: '1',
+        QUOTE_WORKER_CONCURRENCY: '1',
+        QUOTE_ENRICHMENT_PRIORITY: '90',
+        IB_MARKET_DATA_TYPE: '1',
+        IB_OPTION_STREAM_TIMEOUT: '4',
+      },
+    },
+    {
       name: 'quantrift-options-prices',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_prices.py',

@@ -852,18 +852,21 @@ collector 不应因单个 symbol 失败而完全丢失整个批次。建议：
 collector/ecosystem.config.cjs
   ├── quantrift-options-collector
   │   └── run_collector_daemon.py
-  │       ├── option refresh scheduler (300s, batch 2)
-  │       ├── refresh worker (60s)
+  │       ├── option refresh scheduler (300s, queue target 20)
+  │       ├── Polygon/GEX refresh worker (60s, batch 10, concurrency 3)
   │       └── scanner materialization (300s)
+  ├── quantrift-options-quote-worker
+  │   └── run_quote_worker_daemon.py
+  │       └── on-demand IB quote worker (5s, batch 1, concurrency 1)
   └── quantrift-options-prices
       └── collect_prices.py (Mon-Fri 13:35 & 18:35 PT)
 ```
 
-启动与持久化：`pm2 start collector/ecosystem.config.cjs && pm2 save`。旧 LaunchAgent、wrapper 和 `~/.quantrift_options_collector` 已移除。
+启动与持久化：`pm2 startOrReload collector/ecosystem.config.cjs --update-env && pm2 save`。旧 LaunchAgent、wrapper 和 `~/.quantrift_options_collector` 已移除。新增 PM2 app 后必须重新执行 `pm2 save`，否则 `pm2 resurrect` 不会恢复新进程。
 
 运行保障：
 
-- 机器断电恢复后任务能继续：2026-07-16 `pmset -g custom` 已验证 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 使用 `RunAtLoad=true` 执行 `pm2 resurrect`，且 saved process list 含五个 Quantrift collector apps。系统在市电恢复后会启动并恢复已保存的 PM2 apps。
+- 机器断电恢复后任务能继续：2026-07-16 `pmset -g custom` 已验证 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 使用 `RunAtLoad=true` 执行 `pm2 resurrect`。2026-07-30 已验证 saved process list 含七个 Quantrift collector apps；本次新增 quote worker 后需在 Mac Studio `startOrReload` 并 `pm2 save`，使第八个 app 进入 saved list。
 - 网络失败可恢复。
 - 日志可查看。
 - 运行状态可告警。
@@ -912,8 +915,8 @@ Polygon.io  GET /v3/snapshot/options/{symbol}?limit=250  （+ next_url 分页）
   + GET /v2/aggs/ticker/{symbol}/prev  （underlying 前日 OHLCV）
   → polygon_option_chain_provider.py
   → run_refresh_worker.py（worker daemon，60s poll）
-      ← schedule_option_refresh.py（scheduler，每 300s，填满至 queue target 20，max_age 60min；常规交易时 `require_quotes=true`）
-      → 无有效 bid/ask 时回退 IB Gateway（`ib_internal`，实时类型 1）
+      ← schedule_option_refresh.py（scheduler，每 300s，填满至 queue target 20，max_age 60min）
+      → Polygon snapshot 与 GEX 完成后立即释放 worker；不等待 IB
   → option_chain_snapshots
       symbol, snapshot_ts, source, underlying_price,
       contract_count, completeness_pct, missing_greeks_ratio, missing_oi_ratio
@@ -1020,7 +1023,7 @@ symbol_universe (active)          ← 不是 watchlist.txt；后者只是 seed
 - **深度是约束量。** per-cycle cap 只限制被抽干的队列回填速度。原先 2 个/300s 而 worker 2 个/60s，worker 约 80% 时间空转。
 - **后台 tier 永远低于 on-demand 的 100。** worker 按 `priority DESC` claim；后台扫描若与之持平，正在等页面的用户会排到冷补齐后面。
 - **tier 表示"谁需要"，不表示"多旧"。** staleness 只在 tier 内排序，不跨 tier 提升。
-- **staleness 的判定不能叠加"是否带报价"（2026-07-19 修复）。** `load_refresh_state` 早先把"最新快照"限定为带有效 bid/ask 的那条，导致从未成功拿到报价的标的（含永久失败的 `VIX`——它是指数，走股票 `/prev` 端点必然报错）在排序里永远显示"从未采集"，比任何真实但较旧的快照都靠前；每 30 分钟冷却期一到就重新抢占大半队列容量，把 STX/SRVR 等曾经成功、只是较旧的标的饿了 20+ 小时。现在 `latest_snapshots` 只看**任意**快照的时间戳；报价需求已由独立的 `require_quotes`（仅常规交易时段为真）承担，排序不必重复这个门槛。`VIX` 已从 `scan_enabled` 移出。详见 `docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
+- **staleness 的判定不能叠加"是否带报价"（2026-07-19 修复，2026-07-30 进一步解耦）。** `load_refresh_state` 早先把"最新快照"限定为带有效 bid/ask 的那条，导致从未成功拿到报价的标的在排序里永远显示"从未采集"，每次冷却结束后重新抢占队列。现在 `latest_snapshots` 只看**任意** Polygon 快照时间戳；后台刷新只负责 positioning/GEX，不再要求报价。策略定价缺报价时由 Analyze 单独排 `option_quote_snapshot`。详见 `docs/validation/SCHEDULER_STARVATION_FIX_2026-07-19.md`。
 - **候选来自 universe。** universe 会因用户分析未知 symbol 而增长（实测 80 vs watchlist 67）；读文件会把 on-demand symbol 永久排除在后台刷新之外。
 
 **Freshness 契约（E5，2026-07-17）**
@@ -2032,9 +2035,39 @@ Readiness requires 60 daily bars, 12 weekly observations, and 26 regular-session
 
 ## 45. Quote Refresh Recovery Boundary
 
-An Analyze request never calls a provider inline. When an existing chain lacks executable bid/ask quotes, the API enqueues one high-priority `option_chain_snapshot` job with `require_quotes=true`. The worker executes a bounded provider sequence: Polygon first, then the configured local fallback such as TT or IB. A provider construction or connection failure is recoverable and advances the sequence; a returned chain without usable bid/ask also advances the sequence. Only an explicit final `option quote unavailable` result may temporarily block repeat enqueueing. A cloud-specific TT device challenge is not a global quote-data verdict and cannot block a later Mac Studio worker.
+An Analyze request never calls a provider inline. The market-wide
+`option_chain_snapshot` lane is Polygon-only: it persists the structural chain,
+computes GEX, requests OI/scanner derivations, and succeeds even when bid/ask is
+absent. It never waits for IB and never lets an IB result replace
+Polygon-derived GEX.
 
-The worker persists the successful chain, recomputes GEX, materializes OI delta and scanner rows, then Analyze candidate generation reads only the latest quote-bearing snapshot. This was production-verified for RKLB on 2026-07-17: the local worker fell back after the absent Polygon key, wrote a real quoted snapshot, and `/api/analyze/RKLB/candidate` returned a server-side Diagonal Spread DTO. JSONB boundaries for both raw provider data and scanner payloads explicitly encode Python `Decimal` values before persistence.
+When a user actually requests analysis and the persisted chain lacks executable
+bid/ask, the API enqueues `option_quote_snapshot` for `ib_internal` at priority
+90. A dedicated `quantrift-options-quote-worker` process claims only this job
+type with concurrency 1. It persists a quote-bearing chain and rematerializes
+strategy candidates, but does not compute GEX or OI delta. Therefore an IB
+timeout, entitlement failure, or slow contract walk cannot consume any of the
+three Polygon/GEX worker slots or delay the primary daemon's next cycle. Only
+an explicit terminal `option quote unavailable` from this isolated job may
+temporarily block repeat quote enqueueing.
+
+## 45.1 Theme and Scanner Information Hierarchy
+
+Dark and light themes share semantic tokens for page, surface, muted surface,
+strong border, primary text, secondary text, and status accents. Components
+must consume those roles instead of hard-coding a color that only works in one
+theme. Analyze and Scanner use stronger section boundaries and restrained
+accent strips so the hierarchy remains readable without changing the existing
+visual identity.
+
+Scanner density is controlled by elastic columns and wrapping, not by hiding
+information. Column titles must remain complete. Positioning and strategy
+candidate details are split into atomic facts, rendered as soft-indented lines,
+and allowed to wrap without ellipsis. Related facts stay together only where
+they form one concept: expiry with DTE, OI with spread, and Gamma sign with net
+GEX. Debit or credit appears once. Internal diagnostics such as snapshot delay
+and community-sample collection do not appear as unexplained default product
+copy, and an unavailable POP states the concrete model/input reason.
 
 ## 46. Analyze Technical Support Confluence Prototype
 

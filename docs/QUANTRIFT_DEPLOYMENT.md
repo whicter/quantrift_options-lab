@@ -420,13 +420,14 @@ public.price_history_30m
 - 2026-07-14 Railway DB 覆盖验证：`price_history` 有 67 distinct symbols、4020 rows、date range 2026-04-17 → 2026-07-14、source=`ib_internal`，无少于 60 rows 的 symbol。
 - 当前定时任务状态：PM2 直接运行 Mac Studio 当前 repo，不维护同步副本。
   - Config：`/Users/congrenhan/Documents/quantrift_options-lab/collector/ecosystem.config.cjs`
-  - `quantrift-options-collector`：长期运行 `run_collector_daemon.py`；option coverage scheduler 300 秒（batch 2）、worker 60 秒、scanner materialization 300 秒。
+  - `quantrift-options-collector`：长期运行 `run_collector_daemon.py`；option coverage scheduler 300 秒填充至 queue target 20，主 worker 每 60 秒以 3 路并发消费最多 10 个 Polygon/GEX jobs，scanner materialization 300 秒。
+  - `quantrift-options-quote-worker`：长期运行 `run_quote_worker_daemon.py`；每 5 秒检查用户按需产生的 `option_quote_snapshot`，单路 IB 报价，不计算 GEX/OI delta，也不占主 collector worker。
   - `quantrift-options-prices`：工作日 13:35 PT / 16:35 ET 运行 repo 内 `collect_prices.py`；配置固定 `SYMBOLS=watchlist`，避免 targeted backfill 环境泄漏到下一次定时任务。
   - Python/env：repo 内 `collector/venv311` 与 `collector/.env`。
   - 旧 LaunchAgent 与 `~/.quantrift_options_collector` 已移除；不存在“先同步代码再运行”的步骤。
-  - 电源恢复：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`，Mac Studio 已配置为市电恢复后自动开机；LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`，其 saved list 包含五个 Quantrift collector apps。UPS 采购和实际断电/复电演练尚未完成；演练须检查 PM2 process list、collector health、queued jobs 与最新 snapshots。
-  - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 start collector/ecosystem.config.cjs && pm2 save`
-  - Inspect：`pm2 status quantrift-options-collector quantrift-options-prices`
+  - 电源恢复：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`，Mac Studio 已配置为市电恢复后自动开机；LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`。2026-07-30 已验证 saved list 包含七个 Quantrift collector apps；本次新增 quote worker 后必须 `startOrReload` 并 `pm2 save`，使第八个 app 进入 saved list。UPS 采购和实际断电/复电演练尚未完成；演练须检查 PM2 process list、collector health、queued jobs 与最新 snapshots。
+  - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 startOrReload collector/ecosystem.config.cjs --update-env && pm2 save`
+  - Inspect：`pm2 status quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices`
   - Logs：`pm2 logs quantrift-options-collector --lines 50 --nostream`
   - 2026-07-15 runtime verification：collector online and materializing 67 scanner rows；price one-shot completed `4020 rows written, 0 failed` and is stopped between scheduled runs；`pm2 save` succeeded。
   - 2026-07-15 auto-refresh verification：scheduler selected missing AAPL；TT device challenge was treated as unavailable and the worker fell back to IB delayed market data without retrying login；AAPL completed 78 actual contracts、94.87% completeness，production option coverage increased 8/67 → 9/67，then continued with AIQ。
@@ -434,7 +435,7 @@ public.price_history_30m
 - 2026-07-14 生产 status 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/status/data"` 返回 `expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
 - 2026-07-15 Polygon migration/runtime：Railway 已创建 `price_history_30m`。日线 67/67、26815 rows、每 symbol 349-401 rows、range 2024-12-05 → 2026-07-15；30M 67/67、39135 rows、每 symbol 319-736 rows、range 2026-06-10 08:00Z → 2026-07-14 23:30Z；duplicate keys 均为 0。
 - 日线 source 审计：所有 symbols 都有 `polygon_licensed` history；每个 symbol 仍保留 1 条日期更新的旧 `ib_internal` row。不得为了 source 纯度删除更近 bar；scheduled dependency 已切到 Polygon。
-- PM2 deployment：`quantrift-options-collector` online；`quantrift-options-prices` stopped one-shot + cron active，非敏感 env 验证为 `provider=polygon`、`symbols=watchlist`、`delay=16`、`key=True`；随后 `pm2 save` 成功。
+- PM2 deployment：`quantrift-options-collector` 应为 online；`quantrift-options-quote-worker` 应为 online 且实例数 1；`quantrift-options-prices` stopped one-shot + cron active。确认非敏感 env 后执行 `pm2 save`。只改 `ecosystem.config.cjs` 不会改变运行态。
 
 系统 schema，例如 `pg_catalog` 和 `information_schema`，不属于业务数据，不应删除。
 
@@ -1378,11 +1379,11 @@ venv311/bin/python run_refresh_worker.py
 
 # Start persistent Mac Studio runtime directly from this repository
 cd /Users/congrenhan/Documents/quantrift_options-lab
-pm2 start collector/ecosystem.config.cjs
+pm2 startOrReload collector/ecosystem.config.cjs --update-env
 pm2 save
 
 # Inspect runtime
-pm2 status quantrift-options-collector quantrift-options-prices
+pm2 status quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices
 pm2 logs quantrift-options-collector --lines 50 --nostream
 ```
 
@@ -1471,13 +1472,56 @@ cd /Users/congrenhan/Documents/quantrift_options-lab
 set -a; source collector/.env; set +a
 NODE_ENV=production node server/src/migrate.js
 collector/venv311/bin/pip install -r collector/requirements.txt
-pm2 restart quantrift-options-collector --update-env
+pm2 startOrReload collector/ecosystem.config.cjs --update-env
 pm2 save
 ```
 
 Email requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`. Web Push requires one VAPID pair: public key in Railway `WEB_PUSH_VAPID_PUBLIC_KEY`; private key and `WEB_PUSH_VAPID_SUBJECT` in Mac Studio `collector/.env`. Never put the private key in Vercel or Git.
 
 Smoke checks: `GET /api/alerts/vapid-public-key`; create a consented test subscription; run `collector/venv311/bin/python evaluate_scanner_alerts.py`; inspect `scanner_alert_deliveries`; unsubscribe through its token. Without secrets, expected status is `blocked`. With secrets, require a real inbox/browser receipt before calling external delivery verified. Rollback disables subscriptions and reverts P2.2; additive tables may remain.
+
+## Isolated IB Quote Lane Deployment
+
+The API and primary collector can deploy before the new PM2 process, but
+`option_quote_snapshot` jobs will remain queued until the Mac Studio starts the
+dedicated worker:
+
+```bash
+cd /Users/congrenhan/Documents/quantrift_options-lab
+git pull --ff-only origin master
+pm2 startOrReload collector/ecosystem.config.cjs --update-env
+pm2 save
+pm2 status quantrift-options-collector quantrift-options-quote-worker
+```
+
+Required invariants:
+
+- `quantrift-options-collector` remains one PM2 instance and claims every job
+  except `option_quote_snapshot`.
+- `quantrift-options-quote-worker` remains one PM2 instance with
+  `QUOTE_WORKER_CONCURRENCY=1` and claims only `option_quote_snapshot`.
+- Background `universe_auto_refresh` rows contain neither `require_quotes` nor
+  `enqueue_quote_if_missing`.
+- An Analyze request with a Polygon chain but no usable bid/ask creates an
+  `ib_internal` `option_quote_snapshot` at priority 90.
+- A successful quote job writes a quote-bearing option snapshot and scanner
+  refresh request, but does not write a new GEX derived from the IB snapshot.
+
+Operational smoke:
+
+```sql
+SELECT id, symbol, job_type, provider, status, request_params, last_error
+FROM provider_fetch_jobs
+WHERE job_type IN ('option_chain_snapshot', 'option_quote_snapshot')
+ORDER BY id DESC
+LIMIT 20;
+```
+
+During a deliberately slow/unavailable IB request, confirm new Polygon jobs
+continue succeeding and their `result_summary.source` remains
+`polygon_licensed`. Rollback is `pm2 delete quantrift-options-quote-worker`
+plus reverting the code commit; queued quote jobs may be marked failed or left
+for the restored architecture, while Polygon/GEX snapshots remain intact.
 
 ## Mac Studio Heartbeat
 

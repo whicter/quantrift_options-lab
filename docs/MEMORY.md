@@ -45,13 +45,13 @@
 - `collector/materialize_oi_delta.py` 生成 OI delta / unusual activity cache。
 - `collector/run_refresh_worker.py` 消费 `provider_fetch_jobs`。
 - `/api/admin/status/cache` 查看 backlog / failures / scanner stale / empty snapshots / provider budget；需要 `ADMIN_API_TOKEN`。
-- PM2 app `quantrift-options-collector` 每 300 秒 bounded enqueue 最多 2 个 missing/stale option symbols、每 60 秒处理 queue、每 300 秒 materialize scanner；`quantrift-options-prices` 工作日 13:35 PT 跑 OHLCV。
+- PM2 app `quantrift-options-collector` 每 300 秒按 tier/staleness 填充至 queue target 20、每 60 秒以 3 路并发处理最多 10 个 Polygon/GEX jobs、每 300 秒 materialize scanner。独立 `quantrift-options-quote-worker` 单路处理用户按需的 IB `option_quote_snapshot`；`quantrift-options-prices` 工作日两次跑 OHLCV。
 - IB option discovery 先按 expiry/right 调用 `reqContractDetails`，只保存 IB 实际返回且具有有效 `conId` 的合约；禁止 expiry × strike × right 笛卡尔积。
 - 2026-07-16 real-data integrity repair is deployed: `mockAnalysis.js` was deleted and Analyze uses a null-initialized real-data model only. Railway scanner SQL now qualifies `latest_rows.source` and `latest_rows.snapshot_ts`; production `/api/scan` returned HTTP 200, while `/analyze?symbol=NFLX` rendered actual `$73.68`, Polygon GEX and $75/$73 Walls.
-- PM2 collector 当前使用 `IB_MARKET_DATA_TYPE=1` 请求实时行情。常规交易时，缺报价的 Polygon option-chain job 必须回退 `ib_internal`；休市时保留真实结构字段但不将无 bid/ask 的快照当作可执行报价。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
+- PM2 quote worker 使用 `IB_MARKET_DATA_TYPE=1` 请求行情。Polygon option-chain job 无论是否有 bid/ask 都先完成结构链与 GEX，绝不同步等待 IB；只有用户 Analyze 需要策略定价且库内无可用报价时才排独立 `option_quote_snapshot`。stale/partial GEX 只要包含必要字段就显示并标注质量，不再整块隐藏。
 - Analyze 已接入真实 S/R、Focus Score、VRP、Gamma Flip、Local Gamma、IV skew 与 term structure。旧 target fallback 推荐腿已移除；没有 actual contract candidate 时不显示策略腿。
 - Analyze Technical Confluence 已合并当前生产主线：`/api/technical-levels/:symbol` 作为独立扩展 prototype 合并 Volume Profile、Anchored VWAP、DMA、日/周结构、GEX 与 OI evidence，不替代 `/api/sr` 或已验证的 G5 confluence。全量本地回归通过；Railway/Vercel 生产验收仍待完成。
-- Production option collection uses `polygon_licensed`; `ib_internal` / `tt_internal` remain fallback/research adapters. API 与前端只读取 PostgreSQL snapshot。
+- Production positioning collection uses `polygon_licensed`; `ib_internal` is the isolated on-demand strategy quote adapter and `tt_internal` remains transitional/research. API 与前端只读取 PostgreSQL snapshot。
 - Provider credentials只允许存在于 `collector/.env` 或部署 secret store，不得写入 PM2 config、文档、测试或 Git。
 
 ## 关键文件
@@ -67,6 +67,7 @@
 - `collector/materialize_scan.py` — scanner cache materializer
 - `collector/materialize_oi_delta.py` — OI delta / unusual activity materializer
 - `collector/run_refresh_worker.py` — refresh queue worker
+- `collector/run_quote_worker_daemon.py` — isolated IB quote queue worker
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
@@ -92,7 +93,7 @@ Derived IV Rank cutover is complete in all control planes: ready symbols are fil
 
 Tastytrade metrics cron is deployed as Railway service `quantrift-metrics-cron`, but it is not the active TT execution path: a 2026-07-16 run using the freshly seeded shared token returned `403 device_challenge_required`, proving that TT treats Railway US West as an untrusted device. Its Docker image now defaults `TT_METRICS_ENABLED=false`, preventing scheduled credential reads or TT requests. The authenticated Mac Studio weekday 13:30 PT collector is the active path and writes to the same Railway PostgreSQL. A 2026-07-16 manual acceptance run wrote 67/67 watchlist rows with 0 errors; production metrics for AAPL/PLTR/TSLA returned fresh TT IV Rank provenance.
 
-Mac Studio power recovery is partially complete: `pmset -g custom` verified AC Power `autorestart 1` on 2026-07-16, and LaunchAgent `pm2.congrenhan` has `RunAtLoad=true` with `pm2 resurrect`; its saved list contains all five Quantrift collector apps. UPS procurement and a controlled full recovery test for PM2, IB Gateway, collector health, jobs and snapshots remain physical operations.
+Mac Studio power recovery is partially complete: `pmset -g custom` verified AC Power `autorestart 1` on 2026-07-16, and LaunchAgent `pm2.congrenhan` has `RunAtLoad=true` with `pm2 resurrect`. The saved list contained seven Quantrift collector apps after the 2026-07-30 recovery; the new quote worker requires `startOrReload` plus `pm2 save` to become the eighth saved app. UPS procurement and a controlled full recovery test for PM2, IB Gateway, collector health, jobs and snapshots remain physical operations.
 
 IB Gateway cloud evaluation is complete: use a fixed-egress VPS, pinned Gateway/IBC image, paper/read-only mode, Docker secret and loopback-only ports. `ops/ib-gateway/` holds the template and 72-hour soak gates. Collector 85 tests and compose config pass; VPS purchase and IBKR 2FA remain external.
 
