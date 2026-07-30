@@ -28,6 +28,11 @@ function toCandidateDto(candidate, { inputSnapshotTs = null } = {}) {
     avgSpreadPct: candidate.avgSpreadPct,
     expected_move: withSnapshot(candidate.expectedMove),
     pop: withSnapshot(candidate.pop),
+    // Payoff travels with POP so probability is never presented alone. A long
+    // option is structurally sub-50% (POP is measured at strike + premium), so
+    // a card showing only the probability reads as a bad trade even when the
+    // payoff makes it a reasonable one.
+    payoff: candidate.payoff ?? null,
     legs: candidate.legs.map(leg => ({
       action: leg.action,
       expiry: leg.expiry,
