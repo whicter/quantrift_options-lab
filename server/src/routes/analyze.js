@@ -3,6 +3,7 @@ const pool = require('../db');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
+const { environmentEdge } = require('../domain/scanner/environmentEdge.cjs');
 const freshness = require('../domain/status/freshness');
 const { buildAnalyzeSummary } = require('../domain/analyze/analyzeDto');
 const { tokenMatches, requestToken } = require('../lib/adminAuth');
@@ -354,7 +355,8 @@ async function sendAnalyzeCandidate(req, res) {
       gammaRegime: snapshot.gamma_regime || null,
       ivRank: snapshot.iv_rank == null ? null : Number(snapshot.iv_rank),
     };
-    const candidate = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES, environment)[0] || null;
+    const ranked = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES, environment);
+    const candidate = ranked[0] || null;
     if (!candidate) {
       return res.json({
         symbol,
@@ -363,10 +365,27 @@ async function sendAnalyzeCandidate(req, res) {
         candidate: null,
       });
     }
+    // Buyer and seller are returned as a pair because their risk shapes are not
+    // comparable on one number. A long option's POP is measured at strike +
+    // premium and so is structurally sub-50%, which makes any buyer look bad
+    // beside a credit spread unless its payoff is shown too. `ranked` is already
+    // ordered, so taking the first of each side preserves the engine's judgement
+    // and only chooses which two to surface.
+    const buyer = ranked.find(item => item.debit != null) || null;
+    const seller = ranked.find(item => item.credit != null) || null;
+    const asDto = item => (item ? toCandidateDto(item, { inputSnapshotTs: snapshot.snapshot_ts }) : null);
     return res.json({
       symbol,
       status: 'ready',
+      // The stated view of the current environment. This is the only legitimate
+      // source of edge -- price-derived expected value is ~0 by construction --
+      // so it is surfaced as product copy rather than left as a hidden weight.
+      environment: environmentEdge(environment),
       candidate: toCandidateDto(candidate, { inputSnapshotTs: snapshot.snapshot_ts }),
+      // Either side may legitimately be null (no qualifying legs); the UI says
+      // so rather than padding the card with a weaker structure.
+      buyer: asDto(buyer),
+      seller: asDto(seller),
     });
   } catch (err) {
     if (err?.code === '42P01') return res.status(503).json({ error: 'options data migration required' });
