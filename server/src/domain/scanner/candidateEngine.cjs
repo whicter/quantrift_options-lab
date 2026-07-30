@@ -823,7 +823,7 @@ function buildActionableSetups(rawContracts, row, overrides = {}, strategies = A
   if (requested.has('Short Put')) candidates.push(...allSingleLegSetups('Short Put', contracts, spot, rules));
   if (requested.has('Short Call')) candidates.push(...allSingleLegSetups('Short Call', contracts, spot, rules));
 
-  return candidates
+  const scored = candidates
     .map(candidate => attachResearchModels(candidate, contracts, spot))
     .filter(candidate => candidate.score >= MIN_ACTIONABLE_SCORE)
     .map(candidate => {
@@ -838,8 +838,47 @@ function buildActionableSetups(rawContracts, row, overrides = {}, strategies = A
         directionNote: bias.note,
         gammaNote: bias.gammaNote,
       };
-    })
-    .sort((a, b) => b.effectiveScore - a.effectiveScore || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0));
+    });
+
+  return interleaveByStrategy(scored);
+}
+
+/**
+ * Order candidates by taking each strategy's current best in turn, then each
+ * strategy's second best, and so on -- rather than pooling every candidate and
+ * sorting globally.
+ *
+ * A global sort silently ranks by enumeration size. Strategies differ enormously
+ * in how many combinations they generate: measured on live batch 2056, Diagonal
+ * Spread produced 6,761 of 11,116 candidates against Long Put's 414 (16x). Even
+ * with identical per-candidate quality, drawing 16x more samples from the same
+ * distribution wins the top slots far more often -- a multiple-comparisons
+ * artifact, not evidence the strategy is better. That is how Diagonal Spread came
+ * to hold 71% of top-3-per-symbol slots while also being the one family that is
+ * multi-expiry and therefore structurally impossible to settle at a single
+ * expiry, so the engine recommended most what it could least validate.
+ *
+ * Within a strategy the existing effectiveScore ordering is untouched, so this
+ * changes which candidates surface first, never how any single one is judged.
+ */
+function interleaveByStrategy(candidates) {
+  const byStrategy = new Map();
+  for (const candidate of candidates) {
+    if (!byStrategy.has(candidate.strategy)) byStrategy.set(candidate.strategy, []);
+    byStrategy.get(candidate.strategy).push(candidate);
+  }
+  const compare = (a, b) => b.effectiveScore - a.effectiveScore || (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0);
+  const queues = [...byStrategy.values()].map(list => [...list].sort(compare));
+  // Strategies whose best candidate scores higher get the earlier slot in each
+  // round, so a genuinely stronger setup still leads regardless of family size.
+  queues.sort((a, b) => compare(a[0], b[0]));
+
+  const ordered = [];
+  for (let round = 0; queues.some(queue => queue.length > round); round += 1) {
+    const thisRound = queues.map(queue => queue[round]).filter(Boolean).sort(compare);
+    ordered.push(...thisRound);
+  }
+  return ordered;
 }
 
 function buildActionableSetup(strategy, rawContracts, row, overrides = {}, environment = null) {
@@ -859,6 +898,6 @@ function buildActionableSetup(strategy, rawContracts, row, overrides = {}, envir
 
 module.exports = {
   ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, STRATEGY_STANCE, STRATEGY_GAMMA_PROFILE,
-  buildActionableSetups, buildActionableSetup,
+  buildActionableSetups, buildActionableSetup, interleaveByStrategy,
   directionalWeight, expectedMoveForExpiry, popForCandidate, toIsoDate,
 };
