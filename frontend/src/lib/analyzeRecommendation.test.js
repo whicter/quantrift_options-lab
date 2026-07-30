@@ -79,3 +79,68 @@ test('gammaNote passes through unconditionally, independent of directionConflict
   });
   assert.equal(withoutGamma.recommendation.gammaNote, null);
 });
+
+test('buyer and seller are both mapped, each carrying its own payoff', () => {
+  const result = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: { strategy: 'Long Call', legs: [], pop: null, dte: 30, debit: 5, maxLoss: 5 },
+    environment: { status: 'available', premium: 'rich', favours: 'seller', signalsAgree: true, reason: 'IV Rank 72...' },
+    buyer: {
+      strategy: 'Long Call', dte: 30, debit: 15.18, maxLoss: 15.18, legs: [],
+      pop: { status: 'available', probability: 0.35 },
+      payoff: { status: 'available', basis: 'one_expected_move_in_favour', reward_risk: 1.148, reference_price: 772.61, reference_profit: 17.43, max_loss: 15.18 },
+    },
+    seller: {
+      strategy: 'Bull Put Spread', dte: 30, credit: 0.28, maxLoss: 0.72, legs: [],
+      pop: { status: 'available', probability: 0.51 },
+      payoff: { status: 'available', basis: 'max_profit_at_expiry', reward_risk: 0.389, max_profit: 0.28, max_loss: 0.72 },
+    },
+  });
+
+  assert.equal(result.buyer.kind, 'buyer');
+  assert.equal(result.buyer.shapeLabel, '低胜率 · 高赔付');
+  assert.equal(result.buyer.pop, 35);
+  assert.equal(result.buyer.payoff.isReference, true, 'a long option payoff must be marked as a reference point');
+  assert.equal(result.buyer.payoff.referenceProfit, 1743);
+
+  assert.equal(result.seller.kind, 'seller');
+  assert.equal(result.seller.shapeLabel, '高胜率 · 有限赔付');
+  assert.equal(result.seller.pop, 51);
+  assert.equal(result.seller.payoff.isReference, false, 'a credit payoff is a true maximum, not a reference');
+
+  assert.equal(result.environment.favours, 'seller');
+});
+
+test('a missing side stays null so the card can say so instead of padding', () => {
+  const result = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: { strategy: 'Long Call', legs: [], pop: null, dte: 30, debit: 5, maxLoss: 5 },
+    buyer: null,
+    seller: null,
+  });
+  assert.equal(result.buyer, null);
+  assert.equal(result.seller, null);
+});
+
+test('a pin-dependent peak is flagged so the ratio is not shown unqualified', () => {
+  // Live SPY 2026-07-30: a 5-wide iron butterfly showed 13.3:1 beside POP 8%.
+  const result = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: { strategy: 'Iron Butterfly', legs: [], pop: null, dte: 62, credit: 4.65, maxLoss: 0.35 },
+    seller: {
+      strategy: 'Iron Butterfly', dte: 62, credit: 4.65, maxLoss: 0.35, legs: [],
+      pop: { status: 'available', probability: 0.08 },
+      payoff: { status: 'available', basis: 'max_profit_requires_pin_at_expiry', peak_requires_pin: true, reward_risk: 13.286, max_profit: 4.65, max_loss: 0.35 },
+    },
+  });
+  assert.equal(result.seller.payoff.peakRequiresPin, true);
+});
+
+test('an unavailable environment is null, not a fabricated neutral reading', () => {
+  const result = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: { strategy: 'Long Call', legs: [], pop: null, dte: 30, debit: 5, maxLoss: 5 },
+    environment: { status: 'unavailable', reason: 'IV Rank 尚未就绪' },
+  });
+  assert.equal(result.environment, null);
+});

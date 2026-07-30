@@ -12,6 +12,117 @@ function Badge({ label, value, colorFn }) {
   );
 }
 
+/**
+ * One side of the buyer/seller pair.
+ *
+ * POP and payoff are always rendered together. A long option's POP is measured
+ * at strike + premium and is therefore structurally sub-50% (live SPY/QQQ long
+ * calls sit near 33%), so showing the probability alone made every buyer look
+ * like a bad trade regardless of its payoff.
+ */
+function StrategySide({ side }) {
+  if (!side) return null;
+  const { payoff } = side;
+  return (
+    <div className={`az-side az-side-${side.kind}`}>
+      <div className="az-side-head">
+        <span className="az-side-kind">{side.kind === 'seller' ? '卖方 · 收权利金' : '买方 · 付权利金'}</span>
+        <span className="az-side-shape">{side.shapeLabel}</span>
+      </div>
+      <div className="az-side-strategy">{side.strategy}</div>
+      {side.structure && <div className="az-side-structure">{side.structure}</div>}
+      <div className="az-side-metrics">
+        <div>
+          <span className="az-side-metric-label">胜率 POP</span>
+          <strong>{side.pop == null ? '--' : `${side.pop}%`}</strong>
+        </div>
+        <div>
+          <span className="az-side-metric-label">赔付比</span>
+          <strong>{payoff?.rewardRisk == null ? '--' : `${payoff.rewardRisk.toFixed(2)} : 1`}</strong>
+        </div>
+        <div>
+          <span className="az-side-metric-label">{side.premiumLabel}</span>
+          <strong>{side.premium == null ? '--' : `$${side.premium}`}</strong>
+        </div>
+        <div>
+          <span className="az-side-metric-label">最大亏损</span>
+          <strong className="c-red">{side.maxLoss == null ? '无限' : `$${side.maxLoss}`}</strong>
+        </div>
+      </div>
+      {/* The basis of the payoff figure is always disclosed: a credit
+          structure's is its true maximum, a long option's is its value at one
+          expected move in favour -- a reference point, not a forecast. */}
+      {payoff?.isReference && payoff.referencePrice != null && (
+        <div className="az-side-note">
+          赔付按「标的走到 ${payoff.referencePrice}（1 倍期望波动）」估算，盈利约 ${payoff.referenceProfit}；不是预测,也不是上限。
+        </div>
+      )}
+      {payoff?.peakRequiresPin && (
+        <div className="az-side-note az-side-note-warn">
+          最大盈利需到期时精准落在中间行权价，实际很难拿满；胜率区间内多数结果远低于此。
+        </div>
+      )}
+      {side.directionNote && <div className="az-side-note az-side-note-warn">{side.directionNote}</div>}
+      <div className="az-side-legs">
+        {side.legs.map((leg, i) => (
+          <div key={i} className="az-rec-leg">
+            <span className={leg.dir === 1 ? 'az-leg-long' : 'az-leg-short'}>{leg.dir === 1 ? 'LONG' : 'SHORT'}</span>
+            <span>{leg.label}</span>
+            <span style={{ color: 'var(--text-dim)' }}>Δ {leg.deltaTarget}</span>
+            <span style={{ color: 'var(--text-dim)' }}>{leg.dte}d</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Buyer and seller in one card, under a stated view of the environment.
+ *
+ * The environment line is the only legitimate source of edge here: under the
+ * risk-neutral distribution that produces POP, a fairly priced option's
+ * expected value is ~0 by construction, so the engine cannot derive an edge
+ * from prices. IV Rank compares implied volatility to its own trailing year,
+ * which is information the price does not contain.
+ */
+function StrategySides({ sides }) {
+  if (!sides || (!sides.buyer && !sides.seller)) return null;
+  const { buyer, seller, environment } = sides;
+  return (
+    <div className="az-card az-sides-card" style={{ marginTop: 12 }}>
+      <div className="az-card-title">买方 / 卖方 · 两种风险形状</div>
+      {environment && (
+        <div className={`az-env ${environment.signalsAgree === false ? 'az-env-split' : ''}`}>
+          <div className="az-env-chips">
+            <span className="az-mini-badge blue">
+              权利金{environment.premium === 'rich' ? '偏贵' : environment.premium === 'cheap' ? '偏便宜' : '中性'}
+            </span>
+            {environment.favours !== 'neither' && (
+              <span className="az-mini-badge green">
+                统计上利于{environment.favours === 'seller' ? '卖方' : '买方'}
+              </span>
+            )}
+            {environment.signalsAgree === false && <span className="az-mini-badge yellow">信号分歧</span>}
+          </div>
+          <div className="az-env-reason">{environment.reason}</div>
+        </div>
+      )}
+      <div className="az-sides">
+        {buyer ? <StrategySide side={buyer} /> : (
+          <div className="az-side az-side-empty">当前报价中没有满足门槛的买方结构，不以较弱的候选凑数。</div>
+        )}
+        {seller ? <StrategySide side={seller} /> : (
+          <div className="az-side az-side-empty">当前报价中没有满足门槛的卖方结构，不以较弱的候选凑数。</div>
+        )}
+      </div>
+      <div className="az-data-note">
+        两侧胜率不可直接比较：买方胜率按「行权价 + 权利金」的盈亏平衡点计算，天然低于 50%，靠赔付比补偿；卖方胜率高但单次亏损可能远大于收益。POP 为模型估算，非实际胜率保证。
+      </div>
+    </div>
+  );
+}
+
 export default function Tab1Overview({ data }) {
   const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, recommendationUnavailableReason, earnings,
     ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance, mfi } = data;
@@ -160,6 +271,8 @@ export default function Tab1Overview({ data }) {
           </div>
         </div>
       </div>
+
+      <StrategySides sides={data.strategySides} />
 
       {recommendation ? (
         <div className="az-card" style={{ marginTop: 12 }}>

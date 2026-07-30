@@ -371,8 +371,14 @@ async function sendAnalyzeCandidate(req, res) {
     // beside a credit spread unless its payoff is shown too. `ranked` is already
     // ordered, so taking the first of each side preserves the engine's judgement
     // and only chooses which two to surface.
-    const buyer = ranked.find(item => item.debit != null) || null;
-    const seller = ranked.find(item => item.credit != null) || null;
+    // Both sides must be *evaluable*, not merely present. A Diagonal Spread is
+    // a debit trade and so matches "buyer", but being multi-expiry it has
+    // neither a static-expiry POP nor a single-leg reference payoff -- picking
+    // it renders a card of two dashes, which is the exact failure this pairing
+    // exists to prevent (observed live on AAPL, 2026-07-30).
+    const evaluable = item => item.pop?.status === 'available' && item.payoff?.status === 'available';
+    const buyer = ranked.find(item => item.debit != null && evaluable(item)) || null;
+    const seller = ranked.find(item => item.credit != null && evaluable(item)) || null;
     const asDto = item => (item ? toCandidateDto(item, { inputSnapshotTs: snapshot.snapshot_ts }) : null);
     return res.json({
       symbol,
