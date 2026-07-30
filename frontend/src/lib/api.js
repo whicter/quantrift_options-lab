@@ -12,18 +12,33 @@ async function requestHeaders(extra = {}) {
   return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
 }
 
-async function getJson(path) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: await requestHeaders() });
-  if (!response.ok) {
-    throw new Error(`API ${response.status}`);
+// A backend that accepts the connection but never answers (e.g. its database is
+// down and the request blocks on the pool) leaves fetch pending forever. Without
+// a deadline every page's `.catch(...)` error branch is unreachable, so the UI
+// spins indefinitely instead of admitting the data service is unavailable.
+const DEFAULT_TIMEOUT_MS = 30000;
+
+async function fetchJson(path, { headers, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { headers, signal: controller.signal });
+    if (!response.ok) throw new Error(`API ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`API timeout after ${timeoutMs}ms`, { cause: error });
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return response.json();
 }
 
-async function getAuthenticatedJson(path, token) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.json();
+async function getJson(path, options = {}) {
+  return fetchJson(path, { ...options, headers: await requestHeaders() });
+}
+
+async function getAuthenticatedJson(path, token, options = {}) {
+  return fetchJson(path, { ...options, headers: { Authorization: `Bearer ${token}` } });
 }
 
 export function getMetrics(symbols) {
@@ -113,7 +128,9 @@ export function getScan({
   params.earningsDays = String(earningsDays);
 
   const query = new URLSearchParams(params);
-  return getJson(`/api/scan?${query.toString()}`);
+  // The scan is the heaviest read (whole-universe candidate enumeration), so it
+  // gets a longer deadline than the default -- but still a finite one.
+  return getJson(`/api/scan?${query.toString()}`, { timeoutMs: 60000 });
 }
 
 export function getPrices(symbol, limit = 60) {

@@ -303,11 +303,15 @@ export default function Scan() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dataStatus, setDataStatus] = useState(null);
+  // Distinguishes "still loading" from "the status call failed" -- both used to
+  // collapse into a null dataStatus, which rendered the scan-pool card as a
+  // bare "..." with no way to tell a slow load from an outage.
+  const [dataStatusFailed, setDataStatusFailed] = useState(false);
   const [marketRegime, setMarketRegime] = useState(null);
   const [opportunityPreset, setOpportunityPreset] = useState('');
 
   useEffect(() => {
-    getDataStatus().then(setDataStatus).catch(() => {});
+    getDataStatus().then(setDataStatus).catch(() => setDataStatusFailed(true));
     getMarketRegime().then(setMarketRegime).catch(() => {});
   }, []);
 
@@ -787,8 +791,16 @@ export default function Scan() {
           <div className="scan-filter-section">
             <div className="scan-filter-label">扫描池</div>
             <div className="scan-universe-card">
-              <strong>{universeCount || '...'}</strong>
-              <span>个已接入数据的标的</span>
+              {universeCount > 0 ? (
+                <>
+                  <strong>{universeCount}</strong>
+                  <span>个已接入数据的标的</span>
+                </>
+              ) : (
+                <span className="scan-universe-pending">
+                  {dataStatusFailed ? '扫描池暂时读不到，数据服务未响应' : '正在读取扫描池…'}
+                </span>
+              )}
             </div>
             <div className="scan-filter-help">扫描池会按需扩展；只有已生成的数据快照中具备所需字段的标的会通过筛选。</div>
           </div>

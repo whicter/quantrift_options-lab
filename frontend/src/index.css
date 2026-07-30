@@ -183,7 +183,10 @@ body {
 .home-live-strip span, .home-live-strip small { color: #8793a5; font-size: 10px; text-transform: uppercase; }
 .home-live-strip strong { color: #eef3fa; font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
 /* Candidate Result Ledger (R2.1) */
-.ledger-page { max-width: 960px; margin: 0 auto; padding: 36px 24px 80px; display: flex; flex-direction: column; gap: 20px; }
+/* Top padding must clear the 44px fixed .navbar before its own breathing room
+   (44 + 36). These pages scroll with the body, so without the offset the first
+   line of content renders underneath the navbar. */
+.ledger-page { max-width: 960px; margin: 0 auto; padding: 80px 24px 80px; display: flex; flex-direction: column; gap: 20px; }
 .ledger-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--blue); font-weight: 700; }
 .ledger-head h1 { font-size: 25px; margin: 6px 0; }
 .ledger-head p { color: var(--text-dim); font-size: 13.5px; max-width: 74ch; margin: 0; }
@@ -282,7 +285,8 @@ body {
 .sm-tone-muted { background: var(--tone-muted); }
 
 /* ---- /market page (R1.1 State Matrix) ---- */
-.market-page { max-width: 1160px; margin: 0 auto; padding: 36px 24px 80px; display: flex; flex-direction: column; gap: 22px; }
+/* 80px = 44px fixed navbar + 36px breathing room; see .ledger-page note. */
+.market-page { max-width: 1160px; margin: 0 auto; padding: 80px 24px 80px; display: flex; flex-direction: column; gap: 22px; }
 .market-head .market-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--blue); font-weight: 700; }
 .market-head h1 { font-size: 25px; margin: 6px 0; letter-spacing: -0.01em; }
 .market-head p { color: var(--text-dim); font-size: 13.5px; max-width: 74ch; margin: 0; }
@@ -391,7 +395,7 @@ body {
   .home-internals { padding: 28px 22px 0; }
   .mi-grid { grid-template-columns: 1fr; }
   .mi-asof { display: none; }
-  .market-page { padding: 26px 16px 60px; }
+  .market-page { padding: 70px 16px 60px; }
   .sm-cols { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 76vw; overflow-x: auto; }
   .rrg-layout { grid-template-columns: 1fr; }
   .home-product-grid { grid-template-columns: 1fr; }
@@ -1319,6 +1323,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   color: var(--text);
   font-size: 18px;
 }
+.scan-universe-pending { color: var(--text-muted); }
 
 .scan-btn {
   width: 100%;
@@ -1740,8 +1745,11 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .scan-market-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; }
 .scan-market-symbol { padding-left: 18px; border-left: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
 .scan-market-symbol .active { color: var(--green); font-weight: 700; }
-.scan-alerts { margin: 10px 24px 0; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
-.scan-alerts summary { cursor: pointer; color: var(--text-dim); font-weight: 700; }
+/* No horizontal margin: .scan-page already supplies the page gutter, so an
+   extra 24px here indented this box relative to the header above and the
+   filter/result columns below, which read as a misaligned stray card. */
+.scan-alerts { margin: 0 0 16px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
+.scan-alerts summary { cursor: pointer; color: var(--text-dim); font-weight: 700; font-size: 12px; }
 .scan-alert-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .scan-alert-row > span { color: var(--text-muted); margin-right: auto; }
 .scan-alert-row input { min-width: 220px; padding: 7px 9px; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; }
