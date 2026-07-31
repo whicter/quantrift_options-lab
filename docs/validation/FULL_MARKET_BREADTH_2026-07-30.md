@@ -55,20 +55,26 @@ available until migration and first collection complete.
 - Additional final verification must run collector full suite, frontend lint,
   frontend production build and server syntax/tests after documentation edits.
 
+## Production execution record — 2026-07-30
+
+- Before migration, the local API returned `broad_market.status=missing`; a direct read-only Railway query confirmed `market_breadth_daily` did not exist.
+- `set -a && source collector/.env && set +a && node server/src/migrate.js` completed successfully against Railway (`Migrations complete.`). The schema is now present.
+- The first collector run stopped before any provider request or database insert with `RuntimeError: POLYGON_API_KEY is required for PolygonMarketBreadthProvider`. The local `collector/.env` contains no `POLYGON_API_KEY` entry. No snapshot, entitlement claim, quality-gate result or UI-ready state was produced.
+- The current machine also has no callable `pm2` command, so the scheduled breadth job cannot be inspected or enabled here. Do not infer that an absent local command means a separate production Mac has or has not been configured.
+
 ## Production acceptance still required
 
-The workspace's local `collector/.env` has no `POLYGON_API_KEY`, and the local
-Railway CLI is not linked to the production project. Therefore the current
-account's Grouped Daily entitlement has not been claimed as live-verified.
+The workspace's local `collector/.env` has no `POLYGON_API_KEY`. Therefore the
+current account's Grouped Daily and point-in-time reference entitlements have
+not been live-verified, and there is no `market_breadth_daily` snapshot yet.
 
-Before enabling the cron:
+On a machine that has both `DATABASE_URL` and a credentialed `POLYGON_API_KEY`:
 
-1. apply `node server/src/migrate.js` against Railway PostgreSQL;
-2. run `collect_market_breadth.py` once with the production Polygon key;
-3. require HTTP success plus `counted >= 2000` and `coverage_pct >= 90`;
-4. query `market_breadth_daily` for exactly one target-date row;
-5. verify `/api/market/breadth` and both UI themes;
-6. only then `pm2 save`.
+1. run `collector/venv311/bin/python collector/collect_market_breadth.py` once;
+2. require HTTP success plus `counted >= 2000` and `coverage_pct >= 90`;
+3. query `market_breadth_daily` for exactly one target-date row;
+4. verify `/api/market/breadth` returns `broad_market.status=ready` and both UI themes render it;
+5. start or reload only `quantrift-market-breadth`, then `pm2 save`.
 
 If the account returns 403, stop. Do not scrape display-only websites and do not
 label Nasdaq-only public statistics as full-market breadth.

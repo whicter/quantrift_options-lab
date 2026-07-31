@@ -441,6 +441,8 @@ public.market_breadth_daily
 
 全市场宽度首次部署顺序：
 
+2026-07-30 状态：Railway 的 `market_breadth_daily` migration 已成功执行；首次 collector run 因运行环境未配置 `POLYGON_API_KEY` 而在请求前停止，尚无真实快照。后续只需在同时具备 `DATABASE_URL` 与已授权 `POLYGON_API_KEY` 的 collector 机器完成下列采集和验收步骤；不要因为表已存在就把任务标为上线。
+
 ```bash
 cd /Users/congrenhan/Documents/quantrift_options-lab
 source collector/.env

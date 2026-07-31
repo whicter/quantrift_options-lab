@@ -809,4 +809,9 @@ GEX compute job：
 - **回收磁盘要 VACUUM FULL**：普通 DELETE + autovacuum 只让空间"可复用"（不再增长），物理磁盘要 `VACUUM FULL`（锁表）才还给云。盘后跑一次：scanner_results 929MB→545MB。
 # 财报日历的数据边界
 
+## 全市场 Breadth 的上线纪律（2026-07-30）
+
+- **“收盘了”不等于数据已经可用**：全市场指标还需要已迁移的持久化表、具备 Grouped Daily 与 point-in-time reference 权限的 Polygon key、一次通过样本/覆盖率门槛的真实采集，以及 API/UI 验收。缺其中任何一项，都只能是 unavailable/missing，不能把 scan universe 填进去，也不能把配置错误描述成“等待收盘”。
+- **migration 成功不等于首个快照成功**：本次 Railway `market_breadth_daily` 表创建成功，但 collector 在出网前因没有 `POLYGON_API_KEY` 停止。运行记录必须分开写“schema 已就绪”和“数据已写入”，并只在后者通过 `counted >= 2000`、`coverage_pct >= 90` 后启用定时任务。
+
 财报日期与“未来 7 天”的市场简报不同：日历按纽约时区自然周（周一到周五）查询，空周也应返回完整周边界以便前端显示空列。`earnings_date` 仅是日期，不能由此猜测报前、盘后或盘中时段。
