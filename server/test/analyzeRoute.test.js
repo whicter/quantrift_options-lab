@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const refreshPath = require.resolve('../src/lib/refreshJobs');
@@ -15,10 +16,6 @@ require.cache[refreshPath] = {
 };
 delete require.cache[routePath];
 const { sendAnalyzeStatus, sendConfluence } = require(routePath);
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 test.beforeEach(() => { queryResults.length = 0; refreshCalls.length = 0; queries.length = 0; });
 

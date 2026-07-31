@@ -7,16 +7,14 @@ import re
 import time
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 
+from collector_runtime import configure_collector
 from providers.unusual_whales_stream_provider import UnusualWhalesStreamProvider
 
 
-load_dotenv(Path(__file__).with_name('.env'))
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+configure_collector(__file__, datefmt=None)
 log = logging.getLogger(__name__)
 
 OSI_PATTERN = re.compile(r'^(.+?)(\d{6})([CP])(\d{8})$')

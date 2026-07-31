@@ -1,26 +1,20 @@
 const express = require('express');
 const { sendChainSnapshot } = require('./options');
 const pool = require('../db');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
+const { isoDate } = require('../lib/values');
 
 const router = express.Router();
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
 
 function ageMinutes(value) {
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? Math.floor((Date.now() - time) / 60000) : null;
 }
 
-function toDateString(value) {
-  return value?.toISOString?.().slice(0, 10) || String(value).slice(0, 10);
-}
-
 function deriveChainStats(snapshot, contracts) {
   const spot = Number(snapshot.underlying_price);
   const valid = contracts.map(row => ({
-    expiry: toDateString(row.expiry),
+    expiry: isoDate(row.expiry),
     strike: Number(row.strike),
     right: row.option_right,
     iv: Number(row.iv),
@@ -37,7 +31,7 @@ function deriveChainStats(snapshot, contracts) {
   const term_structure = stored && stored.length
     ? stored
       .map(point => ({
-        expiry: toDateString(point.expiration_date || point.expiry),
+        expiry: isoDate(point.expiration_date || point.expiry),
         atm_strike: point.atm_strike == null ? null : Number(point.atm_strike),
         atm_iv: point.atm_iv == null ? null : Number(point.atm_iv),
         contract_count: point.contract_count ?? null,
@@ -117,7 +111,7 @@ function deriveOiDensity(snapshot, contracts) {
     const openInterest = Number(row.open_interest);
     const right = row.option_right;
     if (!Number.isFinite(strike) || !Number.isFinite(openInterest) || openInterest < 0 || !['C', 'P'].includes(right)) return;
-    expiries.add(toDateString(row.expiry));
+    expiries.add(isoDate(row.expiry));
     const point = points.get(strike) || { strike, call_oi: 0, put_oi: 0, total_oi: 0 };
     if (right === 'C') point.call_oi += openInterest;
     if (right === 'P') point.put_oi += openInterest;
@@ -143,7 +137,7 @@ function deriveOiDensity(snapshot, contracts) {
 async function sendChainStats(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
     const ivSnapshotResult = await pool.query(

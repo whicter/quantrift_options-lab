@@ -6,18 +6,17 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import Json
 
+from collector_runtime import configure_logging, load_collector_env
 from common import load_watchlist
 from operator_alerts import send_operator_alert
 
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
@@ -243,5 +242,5 @@ def _to_float(value: Any) -> float | None:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    configure_logging(datefmt=None)
     run()

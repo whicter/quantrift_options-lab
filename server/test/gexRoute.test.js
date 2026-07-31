@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const refreshPath = require.resolve('../src/lib/refreshJobs');
@@ -33,21 +34,6 @@ require.cache[refreshPath] = {
 };
 delete require.cache[optionsPath];
 const { sendGexSnapshot } = require(optionsPath);
-
-function responseRecorder() {
-  return {
-    statusCode: 200,
-    body: null,
-    status(code) {
-      this.statusCode = code;
-      return this;
-    },
-    json(body) {
-      this.body = body;
-      return this;
-    },
-  };
-}
 
 function seededSnapshot(symbol, snapshotTs) {
   return {

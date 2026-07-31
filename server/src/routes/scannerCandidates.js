@@ -14,6 +14,7 @@ const router = express.Router();
 const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
+const { normalizeSymbol } = require('../lib/symbols');
 
 const DEFAULT_SCAN_KEY = process.env.SCAN_KEY || 'watchlist_v1';
 const CANDIDATE_STALE_MINUTES = parseInt(process.env.SCANNER_CANDIDATE_STALE_MINUTES ?? 15, 10);
@@ -65,7 +66,7 @@ async function sendCandidates(req, res) {
   const scanKey = String(req.query.scanKey ?? DEFAULT_SCAN_KEY).trim() || DEFAULT_SCAN_KEY;
   const strategy = String(req.query.strategy ?? '').trim();
   const family = String(req.query.family ?? '').trim();
-  const symbol = String(req.query.symbol ?? '').trim().toUpperCase();
+  const symbol = normalizeSymbol(req.query.symbol);
   const minScore = optionalFloat(req.query.minScore);
   const limit = optionalInt(req.query.limit ?? 100);
 

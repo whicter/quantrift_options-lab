@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const routePath = require.resolve('../src/routes/volumeProfile');
@@ -9,14 +10,6 @@ const pool = { async query(sql, values) { queries.push({ sql, values }); return 
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: pool };
 delete require.cache[routePath];
 const { deriveVolumeProfile, sendVolumeProfile } = require(routePath);
-
-function responseRecorder() {
-  return {
-    statusCode: 200, body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
-  };
-}
 
 function bars() {
   return [

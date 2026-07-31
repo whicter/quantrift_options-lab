@@ -1,45 +1,14 @@
 import { normalizeTechnicalLevels, technicalLevelsPath } from './technicalLevels';
+import {
+  API_BASE,
+  ApiError,
+  getAuthenticatedJson,
+  getJson,
+  requestJson,
+  setAuthTokenProvider,
+} from './http';
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
-let authTokenProvider = null;
-
-export function setAuthTokenProvider(provider) {
-  authTokenProvider = typeof provider === 'function' ? provider : null;
-}
-
-async function requestHeaders(extra = {}) {
-  const token = authTokenProvider ? await authTokenProvider() : null;
-  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
-}
-
-// A backend that accepts the connection but never answers (e.g. its database is
-// down and the request blocks on the pool) leaves fetch pending forever. Without
-// a deadline every page's `.catch(...)` error branch is unreachable, so the UI
-// spins indefinitely instead of admitting the data service is unavailable.
-const DEFAULT_TIMEOUT_MS = 30000;
-
-async function fetchJson(path, { headers, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${API_BASE}${path}`, { headers, signal: controller.signal });
-    if (!response.ok) throw new Error(`API ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`API timeout after ${timeoutMs}ms`, { cause: error });
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function getJson(path, options = {}) {
-  return fetchJson(path, { ...options, headers: await requestHeaders() });
-}
-
-async function getAuthenticatedJson(path, token, options = {}) {
-  return fetchJson(path, { ...options, headers: { Authorization: `Bearer ${token}` } });
-}
+export { API_BASE, ApiError, setAuthTokenProvider };
 
 export function getMetrics(symbols) {
   const query = symbols.map(symbol => symbol.toUpperCase()).join(',');
@@ -219,27 +188,22 @@ export function getPortfolio(token) {
 }
 
 export async function createPosition(token, payload) {
-  const response = await fetch(`${API_BASE}/api/portfolio`, {
+  return requestJson('/api/portfolio', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    token,
+    body: payload,
   });
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.json();
 }
 
 export async function closePosition(token, id) {
-  const response = await fetch(`${API_BASE}/api/portfolio/${encodeURIComponent(id)}`, {
-    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  return requestJson(`/api/portfolio/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    token,
   });
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.json();
 }
 
 async function postAuthenticated(path, token) {
-  const response = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.json();
+  return requestJson(path, { method: 'POST', token });
 }
 
 export function createBillingCheckout(token) {
@@ -251,17 +215,16 @@ export function createBillingPortal(token) {
 }
 
 export async function createAlertSubscription(payload) {
-  const response = await fetch(`${API_BASE}/api/alerts/subscriptions`, {
-    method: 'POST', headers: await requestHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload),
+  return requestJson('/api/alerts/subscriptions', {
+    method: 'POST',
+    body: payload,
+    useAuthProvider: true,
   });
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.json();
 }
 
 export async function deleteAlertSubscription(token) {
-  const response = await fetch(`${API_BASE}/api/alerts/subscriptions/${encodeURIComponent(token)}`, { method: 'DELETE', headers: await requestHeaders() });
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.json();
+  return requestJson(`/api/alerts/subscriptions/${encodeURIComponent(token)}`, {
+    method: 'DELETE',
+    useAuthProvider: true,
+  });
 }
-
-export { API_BASE };

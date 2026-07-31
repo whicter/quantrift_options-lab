@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
-import time
 from dataclasses import dataclass
 
 import requests
 
+from .polygon_http import PolygonHttpClient
 from .polygon_price_provider import polygon_ticker
-from .polygon_rate_limit import PolygonStockRequestPacer
 
 
 @dataclass(frozen=True)
@@ -30,39 +28,29 @@ class PolygonReferenceProvider:
     source = 'polygon_reference'
 
     def __init__(self, session: requests.Session | None = None) -> None:
-        self.api_key = os.getenv('POLYGON_API_KEY', '').strip()
-        if not self.api_key:
-            raise RuntimeError('POLYGON_API_KEY is required for PolygonReferenceProvider')
-        self.base_url = os.getenv('POLYGON_BASE_URL', 'https://api.polygon.io').rstrip('/')
-        self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
-        self.backoff = max(float(os.getenv('POLYGON_REFERENCE_RATE_LIMIT_BACKOFF', '60')), 1)
-        self.max_retries = max(int(os.getenv('POLYGON_REFERENCE_RATE_LIMIT_RETRIES', '4')), 0)
-        self.stock_pacer = PolygonStockRequestPacer()
-        self._session = session or requests.Session()
-        self._session.headers['Authorization'] = f'Bearer {self.api_key}'
+        self.http = PolygonHttpClient(
+            session=session,
+            required_for='PolygonReferenceProvider',
+            backoff_env='POLYGON_REFERENCE_RATE_LIMIT_BACKOFF',
+            retries_env='POLYGON_REFERENCE_RATE_LIMIT_RETRIES',
+            default_retries=4,
+        )
+        self.api_key = self.http.api_key
+        self.base_url = self.http.base_url
+        self.timeout = self.http.timeout
+        self.stock_pacer = self.http.pacer
+        self._session = self.http.session
 
     def fetch_ticker(self, symbol: str) -> TickerReference | None:
         normalized = symbol.strip().upper()
         url = f'{self.base_url}/v3/reference/tickers/{polygon_ticker(normalized)}'
-        response = None
-        for attempt in range(self.max_retries + 1):
-            self.stock_pacer.wait()
-            response = self._session.get(url, timeout=self.timeout)
-            if response.status_code == 404:
-                return None
-            if response.status_code != 429:
-                response.raise_for_status()
-                break
-            if attempt >= self.max_retries:
-                response.raise_for_status()
-            # Shared penalty: back every worker off this provider, not just this
-            # process, so one rejection cannot become a storm.
-            self.stock_pacer.penalize(_retry_after(response.headers.get('Retry-After')) or self.backoff)
-        if response is None:
-            raise RuntimeError(f'Polygon ticker reference request did not run for {normalized}')
-        payload = response.json()
-        if payload.get('status') not in (None, 'OK', 'DELAYED'):
-            raise RuntimeError(f'Polygon ticker reference failed for {normalized}: {payload.get("status")}')
+        payload = self.http.get_json(
+            url,
+            context=f'Polygon ticker reference request for {normalized}',
+            missing_http_statuses=(404,),
+        )
+        if payload is None:
+            return None
         result = payload.get('results') or {}
         if not result:
             return None
@@ -100,10 +88,3 @@ def _float(value):
 def _https_url(value):
     value = _text(value)
     return value if value and value.startswith('https://') else None
-
-
-def _retry_after(value):
-    try:
-        return max(float(value or 0), 0)
-    except (TypeError, ValueError):
-        return 0

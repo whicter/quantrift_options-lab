@@ -13,12 +13,11 @@ import json
 import logging
 import os
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg2
-from dotenv import load_dotenv
 
+from collector_runtime import configure_collector
 from providers.polygon_market_breadth_provider import (
     CommonStockReference,
     GroupedDailyBar,
@@ -26,12 +25,7 @@ from providers.polygon_market_breadth_provider import (
 )
 
 
-load_dotenv(Path(__file__).with_name('.env'))
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_collector(__file__)
 log = logging.getLogger(__name__)
 
 MARKET_TIMEZONE = ZoneInfo('America/New_York')

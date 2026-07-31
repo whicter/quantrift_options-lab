@@ -4,16 +4,14 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 
+from collector_runtime import configure_collector
 from providers.polygon_reference_provider import PolygonReferenceProvider, TickerReference
 
 
-load_dotenv(Path(__file__).with_name('.env'))
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+configure_collector(__file__, datefmt=None)
 log = logging.getLogger(__name__)
 
 

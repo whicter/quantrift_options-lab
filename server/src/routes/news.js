@@ -2,17 +2,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
 
 const NEWS_CACHE_SECONDS = parseInt(process.env.NEWS_CACHE_SECONDS ?? 60, 10);
 const NEWS_API_WINDOW_HOURS = Math.min(Math.max(parseInt(process.env.NEWS_API_WINDOW_HOURS ?? 48, 10), 1), 168);
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function isValidSymbol(symbol) {
-  return /^[A-Z0-9.-]{1,12}$/.test(symbol);
-}
 
 function isMissingTableError(err) {
   return err?.code === '42P01';

@@ -11,25 +11,18 @@ Provider is selected by PRICE_PROVIDER:
 import logging
 import os
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
+from collector_runtime import configure_collector, parse_symbols
 from common import load_watchlist
 from providers.ib_price_provider import IBPriceProvider
 from providers.polygon_price_provider import PolygonPriceProvider
 from providers.stooq_price_provider import StooqPriceProvider
 
-load_dotenv(Path(__file__).with_name('.env'))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_collector(__file__)
 log = logging.getLogger(__name__)
 
 MARKET_TIMEZONE = ZoneInfo('America/New_York')
@@ -51,14 +44,7 @@ def load_symbols():
     if raw_symbols:
         if raw_symbols.strip().lower() in {'watchlist', 'all'}:
             return load_watchlist()
-        symbols = []
-        seen = set()
-        for part in raw_symbols.split(','):
-            symbol = part.strip().upper()
-            if symbol and symbol not in seen:
-                seen.add(symbol)
-                symbols.append(symbol)
-        return symbols
+        return parse_symbols(raw_symbols)
     return load_watchlist()
 
 

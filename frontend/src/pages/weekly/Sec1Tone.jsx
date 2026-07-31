@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import CompanyLogo from '../../components/CompanyLogo';
 import { getCompanyInfo } from '../../data/companyInfo';
 import { getChartColors } from '../../lib/theme';
 
@@ -144,7 +145,7 @@ export default function Sec1Tone({ data }) {
       {/* Header row */}
       <div className="wk-tone-header">
         <div className="wk-company-header">
-          {co && <img className="wk-company-logo" src={co.logo} alt={co.en} onError={e => { e.target.style.display = 'none'; }} />}
+          {co && <CompanyLogo className="wk-company-logo" src={co.logo} alt={co.en} />}
           <div>
             <div className="wk-sym">{symbol}{co && <span className="wk-company-zh"> {co.zh}</span>}</div>
             {co && <div className="wk-company-tagline">{co.tagline}</div>}

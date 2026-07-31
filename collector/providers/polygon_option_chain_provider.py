@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapshot
-from .polygon_rate_limit import PolygonStockRequestPacer
+from .polygon_http import PolygonHttpClient
 
 MARKET_TIMEZONE = ZoneInfo('America/New_York')
 
@@ -29,10 +29,13 @@ class PolygonOptionChainProvider:
     source = 'polygon_licensed'
 
     def __init__(self) -> None:
-        self.api_key = os.getenv('POLYGON_API_KEY', '').strip()
-        if not self.api_key:
-            raise RuntimeError('POLYGON_API_KEY is required for PolygonOptionChainProvider')
-        self.base_url = 'https://api.polygon.io'
+        self.http = PolygonHttpClient(
+            session=requests.Session(),
+            required_for='PolygonOptionChainProvider',
+            mount_retries=True,
+        )
+        self.api_key = self.http.api_key
+        self.base_url = self.http.base_url
         self.min_dte = int(os.getenv('OPTION_MIN_DTE', '0'))
         self.max_dte = int(os.getenv('OPTION_MAX_DTE', '90'))
         self.strike_window_pct = float(os.getenv('OPTION_STRIKE_WINDOW_PCT', '15'))
@@ -68,10 +71,9 @@ class PolygonOptionChainProvider:
         self.oi_max_pages = int(os.getenv('OPTION_OI_MAX_PAGES', '12'))
         self.oi_default_iv = float(os.getenv('OPTION_OI_DEFAULT_IV', '0.4'))
         self.request_delay = float(os.getenv('POLYGON_REQUEST_DELAY', '0.12'))
-        self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
-        self._session = requests.Session()
-        self._session.headers['Authorization'] = f'Bearer {self.api_key}'
-        self.stock_pacer = PolygonStockRequestPacer()
+        self.timeout = self.http.timeout
+        self._session = self.http.session
+        self.stock_pacer = self.http.pacer
 
     def _fetch_intraday_last(self, symbol: str) -> tuple[float, int] | None:
         """Latest delayed intraday minute-bar (price, epoch_ms), or None.
@@ -89,20 +91,22 @@ class PolygonOptionChainProvider:
         today = datetime.now(timezone.utc).astimezone(MARKET_TIMEZONE).date()
         url = f'{self.base_url}/v2/aggs/ticker/{symbol.upper()}/range/1/minute/{today.isoformat()}/{today.isoformat()}'
         try:
-            self.stock_pacer.wait()
-            resp = self._session.get(url, params={'adjusted': 'true', 'sort': 'desc', 'limit': 1}, timeout=self.timeout)
-            if getattr(resp, 'status_code', 200) != 200:
+            data = self.http.get_json(
+                url,
+                params={'adjusted': 'true', 'sort': 'desc', 'limit': 1},
+                context=f'Polygon intraday aggregate request for {symbol}',
+                missing_http_statuses=(401, 403, 404),
+                missing_payload_statuses=('NOT_AUTHORIZED',),
+            )
+            if data is None:
                 return None
-            data = resp.json()
-            if data.get('status') not in (None, 'OK', 'DELAYED'):
-                return None  # e.g. NOT_AUTHORIZED for real-time; fall back
             results = data.get('results') or []
             if not results:
                 return None
             bar = results[0]
             close = bar.get('c')
             return (float(close), int(bar['t'])) if close is not None else None
-        except (requests.RequestException, ValueError, KeyError):
+        except (requests.RequestException, RuntimeError, ValueError, KeyError):
             return None
 
     def fetch_underlying(
@@ -145,10 +149,11 @@ class PolygonOptionChainProvider:
                 raw={'price': float(spot_hint), 'endpoint': 'db_spot_hint'},
             )
         url = f'{self.base_url}/v2/aggs/ticker/{symbol.upper()}/prev'
-        self.stock_pacer.wait()
-        resp = self._session.get(url, params={'adjusted': 'true'}, timeout=self.timeout)
-        resp.raise_for_status()
-        data = resp.json()
+        data = self.http.get_json(
+            url,
+            params={'adjusted': 'true'},
+            context=f'Polygon previous aggregate request for {symbol}',
+        )
         results = data.get('results') or []
         if not results:
             raise RuntimeError(f'Polygon prev agg returned no results for {symbol}')
@@ -203,9 +208,11 @@ class PolygonOptionChainProvider:
         current_params: dict | None = params
 
         while url and len(raw_results) < self.max_contracts * 3:
-            resp = self._session.get(url, params=current_params, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
+            data = self.http.get_json(
+                url,
+                params=current_params,
+                context=f'Polygon option snapshot request for {symbol}',
+            )
             batch = data.get('results') or []
             raw_results.extend(batch)
             next_url = data.get('next_url')
@@ -218,13 +225,12 @@ class PolygonOptionChainProvider:
             supplement_params = dict(params)
             supplement_params['expiration_date.gte'] = (today + timedelta(days=30)).isoformat()
             supplement_params['expiration_date.lte'] = (today + timedelta(days=45)).isoformat()
-            supplement_response = self._session.get(
+            supplement = self.http.get_json(
                 f'{self.base_url}/v3/snapshot/options/{symbol}',
                 params=supplement_params,
-                timeout=self.timeout,
+                context=f'Polygon option snapshot supplement for {symbol}',
             )
-            supplement_response.raise_for_status()
-            raw_results.extend(supplement_response.json().get('results') or [])
+            raw_results.extend(supplement.get('results') or [])
 
         raw_results = _deduplicate_raw_contracts(raw_results)
 
@@ -330,9 +336,11 @@ class PolygonOptionChainProvider:
         current_params: dict | None = params
         pages = 0
         while url and pages < self.term_structure_max_pages:
-            resp = self._session.get(url, params=current_params, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
+            data = self.http.get_json(
+                url,
+                params=current_params,
+                context=f'Polygon ATM term-structure request for {symbol}',
+            )
             raw.extend(data.get('results') or [])
             url = data.get('next_url') or None
             current_params = None
@@ -375,11 +383,14 @@ class PolygonOptionChainProvider:
             current_params: dict | None = params
             pages = 0
             while url and pages < self.oi_max_pages:
-                self.stock_pacer.wait()
-                resp = self._session.get(url, params=current_params, timeout=self.timeout)
-                if getattr(resp, 'status_code', 200) != 200:
+                try:
+                    data = self.http.get_json(
+                        url,
+                        params=current_params,
+                        context=f'Polygon OI-by-strike request for {symbol}',
+                    )
+                except (requests.RequestException, RuntimeError):
                     break
-                data = resp.json()
                 raw.extend(data.get('results') or [])
                 url = data.get('next_url') or None
                 current_params = None

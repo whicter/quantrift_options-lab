@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const accountPath = require.resolve('../src/routes/account');
 let account = { entitlements: ['learn'] };
@@ -15,10 +16,6 @@ require.cache[authPath] = {
 const entitlementPath = require.resolve('../src/lib/entitlements');
 delete require.cache[entitlementPath];
 const { requireEntitlement } = require(entitlementPath);
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 test('entitlement middleware is rollout-safe while enforcement is disabled', async () => {
   process.env.AUTH_ENFORCEMENT_ENABLED = 'false';

@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import os
-import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from .base import IntradayPriceBar, PriceBar
-from .polygon_rate_limit import PolygonStockRequestPacer
+from .polygon_http import PolygonHttpClient
 
 
 MARKET_TIMEZONE = ZoneInfo('America/New_York')
@@ -20,25 +16,15 @@ class PolygonPriceProvider:
     source = 'polygon_licensed'
 
     def __init__(self, session: requests.Session | None = None) -> None:
-        self.api_key = os.getenv('POLYGON_API_KEY', '').strip()
-        if not self.api_key:
-            raise RuntimeError('POLYGON_API_KEY is required for PolygonPriceProvider')
-        self.base_url = os.getenv('POLYGON_BASE_URL', 'https://api.polygon.io').rstrip('/')
-        self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
-        self.rate_limit_backoff = float(os.getenv('POLYGON_PRICE_RATE_LIMIT_BACKOFF', '60'))
-        self.max_rate_limit_retries = int(os.getenv('POLYGON_PRICE_RATE_LIMIT_RETRIES', '5'))
-        self.stock_pacer = PolygonStockRequestPacer()
-        self._session = session or requests.Session()
-        self._session.headers['Authorization'] = f'Bearer {self.api_key}'
-        if session is None:
-            retry = Retry(
-                total=3,
-                backoff_factor=0.5,
-                status_forcelist=(500, 502, 503, 504),
-                allowed_methods=frozenset({'GET'}),
-                respect_retry_after_header=True,
-            )
-            self._session.mount('https://', HTTPAdapter(max_retries=retry))
+        self.http = PolygonHttpClient(
+            session=session,
+            required_for='PolygonPriceProvider',
+        )
+        self.api_key = self.http.api_key
+        self.base_url = self.http.base_url
+        self.timeout = self.http.timeout
+        self.stock_pacer = self.http.pacer
+        self._session = self.http.session
 
     def fetch_daily_bars(self, symbol: str, limit: int = 400) -> list[PriceBar]:
         end = date.today()
@@ -67,25 +53,11 @@ class PolygonPriceProvider:
             f'{multiplier}/{timespan}/{start.isoformat()}/{end.isoformat()}'
         )
         params = {'adjusted': 'true', 'sort': 'asc', 'limit': 50000}
-        response = None
-        for attempt in range(self.max_rate_limit_retries + 1):
-            self.stock_pacer.wait()
-            response = self._session.get(url, params=params, timeout=self.timeout)
-            if getattr(response, 'status_code', 200) != 429:
-                response.raise_for_status()
-                break
-            if attempt >= self.max_rate_limit_retries:
-                response.raise_for_status()
-            retry_after = _retry_after_seconds(getattr(response, 'headers', {}).get('Retry-After'))
-            # Push the shared slot so every worker backs off. A local sleep
-            # would pause only this process while the others keep hammering.
-            self.stock_pacer.penalize(retry_after or self.rate_limit_backoff)
-
-        if response is None:
-            raise RuntimeError(f'Polygon aggregates request did not run for {symbol}')
-        payload = response.json()
-        if payload.get('status') not in (None, 'OK', 'DELAYED'):
-            raise RuntimeError(f'Polygon aggregates failed for {symbol}: {payload.get("status")}')
+        payload = self.http.get_json(
+            url,
+            params=params,
+            context=f'Polygon aggregates request for {symbol}',
+        )
         return payload.get('results') or []
 
     def _daily_bar(self, symbol: str, item: dict) -> PriceBar:
@@ -127,12 +99,3 @@ def _float_or_none(value):
 
 def _int_or_none(value):
     return None if value is None else int(float(value))
-
-
-def _retry_after_seconds(value) -> float | None:
-    if value in (None, ''):
-        return None
-    try:
-        return max(float(value), 0)
-    except (TypeError, ValueError):
-        return None

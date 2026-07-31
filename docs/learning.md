@@ -820,3 +820,14 @@ GEX compute job：
 - **migration 成功不等于首个快照成功**：本次 Railway `market_breadth_daily` 表创建成功，但 collector 在出网前因没有 `POLYGON_API_KEY` 停止。运行记录必须分开写“schema 已就绪”和“数据已写入”，并只在后者通过 `counted >= 2000`、`coverage_pct >= 90` 后启用定时任务。
 
 财报日期与“未来 7 天”的市场简报不同：日历按纽约时区自然周（周一到周五）查询，空周也应返回完整周边界以便前端显示空列。`earnings_date` 仅是日期，不能由此猜测报前、盘后或盘中时段。
+
+## Refactor 要按运行时边界拆，不按“common”一锅端（2026-07-30）
+
+- 一个 920 行 route 同时放 SQL、HTTP 和纯算法，会迫使单测通过 route 间接加载 DB。纯 Market 算法移入 `domain/market` 后，route 降为 orchestration，测试可以直接钉住领域行为。
+- Polygon 的重复不只是样板：Option Chain 主分页曾绕过其他 provider 已有的共享 pacer/429 backoff。基础设施重复会形成可靠性差异，所以 HTTP transport 必须集中；endpoint 参数和 payload parsing 则不能泛化掉。
+- 前端统一 HTTP 层的价值不是少几行 `fetch`，而是让 GET/POST/DELETE 都拥有相同的 timeout、auth 和可检查的 `ApiError.status`。产品 endpoint 函数仍应保留，避免组件拼 URL。
+- 前端、Node server、Python collector 是三个独立运行时。不要为了消除几段相似文案建立跨运行时 common package；保持 API contract 稳定，分别重构和验证。
+- ticker regex 看起来相同也不能直接替换成一个常量：Analyze 保留“必须字母开头、最多 10 位”，Technical Levels 保留“必须字母开头、最多 12 位”，其余 route 保留旧的 12 位字符集。共享 helper 应把差异做成显式参数。
+- 前端 async 抽取只适合稳定 loader 的简单只读请求。带 week、symbol、轮询、重试或多请求合并的 effect 继续留在页面内，避免为了复用制造 stale closure 或隐藏业务状态机。
+- 测试 helper 也要纳入重复扫描，但只合并真实相同的协议。普通 JSON response recorder 可以共享，security-header recorder 有 `setHeader/removeHeader` 的不同 contract，必须独立。
+- SQL 重复应只抽稳定的事实边界，不拼成万能 query builder。Scan 与 candidate materializer 对 quoted chain 的可执行性判定和 contract JSON projection 完全相同，适合共享 CTE；各自的 batch、filter、排序 SQL 仍留在所属模块。

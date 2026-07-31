@@ -1,24 +1,18 @@
-import { useEffect, useState } from 'react';
 import { getMarketBreadth } from '../lib/api';
 import { buildBreadthView } from '../lib/marketBreadth';
+import {
+  formatEtTimestamp,
+  formatInteger,
+  formatNumber,
+  formatPercent,
+  formatSignedInteger,
+} from '../lib/formatters';
+import useAsyncResource from '../hooks/useAsyncResource';
 
-function fmtAsOf(ts) {
-  if (!ts) return null;
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.toLocaleString('en-US', {
-    timeZone: 'America/New_York', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  })} ET`;
-}
-
-const fmt = (v, digits = 1) => (v == null || !Number.isFinite(v) ? '--' : v.toFixed(digits));
-const pctText = (v) => (v == null || !Number.isFinite(v) ? '--' : `${v}%`);
-const intText = (v) => (v == null || !Number.isFinite(v) ? '--' : new Intl.NumberFormat('en-US').format(v));
-const signedInt = (v) => {
-  if (v == null || !Number.isFinite(v)) return '--';
-  return `${v > 0 ? '+' : ''}${intText(v)}`;
-};
+const fmt = formatNumber;
+const pctText = formatPercent;
+const intText = formatInteger;
+const signedInt = formatSignedInteger;
 
 function BroadMarketModule({ market }) {
   return (
@@ -122,15 +116,14 @@ function BroadMarketModule({ market }) {
 // internals. Both are persisted snapshots; this component never calls a data
 // provider directly.
 export default function MarketInternals() {
-  const [raw, setRaw] = useState(null);
-  useEffect(() => { getMarketBreadth().then(setRaw).catch(() => {}); }, []);
+  const { data: raw } = useAsyncResource(getMarketBreadth);
 
   if (!raw) return null; // loading: stay quiet like the regime strip
   const view = buildBreadthView(raw);
   if (view.status !== 'ready' || view.empty) return null;
 
   const { broadMarket, gamma, ivRank, pcr, trend } = view;
-  const asOf = fmtAsOf(view.gammaAsOf);
+  const asOf = formatEtTimestamp(view.gammaAsOf);
   const hasOptionsInternals = gamma || ivRank || pcr || trend;
 
   return (

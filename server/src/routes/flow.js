@@ -2,18 +2,11 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
 
 const FLOW_CACHE_SECONDS = parseInt(process.env.FLOW_CACHE_SECONDS ?? 30, 10);
 const FLOW_STALE_MINUTES = parseInt(process.env.FLOW_STALE_MINUTES ?? 5, 10);
 const FLOW_WINDOW_HOURS = Math.min(Math.max(parseInt(process.env.FLOW_WINDOW_HOURS ?? 24, 10), 1), 72);
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function isValidSymbol(symbol) {
-  return /^[A-Z0-9.-]{1,12}$/.test(symbol);
-}
 
 function missingPayload(symbol) {
   return {

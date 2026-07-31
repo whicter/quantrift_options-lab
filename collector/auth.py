@@ -17,9 +17,10 @@ import hashlib
 import requests
 import psycopg2
 from email.mime.text import MIMEText
-from dotenv import load_dotenv, set_key
+from dotenv import set_key
+from collector_runtime import load_collector_env
 
-load_dotenv()
+load_collector_env(__file__)
 
 TT_BASE   = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')
 TT_USER_AGENT = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')

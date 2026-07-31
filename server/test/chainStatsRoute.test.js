@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const optionsPath = require.resolve('../src/routes/options');
@@ -13,14 +14,6 @@ require.cache[optionsPath] = {
 };
 delete require.cache[chainPath];
 const { deriveChainStats, deriveOiDensity, sendChainStats } = require(chainPath);
-
-function responseRecorder() {
-  return {
-    statusCode: 200, body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
-  };
-}
 
 const snapshot = { id: 7, underlying_price: 101, source: 'ib_internal', snapshot_ts: new Date().toISOString() };
 const contracts = [

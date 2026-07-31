@@ -3,17 +3,16 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import Json
 
+from collector_runtime import configure_logging, load_collector_env
 from common import load_watchlist
 
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 
 log = logging.getLogger(__name__)
 
@@ -355,9 +354,5 @@ def run() -> dict[str, Any]:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-    )
+    configure_logging()
     run()

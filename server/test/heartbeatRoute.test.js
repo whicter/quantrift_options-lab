@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 process.env.HEARTBEAT_TOKEN = 'test-heartbeat-token';
 
@@ -16,10 +17,6 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: p
 
 const { tokenMatches, heartbeatState, receiveHeartbeat, sendHeartbeatStatus } = require('../src/routes/heartbeat');
 const { mergeExpectedNodes, isHeartbeatOffline, monitorHeartbeats } = require('../src/lib/heartbeatMonitor');
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 test('heartbeat token comparison and freshness states are deterministic', () => {
   assert.equal(tokenMatches('same', 'same'), true);

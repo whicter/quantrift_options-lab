@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 let queryResults = [];
@@ -12,10 +13,6 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: p
 
 const { sendAdminChain, diagnostics } = require('../src/routes/adminChain');
 const { requireAdminToken } = require('../src/lib/adminAuth');
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 function request(params = {}, query = {}, headers = {}) {
   const lookup = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));

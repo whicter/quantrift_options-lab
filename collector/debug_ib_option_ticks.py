@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
-from dotenv import load_dotenv
+from collector_runtime import load_collector_env
 
 from providers.ib_option_chain_provider import IbOptionChainProvider
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 
 
 def main() -> None:

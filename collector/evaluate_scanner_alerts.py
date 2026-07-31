@@ -6,13 +6,13 @@ import os
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import Json, RealDictCursor
 
+from collector_runtime import configure_logging, load_collector_env
 from operator_alerts import send_email, send_web_push
 
 
-load_dotenv()
+load_collector_env(__file__)
 log = logging.getLogger(__name__)
 DB_URL = os.getenv('DATABASE_URL')
 
@@ -102,5 +102,5 @@ def run() -> dict[str, int]:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    configure_logging(datefmt=None)
     run()

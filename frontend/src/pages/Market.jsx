@@ -1,15 +1,13 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMarketStateMatrix } from '../lib/api';
 import { buildStateMatrixView } from '../lib/stateMatrix';
 import MarketInternals from '../components/MarketInternals';
 import SectorRotation from '../components/SectorRotation';
 import MarketBriefing from '../components/MarketBriefing';
+import useAsyncResource from '../hooks/useAsyncResource';
 
 export default function Market() {
-  const [raw, setRaw] = useState(null);
-  const [error, setError] = useState(false);
-  useEffect(() => { getMarketStateMatrix().then(setRaw).catch(() => setError(true)); }, []);
+  const { data: raw, error } = useAsyncResource(getMarketStateMatrix);
 
   const view = buildStateMatrixView(raw);
 

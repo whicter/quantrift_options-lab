@@ -18,16 +18,14 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
+from collector_runtime import configure_collector
 from providers.ib_news_provider import IBNewsProvider
 
-load_dotenv(Path(__file__).with_name('.env'))
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+configure_collector(__file__, datefmt=None)
 log = logging.getLogger(__name__)
 
 

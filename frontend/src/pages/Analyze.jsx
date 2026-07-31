@@ -11,6 +11,7 @@ import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
 import Tab4Signals from './analyze/Tab4Signals';
+import CompanyLogo from '../components/CompanyLogo';
 import TechnicalLevelsPanel from '../components/TechnicalLevelsPanel';
 
 const TABS = [
@@ -567,7 +568,7 @@ export default function Analyze() {
               const co = getCompanyInfo(result.symbol);
               return co ? (
                 <div className="az-company-info">
-                  <img className="az-company-logo" src={co.logo} alt={co.en} onError={e => { e.target.style.display = 'none'; }} />
+                  <CompanyLogo className="az-company-logo" src={co.logo} alt={co.en} />
                   <div className="az-company-text">
                     <div className="az-symbol">{result.symbol} <span className="az-company-zh">{co.zh}</span></div>
                     <div className="az-company-tagline">{co.tagline}</div>

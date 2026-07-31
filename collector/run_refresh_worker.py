@@ -13,14 +13,13 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timezone
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import Json
 
+from collector_runtime import configure_collector
 
 def _json_safe(value):
     """Fallback encoder for job summaries: dates/Decimals/etc. -> str.
@@ -46,13 +45,7 @@ import materialize_oi_delta
 import materialize_scan
 import symbol_data_state
 
-load_dotenv(Path(__file__).with_name('.env'))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_collector(__file__)
 log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import date
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
-from .polygon_rate_limit import PolygonStockRequestPacer
+from .polygon_http import PolygonHttpClient
 
 
 @dataclass(frozen=True)
@@ -30,25 +27,15 @@ class PolygonMarketBreadthProvider:
     source = 'polygon_grouped_daily'
 
     def __init__(self, session: requests.Session | None = None) -> None:
-        self.api_key = os.getenv('POLYGON_API_KEY', '').strip()
-        if not self.api_key:
-            raise RuntimeError('POLYGON_API_KEY is required for PolygonMarketBreadthProvider')
-        self.base_url = os.getenv('POLYGON_BASE_URL', 'https://api.polygon.io').rstrip('/')
-        self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
-        self.backoff = max(float(os.getenv('POLYGON_PRICE_RATE_LIMIT_BACKOFF', '60')), 1)
-        self.max_retries = max(int(os.getenv('POLYGON_PRICE_RATE_LIMIT_RETRIES', '5')), 0)
-        self.stock_pacer = PolygonStockRequestPacer()
-        self._session = session or requests.Session()
-        self._session.headers['Authorization'] = f'Bearer {self.api_key}'
-        if session is None:
-            retry = Retry(
-                total=3,
-                backoff_factor=0.5,
-                status_forcelist=(500, 502, 503, 504),
-                allowed_methods=frozenset({'GET'}),
-                respect_retry_after_header=True,
-            )
-            self._session.mount('https://', HTTPAdapter(max_retries=retry))
+        self.http = PolygonHttpClient(
+            session=session,
+            required_for='PolygonMarketBreadthProvider',
+        )
+        self.api_key = self.http.api_key
+        self.base_url = self.http.base_url
+        self.timeout = self.http.timeout
+        self.stock_pacer = self.http.pacer
+        self._session = self.http.session
 
     def fetch_grouped_daily(self, market_date: date) -> dict[str, GroupedDailyBar]:
         url = (
@@ -106,22 +93,11 @@ class PolygonMarketBreadthProvider:
         return references
 
     def _get_json(self, url: str, params: dict | None = None) -> dict:
-        response = None
-        for attempt in range(self.max_retries + 1):
-            self.stock_pacer.wait()
-            response = self._session.get(url, params=params, timeout=self.timeout)
-            if response.status_code != 429:
-                response.raise_for_status()
-                break
-            if attempt >= self.max_retries:
-                response.raise_for_status()
-            self.stock_pacer.penalize(_retry_after(response.headers.get('Retry-After')) or self.backoff)
-        if response is None:
-            raise RuntimeError('Polygon market breadth request did not run')
-        payload = response.json()
-        if payload.get('status') not in (None, 'OK', 'DELAYED'):
-            raise RuntimeError(f'Polygon market breadth request failed: {payload.get("status")}')
-        return payload
+        return self.http.get_json(
+            url,
+            params=params,
+            context='Polygon market breadth request',
+        )
 
 
 def _positive_float(value) -> float | None:
@@ -138,10 +114,3 @@ def _nonnegative_int(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
-
-
-def _retry_after(value) -> float:
-    try:
-        return max(float(value or 0), 0)
-    except (TypeError, ValueError):
-        return 0

@@ -1,26 +1,10 @@
 const express = require('express');
 const pool = require('../db');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
+const { average, isoDate } = require('../lib/values');
+const { newYorkDate } = require('../lib/marketTime');
 
 const router = express.Router();
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function average(values) {
-  if (!values.length) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function toDateString(value) {
-  return value?.toISOString?.().slice(0, 10) || String(value).slice(0, 10);
-}
-
-function newYorkDate() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-}
 
 function movingAverage(values, period) {
   return values.length < period ? null : average(values.slice(-period));
@@ -47,14 +31,8 @@ function boundedContribution(value, multiplier, limit) {
   return Math.max(-limit, Math.min(limit, value * multiplier));
 }
 
-function newYorkDateFor(value) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date(value));
-}
-
 function weekKey(dateValue) {
-  const date = new Date(`${toDateString(dateValue)}T00:00:00Z`);
+  const date = new Date(`${isoDate(dateValue)}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return null;
   const day = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() - day + 1);
@@ -63,7 +41,7 @@ function weekKey(dateValue) {
 
 function deriveCompositeMomentum(dailyRows, intradayRows) {
   const daily = dailyRows.map(row => ({
-    date: toDateString(row.date), close: Number(row.close),
+    date: isoDate(row.date), close: Number(row.close),
   })).filter(row => row.date && Number.isFinite(row.close));
   const intraday = intradayRows.map(row => ({
     barTs: row.bar_ts, close: Number(row.close),
@@ -112,7 +90,7 @@ function deriveCompositeMomentum(dailyRows, intradayRows) {
   );
 
   const dailyMarketDate = daily.at(-1).date;
-  const intradayMarketDate = newYorkDateFor(intraday.at(-1).barTs);
+  const intradayMarketDate = newYorkDate(intraday.at(-1).barTs);
   const stale = intradayMarketDate !== dailyMarketDate;
   const score = clampScore(intradayScore * 0.30 + dailyScore * 0.40 + weeklyScore * 0.30);
   return {
@@ -148,7 +126,7 @@ function clusterLevels(levels, tolerancePct = 0.01) {
 
 function deriveSupportResistance(rows, pivotWindow = 2) {
   const bars = rows.map(row => ({
-    date: toDateString(row.date),
+    date: isoDate(row.date),
     high: Number(row.high),
     low: Number(row.low),
     close: Number(row.close),
@@ -220,7 +198,7 @@ function deriveFocusScore(bars) {
 
 function deriveObv(bars) {
   const validBars = (bars || []).map(bar => ({
-    date: toDateString(bar.date),
+    date: isoDate(bar.date),
     close: Number(bar.close),
     volume: Number(bar.volume),
   })).filter(bar => bar.date && Number.isFinite(bar.close) && Number.isFinite(bar.volume) && bar.volume > 0);
@@ -251,7 +229,7 @@ function deriveObv(bars) {
 
 function deriveMfi(bars, period = 14) {
   const validBars = (bars || []).map(bar => ({
-    date: toDateString(bar.date),
+    date: isoDate(bar.date),
     high: Number(bar.high),
     low: Number(bar.low),
     close: Number(bar.close),
@@ -293,7 +271,7 @@ function deriveMfi(bars, period = 14) {
 async function sendSupportResistance(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
     const [dailyResult, intradayResult] = await Promise.all([
@@ -329,7 +307,7 @@ async function sendSupportResistance(req, res) {
       status: 'ready',
       source: latest.source,
       snapshot_ts: latest.created_at,
-      latest_date: toDateString(latest.date),
+      latest_date: isoDate(latest.date),
       bar_count: derived.bars.length,
       spot: derived.spot,
       support: derived.supports,

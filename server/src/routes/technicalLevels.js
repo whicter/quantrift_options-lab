@@ -1,8 +1,10 @@
 const express = require('express');
 const pool = require('../db');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
+const { average, isoDate } = require('../lib/values');
+const { newYorkDate } = require('../lib/marketTime');
 
 const router = express.Router();
-const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,11}$/;
 const PROFILE_LIMIT = 2000;
 const DAILY_LIMIT = 250;
 const OPTION_FRESH_MINUTES = Math.max(30, Number(process.env.OPTION_FRESH_MINUTES || 180));
@@ -19,30 +21,13 @@ function round(value, digits = 2) {
     : Number(value.toFixed(digits));
 }
 
-function toDateString(value) {
-  return value?.toISOString?.().slice(0, 10) || String(value || '').slice(0, 10);
-}
-
-function newYorkDateFor(value) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(value));
-}
-
-function average(values) {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-}
-
 function movingAverage(values, period) {
   return values.length >= period ? average(values.slice(-period)) : null;
 }
 
 function normalizeDaily(rows) {
   return rows.map(row => ({
-    date: toDateString(row.date),
+    date: isoDate(row.date),
     open: toNumber(row.open),
     high: toNumber(row.high),
     low: toNumber(row.low),
@@ -119,8 +104,8 @@ function deriveVolumeProfile(rows, spot, maxNodes = 10) {
     approximation: '30m_bar_typical_price',
     session: 'regular',
     bar_count: bars.length,
-    window_start: newYorkDateFor(bars[0].timestamp),
-    window_end: newYorkDateFor(bars.at(-1).timestamp),
+    window_start: newYorkDate(bars[0].timestamp),
+    window_end: newYorkDate(bars.at(-1).timestamp),
     price_low: round(Math.min(...bars.map(bar => bar.low))),
     price_high: round(Math.max(...bars.map(bar => bar.high))),
     bin_size: round(binSize),
@@ -192,7 +177,7 @@ function deriveAnchoredVwap(rows, anchor) {
     return { status: 'missing', reason: 'anchor_unavailable', value: null, anchor: null };
   }
   const bars = normalizeIntraday(rows)
-    .filter(row => newYorkDateFor(row.timestamp) >= anchor.date && row.volume > 0);
+    .filter(row => newYorkDate(row.timestamp) >= anchor.date && row.volume > 0);
   if (!bars.length) {
     return {
       status: 'missing',
@@ -213,12 +198,12 @@ function deriveAnchoredVwap(rows, anchor) {
     interval: '30m',
     session: 'regular',
     bar_count: bars.length,
-    window_end: newYorkDateFor(bars.at(-1).timestamp),
+    window_end: newYorkDate(bars.at(-1).timestamp),
   };
 }
 
 function weekKey(value) {
-  const date = new Date(`${toDateString(value)}T00:00:00Z`);
+  const date = new Date(`${isoDate(value)}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return null;
   const day = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() - day + 1);
@@ -604,8 +589,8 @@ async function loadOptionData(symbol) {
 }
 
 async function sendTechnicalLevels(req, res) {
-  const symbol = String(req.params.symbol || '').trim().toUpperCase();
-  if (!SYMBOL_PATTERN.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  const symbol = normalizeSymbol(req.params.symbol);
+  if (!isValidSymbol(symbol, { requireLeadingLetter: true })) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
     const [dailyResult, intradayResult] = await Promise.all([

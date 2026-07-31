@@ -1749,7 +1749,7 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
   .az-news-row { grid-template-columns: 1fr; gap: 3px; }
   .az-news-time { text-align: left; }
 }
-.az-options-conclusion {
+.research-note {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 6px; padding: 12px 14px;
   font-size: 12px; color: var(--text-dim); line-height: 1.6;
@@ -1856,11 +1856,6 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .wk-section { display: flex; flex-direction: column; gap: 12px; }
 .wk-section-subtitle { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
 .wk-section-note { font-size: 11px; color: var(--text-muted); font-style: italic; }
-.wk-note {
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
-  padding: 12px 14px; font-size: 12px; color: var(--text-dim); line-height: 1.6;
-}
-
 /* Prev/Next nav */
 .wk-nav-row { display: flex; justify-content: space-between; margin-top: 4px; }
 .wk-nav-btn {

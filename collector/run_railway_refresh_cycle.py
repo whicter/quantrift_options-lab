@@ -4,17 +4,14 @@ from __future__ import annotations
 
 import logging
 
+from collector_runtime import configure_logging
 import materialize_scan
 import materialize_scanner_candidates
 import run_refresh_worker
 import schedule_option_refresh
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_logging()
 log = logging.getLogger(__name__)
 
 

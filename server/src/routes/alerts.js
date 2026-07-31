@@ -1,13 +1,12 @@
 const crypto = require('crypto');
 const express = require('express');
 const pool = require('../db');
+const { normalizeSymbolList } = require('../lib/symbols');
 
 const router = express.Router();
 
 function normalizeRules(input = {}) {
-  const symbols = Array.isArray(input.symbols)
-    ? [...new Set(input.symbols.map(value => String(value).trim().toUpperCase()).filter(value => /^[A-Z0-9.-]{1,12}$/.test(value)))].slice(0, 50)
-    : [];
+  const symbols = normalizeSymbolList(input.symbols, { limit: 50 });
   const minIvRank = input.min_iv_rank === '' || input.min_iv_rank == null ? null : Number(input.min_iv_rank);
   const gammaRegime = ['positive', 'negative', 'neutral'].includes(input.gamma_regime) ? input.gamma_regime : null;
   if (minIvRank != null && (!Number.isFinite(minIvRank) || minIvRank < 0 || minIvRank > 100)) throw new Error('invalid min_iv_rank');

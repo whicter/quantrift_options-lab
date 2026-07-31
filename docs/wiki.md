@@ -1482,3 +1482,14 @@ version。GOOG production-input smoke 得到 spot `346.19`、POC `346.00`、AVWA
 # 本周财报日历
 
 `/earnings` 展示本周或下周纽约时区周一至周五的已落库财报日，页面内切换不增加顶部导航项。每个标的是可点击的链接，会打开对应的 Analyze 页面。它只读 `iv_history.earnings_date`、已启用 `symbol_universe` 的名称及已采集的 Polygon/Massive branding icon；icon 不存在或加载失败时显示 ticker 首字母。前端不会按 ticker 猜域名或临时调用外部 logo 服务；没有数据源支持的报前/盘后时间、预期值或 logo 不显示、不推断。
+
+# 前后端内部模块边界
+
+- Server 的 Market route 只负责 SQL、Express handler 和 response contract；市场宽度、Regime、State Matrix、Sector Rotation、Briefing 的纯逻辑位于 `server/src/domain/market/`。
+- Server 的 ticker 清洗/校验、有限数值与 ISO 日期、纽约市场日期分别由 `lib/symbols.js`、`lib/values.js`、`lib/marketTime.js` 提供；Analyze 的严格“字母开头且最多 10 位”规则仍通过参数保留。
+- Scan API 与 scanner candidate materializer 共用 `repositories/optionChainSql.js`，对“最新可执行、非 crossed bid/ask 链”和 candidate option-contract JSON 字段只维护一份 SQL。
+- Collector 的 Polygon providers 共享 `providers/polygon_http.py` 的认证、timeout、5xx retry、全局 pacer 与 429 backoff；provider 自己仍负责 endpoint 和字段语义。
+- Collector 各入口通过 `collector_runtime.py` 加载同一目录的 `.env`；需要统一日志的入口使用共同格式，逗号分隔 ticker override 统一做 uppercase、去空和按输入顺序去重。
+- Frontend 的 `lib/api.js` 保留产品 API 函数，`lib/http.js` 统一 GET/POST/DELETE、auth、JSON、timeout 和带 HTTP status 的错误。
+- Frontend 的市场数值/百分比/ET 时间由 `lib/formatters.js` 格式化；无参数、只读 API 资源使用带 unmount 保护的 `useAsyncResource`；Analyze/Weekly 的公司 logo 失败行为由 `CompanyLogo` 统一。
+- 前端与后端不共享运行时代码包；跨边界唯一共享的是 HTTP 路径、请求字段和 response schema。

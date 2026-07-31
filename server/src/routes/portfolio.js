@@ -1,17 +1,17 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAuthenticatedUser } = require('../lib/auth');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
 const { ensureAccount } = require('./account');
 
 const router = express.Router();
-const SYMBOL_RE = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 function normalizePositionInput(body = {}) {
-  const symbol = String(body.symbol || '').trim().toUpperCase();
+  const symbol = normalizeSymbol(body.symbol);
   const strategyName = String(body.strategy_name || '').trim().slice(0, 80);
   const quantity = Number(body.quantity ?? 1);
   const notes = String(body.notes || '').trim().slice(0, 1000) || null;
-  if (!SYMBOL_RE.test(symbol)) throw new Error('invalid symbol');
+  if (!isValidSymbol(symbol, { maxLength: 10, requireLeadingLetter: true })) throw new Error('invalid symbol');
   if (!strategyName) throw new Error('strategy_name required');
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) throw new Error('invalid quantity');
   if (!Array.isArray(body.legs) || body.legs.length < 1 || body.legs.length > 8) throw new Error('invalid legs');

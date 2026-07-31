@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 import requests
 from psycopg2.extras import execute_values
 
+from collector_runtime import configure_logging
 from implied_vol import (
     DEFAULT_RISK_FREE_RATE,
     atm_iv_from_call_put,
@@ -349,8 +350,7 @@ def run(symbols: list, days: int) -> None:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
+    configure_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument('symbols', nargs='*', default=['AAPL'])
     parser.add_argument('--days', type=int, default=400)  # ~400 calendar days ~= 252 trading days

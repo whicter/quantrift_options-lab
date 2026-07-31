@@ -2464,3 +2464,17 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - ✅ Payoff chart: show multiple DTE snapshots (not just current + expiry)（自动生成 75% / 50% / 25% 剩余 DTE 曲线；跨期结构按每条 leg 的实际剩余时间定价）
 - ✅ Add 10 more strategies (exotic, FX, index-specific)（策略库增至 88 个模板：Call/Put Ladder、比例日历、Calendar Condor、Double Diagonal Condor、FX Risk Reversal / Seagull、Index Iron Condor / Broken-Wing Butterfly；catalog 测试校验数量、ID 唯一和新增模板存在）
 - ✅ 策略 notes 进一步标准化（所有 88 个策略的 `iv` / `dte` / `tp` / `sl` 均展示至少一个数字阈值；模板本身已有数字时保留原规则，缺失项补入统一的 IV Rank 30-60、30-60 DTE/45 DTE、50% 止盈和 50% 最大风险止损基准；单元测试逐策略校验）
+
+---
+
+## 2026-07-30 — Common-module refactor
+
+- Server：Market 纯计算已移入 `server/src/domain/market/`；`routes/market.js` 保留 SQL、handler 和原有兼容 exports，API contract 不变。
+- Server follow-up：统一 ticker normalization/validation、finite number/ISO date/New York date helpers，并抽取 18 个相同的 route-test response recorder；Analyze 不再从另一个 route 导入纯算法。
+- Scanner SQL follow-up：Scan API 与 candidate materializer 共用最新可报价链和 contract projection CTE，避免两条 scanner 路径的 quote eligibility 漂移。
+- Collector：新增 `providers/polygon_http.py`，统一 Price、Reference、Market Breadth、Option Chain 的认证、timeout、5xx retry、共享 pacer 与 429 backoff。
+- Collector follow-up：所有 collector 入口通过 `collector_runtime.py` 加载 `.env`，核心批处理共用有序去重的 symbol override 解析，统一日志入口保持原配置差异。
+- Frontend：新增 `lib/http.js`，统一 auth、JSON body、GET/POST/DELETE timeout 与 `ApiError.status`；`lib/api.js` 保持原有调用签名。
+- Frontend follow-up：统一 Market formatter、简单只读 async resource、Analyze/Weekly company logo error handling 与 research-note 样式；rolling-deploy briefing fallback 保留。
+- Verification record：`docs/validation/COMMON_MODULE_REFACTOR_2026-07-30.md`。
+- Delivery state：本地完整验证已通过；尚未创建提交或推送，因此不标记独立完成 checkbox。

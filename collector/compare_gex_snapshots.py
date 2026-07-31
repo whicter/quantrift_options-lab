@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 
 import compute_gex
+from collector_runtime import load_collector_env
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 
 
 def load_snapshot(conn, symbol: str) -> dict[str, Any] | None:

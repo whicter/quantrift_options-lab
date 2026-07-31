@@ -6,22 +6,15 @@ import os
 import statistics
 from collections import defaultdict
 from datetime import date
-from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
+from collector_runtime import configure_collector
 from common import load_watchlist
 from implied_vol import atm_iv_from_call_put, constant_maturity_atm_iv
 
-load_dotenv(Path(__file__).with_name('.env'))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_collector(__file__)
 log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')

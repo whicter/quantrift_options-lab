@@ -44,9 +44,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
+from collector_runtime import configure_logging, load_collector_env
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 
 log = logging.getLogger(__name__)
 
@@ -125,8 +125,7 @@ def run(out_root: str | None = None) -> dict:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
+    configure_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', default=None)
     outcome = run(parser.parse_args().out)

@@ -1,19 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getSectorRotation } from '../lib/api';
 import { buildRotationView, tooltipPlacement } from '../lib/sectorRotation';
+import { formatSignedNumber } from '../lib/formatters';
+import useAsyncResource from '../hooks/useAsyncResource';
 
-const signed = (v, d = 1) => (v == null || !Number.isFinite(Number(v)) ? '--' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(d)}`);
+const signed = formatSignedNumber;
 const FLOW_ZH = { inflow: '流入', outflow: '流出', neutral: '中性' };
 
 // Sector/theme ETF rotation (RRG-lite): a scatter that carries the flow picture,
 // with a linked quadrant list that stays legible at any dot density. Hovering a
 // dot or a chip highlights its twin — a chart library is not needed.
 export default function SectorRotation() {
-  const [raw, setRaw] = useState(null);
-  const [error, setError] = useState(false);
+  const { data: raw, error } = useAsyncResource(getSectorRotation);
   const [hovered, setHovered] = useState(null);
-  useEffect(() => { getSectorRotation().then(setRaw).catch(() => setError(true)); }, []);
 
   if (!raw && !error) return <div className="market-loading">加载板块轮动…</div>;
   const view = buildRotationView(raw);

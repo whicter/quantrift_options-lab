@@ -118,8 +118,7 @@ class PolygonReferenceMetadataTests(unittest.TestCase):
         provider, _ = self.provider([FakeResponse({}, 404)])
         self.assertIsNone(provider.fetch_ticker('UNKNOWN'))
 
-    @patch('providers.polygon_reference_provider.time.sleep')
-    def test_429_uses_bounded_retry_after(self, sleep):
+    def test_429_uses_bounded_retry_after(self):
         provider, _ = self.provider([
             FakeResponse({}, 429, {'Retry-After': '2'}),
             FakeResponse({'status': 'OK', 'results': {'ticker': 'AAPL', 'name': 'Apple'}}),

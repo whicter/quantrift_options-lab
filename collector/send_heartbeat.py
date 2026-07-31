@@ -6,10 +6,10 @@ import socket
 from typing import Any
 
 import requests
-from dotenv import load_dotenv
+from collector_runtime import load_collector_env
 
 
-load_dotenv()
+load_collector_env(__file__)
 
 
 def heartbeat_payload() -> dict[str, Any]:

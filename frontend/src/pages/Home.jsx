@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMarketRegime } from '../lib/api';
 import heroMark from '../assets/hero.png';
+import useAsyncResource from '../hooks/useAsyncResource';
 
 const PRODUCTS = [
   { title: '个股/ETF 分析', label: 'Analyze', text: '把价格结构、GEX 估算、观察位、波动率与期权链指标放进同一份分析。', to: '/analyze', accent: 'green' },
@@ -24,8 +24,7 @@ function momentumState(momentum) {
 }
 
 export default function Home() {
-  const [market, setMarket] = useState(null);
-  useEffect(() => { getMarketRegime().then(setMarket).catch(() => {}); }, []);
+  const { data: market } = useAsyncResource(getMarketRegime);
   return (
     <main className="home-page">
       <section className="home-hero">

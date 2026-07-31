@@ -296,7 +296,7 @@ export default function Tab3Options({ data }) {
       </div>
 
       {/* Conclusion */}
-      <div className="az-options-conclusion">{conclusion}</div>
+      <div className="research-note az-options-conclusion">{conclusion}</div>
 
       <InsightCarousel insights={insights} />
     </div>

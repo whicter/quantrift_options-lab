@@ -1,8 +1,8 @@
 const pool = require('../db');
+const { normalizeSymbol, isValidSymbol } = require('./symbols');
 
 const DEFAULT_OPTIONS_REFRESH_PROVIDER = process.env.OPTIONS_REFRESH_PROVIDER || 'polygon_licensed';
 const SUPPORTED_OPTIONS_REFRESH_PROVIDERS = new Set(['ib_internal', 'tt_internal', 'polygon_licensed']);
-const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 function isMissingTableError(err) {
   return err?.code === '42P01';
@@ -11,9 +11,9 @@ function isMissingTableError(err) {
 const SCAN_LEVEL_JOB_TYPES = new Set(['scanner_materialize', 'scanner_candidate_materialize']);
 
 function normalizeRefreshSymbol(symbol, jobType) {
-  const normalized = String(symbol || '').trim().toUpperCase();
+  const normalized = normalizeSymbol(symbol);
   if (SCAN_LEVEL_JOB_TYPES.has(jobType) && normalized === '__SCAN__') return normalized;
-  return SYMBOL_PATTERN.test(normalized) ? normalized : null;
+  return isValidSymbol(normalized, { maxLength: 10, requireLeadingLetter: true }) ? normalized : null;
 }
 
 async function enqueueRefreshJob({

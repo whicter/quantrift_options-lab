@@ -82,8 +82,7 @@ class PolygonPriceProviderTests(unittest.TestCase):
         self.assertEqual(polygon_ticker(' brk.b '), 'BRK.B')
         self.assertEqual(polygon_ticker('BRK/B'), 'BRK.B')
 
-    @patch('providers.polygon_price_provider.time.sleep')
-    def test_429_is_retried_with_retry_after(self, sleep):
+    def test_429_is_retried_with_retry_after(self):
         session = FakeSession([])
         session.payloads = [
             {'status': 'ERROR'},

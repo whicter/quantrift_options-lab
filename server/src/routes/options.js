@@ -4,6 +4,7 @@ const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
 
 const OPTIONS_STALE_MINUTES = parseInt(process.env.OPTIONS_STALE_MINUTES ?? 180, 10);
 const GEX_CACHE_SECONDS = parseInt(process.env.GEX_CACHE_SECONDS ?? 120, 10);
@@ -12,14 +13,6 @@ const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
 
 function isMissingTableError(err) {
   return err?.code === '42P01';
-}
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function isValidSymbol(symbol) {
-  return /^[A-Z0-9.-]{1,12}$/.test(symbol);
 }
 
 function ageMinutes(timestampValue) {

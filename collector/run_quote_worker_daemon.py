@@ -11,16 +11,13 @@ import logging
 import os
 import time
 
+from collector_runtime import configure_logging
 import run_refresh_worker
 
 
 POLL_SECONDS = max(int(os.getenv('QUOTE_WORKER_POLL_SECONDS', '5')), 1)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_logging()
 log = logging.getLogger(__name__)
 for logger_name in ('ibapi', 'ibapi.client', 'ibapi.wrapper', 'ibapi.decoder'):
     logging.getLogger(logger_name).setLevel(logging.WARNING)

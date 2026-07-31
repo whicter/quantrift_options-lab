@@ -7,15 +7,13 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
+const { isoDate } = require('../lib/values');
 
 const PRICE_STALE_DAYS = parseInt(process.env.PRICE_STALE_DAYS ?? 5, 10);
 
-function toDateString(value) {
-  return value?.toISOString?.().slice(0, 10) || String(value).slice(0, 10);
-}
-
 function daysSince(dateValue) {
-  const dateString = toDateString(dateValue);
+  const dateString = isoDate(dateValue);
   const date = new Date(`${dateString}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return null;
   const now = new Date();
@@ -24,13 +22,13 @@ function daysSince(dateValue) {
 }
 
 async function sendPrices(req, res) {
-  const symbol = String(req.params.symbol || '').trim().toUpperCase();
+  const symbol = normalizeSymbol(req.params.symbol);
   const interval = String(req.query.interval || 'day').trim().toLowerCase();
   const maxLimit = interval === '30m' ? 2000 : 400;
   const limit = Math.min(parseInt(req.query.limit ?? (interval === '30m' ? 500 : 60)), maxLimit);
 
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
   if (!['day', '30m'].includes(interval)) return res.status(400).json({ error: 'invalid interval' });
   if (isNaN(limit) || limit <= 0) return res.status(400).json({ error: 'invalid limit' });
 

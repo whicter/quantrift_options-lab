@@ -9,21 +9,19 @@ const {
   toPublicEnvironment,
   toPublicStructure,
 } = require('../domain/analyze/publicCandidateDto.cjs');
-const { classifyState } = require('./market');
+const { classifyState } = require('../domain/market/stateMatrix');
 const freshness = require('../domain/status/freshness');
 const { buildAnalyzeSummary } = require('../domain/analyze/analyzeDto');
 const { tokenMatches, requestToken } = require('../lib/adminAuth');
 const { deriveSupportResistance, deriveFocusScore, deriveMfi } = require('./supportResistance');
 const { deriveVolumeProfile } = require('./volumeProfile');
 const { buildConfluence } = require('../domain/confluence/engine');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
+const { executableQuotePredicate } = require('../repositories/optionChainSql');
 
 const router = express.Router();
 const ON_DEMAND_ESTIMATED_WAIT = '约 1 分钟';
 const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
 
 function unavailableCandidateResponse(symbol) {
   return {
@@ -198,7 +196,7 @@ function buildProductStates(coverage, refresh, now = new Date()) {
 async function sendAnalyzeStatus(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol, { maxLength: 10, requireLeadingLetter: true })) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
     await pool.query(
@@ -356,7 +354,7 @@ async function sendAnalyzeStatus(req, res) {
 async function sendAnalyzeCandidate(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol, { maxLength: 10, requireLeadingLetter: true })) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
     const { rows: snapshots } = await pool.query(
@@ -367,8 +365,7 @@ async function sendAnalyzeCandidate(req, res) {
            AND EXISTS (
              SELECT 1 FROM option_contract_snapshots c
              WHERE c.snapshot_id = s.id
-               AND c.bid IS NOT NULL AND c.ask IS NOT NULL
-               AND c.ask > 0 AND c.ask >= c.bid
+               AND ${executableQuotePredicate('c')}
            )
          ORDER BY s.snapshot_ts DESC
          LIMIT 1
@@ -491,7 +488,7 @@ async function sendAnalyzeCandidate(req, res) {
 async function sendAnalyzeSummary(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol, { maxLength: 10, requireLeadingLetter: true })) return res.status(400).json({ error: 'invalid symbol' });
 
   const admin = isAdminRequest(req);
   try {
@@ -557,7 +554,7 @@ async function sendAnalyzeSummary(req, res) {
 async function sendConfluence(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol, { maxLength: 10, requireLeadingLetter: true })) return res.status(400).json({ error: 'invalid symbol' });
 
   try {
     const [dailyResult, gexResult] = await Promise.all([

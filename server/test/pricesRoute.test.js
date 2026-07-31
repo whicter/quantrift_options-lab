@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const pricesPath = require.resolve('../src/routes/prices');
@@ -17,15 +18,6 @@ const pool = {
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: pool };
 delete require.cache[pricesPath];
 const { sendPrices } = require(pricesPath);
-
-function responseRecorder() {
-  return {
-    statusCode: 200,
-    body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
-  };
-}
 
 test.beforeEach(() => {
   queryResults.length = 0;

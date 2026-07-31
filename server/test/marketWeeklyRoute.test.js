@@ -4,11 +4,13 @@ const test = require('node:test');
 const dbPath = require.resolve('../src/db');
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query: async () => ({ rows: [] }) } };
 
-const {
-  deriveMomentum, deriveMarketRegime, buildBreadth, buildBroadMarketBreadth, percentile,
-  classifyState, buildStateMatrix, STATE_META,
-  buildSectorRotation, SECTOR_ETFS, buildBriefing, sendEarningsThisWeek,
-} = require('../src/routes/market');
+const { buildBreadth, buildBroadMarketBreadth } = require('../src/domain/market/breadth');
+const { buildBriefing } = require('../src/domain/market/briefing');
+const { deriveMomentum, deriveMarketRegime } = require('../src/domain/market/regime');
+const { buildSectorRotation, SECTOR_ETFS } = require('../src/domain/market/sectorRotation');
+const { classifyState, buildStateMatrix, STATE_META } = require('../src/domain/market/stateMatrix');
+const { percentile } = require('../src/lib/values');
+const { sendEarningsThisWeek } = require('../src/routes/market');
 const pool = require('../src/db');
 const { deriveWeekly } = require('../src/routes/weekly');
 

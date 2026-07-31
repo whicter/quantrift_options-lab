@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
+from collector_runtime import load_collector_env
 from common import load_watchlist
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 
 DB_URL = os.getenv('DATABASE_URL')
 

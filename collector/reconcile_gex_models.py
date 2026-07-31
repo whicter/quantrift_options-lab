@@ -8,17 +8,16 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 
 import compute_gex
+from collector_runtime import configure_logging, load_collector_env
 from common import load_watchlist
 
 
-load_dotenv(Path(__file__).with_name('.env'))
+load_collector_env(__file__)
 
 log = logging.getLogger(__name__)
 DB_URL = os.getenv('DATABASE_URL')
@@ -80,5 +79,5 @@ def run() -> dict[str, Any]:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    configure_logging(datefmt=None)
     run()

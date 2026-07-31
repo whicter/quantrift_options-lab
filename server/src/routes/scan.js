@@ -13,6 +13,10 @@ const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
+const {
+  LATEST_QUOTED_CHAIN_CTE,
+  QUOTED_CONTRACT_SAMPLES_CTE,
+} = require('../repositories/optionChainSql');
 
 const SCANNER_STALE_MINUTES = parseInt(process.env.SCANNER_STALE_MINUTES ?? 5, 10);
 const SCANNER_CACHE_SECONDS = parseInt(process.env.SCANNER_CACHE_SECONDS ?? 60, 10);
@@ -177,22 +181,7 @@ async function sendScan(req, res) {
          FROM option_chain_snapshots
          ORDER BY symbol, snapshot_ts DESC
        ),
-       latest_quote_chain AS (
-         SELECT DISTINCT ON (s.symbol)
-           s.symbol, s.id AS snapshot_id, s.source AS quote_source,
-           s.snapshot_ts AS quote_snapshot_ts
-         FROM option_chain_snapshots s
-         WHERE EXISTS (
-           SELECT 1
-           FROM option_contract_snapshots quoted
-           WHERE quoted.snapshot_id = s.id
-             AND quoted.bid IS NOT NULL
-             AND quoted.ask IS NOT NULL
-             AND quoted.ask > 0
-             AND quoted.ask >= quoted.bid
-         )
-         ORDER BY s.symbol, s.snapshot_ts DESC
-       ),
+       ${LATEST_QUOTED_CHAIN_CTE},
        latest_community_batch AS (
          SELECT id, snapshot_ts, source, window_hours
          FROM community_trend_snapshots
@@ -223,33 +212,7 @@ async function sendScan(req, res) {
          JOIN latest_quote_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
          GROUP BY c.symbol
        ),
-       contract_samples AS (
-         SELECT
-           c.symbol,
-           jsonb_agg(
-             jsonb_build_object(
-               'expiry', c.expiry,
-               'dte', (c.expiry::date - (NOW() AT TIME ZONE 'America/New_York')::date)::int,
-               'strike', c.strike,
-               'right', c.option_right,
-               'bid', c.bid,
-               'ask', c.ask,
-               'mark', c.mark,
-               'volume', c.volume,
-               'openInterest', c.open_interest,
-               'delta', c.delta,
-               'gamma', c.gamma,
-               'iv', c.iv,
-               'contractSymbol', c.contract_symbol
-             )
-             ORDER BY c.expiry ASC, c.strike ASC, c.option_right ASC
-           ) AS option_contracts
-         FROM option_contract_snapshots c
-         JOIN latest_quote_chain lc ON lc.symbol = c.symbol AND lc.snapshot_id = c.snapshot_id
-         WHERE c.bid IS NOT NULL
-           AND c.ask IS NOT NULL
-         GROUP BY c.symbol
-       )
+       ${QUOTED_CONTRACT_SAMPLES_CTE}
        SELECT
          latest_rows.symbol,
          metric_date AS date,

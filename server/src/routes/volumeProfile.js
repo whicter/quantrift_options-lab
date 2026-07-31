@@ -1,11 +1,8 @@
 const express = require('express');
 const pool = require('../db');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
 
 const router = express.Router();
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
 
 function parseBoundedInteger(value, fallback, minimum, maximum) {
   if (value == null || value === '') return fallback;
@@ -123,7 +120,7 @@ async function sendVolumeProfile(req, res) {
   const days = parseBoundedInteger(req.query.days, defaultDays, 1, interval === '1d' ? 250 : 60);
   const bins = parseBoundedInteger(req.query.bins, 40, 10, 80);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
   if (!['30m', '1d'].includes(interval)) return res.status(400).json({ error: 'invalid interval' });
   if (days == null) return res.status(400).json({ error: 'invalid days' });
   if (bins == null) return res.status(400).json({ error: 'invalid bins' });

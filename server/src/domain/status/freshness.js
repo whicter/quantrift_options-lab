@@ -21,6 +21,8 @@
  * collapses them into one label only where a single word is required.
  */
 
+const { newYorkDate } = require('../../lib/marketTime');
+
 const PRODUCT_PRICE_DAILY = 'price_daily';
 const PRODUCT_PRICE_30M = 'price_30m';
 const PRODUCT_METRICS = 'metrics';
@@ -70,12 +72,6 @@ function ageDays(marketDate, now = new Date()) {
   const diffMs = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${iso}T00:00:00Z`);
   if (Number.isNaN(diffMs)) return null;
   return Math.max(0, Math.round(diffMs / 86400000));
-}
-
-function newYorkDate(value) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date(value));
 }
 
 /**

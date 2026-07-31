@@ -4,6 +4,7 @@ import logging
 import os
 import time
 
+from collector_runtime import configure_logging
 import materialize_scan
 import materialize_scanner_candidates
 import prune_snapshots
@@ -29,11 +30,7 @@ SNAPSHOT_PRUNE_SECONDS = max(int(os.getenv('SNAPSHOT_PRUNE_SECONDS', '3600')), P
 GEX_MODEL_RECONCILE_ENABLED = os.getenv('GEX_MODEL_RECONCILE_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 GEX_MODEL_RECONCILE_SECONDS = max(int(os.getenv('GEX_MODEL_RECONCILE_SECONDS', '3600')), POLL_SECONDS)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_logging()
 log = logging.getLogger(__name__)
 for logger_name in ('ibapi', 'ibapi.client', 'ibapi.wrapper', 'ibapi.decoder'):
     logging.getLogger(logger_name).setLevel(logging.WARNING)

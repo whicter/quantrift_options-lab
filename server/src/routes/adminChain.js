@@ -14,12 +14,9 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { requireAdminToken } = require('../lib/adminAuth');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
 
 router.use(requireAdminToken);
-
-function normalizeSymbol(value) {
-  return String(value || '').trim().toUpperCase();
-}
 
 /**
  * Aggregate diagnostics from the persisted contracts.
@@ -59,7 +56,7 @@ function diagnostics(contracts) {
 async function sendAdminChain(req, res) {
   const symbol = normalizeSymbol(req.params.symbol);
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
 
   const limit = Math.min(Math.max(parseInt(req.query.limit ?? 1000, 10) || 1000, 1), 5000);
 

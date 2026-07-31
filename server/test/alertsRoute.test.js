@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const queryResults = [];
@@ -7,10 +8,6 @@ const pool = { async query(sql, params) { return queryResults.shift() || { rows:
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: pool };
 
 const { normalizeDestination, normalizeRules, createSubscription, unsubscribe } = require('../src/routes/alerts');
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 test('normalizes bounded scanner alert rules', () => {
   assert.deepEqual(normalizeRules({ symbols: ['aapl', 'AAPL', 'bad symbol'], min_iv_rank: '50', gamma_regime: 'positive', unusual_only: 1 }), {

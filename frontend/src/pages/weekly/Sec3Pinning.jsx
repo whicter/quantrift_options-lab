@@ -12,7 +12,7 @@ export default function Sec3Pinning({ data }) {
           <div className="wk-pin-num"><div className="wk-pin-num-label">最新收盘价</div><div className="wk-pin-num-val">${pinning.close}</div></div>
         </div>
       </div>
-      <div className="wk-note">Max Pain 与现价距离仅作结构参考，不代表到期价格预测。</div>
+      <div className="research-note wk-note">Max Pain 与现价距离仅作结构参考，不代表到期价格预测。</div>
     </div>
   );
 }

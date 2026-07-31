@@ -41,7 +41,7 @@ export default function Sec2Gamma({ data }) {
           ))}
         </div>
       </div>
-      <div className="wk-note">GEX、Wall 与 Flip 仅用于观察波动环境和关键价位，不构成价格预测。</div>
+      <div className="research-note wk-note">GEX、Wall 与 Flip 仅用于观察波动环境和关键价位，不构成价格预测。</div>
     </div>
   );
 }

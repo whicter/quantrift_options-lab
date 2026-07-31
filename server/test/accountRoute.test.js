@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 process.env.NODE_ENV = 'test';
 
@@ -10,10 +11,6 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: p
 
 const { requestUserId, requireAuthenticatedUser } = require('../src/lib/auth');
 const { PLANS, ensureAccount } = require('../src/routes/account');
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 test('auth guard returns JSON 401 and accepts Clerk user identity', () => {
   assert.equal(requestUserId({ auth: { userId: 'user_123' } }), 'user_123');

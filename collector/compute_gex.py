@@ -17,20 +17,14 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extras import Json, execute_values
 
-load_dotenv(Path(__file__).with_name('.env'))
+from collector_runtime import configure_collector, parse_symbols
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_collector(__file__)
 log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
@@ -61,14 +55,7 @@ class Contract:
 
 def load_symbols() -> list[str]:
     raw_symbols = os.getenv('GEX_SYMBOLS') or os.getenv('OPTION_SYMBOLS') or os.getenv('SYMBOLS') or DEFAULT_SYMBOLS
-    symbols = []
-    seen = set()
-    for part in raw_symbols.split(','):
-        symbol = part.strip().upper()
-        if symbol and symbol not in seen:
-            seen.add(symbol)
-            symbols.append(symbol)
-    return symbols
+    return parse_symbols(raw_symbols)
 
 
 def latest_chain_snapshot(conn, symbol: str) -> dict[str, Any] | None:

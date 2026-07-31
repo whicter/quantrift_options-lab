@@ -2166,3 +2166,44 @@ future `reqNewsArticle` full-text/link fetch needs no schema change; that is out
 of scope for R3.2. Live verification (2026-07-26): a full-universe run against the
 production 300-symbol watchlist wrote 49 real headlines across 12 symbols; `GET
 /api/news/AAPL` served them correctly (dedup and window filtering both verified).
+
+## Internal module boundaries (2026-07-30 refactor)
+
+The Market API keeps transport and persistence orchestration in
+`server/src/routes/market.js`. Pure calculations live under
+`server/src/domain/market/`: breadth mapping, multi-timeframe regime, state
+classification, sector rotation, and briefing composition. Cross-route
+primitives live in `server/src/lib/`: `symbols.js` owns ticker normalization and
+bounded validation, `values.js` owns finite-number/ISO-date/statistical
+coercion, and `marketTime.js` owns New York market-date formatting. Market
+domain tests import pure modules directly; the route continues to export the
+prior functions for compatibility and preserves all `/api/market/*` response
+contracts. Route tests share only their Express response recorder under
+`server/test-helpers/`; security-header tests retain their different recorder.
+The scan API and scanner-candidate materializer share
+`server/src/repositories/optionChainSql.js` for the latest executable
+non-crossed quote-chain CTE and the candidate-engine contract projection. This
+keeps the quote eligibility rule and JSON field contract identical across the
+request-time and pre-materialized scanner paths.
+
+All collector-side Polygon adapters share
+`collector/providers/polygon_http.py` for API-key validation, base URL, timeout,
+authenticated Session setup, bounded 5xx retries, PostgreSQL/file-backed stock
+request pacing, and coordinated 429 `Retry-After` penalties. Price, reference,
+full-market breadth, and option-chain providers retain endpoint parameters and
+payload parsing. In particular, every option snapshot page and enrichment call
+now passes through the same pacer rather than bypassing 429 coordination.
+Collector entrypoints use `collector_runtime.py` for the collector-local `.env`
+path, standard logging setup, and ordered/deduplicated comma-separated symbol
+overrides. Provider choice, watchlist fallback, and job-specific environment
+precedence remain in their owning entrypoints.
+
+Frontend endpoint functions remain in `frontend/src/lib/api.js`. Transport
+concerns live in `frontend/src/lib/http.js`: base URL, auth-provider or explicit
+bearer-token resolution, JSON bodies, deadlines, and typed `ApiError.status`.
+Pure display formatting lives in `frontend/src/lib/formatters.js`; simple
+no-argument API resources use `hooks/useAsyncResource.js`, which ignores late
+completion after unmount; repeated company-image failure handling lives in
+`components/CompanyLogo.jsx`; and the shared research disclosure box uses the
+`research-note` style primitive. These are frontend-only modules; no runtime
+package is shared with the server.

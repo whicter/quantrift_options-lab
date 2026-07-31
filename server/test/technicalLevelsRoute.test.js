@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 const routePath = require.resolve('../src/routes/technicalLevels');
@@ -47,15 +48,6 @@ function dailyBars(count = 250) {
       created_at: new Date(date.getTime() + 3600000),
     };
   });
-}
-
-function responseRecorder() {
-  return {
-    statusCode: 200,
-    body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
-  };
 }
 
 test.beforeEach(() => {

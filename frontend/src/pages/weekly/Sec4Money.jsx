@@ -15,7 +15,7 @@ export default function Sec4Money({ data }) {
           ))}
         </div>
       </div>
-      <div className="wk-note">ΔOI 用于观察未平仓量变化，不等同于资金净流入，也不代表机构买卖方向。</div>
+      <div className="research-note wk-note">ΔOI 用于观察未平仓量变化，不等同于资金净流入，也不代表机构买卖方向。</div>
     </div>
   );
 }

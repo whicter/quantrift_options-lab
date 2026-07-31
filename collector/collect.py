@@ -20,18 +20,12 @@ from typing import Optional
 import requests
 import psycopg2
 from psycopg2.extras import execute_values
-from dotenv import load_dotenv
 
 from auth import get_session_token
+from collector_runtime import configure_collector
 from common import WATCHLIST_PATH, load_watchlist
 
-load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+configure_collector(__file__)
 log = logging.getLogger(__name__)
 
 TT_BASE  = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')

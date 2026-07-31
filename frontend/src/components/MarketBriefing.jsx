@@ -1,13 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMarketBriefing } from '../lib/api';
 import { buildMarketBriefingView } from '../lib/marketBriefing';
-
-const compactOi = (v) => {
-  if (v == null || !Number.isFinite(Number(v))) return '';
-  const n = Number(v);
-  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
-};
+import { formatCompactNumber } from '../lib/formatters';
+import useAsyncResource from '../hooks/useAsyncResource';
 
 const TILT_TONE = { 偏多头: 'bull', 偏空头: 'bear', 多空均衡: 'neutral' };
 
@@ -16,8 +11,7 @@ const TILT_TONE = { 偏多头: 'bull', 偏空头: 'bear', 多空均衡: 'neutral
 // this renders it plus the "what matters today" callouts — earnings ahead and top
 // option activity — that aren't in the detail panels below.
 export default function MarketBriefing() {
-  const [b, setB] = useState(null);
-  useEffect(() => { getMarketBriefing().then(setB).catch(() => {}); }, []);
+  const { data: b } = useAsyncResource(getMarketBriefing);
 
   if (!b || b.status !== 'ready') return null;
   const view = buildMarketBriefingView(b);
@@ -76,7 +70,7 @@ export default function MarketBriefing() {
             <span className="brief-chips">
               {unusual.slice(0, 6).map(u => (
                 <Link key={u.symbol} className="brief-chip" to={`/analyze?symbol=${encodeURIComponent(u.symbol)}`}>
-                  {u.symbol}<small>{compactOi(u.abs_oi)}</small>
+                  {u.symbol}<small>{formatCompactNumber(u.abs_oi)}</small>
                 </Link>
               ))}
             </span>

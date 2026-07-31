@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { responseRecorder } = require('../test-helpers/http');
 
 const dbPath = require.resolve('../src/db');
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: {} };
@@ -7,10 +8,6 @@ const accountPath = require.resolve('../src/routes/account');
 require.cache[accountPath] = { id: accountPath, filename: accountPath, loaded: true, exports: { ensureAccount: async () => ({}) } };
 
 const { ensureStripeCustomer, checkoutParams, mapStripeStatus, processStripeEvent, receiveWebhook } = require('../src/routes/billing');
-
-function responseRecorder() {
-  return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-}
 
 test('checkout is bound to local user and configured recurring price', () => {
   process.env.PUBLIC_APP_URL = 'https://www.quantrift.io/';

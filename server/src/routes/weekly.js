@@ -2,19 +2,11 @@ const express = require('express');
 const pool = require('../db');
 const { deriveSupportResistance } = require('./supportResistance');
 const { buildGexMetadata } = require('../domain/gexMetadata.cjs');
+const { normalizeSymbol, isValidSymbol } = require('../lib/symbols');
+const { number, isoDate } = require('../lib/values');
 
 const router = express.Router();
 const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
-
-function number(value) {
-  if (value == null) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function isoDate(value) {
-  return value?.toISOString?.().slice(0, 10) || String(value || '').slice(0, 10);
-}
 
 function dayLabel(value) {
   return new Date(`${isoDate(value)}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
@@ -85,8 +77,8 @@ function deriveWeekly(symbol, priceRows, gexRows, oiRows, srResult) {
 }
 
 async function sendWeekly(req, res) {
-  const symbol = String(req.params.symbol || '').trim().toUpperCase();
-  if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) return res.status(400).json({ error: 'invalid symbol' });
+  const symbol = normalizeSymbol(req.params.symbol);
+  if (!isValidSymbol(symbol)) return res.status(400).json({ error: 'invalid symbol' });
   try {
     const [priceResult, gexResult, oiResult] = await Promise.all([
       pool.query(`SELECT date, open, high, low, close, volume, source FROM (

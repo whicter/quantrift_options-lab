@@ -17,6 +17,7 @@ const router = express.Router();
 const pool = require('../db');
 const { cacheKey, getCache, setCache } = require('../lib/cache');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
+const { normalizeSymbol } = require('../lib/symbols');
 
 const METRICS_CACHE_SECONDS = parseInt(process.env.METRICS_CACHE_SECONDS ?? 60, 10);
 const IV_STALE_DAYS = parseInt(process.env.IV_STALE_DAYS ?? 2, 10);
@@ -26,7 +27,7 @@ async function sendMetrics(req, res) {
   const { symbols } = req.query;
   if (!symbols) return res.status(400).json({ error: 'symbols query param required' });
 
-  const symbolList = symbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const symbolList = symbols.split(',').map(normalizeSymbol).filter(Boolean);
   if (symbolList.length === 0) return res.status(400).json({ error: 'no valid symbols' });
   if (symbolList.length > 50) return res.status(400).json({ error: 'max 50 symbols per request' });
 
