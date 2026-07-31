@@ -40,6 +40,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Phase 3E is complete: `materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` serves confirmed/baseline OI delta state.
 - Public options data still requires a licensed provider adapter; `ib_internal` and `tt_internal` are internal/transitional only.
 - Product pages expose only user-meaningful results, availability, timestamps, risk notes and user-controlled filters. Model versions, formulas, thresholds, weights, scoring ingredients, proxy assumptions, aggregation methods, provider identities, queue state, coverage internals and raw errors remain backend-only.
+- Normal Analyze candidate responses must pass through `server/src/domain/analyze/publicCandidateDto.cjs`. Do not serialize full environment/structure objects, reasons, confirmations, score rationale or payoff reference mechanics and rely on React to hide them.
 - `candidate_ledger` is backend-only validation data. Do not add a product page, navigation entry or public read route for it.
 - Keep product navigation and page naming consistent: 市场概览 (`/market`), 个股分析 with page title 个股/ETF 分析 (`/analyze`), 期权扫描 (`/scan`), 周复盘 (`/weekly`) and 策略库 (`/learn`).
 - Product pages share one elastic content rail. Do not restore a page-level 1160px cap on `/market`; constrain only the internal module that needs a shorter reading or chart width.

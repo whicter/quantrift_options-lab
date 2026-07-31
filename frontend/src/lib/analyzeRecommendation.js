@@ -103,7 +103,7 @@ export function toAnalyzeRecommendation(candidateResponse) {
     // caveat is only meaningful attached to a positive detection.
     structure: candidateResponse.structure?.status === 'present'
       ? {
-        favours: candidateResponse.structure.expression?.side ?? null,
+        favours: candidateResponse.structure.favours ?? null,
       }
       : null,
     recommendation: {

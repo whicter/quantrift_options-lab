@@ -189,6 +189,13 @@ test('Analyze candidate is built server-side from the latest quoted chain withou
   assert.equal(res.body.candidate.legs.length, 2);
   assert.equal('option_contracts' in res.body, false);
   assert.equal('contractSymbol' in res.body.candidate.legs[0], false);
+  const serialized = JSON.stringify(res.body);
+  for (const privateField of [
+    'score', 'reason', 'inputs', 'confirmations', 'support', 'expression',
+    'gammaNote', 'directionNote', 'basis', 'reference_price', 'input_snapshot_ts',
+  ]) {
+    assert.equal(serialized.includes(privateField), false, `${privateField} must not cross the public route`);
+  }
   assert.match(queries[0].sql, /latest_quote_chain/);
   assert.match(queries[0].sql, /model_version/);
   assert.match(queries[1].sql, /snapshot_id = \$1/);

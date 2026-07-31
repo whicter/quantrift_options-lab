@@ -15,7 +15,8 @@
 - [x] Analyze、Market、Earnings、Scan、Weekly、Home、策略风险面板和收益图统一改成结果导向文案；内部数字分数改为状态标签。
 - [x] 增加静态防回归测试，阻止模型版本、计算参数、定位假设、公式说明、内部 provider 和原始元数据重新进入产品 UI。
 - [x] 合并远端新增的买方/卖方候选、收益风险和回调支撑状态；后台保留完整判断与回放字段，前端 adapter 删除原始判断理由、输入依据、评分说明和赔付计算情景，只显示状态、候选与风险提示。
-- [x] 验证记录：`docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`（合并后 frontend 112、server 276；此前 browser 10 routes、`/ledger` → `/`）。
+- [x] 将边界前移到服务端：`/api/analyze/:symbol/candidate` 使用白名单 public DTO，完整 environment/structure、候选评分依据和 payoff 参考情景不再进入浏览器响应；底层规则记录于 `docs/ANALYZE_DECISION_RULES_INTERNAL.md`。
+- [x] 验证记录：`docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`（此前 browser 10 routes、`/ledger` → `/`）与 `docs/validation/ANALYZE_PUBLIC_DTO_BOUNDARY_2026-07-30.md`（frontend 112、server 280）。
 
 ## ✅ 2026-07-30 — 本周财报日历
 

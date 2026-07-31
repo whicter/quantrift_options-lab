@@ -706,6 +706,7 @@ GEX compute job：
 - **模型边界不能盖过产品解释**：先说“当前是正/负 Gamma 环境”和可能的盘面含义；公开 OI 的估算限制用一句放在后面。把“代理符号假设”放进答案主句，只会让用户读不懂结论。
 - **策略候选不可在最后一层被清空**：期权链、报价和 GEX 都 ready 时，前端把 `recommendation` 设成 `null` 会伪装成数据缺失。完整链只应在后端候选引擎读取，Analyze 只消费服务端筛出的策略腿 DTO 和真实的无候选原因。
 - **合并远端功能时要检查产品语义冲突，不只看 Git 是否冲突**：2026-07-30 的远端 Analyze 买方/卖方、环境分类和回调支撑代码能被 Git 自动合并，但原始 reason、输入项和赔付参考情景会绕过刚建立的前台保密边界。正确处理是保留后台引擎与测试，在 display adapter 再收敛一次，只让候选、状态和风险进入组件；“自动合并成功”不等于产品约束仍然成立。
+- **React 不渲染不等于前台拿不到**：只在 `analyzeRecommendation.js` 丢弃字段，订阅用户仍可从浏览器 Network 或直接调用产品 API 读取完整 `environment`、`structure` 和 payoff basis。真正的产品保护边界必须位于服务端 JSON 序列化之前，并采用 allowlist DTO；新后台字段默认不公开，而不是等 denylist 追赶。
 - **期权链完整度与可交易报价是不同条件**：GEX 只需要 Greeks/OI，策略腿还必须有有效 bid/ask。刷新调度若仅检查 `contract_count > 0`，会把无报价快照误判为完成，导致用户永远拿不到具体策略腿。
 - **无报价快照必须走定向回退，不是重复同源刷新**：`require_quotes` 的 Polygon job 若没有有效 bid/ask，保留该快照供 GEX/OI 使用，再在同一 job 尝试 IB；所有 provider 仍无报价时以 non-retryable blocker 结束。不能用 mark、last 或收盘价补成假 bid/ask。
 - **2026-07-30 架构替代说明**：上一条记录的是 2026-07-19 当时的同步 fallback 修复，现已被独立报价 lane 取代。当前 `option_chain_snapshot` 无论是否有 bid/ask 都以 Polygon 结构链完成 GEX/OI；只有 Analyze 实际需要策略定价时才创建 `option_quote_snapshot`，由独立 IB worker 处理。历史 lesson 保留用于说明为何不能伪造报价，不再描述当前调度行为。

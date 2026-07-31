@@ -159,6 +159,7 @@ test('a present structure carries only the high-level display result', () => {
     candidate: { strategy: 'Long Call', legs: [], pop: null, dte: 30, debit: 5, maxLoss: 5 },
     structure: {
       status: 'present',
+      favours: 'seller',
       reason: 'AAPL 处于上行趋势中的回调：...',
       caveat: '回调与破位在事前无法区分...',
       expression: { side: 'seller', shape: 'put_spread_below_support', text: '权利金偏贵时...' },

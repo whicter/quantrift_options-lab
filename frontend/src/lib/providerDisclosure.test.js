@@ -95,6 +95,7 @@ test('product UI does not disclose implementation or algorithm details', () => {
 
 test('display adapters drop internal metadata fields', () => {
   const analysis = fs.readFileSync(path.join(srcDir, 'lib/analyzeData.js'), 'utf8');
+  const recommendation = fs.readFileSync(path.join(srcDir, 'lib/analyzeRecommendation.js'), 'utf8');
   const technical = fs.readFileSync(path.join(srcDir, 'lib/technicalLevels.js'), 'utf8');
 
   assert.doesNotMatch(analysis, /\bgexMeta\s*:/);
@@ -103,4 +104,6 @@ test('display adapters drop internal metadata fields', () => {
   assert.doesNotMatch(analysis, /\brawMetrics\s*:/);
   assert.doesNotMatch(technical, /\bevidence\s*:/);
   assert.doesNotMatch(technical, /\bscore\s*:/);
+  assert.doesNotMatch(recommendation, /candidateResponse\.environment\.(?:reason|inputs|ivRank|gammaFavours)/);
+  assert.doesNotMatch(recommendation, /candidateResponse\.structure\.(?:reason|confirmations|support|expression|caveat)/);
 });

@@ -451,9 +451,10 @@ sequenceDiagram
 
 Analyze 的候选路径另读 `GET /api/analyze/:symbol/candidate`。后端候选引擎可以返回
 主候选、可评估的买方/卖方各一项、收益风险、环境分类和回调支撑检测；这些完整字段用于
-后台测试与复现。`frontend/src/lib/analyzeRecommendation.js` 是产品显示边界，只把策略、
-腿、到期、估算胜率、赔付比、最大亏损以及高层状态交给组件。原始判断理由、规则输入、
-阈值、评分依据、支撑证据和赔付参考情景不进入渲染 props。
+后台测试与复现。`server/src/domain/analyze/publicCandidateDto.cjs` 是强制服务端边界：
+普通 API 在 JSON 序列化前只保留策略、腿、到期、估算胜率、赔付比、最大亏损以及高层
+状态。原始判断理由、规则输入、阈值、评分依据、支撑证据和赔付参考情景不会发送到
+浏览器。完整内部规则见 `docs/ANALYZE_DECISION_RULES_INTERNAL.md`。
 
 Scan：
 

@@ -2,9 +2,13 @@ const express = require('express');
 const pool = require('../db');
 const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
-const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 const { environmentEdge } = require('../domain/scanner/environmentEdge.cjs');
 const { pullbackStructure } = require('../domain/scanner/pullbackStructure.cjs');
+const {
+  toPublicAnalyzeCandidate,
+  toPublicEnvironment,
+  toPublicStructure,
+} = require('../domain/analyze/publicCandidateDto.cjs');
 const { classifyState } = require('./market');
 const freshness = require('../domain/status/freshness');
 const { buildAnalyzeSummary } = require('../domain/analyze/analyzeDto');
@@ -19,6 +23,18 @@ const GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy';
 
 function normalizeSymbol(value) {
   return String(value || '').trim().toUpperCase();
+}
+
+function unavailableCandidateResponse(symbol) {
+  return {
+    symbol,
+    status: 'missing',
+    candidate: null,
+    buyer: null,
+    seller: null,
+    environment: null,
+    structure: null,
+  };
 }
 
 /**
@@ -389,10 +405,10 @@ async function sendAnalyzeCandidate(req, res) {
     );
     const snapshot = snapshots[0];
     if (!snapshot?.snapshot_id) {
-      return res.json({ symbol, status: 'missing', reason: '没有已采集且 bid/ask 完整的期权报价快照', candidate: null });
+      return res.json(unavailableCandidateResponse(symbol));
     }
     if (Number(snapshot.price_close) <= 0) {
-      return res.json({ symbol, status: 'missing', reason: '缺少标的现价，无法生成策略腿', candidate: null });
+      return res.json(unavailableCandidateResponse(symbol));
     }
 
     const { rows: contracts } = await pool.query(
@@ -426,12 +442,7 @@ async function sendAnalyzeCandidate(req, res) {
     const ranked = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES, environment);
     const candidate = ranked[0] || null;
     if (!candidate) {
-      return res.json({
-        symbol,
-        status: 'missing',
-        reason: '已采集报价中没有同时满足 DTE、Delta、bid/ask spread 和 OI 门槛的完整策略腿',
-        candidate: null,
-      });
+      return res.json(unavailableCandidateResponse(symbol));
     }
     // Buyer and seller are returned as a pair because their risk shapes are not
     // comparable on one number. A long option's POP is measured at strike +
@@ -447,23 +458,20 @@ async function sendAnalyzeCandidate(req, res) {
     const evaluable = item => item.pop?.status === 'available' && item.payoff?.status === 'available';
     const buyer = ranked.find(item => item.debit != null && evaluable(item)) || null;
     const seller = ranked.find(item => item.credit != null && evaluable(item)) || null;
-    const asDto = item => (item ? toCandidateDto(item, { inputSnapshotTs: snapshot.snapshot_ts }) : null);
+    const edge = environmentEdge(environment);
+    // The full edge and pullback objects stay in this server process for
+    // ranking, tests and internal documentation. Only allowlisted display
+    // fields cross the normal Analyze API boundary.
     return res.json({
       symbol,
       status: 'ready',
-      // The stated view of the current environment. This is the only legitimate
-      // source of edge -- price-derived expected value is ~0 by construction --
-      // so it is surfaced as product copy rather than left as a hidden weight.
-      environment: environmentEdge(environment),
-      // A named structure the directional pick can rest on, or null. Never a
-      // bottom call: it reports that the measurable conditions hold and ships
-      // its own pullback-vs-breakdown caveat.
-      structure: pullback,
-      candidate: toCandidateDto(candidate, { inputSnapshotTs: snapshot.snapshot_ts }),
+      environment: toPublicEnvironment(edge),
+      structure: toPublicStructure(pullback),
+      candidate: toPublicAnalyzeCandidate(candidate),
       // Either side may legitimately be null (no qualifying legs); the UI says
       // so rather than padding the card with a weaker structure.
-      buyer: asDto(buyer),
-      seller: asDto(seller),
+      buyer: toPublicAnalyzeCandidate(buyer),
+      seller: toPublicAnalyzeCandidate(seller),
     });
   } catch (err) {
     if (err?.code === '42P01') return res.status(503).json({ error: 'options data migration required' });

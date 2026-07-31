@@ -77,6 +77,7 @@ Open http://localhost:5173
 - Weekly Recap: `/api/weekly/:symbol` uses real rolling-week OHLC, daily GEX snapshots, Max Pain and ΔOI. It contains no mock fallback or fabricated money-flow data
 - Scanner alerts: email and browser-push subscriptions persist rules and tokenized unsubscribe state; PM2 evaluates each materialized scan batch with delivery deduplication
 - Product display boundary: public pages show user-meaningful results, availability, timestamps and risk notes. Provider identities, model versions, formulas, parameters, coverage internals and queue state remain backend-only.
+- Analyze API boundary: `/api/analyze/:symbol/candidate` uses a server-side allowlist DTO. Full environment/pullback reasons, inputs, confirmations, thresholds, score rationale and payoff reference mechanics are not sent to the browser.
 - Candidate ledger boundary: `candidate_ledger` continues to capture and evaluate candidates for internal validation, but there is no public `/ledger` page or read endpoint.
 
 ## Data Sources (V2)
