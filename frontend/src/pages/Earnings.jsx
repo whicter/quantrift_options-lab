@@ -25,7 +25,7 @@ export default function Earnings() {
       <header className="product-header earnings-head">
         <div className="product-kicker">Event radar · 事件雷达</div>
         <h1 className="product-title">财报日历</h1>
-        <p className="product-subtitle">仅展示已采集、在覆盖池中的真实财报日期。点击任一标的即可转到策略分析；报前/盘后时间未提供时不作推断。</p>
+        <p className="product-subtitle">仅展示已采集、在覆盖池中的真实财报日期。点击任一标的即可转到个股分析；报前/盘后时间未提供时不作推断。</p>
       </header>
 
       <div className="earnings-week-tabs" role="tablist" aria-label="财报周次">
@@ -56,7 +56,7 @@ export default function Earnings() {
                         <i>{companyInitial(item.symbol)}</i>
                         {item.iconUrl && <img src={item.iconUrl} alt="" onError={(event) => { event.currentTarget.remove(); }} />}
                       </span>
-                      <span className="earnings-company-copy"><strong>{item.symbol}</strong><small>{item.name || '查看策略分析'}</small></span>
+                      <span className="earnings-company-copy"><strong>{item.symbol}</strong><small>{item.name || '查看个股分析'}</small></span>
                     </Link>
                   ))}
                 </div>

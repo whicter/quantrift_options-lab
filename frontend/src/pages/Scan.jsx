@@ -423,7 +423,7 @@ export default function Scan() {
     <div className="product-page scan-page">
       <div className="product-header scan-header">
         <div className="product-kicker">Opportunity finder · 机会筛选</div>
-        <div className="product-title scan-title">扫描器</div>
+        <div className="product-title scan-title">期权扫描</div>
         <div className="product-subtitle scan-subtitle">扫描已采集的报价快照，输出到期日、策略腿候选与模型收益风险</div>
       </div>
 

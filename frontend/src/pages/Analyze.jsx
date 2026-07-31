@@ -537,7 +537,7 @@ export default function Analyze() {
       <div className="product-header az-header analyze-hero">
         <div className="analyze-hero-copy">
           <div className="product-kicker">Analysis cockpit · 标的研究</div>
-          <div className="product-title az-title">标的分析</div>
+          <div className="product-title az-title">个股/ETF 分析</div>
           <div className="product-subtitle az-subtitle">输入标的，查看 GEX 估算、价格趋势、期权链指标与关键价位</div>
         </div>
 

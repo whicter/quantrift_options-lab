@@ -532,14 +532,14 @@ body {
 
 .az-symbol-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 16px;
 }
-.az-symbol { font-size: 24px; font-weight: 800; }
-.az-price-block { display: flex; flex-direction: column; gap: 2px; }
-.az-price { font-size: 18px; color: var(--text-dim); }
-.az-price-asof { font-size: 11px; color: var(--text-dim); opacity: 0.7; }
+.az-symbol { display: flex; align-items: center; min-height: 30px; font-size: 24px; font-weight: 800; line-height: 1.2; }
+.az-price-block { display: grid; grid-template-rows: minmax(30px, auto) minmax(18px, auto); align-content: start; gap: 2px; }
+.az-price { display: flex; align-items: center; min-height: 30px; font-size: 24px; line-height: 1.2; color: var(--text-dim); }
+.az-price-asof { min-height: 18px; font-size: 11px; line-height: 18px; color: var(--text-dim); opacity: 0.7; }
 .az-iv-unavailable {
   display: inline-flex;
   align-items: center;
@@ -2127,11 +2127,11 @@ canvas.greek-chart { width: 100%; height: 80px; display: block; }
 .az-range-val { font-size: 14px; font-weight: 700; color: var(--warning-text); font-family: monospace; }
 
 /* ── Company info (Analyze header) ─────────────────────────── */
-.az-company-info { display: flex; align-items: center; gap: 10px; }
+.az-company-info { display: flex; align-items: flex-start; gap: 10px; }
 .az-company-logo { width: 32px; height: 32px; border-radius: 6px; object-fit: contain; background: #fff; padding: 2px; }
-.az-company-text { display: flex; flex-direction: column; }
+.az-company-text { display: grid; grid-template-rows: minmax(30px, auto) minmax(18px, auto); align-content: start; gap: 2px; }
 .az-company-zh { font-size: 14px; font-weight: 500; color: var(--text-dim); margin-left: 6px; }
-.az-company-tagline { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.az-company-tagline { min-height: 18px; font-size: 11px; line-height: 18px; color: var(--text-muted); }
 
 /* ── Company info (Weekly Sec1) ─────────────────────────────── */
 .wk-company-header { display: flex; align-items: center; gap: 12px; }

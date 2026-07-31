@@ -42,7 +42,7 @@ function AccountData() {
       </div>
       <section className="account-plans">
         <div><h2>Free</h2><p>策略学习；分析数据可能延迟。具体数据时效与使用限制见方案详情。</p></div>
-        <div><h2>Pro</h2><p>更高频的数据快照、扫描器、条件提醒与持仓记录。数据频率和覆盖范围因来源而异。</p>{account.subscription.plan === 'pro' ? <button type="button" onClick={() => openBilling('portal')}>管理订阅</button> : <button className="primary-btn" type="button" onClick={() => openBilling('checkout')}>升级 Pro</button>}</div>
+        <div><h2>Pro</h2><p>更高频的数据快照、期权扫描、条件提醒与持仓记录。数据频率和覆盖范围因来源而异。</p>{account.subscription.plan === 'pro' ? <button type="button" onClick={() => openBilling('portal')}>管理订阅</button> : <button className="primary-btn" type="button" onClick={() => openBilling('checkout')}>升级 Pro</button>}</div>
       </section>
     </>
   );

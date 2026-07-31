@@ -16,16 +16,16 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
       <Link className="navbar-brand" to="/">Quantrift</Link>
       <div className="navbar-links">
         <NavLink to="/market" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          市场
+          市场概览
         </NavLink>
         <NavLink to="/earnings" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           本周财报
         </NavLink>
         <NavLink to="/analyze" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          策略分析
+          个股分析
         </NavLink>
         <NavLink to="/scan" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          扫描器
+          期权扫描
         </NavLink>
         <NavLink to="/ledger" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           模型记录
