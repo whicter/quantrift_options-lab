@@ -38,6 +38,11 @@ const INTERNAL_UI_FRAGMENTS = [
   '模型情景 P/L',
   '数据源：',
   'DataDetails',
+  '赔付按「标的走到',
+  '两侧胜率不可直接比较：买方胜率按',
+  '{environment.reason}',
+  '{structure.reason}',
+  'structure.expressionText',
 ];
 
 function productionSources(dir) {

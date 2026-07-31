@@ -25,6 +25,19 @@ errors.
 - Added static regression tests for forbidden implementation-copy fragments and
   raw metadata fields.
 
+## Remote-master integration follow-up
+
+The five remote commits after the shared `05559cd` base were merged with the
+seven local product-surface commits. Git resolved the three overlapping Analyze
+frontend files without textual conflicts.
+
+The remote buyer/seller pairing, payoff calculation, environment classification
+and pullback-support detection remain available to the backend and its tests.
+The frontend display adapter keeps only the product result needed to render the
+candidate, high-level state and risk. It drops raw environment/structure
+reasons, rule inputs, expression text, support evidence, payoff-basis/reference
+scenarios, internal candidate rationale and gamma-scoring notes.
+
 ## Related product-shell follow-up
 
 - Navigation labels are `市场概览 / 个股分析 / 期权扫描 / 周复盘 / 策略库`;
@@ -51,12 +64,12 @@ when a former public surface has been removed.
 
 - `cd frontend && npm run verify`
   - ESLint: passed.
-  - Frontend tests: **106 passed**.
+  - Frontend tests: **112 passed**.
   - Production build: passed.
   - `check:dist`: passed; no source maps or secret patterns.
   - The existing Vite chunk-size warning remains informational.
 - `cd server && npm test`
-  - Server tests: **244 passed**.
+  - Server tests: **276 passed**.
 - Browser smoke audit against the local app:
   - Analyze tabs 0–3, Scan, Weekly sections 0–1, Market, Earnings and `/ledger`.
   - Forbidden implementation-detail phrase matches: **0**.

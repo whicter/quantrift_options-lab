@@ -14,7 +14,8 @@
 - [x] 删除 `/ledger` 页面、导航和读取端点；`candidate_ledger` 仅保留后台自动采集与到期评估，不向产品前台开放。
 - [x] Analyze、Market、Earnings、Scan、Weekly、Home、策略风险面板和收益图统一改成结果导向文案；内部数字分数改为状态标签。
 - [x] 增加静态防回归测试，阻止模型版本、计算参数、定位假设、公式说明、内部 provider 和原始元数据重新进入产品 UI。
-- [x] 验证记录：`docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`（frontend 106、server 244、browser 10 routes、`/ledger` → `/`）。
+- [x] 合并远端新增的买方/卖方候选、收益风险和回调支撑状态；后台保留完整判断与回放字段，前端 adapter 删除原始判断理由、输入依据、评分说明和赔付计算情景，只显示状态、候选与风险提示。
+- [x] 验证记录：`docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`（合并后 frontend 112、server 276；此前 browser 10 routes、`/ledger` → `/`）。
 
 ## ✅ 2026-07-30 — 本周财报日历
 

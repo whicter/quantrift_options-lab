@@ -357,3 +357,20 @@ test('confluence endpoint returns server-side zones without requiring a GEX snap
   assert.ok(Array.isArray(res.body.support));
   assert.ok(Array.isArray(res.body.resistance));
 });
+
+test('buyer and seller must be evaluable, not merely debit/credit', () => {
+  // A Diagonal Spread is a debit trade and so matches "buyer", but being
+  // multi-expiry it has neither a static-expiry POP nor a single-leg reference
+  // payoff. Picking it renders a card of two dashes -- the exact failure this
+  // pairing exists to prevent (observed live on AAPL, 2026-07-30).
+  const evaluable = item => item.pop?.status === 'available' && item.payoff?.status === 'available';
+  const ranked = [
+    { strategy: 'Diagonal Spread', debit: 3, pop: { status: 'unavailable' }, payoff: { status: 'unavailable' } },
+    { strategy: 'Long Call', debit: 15, pop: { status: 'available', probability: 0.32 }, payoff: { status: 'available', reward_risk: 1.2 } },
+    { strategy: 'Bull Put Spread', credit: 0.3, pop: { status: 'available', probability: 0.76 }, payoff: { status: 'available', reward_risk: 0.19 } },
+  ];
+  const buyer = ranked.find(item => item.debit != null && evaluable(item));
+  const seller = ranked.find(item => item.credit != null && evaluable(item));
+  assert.equal(buyer.strategy, 'Long Call', 'the unevaluable diagonal must be skipped');
+  assert.equal(seller.strategy, 'Bull Put Spread');
+});

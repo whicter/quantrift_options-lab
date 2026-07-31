@@ -3917,3 +3917,40 @@ select:focus,
     width: 100%;
   }
 }
+
+/* Analyze buyer/seller pair (2026-07-30). The two sides sit side by side so a
+   reader sees two risk shapes rather than one number to optimise: a long
+   option's POP is measured at strike + premium and is structurally sub-50%, so
+   it is only meaningful next to its payoff. */
+.az-sides-card .az-env { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 6px; background: var(--bg-hover); }
+.az-sides-card .az-env-split { border-left-color: var(--yellow); }
+.az-env-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.az-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.az-side { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.az-side-buyer { border-top: 2px solid var(--blue); }
+.az-side-seller { border-top: 2px solid var(--green); }
+.az-side-empty { color: var(--text-muted); font-size: 12px; line-height: 1.6; justify-content: center; }
+.az-side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.az-side-kind { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.az-side-shape { font-size: 11px; color: var(--text-dim); }
+.az-side-strategy { font-size: 16px; font-weight: 700; color: var(--text); }
+.az-side-structure { font-size: 12px; color: var(--text-dim); }
+.az-side-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.az-side-metrics > div { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border-radius: 5px; background: var(--bg-hover); }
+.az-side-metric-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.az-side-metrics strong { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
+.az-side-note { font-size: 11px; color: var(--text-muted); line-height: 1.55; }
+.az-side-note-warn { color: var(--yellow); }
+.az-side-legs { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 720px) {
+  .az-sides { grid-template-columns: 1fr; }
+  .az-side-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Pullback-to-support thesis (2026-07-30). Sits above the buyer/seller pair
+   because it is the stated basis a directional pick rests on. The caveat is
+   styled as part of the block, not a footnote: pullback and breakdown are
+   indistinguishable in advance, and that has to be read alongside the claim. */
+.az-thesis { display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; margin-bottom: 12px; border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 6px; background: var(--bg-hover); }
+.az-thesis-head { display: flex; flex-wrap: wrap; gap: 6px; }
+.az-thesis-caveat { color: var(--text-muted); font-size: 11px; line-height: 1.6; padding-top: 6px; border-top: 1px solid var(--border); }

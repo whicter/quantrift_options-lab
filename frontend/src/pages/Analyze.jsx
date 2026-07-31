@@ -488,6 +488,12 @@ export default function Analyze() {
         ...dataWithSignals,
         recommendation: candidateState.recommendation,
         recommendationUnavailableReason: candidateState.unavailableReason,
+        strategySides: {
+          buyer: candidateState.buyer,
+          seller: candidateState.seller,
+          environment: candidateState.environment,
+          structure: candidateState.structure,
+        },
         onDemandStatus,
       }, supportResistance, chainStats, volumeProfile), flowData), newsData);
       setResult(data);

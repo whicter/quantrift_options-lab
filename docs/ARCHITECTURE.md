@@ -449,6 +449,12 @@ sequenceDiagram
     UI-->>User: 加载状态或分析结果
 ```
 
+Analyze 的候选路径另读 `GET /api/analyze/:symbol/candidate`。后端候选引擎可以返回
+主候选、可评估的买方/卖方各一项、收益风险、环境分类和回调支撑检测；这些完整字段用于
+后台测试与复现。`frontend/src/lib/analyzeRecommendation.js` 是产品显示边界，只把策略、
+腿、到期、估算胜率、赔付比、最大亏损以及高层状态交给组件。原始判断理由、规则输入、
+阈值、评分依据、支撑证据和赔付参考情景不进入渲染 props。
+
 Scan：
 
 ```mermaid

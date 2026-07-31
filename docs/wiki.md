@@ -748,6 +748,12 @@ PCR OI / PCR Volume
 Max Pain
 ```
 
+`GET /api/analyze/:symbol/candidate` 还会从最新可报价合约中返回主候选，以及当前可评估的
+买方/卖方各一项。后端保留环境分类、回调支撑检测、收益风险计算和完整原因，方便测试与
+回放；产品 UI 只显示候选结构、到期、腿、估算胜率、赔付比、最大亏损、权利金状态以及
+通用风险提示。环境输入、回调确认项、阈值、评分依据和赔付参考情景属于内部实现，不在
+前端展开。验证见 `docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`。
+
 GEX 使用条件：
 - 有 `global_gex`, `call_wall`, `put_wall`, `strikes` required fields。
 - stale/partial snapshot 继续显示实际数据，并标记 source、age、confidence。

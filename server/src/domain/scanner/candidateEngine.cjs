@@ -381,9 +381,84 @@ function popForCandidate(candidate, spot, expectedMove) {
   return { ...base, status: 'available', probability: Math.max(0, Math.min(1, probability)) };
 }
 
+/**
+ * The payoff half of a candidate, so probability is never shown alone.
+ *
+ * A credit structure has a defined max profit, so reward/risk is exact. A long
+ * option does not -- its upside is unbounded -- so quoting a "max profit" would
+ * be fiction. Instead the payoff is evaluated at ONE named, reproducible
+ * reference: the underlying finishing exactly one expected move in the
+ * position's favour. That is disclosed as `basis`, never presented as a
+ * forecast or as the trade's maximum.
+ *
+ * This exists because probability alone is actively misleading here. A long
+ * option is structurally a sub-50% proposition (POP is measured at strike +
+ * premium), so a buyer card showing only "POP 33%" reads as a bad trade even
+ * when the payoff makes it a reasonable one. Deliberately NOT combined into a
+ * single expected-value number: under the same risk-neutral distribution that
+ * produces POP, expected value is ~0 by construction for every fairly priced
+ * option, so such a number would rank candidates by IV-skew mismeasurement
+ * rather than by edge (verified 2026-07-30 on live SPY chains).
+ */
+function payoffForCandidate(candidate, spot, expectedMove) {
+  const maxLoss = num(candidate.maxLoss);
+  if (maxLoss == null || maxLoss <= 0) return { status: 'unavailable', reason: 'undefined_risk' };
+
+  // Credit structures: profit is capped at the credit taken in. But WHERE that
+  // maximum is reached differs by shape, and pairing it with POP is only honest
+  // when the two describe the same outcome. A vertical or condor pays its full
+  // credit across the whole region beyond its short strike(s) -- the same region
+  // POP measures -- so credit and POP are coherent. A butterfly pays its maximum
+  // only if the underlying finishes AT the body strike, an outcome of ~zero
+  // probability, while POP measures the far wider breakeven range. Reporting an
+  // undifferentiated ratio there flatters a lottery ticket: observed live on SPY
+  // 2026-07-30, a 5-wide fly showed "13.3:1" beside a POP of 8%. The peak is
+  // flagged so the UI can qualify it instead of anchoring the user on it.
+  const credit = num(candidate.credit);
+  if (credit != null) {
+    const peakRequiresPin = ['Iron Butterfly', 'Long Straddle'].includes(candidate.strategy);
+    return {
+      status: 'available',
+      basis: peakRequiresPin ? 'max_profit_requires_pin_at_expiry' : 'max_profit_at_expiry',
+      max_profit: credit, max_loss: maxLoss,
+      peak_requires_pin: peakRequiresPin,
+      reward_risk: Math.round((credit / maxLoss) * 1000) / 1000,
+    };
+  }
+
+  // Long premium: unbounded, so price it at one expected move in favour.
+  const debit = num(candidate.debit);
+  if (debit == null || expectedMove.status !== 'available') {
+    return { status: 'unavailable', reason: 'expected_move_unavailable' };
+  }
+  const move = num(expectedMove.expected_move);
+  const legs = candidate.legs || [];
+  if (move == null || legs.length !== 1) {
+    return { status: 'unavailable', reason: 'no_single_leg_reference_payoff' };
+  }
+  const leg = legs[0];
+  const target = leg.right === 'C' ? spot + move : spot - move;
+  const intrinsic = leg.right === 'C'
+    ? Math.max(0, target - leg.strike)
+    : Math.max(0, leg.strike - target);
+  const profit = intrinsic - debit;
+  return {
+    status: 'available', basis: 'one_expected_move_in_favour',
+    reference_price: Math.round(target * 100) / 100,
+    reference_profit: Math.round(profit * 100) / 100,
+    max_loss: maxLoss,
+    reward_risk: Math.round((profit / maxLoss) * 1000) / 1000,
+  };
+}
+
 function attachResearchModels(candidate, contracts, spot) {
   const expectedMove = expectedMoveForExpiry(contracts, spot, candidate.expiry, candidate.dte);
-  return { ...candidate, expectedMove, pop: popForCandidate(candidate, spot, expectedMove) };
+  return {
+    ...candidate,
+    expectedMove,
+    pop: popForCandidate(candidate, spot, expectedMove),
+    payoff: payoffForCandidate(candidate, spot, expectedMove),
+  };
 }
 
 function candidateEconomics({ credit = null, debit = null, maxLoss = null, returnOnRisk = null }) {
@@ -898,6 +973,6 @@ function buildActionableSetup(strategy, rawContracts, row, overrides = {}, envir
 
 module.exports = {
   ACTIONABLE_STRATEGIES, ADVANCED_RISK_STRATEGIES, STRATEGY_STANCE, STRATEGY_GAMMA_PROFILE,
-  buildActionableSetups, buildActionableSetup, interleaveByStrategy,
+  buildActionableSetups, buildActionableSetup, interleaveByStrategy, payoffForCandidate,
   directionalWeight, expectedMoveForExpiry, popForCandidate, toIsoDate,
 };
