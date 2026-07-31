@@ -198,6 +198,10 @@ export function getMarketBriefing() {
   return getJson('/api/market/briefing');
 }
 
+export function getEarningsThisWeek(week = 'current') {
+  return getJson(`/api/market/earnings-this-week${week === 'next' ? '?week=next' : ''}`);
+}
+
 export function getScannerLedger() {
   return getJson('/api/scanner/ledger');
 }

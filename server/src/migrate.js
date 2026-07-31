@@ -46,6 +46,41 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS price_history_symbol_date ON price_history (symbol, date DESC);
     CREATE INDEX IF NOT EXISTS price_history_date ON price_history (date DESC);
 
+    -- Full U.S. common-stock breadth, collected once after the close from the
+    -- Polygon grouped-daily feed. This is deliberately separate from
+    -- price_history: only one compact market aggregate is retained per session,
+    -- while exchange_breakdown preserves Nasdaq/NYSE/NYSE American detail.
+    CREATE TABLE IF NOT EXISTS market_breadth_daily (
+      market_date             DATE          PRIMARY KEY,
+      previous_market_date    DATE          NOT NULL,
+      reference_count         INTEGER       NOT NULL,
+      universe_count          INTEGER       NOT NULL,
+      counted                 INTEGER       NOT NULL,
+      missing_previous_count  INTEGER       NOT NULL DEFAULT 0,
+      coverage_pct            NUMERIC(6,2),
+      advances                INTEGER       NOT NULL,
+      declines                INTEGER       NOT NULL,
+      unchanged               INTEGER       NOT NULL,
+      advance_pct             NUMERIC(6,2),
+      decline_pct             NUMERIC(6,2),
+      unchanged_pct           NUMERIC(6,2),
+      net_advances            INTEGER       NOT NULL,
+      advance_decline_ratio   NUMERIC(12,4),
+      volume_counted          INTEGER       NOT NULL,
+      advancing_volume        BIGINT        NOT NULL DEFAULT 0,
+      declining_volume        BIGINT        NOT NULL DEFAULT 0,
+      unchanged_volume        BIGINT        NOT NULL DEFAULT 0,
+      advancing_volume_pct    NUMERIC(6,2),
+      declining_volume_pct    NUMERIC(6,2),
+      exchange_breakdown      JSONB         NOT NULL DEFAULT '{}',
+      source                  TEXT          NOT NULL,
+      collected_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      updated_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS market_breadth_daily_date
+      ON market_breadth_daily (market_date DESC);
+
     CREATE TABLE IF NOT EXISTS price_history_30m (
       id          BIGSERIAL PRIMARY KEY,
       symbol      TEXT        NOT NULL,

@@ -98,6 +98,8 @@ def persist_reference(conn, reference: TickerReference, optionable: bool | None)
         'primary_exchange': reference.primary_exchange,
         'provider_last_updated_utc': reference.last_updated_utc,
         'provider_active': reference.active,
+        'branding_icon_url': reference.branding_icon_url,
+        'branding_logo_url': reference.branding_logo_url,
         'optionable_method': 'persisted_usable_option_snapshot' if optionable else None,
     }
     with conn.cursor() as cur:

@@ -6,6 +6,9 @@ This record covers the final 2026-07-30 state of:
 
 - dark/light semantic color hierarchy for Analyze and Scanner;
 - complete, elastic Scanner headers and soft-indented detail lines;
+- complete State Matrix symbol lists inside independently scrollable columns;
+- unambiguous Sector Rotation quadrant labels separating benchmark position
+  from relative-momentum direction;
 - removal of truncated or duplicated strategy facts and unexplained internal copy;
 - isolation of market-wide Polygon/GEX refresh from user-requested IB strategy quotes;
 - PM2 configuration, operator documentation, and regression coverage for both lanes.
@@ -22,6 +25,14 @@ the existing Quantrift visual identity remains intact.
 Scanner columns stretch elastically, but every header remains fully visible.
 Positioning and strategy details are split into atomic, wrapping lines with a
 soft bullet indent; ellipsis and truncation are not used for those facts.
+
+Market State Matrix columns render every symbol returned for the state. The
+340px column body remains independently scrollable; there is no fixed
+first-12-symbol slice and no non-interactive `+N 只…` placeholder.
+
+Sector Rotation no longer uses shorthand such as `改善 · 弱但加速`.
+The upper-left quadrant is `相对回升 · 仍弱于基准`, and the footnote explains
+that relative improvement does not imply an absolute price increase.
 
 Presentation rules:
 
@@ -66,7 +77,7 @@ jobs are deduplicated regardless of age.
 
 Executed from the repository on 2026-07-30:
 
-- Frontend `npm run verify`: ESLint passed; 96/96 tests passed; Vite production
+- Frontend `npm run verify`: ESLint passed; 98/98 tests passed; Vite production
   build passed; `check-dist` scanned 8 files with no source maps or secret
   patterns. Vite emitted the existing non-blocking large-chunk warning.
 - Server `npm test`: 244/244 tests passed after rebasing onto the latest
@@ -75,7 +86,8 @@ Executed from the repository on 2026-07-30:
   from `collector/`: 289/289 tests passed.
 
 The regression assertions cover full Scanner labels, atomic detail splitting,
-Gamma grouping, pricing deduplication, Analyze quote enqueue behavior, active
+Gamma grouping, pricing deduplication, complete State Matrix symbol rendering,
+explicit Sector Rotation quadrant copy, Analyze quote enqueue behavior, active
 job deduplication, lane-specific claiming, Polygon completion before quote
 enqueue, quote persistence without GEX recomputation, and PM2 runtime defaults.
 

@@ -18,8 +18,8 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
         <NavLink to="/market" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           市场
         </NavLink>
-        <NavLink to="/learn" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          策略库
+        <NavLink to="/earnings" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+          本周财报
         </NavLink>
         <NavLink to="/analyze" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           策略分析
@@ -32,6 +32,9 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
         </NavLink>
         <NavLink to="/weekly" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           周复盘
+        </NavLink>
+        <NavLink to="/learn" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+          策略库
         </NavLink>
       </div>
       {authConfigured ? <AuthControls /> : null}

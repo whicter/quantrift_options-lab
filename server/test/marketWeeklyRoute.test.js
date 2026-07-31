@@ -5,10 +5,11 @@ const dbPath = require.resolve('../src/db');
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query: async () => ({ rows: [] }) } };
 
 const {
-  deriveMomentum, deriveMarketRegime, buildBreadth, percentile,
+  deriveMomentum, deriveMarketRegime, buildBreadth, buildBroadMarketBreadth, percentile,
   classifyState, buildStateMatrix, STATE_META,
-  buildSectorRotation, SECTOR_ETFS, buildBriefing,
+  buildSectorRotation, SECTOR_ETFS, buildBriefing, sendEarningsThisWeek,
 } = require('../src/routes/market');
+const pool = require('../src/db');
 const { deriveWeekly } = require('../src/routes/weekly');
 
 function dailyBars(count = 60) {
@@ -96,6 +97,52 @@ test('breadth percentages disclose zero counts as null, never a fake 0', () => {
   assert.equal(b.iv_rank.median, null);
   assert.equal(b.pcr.median, null);
   assert.equal(b.gamma.counted, 0);
+});
+
+test('full-market breadth exposes the latest snapshot plus a cumulative A/D history', () => {
+  const rows = [
+    {
+      market_date: new Date('2026-07-30T00:00:00Z'),
+      previous_market_date: new Date('2026-07-29T00:00:00Z'),
+      reference_count: 5100, universe_count: 5000, counted: 4980,
+      missing_previous_count: 20, coverage_pct: '99.6',
+      advances: 3000, declines: 1800, unchanged: 180,
+      advance_pct: '60.2', decline_pct: '36.1', unchanged_pct: '3.6',
+      net_advances: 1200, advance_decline_ratio: '1.6667',
+      volume_counted: 4970, advancing_volume: '9000000000',
+      declining_volume: '5000000000', unchanged_volume: '100000000',
+      advancing_volume_pct: '63.8', declining_volume_pct: '35.5',
+      exchange_breakdown: { XNAS: { label: 'Nasdaq', advances: 1700, declines: 1000 } },
+      collected_at: new Date('2026-07-31T01:05:00Z'),
+    },
+    {
+      market_date: new Date('2026-07-29T00:00:00Z'),
+      previous_market_date: new Date('2026-07-28T00:00:00Z'),
+      reference_count: 5090, universe_count: 4990, counted: 4975,
+      missing_previous_count: 15, coverage_pct: '99.7',
+      advances: 2000, declines: 2800, unchanged: 175,
+      advance_pct: '40.2', decline_pct: '56.3', unchanged_pct: '3.5',
+      net_advances: -800, advance_decline_ratio: '0.7143',
+      volume_counted: 4960, advancing_volume: '4000000000',
+      declining_volume: '8000000000', unchanged_volume: '100000000',
+      advancing_volume_pct: '33.1', declining_volume_pct: '66.1',
+      exchange_breakdown: {},
+      collected_at: new Date('2026-07-30T01:05:00Z'),
+    },
+  ];
+
+  const result = buildBroadMarketBreadth(rows);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.market_date, '2026-07-30');
+  assert.equal(result.advance_pct, 60.2);
+  assert.equal(result.advancing_volume, 9000000000);
+  assert.equal(result.history[0].cumulative_ad, -800);
+  assert.equal(result.history[1].cumulative_ad, 400);
+  assert.equal(result.exchanges.XNAS.label, 'Nasdaq');
+});
+
+test('full-market breadth reports missing before its first EOD snapshot', () => {
+  assert.deepEqual(buildBroadMarketBreadth([]), { status: 'missing' });
 });
 
 // ---- R1.1 Symbol State Matrix ----
@@ -301,6 +348,24 @@ test('briefing degrades gracefully when aggregates are empty', () => {
   assert.equal(b.tilt, '多空均衡');
   assert.match(b.headline, /2026-07-24 市场多空均衡/);
   assert.deepEqual(b.earnings_ahead, []);
+});
+
+test('earnings calendar returns its week bounds and only real active-universe rows', async () => {
+  const originalQuery = pool.query;
+  pool.query = async () => ({ rows: [
+    { symbol: 'MSFT', name: 'Microsoft Corporation', icon_url: 'https://cdn.example/msft.png', earnings_date: new Date('2026-07-29T00:00:00Z'), week_start: new Date('2026-07-27T00:00:00Z'), week_end: new Date('2026-07-31T00:00:00Z') },
+  ] });
+  const response = { json(value) { this.value = value; } };
+  try {
+    await sendEarningsThisWeek({ query: { week: 'next' } }, response);
+  } finally {
+    pool.query = originalQuery;
+  }
+  assert.equal(response.value.status, 'ready');
+  assert.equal(response.value.week, 'next');
+  assert.equal(response.value.week_start, '2026-07-27');
+  assert.equal(response.value.week_end, '2026-07-31');
+  assert.deepEqual(response.value.earnings, [{ symbol: 'MSFT', name: 'Microsoft Corporation', icon_url: 'https://cdn.example/msft.png', date: '2026-07-29' }]);
 });
 
 test('weekly product uses real GEX, max pain and OI delta without synthetic history', () => {

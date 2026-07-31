@@ -100,6 +100,25 @@ module.exports = {
       },
     },
     {
+      name: 'quantrift-market-breadth',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_market_breadth.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      // Full-market EOD breadth is independent from the option/GEX worker.
+      // Two weekday attempts at 20:05 and 22:05 ET let the later run self-heal
+      // if Polygon has not finalized the grouped daily response at the first.
+      cron_restart: '5 17,19 * * 1-5',
+      env: {
+        MARKET_BREADTH_EOD_SETTLE_HOUR_ET: '20',
+        MARKET_BREADTH_EXCHANGES: 'XNAS,XNYS,XASE',
+        MARKET_BREADTH_MIN_COUNT: '2000',
+        MARKET_BREADTH_MIN_COVERAGE_PCT: '90',
+        POLYGON_STOCK_REQUEST_DELAY: '16',
+        POLYGON_PRICE_RATE_LIMIT_BACKOFF: '60',
+      },
+    },
+    {
       name: 'quantrift-reddit-trends',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_reddit_trends.py',

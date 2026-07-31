@@ -45,6 +45,18 @@ test('builds dots with positions + quadrant tone, and groups by quadrant', () =>
   assert.equal(improving.sectors[0].symbol, 'SMH');
 });
 
+test('quadrant copy states benchmark position and momentum direction without ambiguous acceleration wording', () => {
+  const copy = Object.fromEntries(QUADRANTS.map(q => [q.id, q]));
+  assert.equal(copy.leading.plotLabel, '领先扩大 · 强于基准');
+  assert.equal(copy.weakening.plotLabel, '领先收窄 · 仍强于基准');
+  assert.equal(copy.improving.plotLabel, '相对回升 · 仍弱于基准');
+  assert.equal(copy.improving.desc, '仍弱于基准 · 相对动量上升');
+  assert.equal(copy.lagging.plotLabel, '持续落后 · 弱于基准');
+  for (const q of QUADRANTS) {
+    assert.doesNotMatch(`${q.label}${q.desc}${q.plotLabel}`, /弱但加速|强且加速|强但减速|弱且减速/);
+  }
+});
+
 test('group sectors are sorted by relative strength descending', () => {
   const many = {
     ...res,

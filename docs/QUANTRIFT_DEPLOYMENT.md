@@ -400,9 +400,10 @@ public.iv_history
 ```text
 public.price_history
 public.price_history_30m
+public.market_breadth_daily
 ```
 
-用途：`price_history` 保存最多 400 个调整后日线 bar，供趋势、RVol、HV 和 weekly recap 使用；`price_history_30m` 保存近 35 个自然日的 30M bar，供 breakout 与盘中结构使用。两表均由 collector upsert 到 Railway PostgreSQL。
+用途：`price_history` 保存最多 400 个调整后日线 bar，供趋势、RVol、HV 和 weekly recap 使用；`price_history_30m` 保存近 35 个自然日的 30M bar，供 breakout 与盘中结构使用。`market_breadth_daily` 保存每个交易日一行的全市场普通股涨跌/成交量宽度和分交易所 JSONB 明细。三表均由 collector upsert 到 Railway PostgreSQL。
 
 状态：
 
@@ -423,11 +424,12 @@ public.price_history_30m
   - `quantrift-options-collector`：长期运行 `run_collector_daemon.py`；option coverage scheduler 300 秒填充至 queue target 20，主 worker 每 60 秒以 3 路并发消费最多 10 个 Polygon/GEX jobs，scanner materialization 300 秒。
   - `quantrift-options-quote-worker`：长期运行 `run_quote_worker_daemon.py`；每 5 秒检查用户按需产生的 `option_quote_snapshot`，单路 IB 报价，不计算 GEX/OI delta，也不占主 collector worker。
   - `quantrift-options-prices`：工作日 13:35 PT / 16:35 ET 运行 repo 内 `collect_prices.py`；配置固定 `SYMBOLS=watchlist`，避免 targeted backfill 环境泄漏到下一次定时任务。
+  - `quantrift-market-breadth`：工作日 17:05/19:05 PT 两次运行 `collect_market_breadth.py`；调用 Polygon Grouped Daily + point-in-time common-stock references，独立于 option/GEX/IB worker。第一次若 EOD 尚未完整，第二次幂等自愈。
   - Python/env：repo 内 `collector/venv311` 与 `collector/.env`。
   - 旧 LaunchAgent 与 `~/.quantrift_options_collector` 已移除；不存在“先同步代码再运行”的步骤。
   - 电源恢复：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`，Mac Studio 已配置为市电恢复后自动开机；LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`。2026-07-30 已验证 saved list 包含七个 Quantrift collector apps；本次新增 quote worker 后必须 `startOrReload` 并 `pm2 save`，使第八个 app 进入 saved list。UPS 采购和实际断电/复电演练尚未完成；演练须检查 PM2 process list、collector health、queued jobs 与最新 snapshots。
   - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 startOrReload collector/ecosystem.config.cjs --update-env && pm2 save`
-  - Inspect：`pm2 status quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices`
+  - Inspect：`pm2 status quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices quantrift-market-breadth`
   - Logs：`pm2 logs quantrift-options-collector --lines 50 --nostream`
   - 2026-07-15 runtime verification：collector online and materializing 67 scanner rows；price one-shot completed `4020 rows written, 0 failed` and is stopped between scheduled runs；`pm2 save` succeeded。
   - 2026-07-15 auto-refresh verification：scheduler selected missing AAPL；TT device challenge was treated as unavailable and the worker fell back to IB delayed market data without retrying login；AAPL completed 78 actual contracts、94.87% completeness，production option coverage increased 8/67 → 9/67，then continued with AIQ。
@@ -435,7 +437,20 @@ public.price_history_30m
 - 2026-07-14 生产 status 验证：`curl -f "https://quantriftoptions-lab-production.up.railway.app/api/status/data"` 返回 `expected_count=67`、`price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
 - 2026-07-15 Polygon migration/runtime：Railway 已创建 `price_history_30m`。日线 67/67、26815 rows、每 symbol 349-401 rows、range 2024-12-05 → 2026-07-15；30M 67/67、39135 rows、每 symbol 319-736 rows、range 2026-06-10 08:00Z → 2026-07-14 23:30Z；duplicate keys 均为 0。
 - 日线 source 审计：所有 symbols 都有 `polygon_licensed` history；每个 symbol 仍保留 1 条日期更新的旧 `ib_internal` row。不得为了 source 纯度删除更近 bar；scheduled dependency 已切到 Polygon。
-- PM2 deployment：`quantrift-options-collector` 应为 online；`quantrift-options-quote-worker` 应为 online 且实例数 1；`quantrift-options-prices` stopped one-shot + cron active。确认非敏感 env 后执行 `pm2 save`。只改 `ecosystem.config.cjs` 不会改变运行态。
+- PM2 deployment：`quantrift-options-collector` 应为 online；`quantrift-options-quote-worker` 应为 online 且实例数 1；`quantrift-options-prices` 与 `quantrift-market-breadth` 均为 stopped one-shot + cron active。确认非敏感 env 后执行 `pm2 save`。只改 `ecosystem.config.cjs` 不会改变运行态。
+
+全市场宽度首次部署顺序：
+
+```bash
+cd /Users/congrenhan/Documents/quantrift_options-lab
+source collector/.env
+node server/src/migrate.js
+collector/venv311/bin/python collector/collect_market_breadth.py
+pm2 startOrReload collector/ecosystem.config.cjs --only quantrift-market-breadth --update-env
+pm2 save
+```
+
+验收要求：脚本返回目标 `market_date`、`counted >= 2000`、`coverage_pct >= 90`；数据库 `market_breadth_daily` 有该日期一行；`GET /api/market/breadth` 的 `broad_market.status=ready`。如果 Polygon key 对 Grouped Daily 返回 403，保持任务未上线，不允许回退成 scan universe 并标成全市场。
 
 系统 schema，例如 `pg_catalog` 和 `information_schema`，不属于业务数据，不应删除。
 

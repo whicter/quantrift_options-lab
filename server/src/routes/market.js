@@ -84,6 +84,81 @@ function buildBreadth(trendRows, gammaRows, ivRanks) {
   };
 }
 
+function mapBroadMarketRow(row) {
+  return {
+    market_date: isoDate(row.market_date),
+    previous_market_date: isoDate(row.previous_market_date),
+    reference_count: Number(row.reference_count),
+    universe_count: Number(row.universe_count),
+    counted: Number(row.counted),
+    missing_previous_count: Number(row.missing_previous_count),
+    coverage_pct: number(row.coverage_pct),
+    advances: Number(row.advances),
+    declines: Number(row.declines),
+    unchanged: Number(row.unchanged),
+    advance_pct: number(row.advance_pct),
+    decline_pct: number(row.decline_pct),
+    unchanged_pct: number(row.unchanged_pct),
+    net_advances: Number(row.net_advances),
+    advance_decline_ratio: number(row.advance_decline_ratio),
+    volume_counted: Number(row.volume_counted),
+    advancing_volume: number(row.advancing_volume),
+    declining_volume: number(row.declining_volume),
+    unchanged_volume: number(row.unchanged_volume),
+    advancing_volume_pct: number(row.advancing_volume_pct),
+    declining_volume_pct: number(row.declining_volume_pct),
+    exchanges: row.exchange_breakdown || {},
+    collected_at: row.collected_at?.toISOString?.() || row.collected_at || null,
+  };
+}
+
+function buildBroadMarketBreadth(rows) {
+  if (!rows?.length) return { status: 'missing' };
+  const mapped = rows.map(mapBroadMarketRow);
+  const latest = mapped[0];
+  let cumulative = 0;
+  const history = mapped.slice().reverse().map(row => {
+    cumulative += row.net_advances;
+    return {
+      market_date: row.market_date,
+      advances: row.advances,
+      declines: row.declines,
+      net_advances: row.net_advances,
+      advance_pct: row.advance_pct,
+      advancing_volume_pct: row.advancing_volume_pct,
+      cumulative_ad: cumulative,
+    };
+  });
+  return {
+    status: 'ready',
+    ...latest,
+    history,
+  };
+}
+
+async function loadBroadMarketBreadth() {
+  try {
+    const result = await pool.query(`
+      SELECT market_date, previous_market_date, reference_count, universe_count,
+             counted, missing_previous_count, coverage_pct,
+             advances, declines, unchanged, advance_pct, decline_pct, unchanged_pct,
+             net_advances, advance_decline_ratio,
+             volume_counted, advancing_volume, declining_volume, unchanged_volume,
+             advancing_volume_pct, declining_volume_pct,
+             exchange_breakdown, collected_at
+      FROM market_breadth_daily
+      ORDER BY market_date DESC
+      LIMIT 30
+    `);
+    return buildBroadMarketBreadth(result.rows);
+  } catch (error) {
+    // Additive deployment safety: the existing options-native panel must remain
+    // available between the API deploy and the one-time schema migration.
+    if (error.code === '42P01') return { status: 'missing' };
+    throw error;
+  }
+}
+
 function deriveMomentum(dailyRows, intradayRows) {
   const daily = dailyRows.map(row => ({ close: number(row.close), date: isoDate(row.date) })).filter(row => row.close != null);
   const intraday = intradayRows.map(row => ({
@@ -208,7 +283,7 @@ async function sendMarketRegime(req, res) {
 }
 
 async function loadBreadth() {
-  const [trendResult, gammaResult, ivResult] = await Promise.all([
+  const [trendResult, gammaResult, ivResult, broadMarket] = await Promise.all([
       // Latest close vs MA50/MA200 per scan-enabled symbol, computed in SQL.
       pool.query(`
         WITH universe AS (
@@ -244,6 +319,7 @@ async function loadBreadth() {
         WHERE v.iv_rank IS NOT NULL
         ORDER BY v.symbol, v.metric_date DESC
       `),
+      loadBroadMarketBreadth(),
     ]);
 
     const trendRows = trendResult.rows.map(r => ({
@@ -261,13 +337,16 @@ async function loadBreadth() {
 
   const breadth = buildBreadth(trendRows, gammaRows, ivRanks);
   return {
-    status: trendRows.length || gammaRows.length || ivRanks.length ? 'ready' : 'missing',
+    status: trendRows.length || gammaRows.length || ivRanks.length || broadMarket.status === 'ready'
+      ? 'ready'
+      : 'missing',
     universe_count: new Set([
       ...trendResult.rows.map(r => r.symbol),
       ...gammaResult.rows.map(r => r.symbol),
       ...ivResult.rows.map(r => r.symbol),
     ]).size,
     gamma_as_of: newestGex ? new Date(newestGex).toISOString() : null,
+    broad_market: broadMarket,
     ...breadth,
   };
 }
@@ -754,16 +833,62 @@ async function sendMarketBriefing(req, res) {
   }
 }
 
+// This is deliberately separate from the rolling seven-day briefing callout.
+// The source supplies a date only, so report timing is never inferred.
+async function sendEarningsThisWeek(req, res) {
+  try {
+    const weekOffset = req.query?.week === 'next' ? 1 : 0;
+    const result = await pool.query(`
+      WITH week_bounds AS (
+        SELECT (date_trunc('week', NOW() AT TIME ZONE 'America/New_York')::date + ($1::int * 7)) AS week_start
+      ), latest_earnings AS (
+        SELECT DISTINCT ON (v.symbol) v.symbol, v.earnings_date
+        FROM iv_history v
+        WHERE v.earnings_date IS NOT NULL
+        ORDER BY v.symbol, v.date DESC
+      )
+      SELECT e.symbol, u.name, u.metadata->>'branding_icon_url' AS icon_url,
+             e.earnings_date, b.week_start, (b.week_start + 4) AS week_end
+      FROM week_bounds b
+      LEFT JOIN latest_earnings e ON e.earnings_date >= b.week_start
+        AND e.earnings_date < b.week_start + 5
+      LEFT JOIN symbol_universe u ON u.symbol = e.symbol
+        AND u.active = TRUE AND u.scan_enabled = TRUE
+      WHERE e.symbol IS NULL OR u.symbol IS NOT NULL
+      ORDER BY e.earnings_date ASC NULLS LAST, e.symbol ASC
+    `, [weekOffset]);
+    const bounds = result.rows[0];
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    return res.json({
+      status: 'ready',
+      week: weekOffset === 1 ? 'next' : 'current',
+      week_start: bounds ? isoDate(bounds.week_start) : null,
+      week_end: bounds ? isoDate(bounds.week_end) : null,
+      today,
+      earnings: result.rows.filter(row => row.symbol).map(row => ({
+        symbol: row.symbol,
+        name: row.name || null,
+        icon_url: row.icon_url || null,
+        date: isoDate(row.earnings_date),
+      })),
+    });
+  } catch (error) {
+    console.error('GET /api/market/earnings-this-week error:', error.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
 router.get('/regime', sendMarketRegime);
 router.get('/breadth', sendMarketBreadth);
 router.get('/state-matrix', sendMarketStateMatrix);
 router.get('/sector-rotation', sendSectorRotation);
 router.get('/briefing', sendMarketBriefing);
+router.get('/earnings-this-week', sendEarningsThisWeek);
 
 module.exports = {
   router, deriveMomentum, deriveMarketRegime, sendMarketRegime,
-  buildBreadth, percentile, sendMarketBreadth,
+  buildBreadth, buildBroadMarketBreadth, percentile, sendMarketBreadth,
   classifyState, buildStateMatrix, sendMarketStateMatrix, STATE_META, STATE_THRESHOLDS,
   buildSectorRotation, sendSectorRotation, SECTOR_ETFS,
-  buildBriefing, sendMarketBriefing,
+  buildBriefing, sendMarketBriefing, sendEarningsThisWeek,
 };

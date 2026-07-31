@@ -10,6 +10,7 @@ import Ledger from './pages/Ledger';
 import Home from './pages/Home';
 import Account from './pages/Account';
 import Portfolio from './pages/Portfolio';
+import Earnings from './pages/Earnings';
 
 const THEME_KEY = 'options-lab-theme';
 
@@ -43,6 +44,7 @@ export default function App({ authConfigured = false }) {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/market" element={<Market />} />
+          <Route path="/earnings" element={<Earnings />} />
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/learn" element={<Learn />} />
           <Route path="/analyze" element={<Analyze />} />

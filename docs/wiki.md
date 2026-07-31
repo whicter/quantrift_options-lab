@@ -1,5 +1,25 @@
 # Options Lab — Wiki
 
+## 本地完整预览（强制启动约定）
+
+本地查看任何真实数据页面（Analyze、Scan、Market、Weekly、Earnings）时，**不能**直接在 `server/` 运行裸 `npm start`。Node API 自身不读取 `collector/.env`；数据库连接、API key 等本机凭据的唯一来源是仓库根目录的 `collector/.env`。
+
+从仓库根目录启动：
+
+```bash
+(cd server && set -a && source ../collector/.env && set +a && npm start)
+(cd frontend && npm run dev -- --host 127.0.0.1)
+```
+
+启动后先验收，再打开页面：
+
+```bash
+curl -fsS http://127.0.0.1:3001/health
+curl -fsS http://127.0.0.1:3001/api/market/earnings-this-week
+```
+
+第二条必须返回 `status: "ready"`（或真实的 API 权限错误）；若本地 UI 显示“暂不可用”且 API 日志中所有数据库路由都失败，首先检查进程是否按上面的方式继承了 `collector/.env`，而不是用 mock 数据或把凭据复制到 `server/.env`。不要打印、提交或改写 `collector/.env` 中的任何 secret。
+
 ## Architecture
 
 ### Scanner Candidate Boundary (V3A immediate core)
@@ -1242,6 +1262,7 @@ The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily sco
 - **每日简报（R1.2,`/api/market/briefing`）**:一句话综述——市场倾向(S1 vs S5)+ 正 Gamma % + IV Rank 中位 + 状态分布 + 板块领跑/落后 + 本周财报;callouts 带财报/期权异动。服务端合成 headline(为后续物化+分享留口)。
 - **刷新吞吐（2026-07-24）**：collector 单 PM2 进程的 `REFRESH_WORKER_BATCH_SIZE` 从 2 调到 10，并以 `REFRESH_WORKER_CONCURRENCY=3` 重叠独立 symbol job。每个 job 独立 DB connection/provider；共享 provider limiter 负责 429 保护；全局派生仍由 batch 主线程一次执行。这不是多 PM2 worker，多进程仍需单独解决全局派生与恢复状态竞争。
 - **期权原生 Breadth（R2.2,`/api/market/breadth`）**:% 正/负 Gamma、IV Rank 中位+分位、PCR 分布 + % above MA50/200。每块带 `counted`,零样本返 null 不返假 0。三家竞品都没有的期权版体征。
+- **全市场日终 Breadth（R2.3，同一接口的 `broad_market`）**：Polygon Grouped Daily 一次取完整交易日，按当日 `type=CS` reference universe 只保留 Nasdaq/NYSE/NYSE American 普通股，排除 ETF/OTC。独立盘后任务计算上涨/下跌/平盘、净上涨、A/D ratio、上涨成交量占比和分交易所明细，写 `market_breadth_daily`；页面只读数据库。有效样本低于 2,000 或前收盘覆盖低于 90% 时整批拒绝，不拿 scan universe 或不完整响应顶替。
 - **Symbol State Matrix（R1.1,`/api/market/state-matrix`）**:全 universe 分成 6+兜底状态(强势上行/上行回调/突破/中性/企稳/空头/高波动),结构优先 first-match-wins,每标的带 reasons。**标签描述状态、不给买卖动作**(合规边界)。
 - **板块轮动 RRG（R1.3,`/api/market/sector-rotation`）**:26 板块/主题 ETF 相对 SPY 的强弱×动量四象限。因 SIC sector 字段 65% 空且不含 ETF,用 ETF 当板块代理(也是 RRG 标准)。散点+联动列表解决点重叠。**资金流维度(2026-07-24 增强)**:复用 `deriveMfi` 算每 ETF 的 MFI → `flow`(流入/流出/中性)+ `grade`(S–D from rs);**位置=趋势、flow=钱是否真进,二者会背离**(A 级领先但资金流出=价格领先、钱在撤)。
 
@@ -1443,3 +1464,6 @@ Volume Profile 是 30m bar typical-price approximation，不是逐笔成交分�
 version。GOOG production-input smoke 得到 spot `346.19`、POC `346.00`、AVWAP `353.42`、
 50/100/200DMA `366.12 / 343.21 / 321.99`。当前主线回归已通过，仍须按 Railway API
 → SPY contract smoke → Vercel UI 的顺序完成生产验收。
+# 本周财报日历
+
+`/earnings` 展示本周或下周纽约时区周一至周五的已落库财报日，页面内切换不增加顶部导航项。每个标的是可点击的链接，会打开对应的 Analyze 页面。它只读 `iv_history.earnings_date`、已启用 `symbol_universe` 的名称及已采集的 Polygon/Massive branding icon；icon 不存在或加载失败时显示 ticker 首字母。前端不会按 ticker 猜域名或临时调用外部 logo 服务；没有数据源支持的报前/盘后时间、预期值或 logo 不显示、不推断。

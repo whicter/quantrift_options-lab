@@ -6,8 +6,6 @@ import MarketInternals from '../components/MarketInternals';
 import SectorRotation from '../components/SectorRotation';
 import MarketBriefing from '../components/MarketBriefing';
 
-const CHIP_LIMIT = 12; // symbols shown per column before the "+N" fold
-
 export default function Market() {
   const [raw, setRaw] = useState(null);
   const [error, setError] = useState(false);
@@ -22,7 +20,7 @@ export default function Market() {
         <h1>市场 · Market</h1>
         <p>
           整个覆盖池现在处于什么状态——规则把每个标的判成一个市场状态（描述状态、不给买卖动作），
-          点标的看触发原因。上方是期权原生市场体征，下方是逐标的状态矩阵。
+          点标的看触发原因。上方是全市场宽度与覆盖池期权体征，下方是逐标的状态矩阵。
         </p>
       </header>
 
@@ -63,7 +61,7 @@ export default function Market() {
                   </div>
                   <div className="sm-col-body">
                     {bucket.count === 0 && <div className="sm-empty">今日无</div>}
-                    {bucket.symbols.slice(0, CHIP_LIMIT).map(sym => (
+                    {bucket.symbols.map(sym => (
                       <Link
                         key={sym.symbol}
                         className="sm-sym"
@@ -74,7 +72,6 @@ export default function Market() {
                         <small>{sym.signal}</small>
                       </Link>
                     ))}
-                    {bucket.count > CHIP_LIMIT && <div className="sm-more">+{bucket.count - CHIP_LIMIT} 只…</div>}
                   </div>
                 </div>
               ))}

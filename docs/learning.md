@@ -805,3 +805,6 @@ GEX compute job：
 - **教训**：**"每 N 分钟重算一次的中间产物"从写下的第一天就该带 retention**，保留窗口对齐它的消费回看窗口，不是"以后再说"。区分两类表：累积型事实（IV/价格历史，绝不删）vs 物化快照（用完即弃，只留最新几批）。后者无 retention = 定时炸弹，只是引信长。
 - **省事技巧**：优先用 FK `ON DELETE CASCADE`——删一张源表（option_chain_snapshots 7 天）自动连带清 4 张最大的子表（contract 853MB / gex / oi_delta），一个 prune root 覆盖大半膨胀，不用逐表写清理。
 - **回收磁盘要 VACUUM FULL**：普通 DELETE + autovacuum 只让空间"可复用"（不再增长），物理磁盘要 `VACUUM FULL`（锁表）才还给云。盘后跑一次：scanner_results 929MB→545MB。
+# 财报日历的数据边界
+
+财报日期与“未来 7 天”的市场简报不同：日历按纽约时区自然周（周一到周五）查询，空周也应返回完整周边界以便前端显示空列。`earnings_date` 仅是日期，不能由此猜测报前、盘后或盘中时段。

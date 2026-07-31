@@ -79,6 +79,7 @@ Open http://localhost:5173
 - IV Rank: derived only after 252 independent market-day ATM observations; Tastytrade remains the explicit cold-start fallback until readiness
 - Daily OHLCV: up to 400 adjusted bars in Railway `price_history`, sourced by scheduled Polygon aggregates
 - 30-minute OHLCV: 35 calendar days in Railway `price_history_30m`, including VWAP and trade count when supplied
+- Full-market EOD breadth: Polygon Grouped Daily + point-in-time common-stock references for Nasdaq/NYSE/NYSE American, persisted once per session in `market_breadth_daily`; no IB dependency
 - Price provider default: `polygon`; requests are globally paced to stay within the configured Stocks aggregates rate
 - 2026-07-15 runtime: 67/67 watchlist symbols covered in both daily and 30M Polygon history; PM2 scheduled price job uses `SYMBOLS=watchlist`
 - 2026-07-16 runtime: persistent scanner universe has 78 active/scan-enabled symbols; Polygon reference metadata covers 77, market cap 27, sector/category 28, and persisted optionable=true 69. `VIX` remains the only missing ticker reference.

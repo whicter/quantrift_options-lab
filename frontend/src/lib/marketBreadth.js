@@ -28,6 +28,41 @@ export function buildBreadthView(breadth) {
   const iv = breadth.iv_rank || {};
   const pcr = breadth.pcr || {};
   const t = breadth.trend || {};
+  const broad = breadth.broad_market || {};
+
+  let broadMarket = null;
+  if (broad.status === 'ready' && broad.counted > 0) {
+    const history = Array.isArray(broad.history) ? broad.history : [];
+    const maxAbsNet = Math.max(1, ...history.map(point => Math.abs(point.net_advances || 0)));
+    broadMarket = {
+      marketDate: broad.market_date,
+      previousMarketDate: broad.previous_market_date,
+      referenceCount: broad.reference_count,
+      universeCount: broad.universe_count,
+      counted: broad.counted,
+      missingPreviousCount: broad.missing_previous_count,
+      coveragePct: broad.coverage_pct,
+      advances: broad.advances,
+      declines: broad.declines,
+      unchanged: broad.unchanged,
+      advancePct: broad.advance_pct,
+      declinePct: broad.decline_pct,
+      unchangedPct: broad.unchanged_pct,
+      netAdvances: broad.net_advances,
+      adRatio: broad.advance_decline_ratio,
+      volumeCounted: broad.volume_counted,
+      advancingVolumePct: broad.advancing_volume_pct,
+      decliningVolumePct: broad.declining_volume_pct,
+      exchanges: ['XNYS', 'XNAS', 'XASE']
+        .map(code => ({ code, ...(broad.exchanges?.[code] || {}) }))
+        .filter(exchange => exchange.counted > 0),
+      history: history.map(point => ({
+        ...point,
+        magnitudePct: Math.abs(point.net_advances || 0) / maxAbsNet * 100,
+        tone: point.net_advances > 0 ? 'positive' : point.net_advances < 0 ? 'negative' : 'flat',
+      })),
+    };
+  }
 
   const gamma = g.counted > 0 && g.positive_pct != null ? {
     positivePct: g.positive_pct,
@@ -67,11 +102,13 @@ export function buildBreadthView(breadth) {
     status: 'ready',
     universeCount: breadth.universe_count,
     gammaAsOf: breadth.gamma_as_of,
+    broadMarketStatus: broad.status || 'missing',
+    broadMarket,
     gamma,
     ivRank,
     pcr: pcrView,
     trend,
     // true only when nothing at all came back usable -> caller can hide.
-    empty: !gamma && !ivRank && !pcrView && !trend,
+    empty: !broadMarket && !gamma && !ivRank && !pcrView && !trend,
   };
 }

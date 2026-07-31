@@ -1,11 +1,66 @@
 # Task Tracker
 
+## ✅ 2026-07-30 — 本周财报日历
+
+- [x] 新增 `/earnings` 导航页与 `GET /api/market/earnings-this-week`；按纽约时区本周或下周周一至周五展示 active/scan-enabled universe 的真实 `earnings_date`，页面内切换，每个标的可点击转到 Analyze。
+- [x] 空周保留五个日期栏；无可信数据时不展示 logo、预期值或报前/盘后时间。
+- [x] 前端全量测试（99）、ESLint、production build 和 dist 检查通过；服务端既有 market briefing 回归通过。生产 API/UI 尚待部署验收。
+
+## 2026-07-30 — Market Rebound Monitor（市场反弹确认监控）实施路线
+
+**目标**：把现有 Market Briefing、Market Internals、State Matrix、Sector Rotation
+和期权体征组合成可追溯的“反弹确认监控”，回答市场当前处于**冲击反弹 → 确认中 →
+广度确认 → 趋势恢复 → 确认失败/再破低**的哪一阶段。产品只描述状态、证据、确认进度
+和失效条件，不输出“加仓/减仓”等仓位动作，不把未校准的规则分数包装成成功概率。
+
+**硬边界**：
+
+- 用户/API 请求只读 PostgreSQL 已落库快照，不同步请求 Polygon、IB、新闻、财报或宏观 provider。
+- 每个组件必须返回 `as_of`、数据来源、规则版本、样本/覆盖率和 missing/stale 原因；缺数据时保持 unavailable，不由文案或 LLM 补齐。
+- 精确指数数据未取得商业展示权前，使用 SPY/QQQ/SOXX/SMH 等 ETF 代理并明确标注 `proxy`，不得把 ETF 数值冒充 SPX/NDX/SOX/VIX。
+- MFI、价格成交量、ΔOI、Gamma 和 PCR 只能称为量价/期权持仓代理，不能写成真实基金净流入、机构买入或确定方向。
+- 下面阶段严格串行：**Phase 1 验收后才能接 Phase 2；结构化事实与授权完成后才能接 Phase 3。**
+
+### Phase 1 — 确定性 MVP（零新增数据供应商，最高优先级）
+
+- [ ] 先收口当前底座：完成 R2.3 全市场日终 Breadth 的 migration、真实首个快照、`counted >= 2000`、前收盘覆盖率 `>= 90%`、Railway API 与 `/market` UI 验收；完成 `/earnings` 生产部署验收。底座未通过前不新建重复的 breadth/calendar 管线。
+- [ ] 定义纯函数状态机及唯一口径：`shock_rebound`、`confirming`、`breadth_confirmed`、`trend_restored`、`failed_rebound`；给出每个状态的进入、保持、升级、降级和失效条件，状态必须互斥且 first-match-wins。
+- [ ] 仅复用现有真实数据形成证据包：SPY/QQQ 与 SOXX/SMH 代理、1/5/20 日收益、距 20 日高点回撤、MA20/50/200、连续站稳 MA20 天数、Higher High/Low、RVol、全市场 A/D 与上涨成交量占比、巨头分化度、板块参与度、Gamma/IV Rank/PCR。
+- [ ] 新增版本化纯规则引擎（建议 `server/src/domain/market/reboundEngine.js`）；计算只消费显式输入，不查数据库、不调用外部服务，方便固定样本 replay 和规则版本对比。
+- [ ] 新增每日事实快照（建议 `market_rebound_snapshots`）和独立只读端点 `GET /api/market/rebound-monitor`；至少持久化 `market_date`、`status`、`components_json`、`confirmation_json`、`invalidation_json`、`completeness_json`、`ruleset_version`、`source_as_of_json`，按交易日 + 规则版本幂等。
+- [ ] 在 `/market` 增加独立监控卡，不替换现有 `/api/market/briefing`：展示当前状态、`N/3` 确认进度、已满足/未满足条件、失效条件和组件级来源时间；不得显示买卖动作。
+- [ ] 建立历史事件验证：事件触发只使用当时可见数据；统计随后 5/10/20 个交易日收益、最大有利/不利变动、再破低率和 MA20 保持率；使用 walk-forward/样本外切分并披露基准发生率。通过校准前只显示“规则状态”，不显示概率。
+- [ ] 完成纯函数、route、migration、collector/materializer、前端 view-model 测试；更新 `ARCHITECTURE.md`、`wiki.md`、`learning.md` 和独立 validation 记录；按 migration → materializer → Railway API → Vercel UI 顺序生产验收。
+
+**Phase 1 exit gate**：同一固定事实包在重跑时产生完全相同的状态；缺失或陈旧组件不会被算作确认；历史评估无 look-ahead；生产 API/UI 显示的每个数字均能追溯到快照及时间。未达到此门禁，不进入付费数据或 LLM 阶段。
+
+### Phase 2 — 结构化事件事实、宏观与精确指数（先授权，后开发）
+
+- [ ] 定义财报事实 contract：实际/预期 EPS 与营收、surprise、分业务增长、指引、FCF、CapEx、GAAP/non-GAAP 口径、原始来源 URL/文件、发布时间和 provider 更新时间；不同来源冲突时并列展示，不由系统自行选择故事。
+- [ ] 在购买或接入前书面确认商业展示/再分发权：Massive/Polygon Benzinga Earnings、Financials、Indices 与新闻均按商业产品用途询价；IB 数据若无第三方传播书面许可，不进入订阅用户公开页面。
+- [ ] 精确核对 indices reference ticker 与 entitlement 后，另建 indices collector 获取所需的 VIX、NDX/Nasdaq、SOX 等历史和当前值；未覆盖或未授权时继续使用明确标注的 ETF proxy，绝不静默切换口径。
+- [ ] 增加点时宏观事件事实：FOMC 利率决定、投票分布与异议方向，以及经过批准的数据源提供的收益率/通胀指标；“维持利率”不能自动映射为中性，规则必须读取投票和变化方向。
+- [ ] 将财报、宏观和指数事实作为可缺失组件接入 rebound engine；任何“为什么涨/跌”的因果描述都必须绑定具体事实和来源，无法验证时只写时间相关性，不写确定因果。
+- [ ] 对新增 provider 建立预算、rate-limit、幂等、revision、freshness、license metadata 和 fail-closed 测试；生产验收必须覆盖数据修订、延迟发布、空响应和授权失败。
+
+**Phase 2 exit gate**：所有公开展示字段都有商业使用依据和可追溯来源；相同名称但不同会计口径不会混算；精确指数与 ETF proxy 在存储、API 和 UI 中可明确区分。
+
+### Phase 3 — 双语叙事、每日物化与分享（最后实施）
+
+- [ ] 每个交易日先物化确定性的事实包和状态快照，再生成分享内容；分享链接固定引用 `market_date + ruleset_version + snapshot_id`，后续数据修订产生新版本，不覆盖旧文章证据。
+- [ ] LLM 仅作为隔离、只读的叙事 sidecar：输入为版本化 JSON 快照，输出为 schema 校验后的中英文解释；不得直连生产数据库、provider、账户、订单或风险路径。
+- [ ] 文案固定分为“发生了什么、当前状态、支持证据、反对证据、待确认条件、失效条件、数据来源”；无法由输入事实支持的句子必须删除，不允许模型自行补新闻、数字或因果。
+- [ ] 建立叙事回归集，覆盖数字引用、方向、单位、会计口径、来源链接、缺失组件和中英文一致性；规则状态与文字结论不一致时禁止发布。
+- [ ] 上线前人工抽检重大财报/FOMC/极端行情样本；运行中记录 prompt/model/version、输入快照 hash 和输出审核状态，支持停用 LLM 后继续提供完全可用的确定性监控。
+
+**Phase 3 exit gate**：关闭 LLM 时核心监控功能完全不受影响；每段文字都能回指结构化事实；LLM 不改变状态、分数、历史统计或任何交易路径。
+
 ## 📍 未完成任务导航（Open Items Navigator，2026-07-17 生成）
 
 这不是任务清单的副本——具体条目仍然只保留在下面各自原本的位置（每节内的 `- [ ]`）。这里只是一张**全文档未完成项的分布地图**，目的是不必每次通读全文才能回答"还有什么没做完"。全文当前共 **104 项** `- [ ]`（2026-07-24 核对；07-22 的 112 项减去已完成的 8 项 = **P3 现价时间戳标注 + P4 日线 cron 可靠性 + Phase 3 IV Rank 前向口径统一 + R2.2 期权原生 Breadth + R1.1 Symbol State Matrix + R1.3 板块轮动 RRG + R1.2 每日市场简报 + R2.1 候选结果台账**。另 07-22 的 OI-by-strike 5 项也已全部完成、本就不计入。P2.1 免费 IB 盘中价代码已完成但保留为未完成——仅剩开盘时段 live 验收），按文档出现顺序分布如下：
 
 0. **近期生产 bug 修复（多为已完成 ✅，按日期）**：
-   - `2026-07-30 — 深浅主题、Scanner 信息层级与 IB 报价隔离` ✅：深/浅主题改为语义 surface/border/text token 并重做 Analyze/Scanner 小节层级；Scanner 表头完整弹性展示，定位/候选采用可换行 soft-indent 原子行，去掉 truncate、重复 Debit、快照延迟和社区样本噪声，POP 显示具体不可计算原因。数据侧将全市场 Polygon/GEX 主 lane 与用户按需 IB 报价拆成 `option_chain_snapshot` / `option_quote_snapshot` 两种 job；主 PM2 进程 3 路并发永不领取报价 job，独立 `quantrift-options-quote-worker` 单路消费，IB 不重算 GEX/OI delta。代码验证见 `docs/validation/UI_AND_IB_QUOTE_ISOLATION_2026-07-30.md`；PM2 运行态需在 Mac Studio pull 后 `startOrReload` + `pm2 save`。
+   - `2026-07-30 — 深浅主题、Scanner 信息层级与 IB 报价隔离` ✅：深/浅主题改为语义 surface/border/text token 并重做 Analyze/Scanner 小节层级；Scanner 表头完整弹性展示，定位/候选采用可换行 soft-indent 原子行，去掉 truncate、重复 Debit、快照延迟和社区样本噪声，POP 显示具体不可计算原因。Market 状态矩阵也取消每列前 12 只的无交互截断，所有返回标的都进入原有独立滚动列，不再显示无法展开的 `+N 只…`；板块轮动四象限改为分别描述“相对基准位置 + 相对动量方向”，以“相对回升 · 仍弱于基准”替代有歧义的“改善 · 弱但加速”。数据侧将全市场 Polygon/GEX 主 lane 与用户按需 IB 报价拆成 `option_chain_snapshot` / `option_quote_snapshot` 两种 job；主 PM2 进程 3 路并发永不领取报价 job，独立 `quantrift-options-quote-worker` 单路消费，IB 不重算 GEX/OI delta。代码验证见 `docs/validation/UI_AND_IB_QUOTE_ISOLATION_2026-07-30.md`；PM2 运行态需在 Mac Studio pull 后 `startOrReload` + `pm2 save`。
    - `2026-07-22 — Analyze Technical Support Confluence` 🟡 **1 项未完成**：已合并最新生产 `master`、完成职责隔离和当前主线全量回归；仅剩 Railway/Vercel 生产验收。
    - `2026-07-21 — 快照表 retention` ✅：两张物化表无限膨胀拖慢库,已加 `prune_snapshots` 自动清理,scanner_results 929MB→545MB。
    - `2026-07-21 — 预算行被双 runtime 打回 1000` ✅：盘中整段停摆的根因,默认预算 1000→1,000,000,顺带修 metrics `date` 序列化 bug。
@@ -423,6 +478,10 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - [x] **R2.2 期权原生 Breadth(前后端均完成 2026-07-23)**:`GET /api/market/breadth`(`server/src/routes/market.js::sendMarketBreadth`)——纯 SQL 聚合 scan-enabled universe:①趋势 % above MA50/MA200(SQL 内 `AVG(close) FILTER (rn<=N)`,bars 不足不计);②**期权版体征**(三家竞品都没有)% 正/负 Gamma(latest `gex_snapshots.gamma_regime`)、IV Rank 中位数+p25/p75+% elevated(latest `volatility_history.iv_rank`,仅 ready)、PCR 中位数+四分位(`pcr_oi`)。每块带 `counted` 诚实披露样本量(薄数据不冒充全面),`pct()` 零样本返回 null 不返回假 0。
   - **前端(方案 B「Market Internals 面板」,用户 2026-07-23 拍板,先出渲染 mockup 对比)**:`components/MarketInternals.jsx` + 纯 view-model `lib/marketBreadth.js`(`buildBreadthView` 把响应转成渲染坐标:Gamma 拆分条宽度、IV/PCR 的 p25-p75 分位带 left/right + 中位标线位置、每块 counted 为 0 时塌缩成 null 显"暂不可用")。挂在首页 hero 与 workflow 卡片之间(`.home-internals`)。配色沿用产品 tokens(正=绿/负=红/IV=蓝/PCR=黄),`gamma_as_of` 按 ET 显示(与 P3 一致)。
   - **验证**:server 纯函数 `buildBreadth`/`percentile` 单测 3 条(187/187);frontend 纯 `buildBreadthView`/`scalePos` 单测 6 条(82/82)+ lint + build 干净。**live 实测**(2026-07-23,80 标的):55% 正 Gamma / 45% 负、IV Rank 中位 59.5(p25-p75 39.9-72.8,56 个 ready)、43% above MA50 / 69% above MA200、PCR 中位 0.98。可复现:`docs/validation/OPTIONS_BREADTH_2026-07-23.md`。
+- [x] **R2.3 全市场日终 Breadth(代码完成 2026-07-30，待生产 key entitlement + 首次快照验收)**：不再拿 scan universe 冒充“全市场”。独立 `collect_market_breadth.py` 在收盘后调用 Polygon Grouped Daily，按目标交易日的 `type=CS` point-in-time reference universe 过滤 Nasdaq/NYSE/NYSE American 普通股，排除 ETF/OTC；用拆股调整后 close 对比前一真实交易日，计算上涨/下跌/平盘、净上涨、A/D ratio、上涨/下跌成交量占比与分交易所明细。质量门槛默认 `counted>=2000` 且前收盘覆盖≥90%，不完整响应禁止覆盖。
+  - **隔离与持久化**：新 PM2 one-shot `quantrift-market-breadth` 工作日 17:05/19:05 PT 两次尝试；不进 option/GEX worker、不碰 IB。新表 `market_breadth_daily` 每交易日一行幂等 upsert，只存聚合与 JSONB 交易所明细。`GET /api/market/breadth` 新增 `broad_market`，最多返回最近 30 个已采集交易日的净上涨/A-D 历史；表尚未迁移时 fail-soft，不拖垮原期权 breadth。
+  - **前端**：`/market` 的 `MarketInternals` 顶部新增全市场涨跌拆分条、净上涨、A/D ratio、上涨成交量占比、覆盖率、三交易所分项和历史柱；下方原 Gamma/IV/PCR/MA 模块明确改称“覆盖池·期权原生体征”。未有首个快照时显示等待状态，绝不回退成两百多只扫描池。
+  - **验证**：collector 新增 6 条 provider/纯计算测试；server 新增 full-market DTO/A-D history 2 条；frontend 新增 full-market view-model 2 条。代码级验证 frontend 100/100、server 247/247；生产验收必须先执行 migration，再用 Railway/Mac 的真实 `POLYGON_API_KEY` 跑一次，要求 Grouped Daily HTTP 200、有效普通股数≥2000、覆盖≥90%。可复现：`docs/validation/FULL_MARKET_BREADTH_2026-07-30.md`。
 - [ ] **R3.1 财报/事件日历页**:`earnings_date` 已采集,纯展示;+财报前后 IV 行为曲线(IV 历史已回填,可画"财报 IV 冲高-坍缩")。
 - [x] **R3.2 新闻摄取 MVP(对标 newshock,叙事层;定源+实现均完成 2026-07-26)**:把 `synthesis.js::volatilityAttribution` 里的免责声明从"隔夜跳空"粒度升级到具体 headline(有真实新闻时);Analyze 页新增"近期消息"区块(headline+来源+时间)。**暂无跳转链接**——IB `tickNews` 只给 headline/provider/article_id,不给文章 URL,取全文/链接要靠 `reqNewsArticle`(已为它预留 `provider_code`/`article_id` 字段,但本次 MVP 未实现,算作 v2 范围)。**MVP 不做 LLM 分类**,先上 $0 版验证参与度,v2 再加 Claude Haiku 事件分类(约 $5-30/月,已估算)。
   - **数据源选型(2026-07-26,live 实测二选一,非拍脑袋)**:

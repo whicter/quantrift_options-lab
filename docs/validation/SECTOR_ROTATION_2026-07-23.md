@@ -47,6 +47,12 @@ linked:
   quadrant list that stays fully legible at any density. A single `hovered` state
   cross-highlights the twin in both views. No chart library (self-drawn, per the
   project convention). Placed on `/market` under the State Matrix.
+- 2026-07-30 copy clarification: the original shorthand "改善 · 弱但加速"
+  could be read as "falling faster." Quadrants now state benchmark position and
+  relative-momentum direction separately: `领先扩大 · 强于基准`,
+  `领先收窄 · 仍强于基准`, `相对回升 · 仍弱于基准`, and
+  `持续落后 · 弱于基准`. The footnote explicitly says relative improvement is
+  not the same as an absolute price increase.
 
 ## Verification
 

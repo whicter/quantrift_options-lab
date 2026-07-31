@@ -10,10 +10,38 @@ export const PLOT_HALF = 44;   // % from center to edge (leaves a margin for lab
 
 // Canonical RRG quadrant order + display metadata.
 export const QUADRANTS = [
-  { id: 'leading', label: '领先', en: 'Leading', desc: '强且加速', tone: 'lead' },
-  { id: 'weakening', label: '走弱', en: 'Weakening', desc: '强但减速', tone: 'weak' },
-  { id: 'improving', label: '改善', en: 'Improving', desc: '弱但加速', tone: 'imp' },
-  { id: 'lagging', label: '落后', en: 'Lagging', desc: '弱且减速', tone: 'lag' },
+  {
+    id: 'leading',
+    label: '领先扩大',
+    en: 'Leading',
+    desc: '强于基准 · 相对动量上升',
+    plotLabel: '领先扩大 · 强于基准',
+    tone: 'lead',
+  },
+  {
+    id: 'weakening',
+    label: '领先收窄',
+    en: 'Weakening',
+    desc: '仍强于基准 · 相对动量下降',
+    plotLabel: '领先收窄 · 仍强于基准',
+    tone: 'weak',
+  },
+  {
+    id: 'improving',
+    label: '相对回升',
+    en: 'Improving',
+    desc: '仍弱于基准 · 相对动量上升',
+    plotLabel: '相对回升 · 仍弱于基准',
+    tone: 'imp',
+  },
+  {
+    id: 'lagging',
+    label: '持续落后',
+    en: 'Lagging',
+    desc: '弱于基准 · 相对动量下降',
+    plotLabel: '持续落后 · 弱于基准',
+    tone: 'lag',
+  },
 ];
 
 const TONE_BY_QUADRANT = Object.fromEntries(QUADRANTS.map(q => [q.id, q.tone]));

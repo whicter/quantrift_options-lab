@@ -79,6 +79,7 @@ def reference(**overrides):
         'symbol': 'AAPL', 'name': 'Apple Inc.', 'ticker_type': 'CS', 'market': 'stocks',
         'market_cap': 3_000_000_000_000, 'sic_code': '3571', 'sic_description': 'Electronic Computers',
         'active': True, 'primary_exchange': 'XNAS', 'last_updated_utc': '2026-07-15T00:00:00Z',
+        'branding_icon_url': None, 'branding_logo_url': None,
     }
     values.update(overrides)
     return TickerReference(**values)
@@ -103,11 +104,14 @@ class PolygonReferenceMetadataTests(unittest.TestCase):
             'ticker': 'AAPL', 'name': 'Apple Inc.', 'type': 'CS', 'market': 'stocks',
             'market_cap': 3_000_000_000_000, 'sic_code': '3571', 'sic_description': 'Electronic Computers',
             'active': True, 'primary_exchange': 'XNAS', 'last_updated_utc': '2026-07-15T00:00:00Z',
+            'branding': {'icon_url': 'https://cdn.example/aapl.png', 'logo_url': 'https://cdn.example/aapl.svg'},
         }})])
         result = provider.fetch_ticker('aapl')
         self.assertEqual(result.name, 'Apple Inc.')
         self.assertEqual(result.market_cap, 3_000_000_000_000.0)
         self.assertEqual(result.sic_code, '3571')
+        self.assertEqual(result.branding_icon_url, 'https://cdn.example/aapl.png')
+        self.assertEqual(result.branding_logo_url, 'https://cdn.example/aapl.svg')
         self.assertIn('/v3/reference/tickers/AAPL', session.calls[0][0])
 
     def test_404_is_a_missing_reference_not_a_fabricated_record(self):
@@ -163,6 +167,7 @@ class PolygonReferenceMetadataTests(unittest.TestCase):
         self.assertEqual(params[1], 'stock')
         self.assertEqual(params[2], 'Technology')
         self.assertEqual(params[4], None)
+        self.assertIn('branding_icon_url', params[5])
         self.assertEqual(params[-1], 'AAPL')
         self.assertEqual(conn.commits, 1)
 

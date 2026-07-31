@@ -22,6 +22,7 @@ export default function SectorRotation() {
   }
 
   const hot = view.dots.find(d => d.symbol === hovered);
+  const quadrant = Object.fromEntries(view.groups.map(group => [group.id, group]));
 
   return (
     <section className="rrg-section">
@@ -38,10 +39,10 @@ export default function SectorRotation() {
       <div className="rrg-layout">
         <div>
           <div className="rrg-plot">
-            <div className="rrg-quad rrg-tr">领先 · 强且加速</div>
-            <div className="rrg-quad rrg-br">走弱 · 强但减速</div>
-            <div className="rrg-quad rrg-tl">改善 · 弱但加速</div>
-            <div className="rrg-quad rrg-bl">落后 · 弱且减速</div>
+            <div className="rrg-quad rrg-tr">{quadrant.leading.plotLabel}</div>
+            <div className="rrg-quad rrg-br">{quadrant.weakening.plotLabel}</div>
+            <div className="rrg-quad rrg-tl">{quadrant.improving.plotLabel}</div>
+            <div className="rrg-quad rrg-bl">{quadrant.lagging.plotLabel}</div>
             <div className="rrg-axis-x" />
             <div className="rrg-axis-y" />
             {view.dots.map(d => (
@@ -95,7 +96,10 @@ export default function SectorRotation() {
           ))}
         </div>
       </div>
-      <p className="rrg-foot">横轴=相对 {view.benchmark} 的 20 日强弱，纵轴=相对动量（强弱是否加速）。点标的→分析页；描述状态，非买卖建议。</p>
+      <p className="rrg-foot">
+        横轴=相对 {view.benchmark} 的 20 日表现（左弱、右强）；纵轴=近期相对动量变化（上升、下降）。
+        “相对回升”不等于绝对上涨，只表示仍弱于 {view.benchmark}，但近期相对表现正在改善。点标的→分析页；描述状态，非买卖建议。
+      </p>
     </section>
   );
 }

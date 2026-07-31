@@ -22,6 +22,8 @@ class TickerReference:
     active: bool | None
     primary_exchange: str | None
     last_updated_utc: str | None
+    branding_icon_url: str | None
+    branding_logo_url: str | None
 
 
 class PolygonReferenceProvider:
@@ -64,6 +66,7 @@ class PolygonReferenceProvider:
         result = payload.get('results') or {}
         if not result:
             return None
+        branding = result.get('branding') if isinstance(result.get('branding'), dict) else {}
         return TickerReference(
             symbol=normalized,
             name=_text(result.get('name')),
@@ -75,6 +78,8 @@ class PolygonReferenceProvider:
             active=result.get('active') if isinstance(result.get('active'), bool) else None,
             primary_exchange=_text(result.get('primary_exchange')),
             last_updated_utc=_text(result.get('last_updated_utc')),
+            branding_icon_url=_https_url(branding.get('icon_url')),
+            branding_logo_url=_https_url(branding.get('logo_url')),
         )
 
 
@@ -90,6 +95,11 @@ def _float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _https_url(value):
+    value = _text(value)
+    return value if value and value.startswith('https://') else None
 
 
 def _retry_after(value):
