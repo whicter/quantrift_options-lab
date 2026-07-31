@@ -345,7 +345,7 @@ body {
 
 /* ---- /market page (R1.1 State Matrix) ---- */
 /* Scroll and product-header spacing come from the shared product-page shell. */
-.market-page { width: 100%; max-width: 1160px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.market-page { width: 100%; max-width: none; margin: 0; display: flex; flex-direction: column; gap: 22px; }
 /* html/body/#root disable document scrolling, so this product root owns the
    vertical viewport scroll just like Market, Analyze and Scan. */
 .earnings-page {}
