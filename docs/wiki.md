@@ -346,8 +346,11 @@ remember-token 过期时：
 - 数据源必须通过 provider adapter 抽象，避免前端和 GEX 计算逻辑绑定 IB。
 
 ### IB API（内部验证）
-- IB Gateway 跑在 Mac Studio（与期货 bot 共存，使用不同 clientId）
-- clientId=1: futures bot；clientId=2: options research collector
+- IB Gateway 跑在 Mac Studio（`IB_HOST=127.0.0.1`/`IB_PORT=4001`），与期货 bot 系列（`ib-bot-*`，各自占用自己的 clientId）共存，每个采集路径各用一个不冲突的 clientId：
+  - 股价 fallback：`IB_PRICE_CLIENT_ID`，默认 **12**（`collector/providers/ib_price_provider.py`）
+  - 期权链/报价：`IB_OPTION_CLIENT_ID`，默认 **42**（`collector/providers/ib_option_chain_provider.py`）
+  - 新闻（R3.2）：`IB_NEWS_CLIENT_ID`，默认 **55**（`collector/providers/ib_news_provider.py`）
+  - 均可由环境变量覆盖；`.env`/`ecosystem.config.cjs` 目前均未覆盖，线上就是跑这三个默认值。旧版这里写的是笼统的 "clientId=1 期货 bot / clientId=2 期权采集"，早已被上面这套显式、隔离的分配取代（同一 clientId 被两个连接同时用会导致连接冲突/超时，2026-07-26 调试新闻采集器时实际撞到过一次）
 - Mac Studio → 内部采集/验证 option chain 字段和 GEX 算法 → 写入 Railway PostgreSQL 或本地验证库
 - 除非授权和再分发权利已确认，不将 IB 数据作为公开/付费用户的默认生产数据源
 
@@ -369,7 +372,7 @@ Mac Studio（永远在线）
   └── 每日 4:30pm ET 定时任务（Python）
         ├── Tastytrade API → IV Rank / IVx / HV / 财报日
         ├── 授权 options data provider → 生产期权链
-        ├── IB API (clientId=2) → 内部期权链验证
+        ├── IB API (clientId 见上方「IB API（内部验证）」一节) → 内部期权链验证
         └── yfinance → fallback
         → 写入 Railway PostgreSQL
 
