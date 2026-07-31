@@ -60,7 +60,7 @@ function CandleChart({ candles }) {
   return <canvas ref={canvasRef} style={{ display: 'block' }} />;
 }
 
-function WeeklyModelGauge({ score }) {
+function WeeklyStateGauge({ score }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -124,9 +124,9 @@ function WeeklyModelGauge({ score }) {
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2);
     ctx.fillStyle = '#94a3b8'; ctx.fill();
 
-    // Score text
+    const stateLabel = score < 30 ? '偏弱' : score < 50 ? '中性偏弱' : score < 70 ? '中性偏强' : '偏强';
     ctx.fillStyle = theme.text; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(score, cx, cy - r / 2 - 4);
+    ctx.fillText(stateLabel, cx, cy - r / 2 - 4);
     ctx.fillStyle = theme.axis; ctx.font = '9px monospace';
     ctx.fillText('综合状态', cx, cy - r / 2 + 10);
   }, [score]);
@@ -134,7 +134,7 @@ function WeeklyModelGauge({ score }) {
 }
 
 export default function Sec1Tone({ data }) {
-  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, modelScore, candles, symbol, priceMeta } = data;
+  const { weekClose, prevClose, weekChange, weekHigh, weekLow, week, tone, stateScore, stateLabel, candles, symbol, priceMeta } = data;
   const bull = weekChange >= 0;
   const co = getCompanyInfo(symbol);
   const priceStale = Boolean(priceMeta?.isStale || priceMeta?.freshness === 'stale');
@@ -177,9 +177,9 @@ export default function Sec1Tone({ data }) {
         </div>
         <div className="az-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>标的周度状态</div>
-          <WeeklyModelGauge score={modelScore} />
+          <WeeklyStateGauge score={stateScore} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            {modelScore < 30 ? '偏弱' : modelScore < 50 ? '中性偏弱' : modelScore < 70 ? '中性偏强' : '偏强'}
+            {stateLabel}
           </div>
           <div className="az-data-note">综合状态仅用于周度研究，不构成买卖建议。</div>
         </div>

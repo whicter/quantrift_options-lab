@@ -39,6 +39,10 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Production option snapshots currently use `polygon_licensed`; credentials belong only in `collector/.env` or deployment secret stores. Never add provider keys to PM2 config, docs, tests, or Git.
 - Phase 3E is complete: `materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` serves confirmed/baseline OI delta state.
 - Public options data still requires a licensed provider adapter; `ib_internal` and `tt_internal` are internal/transitional only.
+- Product pages expose only user-meaningful results, availability, timestamps, risk notes and user-controlled filters. Model versions, formulas, thresholds, weights, scoring ingredients, proxy assumptions, aggregation methods, provider identities, queue state, coverage internals and raw errors remain backend-only.
+- `candidate_ledger` is backend-only validation data. Do not add a product page, navigation entry or public read route for it.
+- Keep product navigation and page naming consistent: 市场概览 (`/market`), 个股分析 with page title 个股/ETF 分析 (`/analyze`), 期权扫描 (`/scan`), 周复盘 (`/weekly`) and 策略库 (`/learn`).
+- Product pages share one elastic content rail. Do not restore a page-level 1160px cap on `/market`; constrain only the internal module that needs a shorter reading or chart width.
 
 ## Code Conventions
 - Use the Edit tool directly — never Python/Bash to modify files
@@ -78,10 +82,10 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Portfolio routes must bind user ownership in SQL and value only actual matching persisted contracts. Any missing leg quote makes position and aggregate pricing incomplete; never substitute entry price.
 - Stripe redirects never grant entitlement. Accept plan changes only from verified raw-body webhooks with event-id idempotency. Keep enforcement false until Clerk/Stripe runtime acceptance passes.
 - Preserve the clean frontend baseline: run full ESLint, unit tests and production build after frontend changes; disclose the Vite chunk-size warning separately from correctness failures.
-- Never label GEX as OI. IV and OI analytics select their latest usable snapshots independently; Tab4 OI density must use persisted open interest and disclose cross-expiry aggregation.
+- Never label GEX as OI. IV and OI analytics select their latest usable snapshots independently; Tab4 OI density must use persisted open interest, while cross-expiry aggregation details remain backend-only.
 - Reddit community heat is optional context and must never change options opportunity scoring. Preserve universe intersection, cashtag handling for ambiguous tokens, bounded OAuth/rate retries and disabled-safe behavior without credentials.
 - External flow is context only. Accept dark pool only from TRF market center `L`/`2`; preserve provider event idempotency and stream-level freshness. Never infer institutional direction or opening status when the provider flag is absent.
-- Composite Momentum must retain disclosed 30M/1D/1W weights and per-timeframe readiness. A lagging intraday market date is stale even when the numerical score is strong; never relabel it as current confirmation.
+- Composite Momentum must retain 30M/1D/1W weights and per-timeframe readiness internally, while the UI shows only user-facing states. A lagging intraday market date is stale even when the numerical score is strong; never relabel it as current confirmation.
 - Scanner alert evaluation runs only after scanner materialization. Preserve outbox uniqueness and `blocked` channel state; never send provider requests from notification evaluation.
 - VAPID private key stays in collector secrets. API/browser may receive only `WEB_PUSH_VAPID_PUBLIC_KEY`.
 - `/` is the Quantrift product entry. Preserve direct Scan/Analyze/Weekly workflows and live Market Regime; `/learn` is no longer the default redirect.
@@ -94,7 +98,7 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 - Analyze Technical Confluence is integrated at `/api/technical-levels/:symbol` as an expanded prototype beside, not a replacement for, current `/api/sr` and G5 confluence. Keep GEX Wall and OI Wall distinct, preserve component-level missing states, and retain the Railway-then-Vercel acceptance gate in `docs/task.md`.
 - `frontend/src/data/mockAnalysis.js` was removed on 2026-07-16 after it leaked sample prices and Walls into production Analyze. Do not recreate it or import equivalent sample data into production routes.
 - `volatility_history` owns Polygon-derived HV and ATM IV. IV Rank remains fail-closed until 252 market-day observations; APIs expose per-field provenance and retain the Tastytrade cold-start rank until ready.
-- Scanner positioning and quote snapshots are separate: select the newest usable real bid/ask snapshot for candidate legs and expose its source/time/freshness. Advanced naked-risk structures require explicit UI opt-in.
+- Scanner positioning and quote snapshots are separate: select the newest usable real bid/ask snapshot for candidate legs; retain source internally and expose only the timestamp/freshness needed by the user. Advanced naked-risk structures require explicit UI opt-in.
 - Collector runtime: PM2 directly executes the current repo via `collector/ecosystem.config.cjs`; do not create or sync a second runtime copy.
 - IB contract discovery must persist only actual `reqContractDetails` results with valid `conId`; never construct expiry/strike/right Cartesian products.
 - Do not represent volume-only signals as confirmed institutional positioning.

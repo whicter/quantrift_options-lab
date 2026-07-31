@@ -20,6 +20,25 @@ import { fileURLToPath } from 'node:url';
 const srcDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const INTERNAL_SOURCE_NAMES = ['polygon_licensed', 'ib_internal', 'tt_internal', 'tastytrade', 'stooq'];
+const INTERNAL_UI_FRAGMENTS = [
+  '模型版本',
+  '计算参数',
+  '定位假设',
+  '聚类容差',
+  '固定规则',
+  '启发式综合评分',
+  '模型筛选结果',
+  '公开 OI 的模型估算',
+  '按 (ask-bid)/mid 计算',
+  'GEX 用 Gamma、OI、合约乘数',
+  'S/R 基于',
+  '模型平滑趋势',
+  '模型一标准差区间',
+  '模型估算 POP',
+  '模型情景 P/L',
+  '数据源：',
+  'DataDetails',
+];
 
 function productionSources(dir) {
   const files = [];
@@ -50,4 +69,33 @@ test('scanner rows do not carry raw provider strings into component props', () =
   assert.doesNotMatch(source, /priceSource:/);
   assert.doesNotMatch(source, /quoteSource:/);
   assert.doesNotMatch(source, /dataMeta/);
+});
+
+test('product UI does not disclose implementation or algorithm details', () => {
+  const productFiles = productionSources(srcDir).filter(file => {
+    const relative = path.relative(srcDir, file);
+    return relative.startsWith('pages/')
+      || relative.startsWith('components/')
+      || relative === 'lib/synthesis.js';
+  });
+  const offenders = [];
+  for (const file of productFiles) {
+    const content = fs.readFileSync(file, 'utf8');
+    for (const fragment of INTERNAL_UI_FRAGMENTS) {
+      if (content.includes(fragment)) offenders.push(`${path.relative(srcDir, file)}: ${fragment}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `implementation details must not appear in product UI:\n${offenders.join('\n')}`);
+});
+
+test('display adapters drop internal metadata fields', () => {
+  const analysis = fs.readFileSync(path.join(srcDir, 'lib/analyzeData.js'), 'utf8');
+  const technical = fs.readFileSync(path.join(srcDir, 'lib/technicalLevels.js'), 'utf8');
+
+  assert.doesNotMatch(analysis, /\bgexMeta\s*:/);
+  assert.doesNotMatch(analysis, /\bproviderStatus\s*:/);
+  assert.doesNotMatch(analysis, /\bwallMethod\s*:/);
+  assert.doesNotMatch(analysis, /\brawMetrics\s*:/);
+  assert.doesNotMatch(technical, /\bevidence\s*:/);
+  assert.doesNotMatch(technical, /\bscore\s*:/);
 });

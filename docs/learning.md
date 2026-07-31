@@ -299,10 +299,10 @@ GEX compute job：
 - 不把 mock shell 伪装成真实 options data。
 - 不把 `tt_internal` / `ib_internal` 当作公开/付费产品的授权 option-chain data。
 - GEX 只有在 gamma + OI completeness 达标后才计算。
-- GEX API 必须返回 `raw_metrics.unit`、`raw_metrics.formula`、`raw_metrics.positioning_model` 和 `raw_metrics.positioning_assumption`，页面需要把 GEX 标记为模型估算。
-- GEX 不能只以数值字段在不同产品间传播。Analyze、Scan 与 Weekly 的 GEX DTO 都必须带同一份 `gex_metadata`：模型版本/单位/代理假设、快照时间与数据状态、合约覆盖范围、计算参数。这样每个展示点都能追溯到具体快照，而旧 Scanner 行缺少 metadata 时必须显示 `partial`，不能用当前默认配置猜测历史模型。
+- GEX 验证路径必须保留 `raw_metrics.unit`、`raw_metrics.formula`、`raw_metrics.positioning_model` 和 `raw_metrics.positioning_assumption`；产品页面只把结果标记为估算，不展示这些实现字段。
+- GEX 的持久化与 API 契约仍需保留统一 `gex_metadata`，用于后台验证、版本比较和 replay；产品 display adapter 不保留或渲染模型版本、单位、代理假设、覆盖范围和计算参数。缺少可信结果时前台只显示用户可理解的 unavailable/partial 状态。
 - Gamma Flip 重算必须使用 option-chain snapshot 的估值日期，而不是 job 运行当天。否则同一历史链会因剩余 DTE 改变得到不同曲线，不能复现或比较。
-- 数据详情属于研究结果的一部分，而非调试装饰。默认收起能保持 Scan 的可读性；展开后用户必须能看到口径、快照时点、覆盖质量、到期范围与定位代理假设，才能正确理解 GEX 数值。
+- 产品前台只保留结果、用户可理解的数据状态、时间与风险提示。模型口径、覆盖质量、定位代理假设、参数和数据管线属于后台验证信息，不进入产品渲染路径。
 - GEX 验证要区分两件事：固定 fixture 验证“代码是否按既定公式计算”，数据库 replay 验证“保存值能否由同一快照重现”。两者都不能证明 dealer 实际仓位或价格预测能力。SPY/AAPL replay 已核对 Global/Local GEX、Flip、Walls 与 Max Pain，但结论仅限计算一致性。
 - 当前模型版本为 `gex-v2-1pct-positioning-proxy`；不同模型版本的 GEX 数值不能直接做历史比较。
 - 部署重算：`GEX_RECOMPUTE_ALL=true GEX_SYMBOLS=<symbols> venv311/bin/python compute_gex.py`，随后重新 materialize scanner rows。
@@ -488,7 +488,10 @@ GEX compute job：
 
 ## Scanner Strategy Lessons (2026-07-15)
 
-- **功能页要先统一壳，再允许内容分化**：Scan、Analyze、Market、Earnings、Ledger 与 Weekly 共享同一个标题字号、起点和滚动容器；页面特有的数据卡、表格与筛选器不应借由 hero、eyebrow 或不同内容轨道破坏导航后的视觉连续性。
+- **功能页要先统一壳，再允许内容分化**：Scan、Analyze、Market、Earnings 与 Weekly 共享同一个标题字号、起点、弹性宽度和滚动容器；页面特有的数据卡、表格与筛选器不应借由 hero、eyebrow 或页面级 max-width 破坏导航后的视觉连续性。`/market` 单独设 1160px 上限就会显得比其他页面窄；宽度约束应下沉到确实需要控制阅读长度的内部模块。后台 ledger 不属于产品页面。
+- **审计完整不等于把实现细节展示给用户**：provider、模型版本、公式、参数、阈值、覆盖率和队列状态应该保留在后端，支持重放、排障和受控审计；产品前台只需要回答“结果是什么、截至何时、现在能不能用、有什么风险”。删除 `DataDetails` 不等于删除 provenance，而是把 provenance 放回正确的权限边界。
+- **同一视觉语义层必须共享排版几何**：Analyze 报价头部的 ticker 和价格都属于一级快照事实，就应使用相同字号、line-height 与主/次行结构。仅靠 `align-items:center` 对齐两个高度不同的文本块，会让价格和 ticker 看起来一高一低；先统一块内几何，再做 flex 对齐。
+- **验证台账可以耐久，但不必成为产品页**：`candidate_ledger` 记录首见候选和到期结果，属于不可重建的内部验证数据。公开结果不足或用户价值不清晰时，删除 `/ledger` 页面和读取端点仍应保留后台 capture/evaluate；“数据要保留”和“用户要看到”是两项独立决策。
 
 - **“最新 snapshot”不是单一排序问题**：Polygon 最新快照有 Greeks/OI 但 0 bid/ask；直接 `DISTINCT ON symbol ORDER BY snapshot_ts DESC` 让 55 个已有真实报价的标的全部变成空 scanner。Positioning 和 quote 必须各自选择最新可用 snapshot。
 - **报价必须带自己的 provenance/freshness**：不能把 GEX source 或 scanner materialization time 当作 legs 的报价时间。API 增加 `quote_source/quote_snapshot_ts/quote_freshness`。
@@ -690,7 +693,7 @@ GEX compute job：
 
 ## Scanner Expected Move / POP Lessons (2026-07-16)
 
-- **Expected Move 必须说明输入和时间口径**：当前 Scanner 使用同一 expiry 的最近 ATM Call/Put IV 均值和 calendar-day `sqrt(T/365)`，并在 DTO 中声明模型版本、标准差、输入合约和快照时间；不能把它写成价格必然范围。
+- **Expected Move 必须在后台保留输入和时间口径**：当前 Scanner 内部使用同一 expiry 的最近 ATM Call/Put IV 均值和 calendar-day `sqrt(T/365)`，并在 estimate object 中保留版本、输入合约和时间；产品 UI 只显示估算结果与“不是价格保证”的风险提示。
 - **POP 不是固定策略标签**：只用真实 bid/ask 选腿形成的盈亏平衡点、已声明 IV、利率和到期日计算；缺少任一核心输入就返回 unavailable，而不是沿用 64/66% 之类的占位百分比。
 - **跨期结构必须承认模型边界**：Calendar / Diagonal 没有一个单一到期日的静态 payoff，当前单到期 POP 模型不能假装给出精确概率，因此明确标记 unavailable。
 
@@ -728,7 +731,7 @@ GEX compute job：
 - **没验证过能失败的门禁等于没有门禁**：`check-dist` 和 `scan-secrets` 都先注入伪造 source map、伪造 Polygon key、真实格式的 DB URL 和 Stripe live key 反向验证过。一个永远返回 0 的检查会给出比没有检查更强的虚假安全感。
 - **不要把已经发生过泄露的路径排除出扫描范围**：Polygon key 是通过文档进入 Git 历史的。secret 扫描一开始因为文档里的 `postgresql://postgres:PASSWORD@...` 占位符误报，最省事的做法是 `':!*.md'`——那等于把唯一一条已被证实的泄露路径永久设为盲区。正确做法是过滤占位符（`:PASSWORD@`、`YOUR_*`、`${...}`），保留文件在范围内。
 - **宁可留下明确前置，也不要猜一个会静默失败的配置**：CSP 若猜错 Clerk 的 host，登录会被静默阻断，且只有浏览器控制台有线索。当前 Clerk 未配置、实例域名无法验证，因此 CSP 只覆盖真实运行的应用，并把"启用 Clerk 前先扩展 CSP"写成 V3A-5 的显式前置。未验证的安全配置不是保守，是把故障推迟到最难排查的时刻。
-- **无人读取不是一种保障机制**：审计发现没有任何 provider 名被渲染，但这只是因为恰好没有组件读那些字段——`Scan.jsx` 的 `dataMeta` 把三个原始 provider 字符串送进 props 却无人消费。删掉死字段能减少暴露面，但真正的保障必须是服务端不下发，而不是前端恰好不显示。
+- **无人读取不是一种保障机制**：曾经没有组件渲染 provider 名，但 `Scan.jsx` 的 `dataMeta` 仍把三个原始 provider 字符串送进 props。现在 display adapter 已删除这些死字段，并用静态测试阻止 source/provider/model 元数据重新进入产品组件；服务端普通用户响应仍应继续最小化。
 
 ### 16. 历史 IV 回填要按“可用 EOD bar”验收
 

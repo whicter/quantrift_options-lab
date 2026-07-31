@@ -114,7 +114,7 @@ nextpick 只有"期权异动警报"一项沾期权。**这个差异化必须守�
 | G1 | **完全没有新闻/叙事层**。波动归因里"消息面"只能到"隔夜跳空"粒度；没有事件流、没有"为什么动"的文字 | newshock 整个产品 | 🔴 内容层最大缺口 |
 | G2 | ~~没有单一可读的决策语言~~ **已闭合(2026-07-23,R1.1)**：`/api/market/state-matrix` + `/market` 页 Symbol State Matrix 把全 universe 横截面分类成 6+兜底状态(带 reasons),正是"哪些在回调、哪些突破、哪些企稳"的决策语言层 | alphastockpro 0-100 分 + 5 桶 Matrix | 🔴→🟢 |
 | G3 | ~~没有板块/轮动视图；没有 breadth~~ **已闭合(2026-07-23,R2.2+R1.3)**：`/api/market/breadth`(期权原生 breadth,三家都没有)+ `/api/market/sector-rotation`(26 ETF 简版 RRG,散点+联动列表),都在 `/market` 页 | nextpick RRG、alphastockpro 板块分+Breadth | 🔴→🟢 |
-| G4 | ~~没有可验证的公开记录~~ **框架已建(2026-07-24,R2.1)**：`candidate_ledger`(durable)+ `/ledger`「模型记录」页,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准。**结果随候选到期积累**(最早 08-21),定位=模型验证非跟单 | nextpick 公开 paper bot 记录 | 🔴→🟡(框架建好,数据待积累) |
+| G4 | **内部验证框架已建，公开记录不做**：`candidate_ledger` durable 后台台账继续到期结算与校准；2026-07-30 已删除 `/ledger` 产品页和公开读取端点，接受与公开 paper bot 的产品差异 | nextpick 公开 paper bot 记录 | 🟡（内部框架保留，公开展示取消） |
 | G5 | **没有每日简报/可分享物**。有 per-symbol synthesis 但没有市场级日报，没有任何分享/传播机制 | nextpick briefing + Post on X | 🟡 |
 | G6 | **单语言（zh-CN）**。alphastockpro 中英双语直接吃两个市场 | alphastockpro | 🟡 |
 | G7 | 财报日历只在候选卡出警告；无日历视图、无财报前后 IV 行为展示（数据已有 `earnings_date` + IV 历史） | newshock 事件流的子集 | 🟢 低成本 |
@@ -124,7 +124,7 @@ nextpick 只有"期权异动警报"一项沾期权。**这个差异化必须守�
 
 - **不做**带入场/止损/目标价的"买卖信号"(nextpick 有)——违反我们 Page Copy Audit 的合规边界,也是我们与它们的信誉差异点
 - **不做**真金交易 bot;paper 记录可以做(见 R2.1),但定位是"模型验证",不是"跟单"
-- **不放弃**模型披露文化换取"AI 荐股"式的爽感文案
+- **不放弃**后台可复现、可审计的模型治理；产品前台不展示实现、公式、权重或代理假设，也不换成"AI 荐股"式文案
 
 ---
 
@@ -142,7 +142,7 @@ IV Rank 自给自足 Phase 2.5 → 3 → 4 → 5(Mac 可关机)。所有新功�
 - **✅ R1.3 板块轮动视图(对标 RRG)**:`/api/market/sector-rotation` 26 ETF vs SPY 简版 RRG(rs×动量四象限)。**因 SIC sector 65% 空且不含 ETF,改用 ETF 当板块代理**(更诚实、也是 RRG 标准)。散点+联动列表解决点重叠。
 
 ### R2 — 信任与验证层 · ✅ R2.1 框架完成 2026-07-24（结果随到期积累）
-- **✅ R2.1 候选结果台账(对标 nextpick bot 记录,诚实版)**:新建 durable `candidate_ledger`(快照被 prune,活不到到期,必须独立存)+ 纯引擎到期结算逐候选盈亏、按策略族胜率、POP 校准;`/ledger`「模型记录」页。**两个真实门槛**:0 候选已到期(最早 08-21)、多到期结构 not_evaluable(诚实披露)。已 seed 4,735 候选。
+- **✅ R2.1 候选结果台账(后台验证版)**:新建 durable `candidate_ledger`(快照被 prune,活不到到期,必须独立存)+ 纯引擎到期结算逐候选盈亏、按策略族胜率、POP 校准。`/ledger` 页面和公开读取端点已于 2026-07-30 删除；多到期结构仍在后台标记 `not_evaluable`，已 seed 4,735 候选。
   **一石二鸟:这正是拟合打分权重需要的标注数据(我们已知的技术债)。**
 - **✅ R2.2 Breadth 模块(2026-07-23 前后端完成)**:% of universe above MA50/200 + 期权原生市场体征
   (% 正/负 Gamma、IV Rank 中位数+p25/p75、PCR 分布)——这是三家都没有的"期权版 breadth"。

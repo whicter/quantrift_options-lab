@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import NavBar from './components/NavBar';
 import Learn from './pages/Learn';
 import Analyze from './pages/Analyze';
@@ -51,6 +51,7 @@ export default function App({ authConfigured = false }) {
           <Route path="/weekly" element={<Weekly />} />
           <Route path="/account" element={<Account authConfigured={authConfigured} />} />
           <Route path="/portfolio" element={<Portfolio authConfigured={authConfigured} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <ResearchDisclosure />
       </div>

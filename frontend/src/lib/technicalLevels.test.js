@@ -14,13 +14,13 @@ test('normalizes the display-safe technical-levels contract', () => {
       high: '346',
       center: '345',
       score: '82',
-      strength: 'strong',
+      strength: 'high',
       evidence: [{ price: '346', weight: '30' }],
     }],
   });
   assert.equal(result.spot, 346.19);
   assert.equal(result.indicators.dma50, 366.12);
-  assert.equal(result.supports[0].strength, 'strong');
+  assert.equal(result.supports[0].strength, 'high');
   assert.equal(result.supports[0].score, undefined);
   assert.equal(result.supports[0].evidence, undefined);
   assert.deepEqual(result.resistances, []);

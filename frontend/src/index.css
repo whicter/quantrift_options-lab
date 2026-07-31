@@ -2999,14 +2999,6 @@ select:focus,
 .tl-zone-range span { float: right; font-weight: 700; }
 .tl-positive { color: var(--red); }
 .tl-negative { color: var(--green); }
-.tl-evidence { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 9px; }
-.tl-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  max-width: 100%; padding: 3px 6px; border-radius: 4px;
-  background: var(--bg-card); border: 1px solid var(--border);
-  color: var(--text-dim); font-size: 9px;
-}
-.tl-chip b { color: var(--text); font-weight: 600; }
 .tl-current-price {
   display: flex; align-items: center; gap: 9px; padding: 6px 12px;
   border-top: 1px dashed rgba(59,130,246,0.6);
@@ -3018,10 +3010,6 @@ select:focus,
 .tl-empty {
   grid-column: 2 / -1; padding: 16px; color: var(--text-muted);
   border: 1px dashed var(--border); border-radius: 8px; text-align: center; font-size: 11px;
-}
-.tl-method-note {
-  margin: 14px 0; color: var(--text-muted); font-size: 10px;
-  line-height: 1.6;
 }
 .tl-options { border-top: 1px solid var(--border); padding-top: 13px; }
 .tl-section-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; }

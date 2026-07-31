@@ -1,5 +1,7 @@
 # Candidate Result Ledger (R2.1) — backend — 2026-07-24
 
+> **Current status (2026-07-30):** The durable table, capture job and expiry evaluator remain active as backend-only validation infrastructure. The former `GET /api/scanner/ledger`, `/ledger` page and navigation entry were removed. This record preserves the original 2026-07-24 runtime evidence; it no longer describes a public product surface.
+
 ## Goal
 
 An honest track record: score PAST scanner candidates by their actual outcome, as
@@ -36,8 +38,8 @@ copy-trade signal.
 - **`routes/ledger.js`**: `captureLedger` (batch → ledger, `credit`→positive /
   `debit`→negative entry_cash, POP dropped when the engine flagged it
   `unavailable`), `evaluateLedger` (resolves expired rows against
-  `price_history`'s close on/after expiry), `GET /api/scanner/ledger`. Capture +
-  evaluate are wired best-effort into `materializeScannerCandidates.runMaterialization`,
+  `price_history`'s close on/after expiry). Capture + evaluate are wired
+  best-effort into `materializeScannerCandidates.runMaterialization`,
   so the ledger accumulates every scan cycle and never fails a batch.
 
 ## Verification
@@ -54,16 +56,17 @@ copy-trade signal.
 
 ## Remaining
 
-Frontend "模型记录" page (mostly "accumulating" until late Aug, then win-rate /
-calibration tables). A fixed-N-day-horizon evaluation (in addition to at-expiry).
-POP is currently mostly `unavailable` (strategies with no static-breakeven model),
-so calibration waits on usable POP.
+A fixed-N-day-horizon evaluation (in addition to at-expiry). POP is currently
+mostly `unavailable` (strategies with no static-breakeven model), so calibration
+waits on usable POP. No frontend or public API work is planned for this ledger.
 
 ## Files
 
 - `server/src/migrate.js` — `candidate_ledger` table + partial indexes.
 - `server/src/domain/scanner/ledger.cjs` — evaluate + aggregate engine.
-- `server/src/routes/ledger.js` — capture / evaluate / serve; `server/src/index.js`
-  mount (`/api/scanner`, `requireEntitlement('scanner')`).
+- `server/src/routes/ledger.js` — backend capture / evaluate only.
 - `server/src/jobs/materializeScannerCandidates.js` — best-effort capture+evaluate.
 - `server/test/ledger.test.js` — 8 tests.
+
+The public-surface removal shipped in `d07687f`; it changed product exposure,
+not the durable capture/evaluation evidence recorded above.

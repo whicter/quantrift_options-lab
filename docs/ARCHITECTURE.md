@@ -27,7 +27,7 @@ Ingestion: Python collector
 
 ### 功能页视觉壳
 
-`/scan` 是功能页的视觉基线。Scan、Analyze、Market、Earnings、Ledger、Weekly、Account 和 Portfolio 都使用 `frontend/src/index.css` 的 `.product-page`、`.product-header`、`.product-title` 与 `.product-subtitle`：固定 20px/700 标题、同一左侧与顶部起点，以及页面自身的纵向滚动。页面可以保留各自的数据卡、表格和窄屏响应式布局，但不能再定义独立的 hero 字号、eyebrow 或不同的页面滚动容器。
+Scan、Analyze、Market、Earnings、Weekly、Account 和 Portfolio 都使用 `frontend/src/index.css` 的 `.product-page`、`.product-header`、`.product-title` 与 `.product-subtitle`：固定 20px/700 标题、同一左侧与顶部起点、共享的弹性内容宽度，以及页面自身的纵向滚动。`/market` 不得再增加独立的 1160px 页面上限；只有页面内部的阅读型模块或图表可以按内容设置上限。后台 ledger 不属于产品页面。产品导航使用“市场概览 / 个股分析 / 期权扫描 / 周复盘 / 策略库”，Analyze 页标题为“个股/ETF 分析”。页面可以保留各自的数据卡、表格和窄屏响应式布局，但不能再定义独立 hero 字号、eyebrow 或页面滚动容器。
 
 当前生产环境已完成 Vercel + Railway + Railway PostgreSQL 部署。2026-07-14 验证结果：
 
@@ -198,7 +198,7 @@ Both tables are **additive** — they do not replace `scanner_results_snapshots`
 
 ### Candidate Result Ledger (R2.1, 2026-07-24)
 
-The candidate batches above are **pruned** (V3A-2 keeps ~5 completed batches per scan_key), so a candidate does not survive to its expiry. To score real outcomes, a **durable** `candidate_ledger` table (`UNIQUE (candidate_key, expiry)`) captures each candidate once at first sighting — its entry (`entry_cash` credit-positive / debit-negative, `max_loss`, `pop`, legs). `captureLedger`/`evaluateLedger` (`server/src/routes/ledger.js`) are wired best-effort into `runMaterialization`, so every scan cycle captures new candidates and resolves any now-expired ones. Resolution uses the pure `server/src/domain/scanner/ledger.cjs::evaluateOutcome`: a single-expiry defined-risk payoff at expiry (`entry_cash + Σ BUY:+intrinsic / SELL:−intrinsic`) from the underlying's `price_history` close on/after expiry; **multi-expiry calendars/diagonals → `not_evaluable`** (the far leg needs repricing, never guessed), a missing close → `no_price`. `aggregateLedger` computes win rate by strategy family and POP calibration over win/loss rows only, surfacing not_evaluable/no_price so coverage is honest. `GET /api/scanner/ledger` serves it; `/ledger` renders the 模型记录 page. Like the IV-Rank 252-day gate this **starts empty and fills as candidates expire** (earliest 2026-08-21); it is model validation, never a trade signal, and is the labeled data for fitting the scoring weights. Repro: `docs/validation/CANDIDATE_LEDGER_2026-07-24.md`.
+The candidate batches above are **pruned** (V3A-2 keeps ~5 completed batches per scan_key), so a candidate does not survive to its expiry. To score real outcomes, a **durable** `candidate_ledger` table (`UNIQUE (candidate_key, expiry)`) captures each candidate once at first sighting — its entry (`entry_cash` credit-positive / debit-negative, `max_loss`, `pop`, legs). `captureLedger`/`evaluateLedger` (`server/src/routes/ledger.js`) are wired best-effort into `runMaterialization`, so every scan cycle captures new candidates and resolves any now-expired ones. Resolution uses the pure `server/src/domain/scanner/ledger.cjs::evaluateOutcome`: a single-expiry defined-risk payoff at expiry (`entry_cash + Σ BUY:+intrinsic / SELL:−intrinsic`) from the underlying's `price_history` close on/after expiry; **multi-expiry calendars/diagonals → `not_evaluable`** (the far leg needs repricing, never guessed), a missing close → `no_price`. `aggregateLedger` computes win rate by strategy family and POP calibration over win/loss rows only. The ledger is backend-only: there is no product route, navigation item or public read endpoint. Like the IV-Rank 252-day gate this **starts empty and fills as candidates expire** (earliest 2026-08-21); it is internal validation data, never a trade signal. Repro: `docs/validation/CANDIDATE_LEDGER_2026-07-24.md`.
 
 API response 应统一携带数据状态：
 
@@ -530,7 +530,7 @@ CI（`.github/workflows/ci.yml`）的两个门禁都断言产物而非配置：
 - `frontend/scripts/check-dist.mjs` 直接扫描 `dist/`，不信任 `vite.config.js` 的 `build.sourcemap=false`。配置与产物是两件事，只有产物是用户真正拿到的东西。
 - `scripts/scan-secrets.sh` 保留 docs 在范围内并过滤占位符。Polygon key 正是通过文档进入 Git 历史的；把文档排除出扫描范围等于把已经发生过的泄露路径永久设为盲区。
 
-内部 provider 名（`polygon_licensed` / `ib_internal` / `tt_internal`）当前不会出现在任何渲染路径：所有 `source` 字段要么写入 view model 后无人读取，要么只用于 `freshness` / `isStale` 的条件判断。`frontend/src/lib/providerDisclosure.test.js` 守住硬编码与 `DataDetails` 两条路径，但它是静态断言，不能证明运行时值不会被渲染——根治仍是服务端降级（V3A-4）。
+内部 provider 名（`polygon_licensed` / `ib_internal` / `tt_internal`）、模型版本、公式、评分构成、代理假设、聚合方法和覆盖质量不得进入任何产品渲染路径。前端 display adapter 只保留结果、用户可理解的数据状态、时间和风险提示；`frontend/src/lib/providerDisclosure.test.js` 对硬编码文案和映射字段做静态门禁。验收记录见 `docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`。
 
 ### 7.2.1 公开状态与运维状态的边界
 

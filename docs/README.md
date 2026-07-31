@@ -41,10 +41,13 @@ Open http://localhost:5173
 
 | Route | Description |
 |---|---|
-| `/` | Quantrift 产品入口：live Market Regime + Scan/Analyze/Weekly workflow |
+| `/` | Quantrift 产品入口：市场状态 + 个股/ETF 分析、期权扫描、周复盘工作流 |
+| `/market` | 市场概览：每日简报、全市场宽度、期权原生体征、状态矩阵与板块轮动 |
+| `/earnings` | 本周财报：按纽约时区自然周展示已落库财报日 |
 | `/learn` | V1 教育工具：86个策略、Payoff图、Greeks图表、知识库 |
-| `/analyze` | V2 标的分析：真实价格趋势、S/R、Volume Profile、OBV、MFI、Focus Score、GEX、VRP、IV skew 与期限结构 |
-| `/scan` | V2 扫描器：从真实期权快照筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与机会分 |
+| `/analyze` | 个股/ETF 分析：价格趋势、S/R、Volume Profile、OBV、MFI、综合状态、GEX、VRP、IV skew 与期限结构 |
+| `/scan` | 期权扫描：从真实期权数据筛出具体候选单，显示 expiry/DTE、legs、credit/debit、风险、breakeven 与匹配度标签 |
+| `/weekly` | 周复盘：五个实际交易日的价格、Gamma、Max Pain 与 OI 变化 |
 
 ## Features (V1 — /learn)
 - 86 strategies across 7 categories: Direction / Income / Volatility / Calendar / Complex / Arbitrage / Guide
@@ -66,13 +69,15 @@ Open http://localhost:5173
 - Price history API: `/api/prices/:symbol` for daily bars and `/api/prices/:symbol?interval=30m` for intraday bars
 - Analyze missing-data UX distinguishes uncollected watchlist symbols from symbols outside the watchlist
 - Analyze derived APIs: `/api/sr/:symbol` returns pivot-clustered support/resistance plus Focus Score; `/api/chain/stats/:symbol` returns actual-contract IV skew and ATM IV term structure
-- Analyze Technical Confluence prototype: legacy commit `da298f4` adds `/api/technical-levels/:symbol` for Volume Profile, Anchored VWAP, 50/100/200DMA, daily/weekly structure, GEX and OI evidence; current-main integration and production acceptance remain pending
+- Analyze Technical Confluence is integrated at `/api/technical-levels/:symbol` for Volume Profile, Anchored VWAP, 50/100/200DMA, daily/weekly structure, GEX and OI evidence; it remains additive beside `/api/sr/:symbol`
 - Analyze has no mock-data import or fallback: it builds its page model from real price, metrics and GEX responses only; a missing field remains unavailable rather than inheriting a sample value
 - Persistent scanner universe: known database symbols plus on-demand Analyze registrations feed the materialized scanner; `/api/analyze/:symbol` reports field coverage and queues only missing data products
 - Universe filters: price, share/dollar volume, earnings, market cap, sector/category and optionable status are live when the field is populated; nullable reference fields fail closed when a selected filter requires them
 - Market Regime: `/api/market/regime` combines SPY/QQQ daily momentum, regular-session 30M breakout, IV Rank and GEX; stale intraday bars cannot confirm a breakout
 - Weekly Recap: `/api/weekly/:symbol` uses real rolling-week OHLC, daily GEX snapshots, Max Pain and ΔOI. It contains no mock fallback or fabricated money-flow data
 - Scanner alerts: email and browser-push subscriptions persist rules and tokenized unsubscribe state; PM2 evaluates each materialized scan batch with delivery deduplication
+- Product display boundary: public pages show user-meaningful results, availability, timestamps and risk notes. Provider identities, model versions, formulas, parameters, coverage internals and queue state remain backend-only.
+- Candidate ledger boundary: `candidate_ledger` continues to capture and evaluate candidates for internal validation, but there is no public `/ledger` page or read endpoint.
 
 ## Data Sources (V2)
 - ATM IV / HV30/60/90: Polygon option snapshots and daily OHLCV, derived into `volatility_history`
@@ -101,10 +106,10 @@ Open http://localhost:5173
 - Scanner results should be precomputed/cached, not full-market recalculated on every user request
 - Phase 3C scanner path: `collector/materialize_scan.py` writes `scanner_results_snapshots`; `/api/scan` reads the latest materialized batch only
 - Scanner materialized rows include IV, latest price, GEX/walls, OI/volume, OI delta, price-history trend, and earnings date
-- Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Results expose quote source/time/freshness.
+- Scanner quote selection is independent from positioning freshness: a new Greeks/OI snapshot without bid/ask cannot hide the latest usable quoted snapshot. Source remains internal; the product UI uses only the quote time/freshness it needs.
 - Phase 3C refresh path: API enqueues `provider_fetch_jobs`; `collector/run_refresh_worker.py` processes jobs with `provider_request_usage` budget tracking; `/api/admin/status/cache` monitors backlog/stale/failure/budget state
 - Phase 3E unusual path: `collector/materialize_oi_delta.py` writes `option_oi_delta_snapshots`; `/api/unusual/:symbol` and `/api/scan` read confirmed OI delta state
-- Analyze computes direction context from real price history and displays Focus Score, OBV, MFI-14, VRP, Gamma Flip, Local Gamma, S/R, 30M Volume Profile, IV skew and term structure. Strategy legs remain hidden until an actual contract candidate is attached.
+- Analyze computes direction context from real price history and displays a labeled综合状态, OBV, MFI-14, VRP, Gamma Flip, Local Gamma, S/R, Volume Profile, IV skew and term structure. Raw score composition, weights and derivation details are not rendered. Strategy legs remain hidden until an actual contract candidate is attached.
 - Current collector behavior: IV and price collectors cover the watchlist; option-chain collection now defaults to `watchlist.txt` but can be narrowed with `OPTION_SYMBOLS` / `SYMBOLS` for bounded backfills.
 - Refresh worker safeguards: stale `running` jobs are recovered, unsupported provider jobs fail closed, TT auth exits are converted into job errors, option-chain jobs can fall back from TT to IB, and malformed symbols are rejected before entering `provider_fetch_jobs`.
 - PM2 auto-refresh scheduler continuously closes watchlist gaps in bounded batches of two, prioritizes missing then oldest snapshots, and applies a 30-minute cooldown after recent attempts.
@@ -139,7 +144,7 @@ Open http://localhost:5173
 - [x] Analyze Tab4: real Call/Put OI density by strike with independent snapshot freshness
 - [x] Reddit community-trend pipeline: OAuth provider, persisted snapshots, Scanner heat column and disabled-safe PM2 cron (credentials pending)
 - [x] Unusual Whales flow pipeline: idempotent sweep/TRF events, provider heartbeat, Analyze UI and disabled-safe WebSocket worker (account stream parameters pending)
-- [x] Composite Momentum: real 30M/1D/weekly-derived 1W scores with 30/40/30 weights and stale intraday gating
+- [x] Composite Momentum: real 30M/1D/weekly-derived 1W scores with internal 30/40/30 weights, user-facing state labels and stale intraday gating
 - [x] V3 code: Clerk auth + subscription tiers (runtime keys pending)
 - [x] V3: Portfolio tracking + Greeks aggregation
 - [x] Analyze Technical Support Confluence integrated on current master as a separate prototype beside `/api/sr` and G5; full local regression passed

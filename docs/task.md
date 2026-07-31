@@ -1,10 +1,26 @@
 # Task Tracker
 
+## ✅ 2026-07-30 — 产品命名、宽度与信息层级统一
+
+- [x] 顶部导航统一为“市场概览 / 个股分析 / 期权扫描 / 周复盘 / 策略库”；Analyze 页面标题改为“个股/ETF 分析”，保留 `ANALYSIS COCKPIT · 标的研究` 语义。
+- [x] `/market` 移除独立 1160px 上限，与其他产品页使用同一弹性内容轨道；模块内部仍可按图表和阅读密度设置合理上限。
+- [x] Analyze 报价头部统一 ticker 与价格字号、主行和次行基线；深浅主题均按同一结构渲染。
+- [x] 策略候选表的标题和事实不再截断；到期日+DTE、OI+spread、Gamma sign+net GEX 按语义同行，其余事实 soft-indent 换行。
+
+## ✅ 2026-07-30 — 前台实现细节保密边界
+
+- [x] 产品页面只展示用户可理解的结果、状态、时间、风险提示和可操作筛选项；不展示模型版本、公式、阈值依据、评分构成、权重、代理假设、聚合方法、数据管线、provider、队列、覆盖字段或原始错误。
+- [x] 删除 Analyze、Scan、Weekly 的 `DataDetails` 展示及其前端数据映射；GEX 与技术价位的前端 adapter 只保留渲染所需字段。
+- [x] 删除 `/ledger` 页面、导航和读取端点；`candidate_ledger` 仅保留后台自动采集与到期评估，不向产品前台开放。
+- [x] Analyze、Market、Earnings、Scan、Weekly、Home、策略风险面板和收益图统一改成结果导向文案；内部数字分数改为状态标签。
+- [x] 增加静态防回归测试，阻止模型版本、计算参数、定位假设、公式说明、内部 provider 和原始元数据重新进入产品 UI。
+- [x] 验证记录：`docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`（frontend 106、server 244、browser 10 routes、`/ledger` → `/`）。
+
 ## ✅ 2026-07-30 — 本周财报日历
 
 - [x] 新增 `/earnings` 导航页与 `GET /api/market/earnings-this-week`；按纽约时区本周或下周周一至周五展示 active/scan-enabled universe 的真实 `earnings_date`，页面内切换，每个标的可点击转到 Analyze。
 - [x] 空周保留五个日期栏；无可信数据时不展示 logo、预期值或报前/盘后时间。
-- [x] Scan、Analyze、Market、Earnings、Ledger 与 Weekly 已收敛到 Scanner 的同一 product-page 标题基线：无专属 eyebrow、20px/700 标题、32px 左侧起点与页面内滚动；内容组件保持各自职责。
+- [x] Scan、Analyze、Market、Earnings 与 Weekly 已收敛到 Scanner 的同一 product-page 标题基线：无专属 eyebrow、20px/700 标题、32px 左侧起点与页面内滚动；内容组件保持各自职责。
 - [x] 前端全量测试（103）、ESLint、production build 和 dist 检查通过；服务端既有 market briefing 回归通过。生产 API/UI 尚待部署验收。
 
 ## 2026-07-30 — Market Rebound Monitor（市场反弹确认监控）实施路线
@@ -470,11 +486,11 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - **后端**:`server/src/routes/market.js` 纯 `buildSectorRotation` + `GET /api/market/sector-rotation`。`rs`=ETF 20 日相对收益−基准;`momentum`=近期相对步伐(`ret5−bench.ret5`)−月均每 5 日相对步伐(`rs/4`),即相对强弱是否在加速;(rs,mom)符号→四象限(领先/走弱/改善/落后)。SPY 无收益则 fail closed。
   - **前端(散点+列表联动,用户 2026-07-23 mockup 拍板;解决点重叠)**:纯 `lib/sectorRotation.js`(`dotPosition` 把 rs/mom clamp 映射到象限散点 x/y%、`buildRotationView` 按象限分组)+ `components/SectorRotation.jsx`(左散点携带流向位置感、右象限列表永远读得清、hover 一个另一个高亮 + tooltip,无图表库、延续自绘约定)。接在 `/market` State Matrix 下方。
   - **验证**:server 199/199(纯函数 4 条,含象限映射/基准缺失 fail closed/非 ETF 忽略/标签无买卖)、frontend 92/92(纯定位/分组 5 条)+ lint + build 干净。**live 26 ETF**:领先 6(XLE 领跑+能源/防御)、走弱 3、改善 11(含 SMH/SOXX/XLK——半导体科技相对最弱但动量在回)、落后 6;讲出"钱从半导体/科技→能源+防御"的真实轮动,且半导体高 IV(SMH 85)与其 S0 分类互印证。可复现:`docs/validation/SECTOR_ROTATION_2026-07-23.md`。
-- [x] **R2.1 候选结果台账(信任层;前后端均完成 2026-07-24,结果随到期积累)**:定位=模型验证,不是跟单信号。**一石二鸟:这正是拟合打分权重所需的标注数据**。
+- [x] **R2.1 候选结果台账(当前为后台专用,结果随到期积累)**:定位=内部验证,不是跟单信号。
   - **数据现实(两个真实门槛,非"要不要做")**:①`scanner_candidate_snapshots` **被 V3A-2 prune**(只留每 scan_key 最新 5 批),候选活不到到期——**必须新建 durable 表**;②**0 个候选已到期**(最早到期 2026-08-21,快照仅回溯到今天),结果台账**天然从空开始、随到期积累**(同 IV Rank 252 天门槛)。
-  - **实现**:新表 `candidate_ledger`(durable、不 prune,`UNIQUE(candidate_key,expiry)` 首见即入场,已迁移生产)。纯引擎 `server/src/domain/scanner/ledger.cjs`:`evaluateOutcome`(单到期 defined-risk 按到期标的收盘算逐腿 intrinsic → 实际盈亏/胜负/ROR;**日历/对角多到期标 `not_evaluable`**——远腿需重定价、不臆测;缺价标 `no_price`)+ `aggregateLedger`(按策略族胜率、POP 校准分桶、只统计 win/loss、not_evaluable/no_price 单列披露)。`routes/ledger.js`:`captureLedger`(批完成后入账,`credit`→正/`debit`→负 entry_cash,POP unavailable 置空)、`evaluateLedger`(到期行查 `price_history` 到期收盘算结果)、`GET /api/scanner/ledger`。capture+evaluate 已 best-effort 接进 `materializeScannerCandidates.runMaterialization`(每 scan cycle 自动跑,绝不 fail 批次)。
+  - **实现**:新表 `candidate_ledger`(durable、不 prune,`UNIQUE(candidate_key,expiry)` 首见即入场,已迁移生产)。纯引擎 `server/src/domain/scanner/ledger.cjs`:`evaluateOutcome`(单到期 defined-risk 按到期标的收盘算逐腿 intrinsic → 实际盈亏/胜负/ROR;**日历/对角多到期标 `not_evaluable`**——远腿需重定价、不臆测;缺价标 `no_price`)+ `aggregateLedger`(按策略族胜率、POP 校准分桶)。`routes/ledger.js` 只保留 `captureLedger` 与 `evaluateLedger`；capture+evaluate 已 best-effort 接进 `materializeScannerCandidates.runMaterialization`，没有产品读取端点。
   - **验证**:server 211/211(纯引擎 8 条:put 价差 max profit/loss、long call/straddle、日历 not_evaluable、缺价 no_price、聚合胜率+POP 校准、空安全)。**live seed**:捕获 4,735 候选(6 族),0 已结算(最早到期 08-21);单到期可评 ~1,240(single_leg/iron/credit_vertical/straddle/combo),time_spread 3,495 到期标 not_evaluable。可复现:`docs/validation/CANDIDATE_LEDGER_2026-07-24.md`。
-  - **前端**:`/ledger`「模型记录」页(`pages/Ledger.jsx`)+ 导航入口。展示追踪/已结算/总胜率/待到期;`resolved=0` 显"积累中 + 最早到期"诚实态,到期后填按策略族胜率表 + POP 校准表;not_evaluable/no_price 单列披露。frontend 92/92 + lint + build 干净。
+  - **前端**:最初实现的 `/ledger` 页面与导航已于 2026-07-30 删除；数据仅在后台留存与评估。
   - **待做(非阻塞)**:"每 N 日横盘"评估口径(现只做到期);POP 目前多为 unavailable 占位(策略无静态 breakeven 模型)——校准要等有效 POP;结果本体要等 2026-08-21 起候选陆续到期才出现。
 - [x] **R2.2 期权原生 Breadth(前后端均完成 2026-07-23)**:`GET /api/market/breadth`(`server/src/routes/market.js::sendMarketBreadth`)——纯 SQL 聚合 scan-enabled universe:①趋势 % above MA50/MA200(SQL 内 `AVG(close) FILTER (rn<=N)`,bars 不足不计);②**期权版体征**(三家竞品都没有)% 正/负 Gamma(latest `gex_snapshots.gamma_regime`)、IV Rank 中位数+p25/p75+% elevated(latest `volatility_history.iv_rank`,仅 ready)、PCR 中位数+四分位(`pcr_oi`)。每块带 `counted` 诚实披露样本量(薄数据不冒充全面),`pct()` 零样本返回 null 不返回假 0。
   - **前端(方案 B「Market Internals 面板」,用户 2026-07-23 拍板,先出渲染 mockup 对比)**:`components/MarketInternals.jsx` + 纯 view-model `lib/marketBreadth.js`(`buildBreadthView` 把响应转成渲染坐标:Gamma 拆分条宽度、IV/PCR 的 p25-p75 分位带 left/right + 中位标线位置、每块 counted 为 0 时塌缩成 null 显"暂不可用")。挂在首页 hero 与 workflow 卡片之间(`.home-internals`)。配色沿用产品 tokens(正=绿/负=红/IV=蓝/PCR=黄),`gamma_as_of` 按 ET 显示(与 P3 一致)。
@@ -576,20 +592,20 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - [ ] Add Playwright visual regression coverage for `/`、`/analyze?symbol=SPY`、`/scan`、`/weekly`、`/learn`、`/portfolio`、`/account` on desktop and mobile viewports.
   - Assert no clipped headers, horizontal overflow, hidden controls, or footer overlap.
   - Assert the homepage’s illustrative/non-current label and fixed research disclosure are visible.
-  - Assert GEX/Wall/POP model disclosures appear when those values are rendered.
+  - Assert GEX/Wall/POP results retain risk caveats while model versions, formulas, parameters, weights, provider names and proxy assumptions do not render.
 - [ ] Add production smoke checks after deployment.
   - Verify the deployed HTML contains `lang=zh-CN`, product title/description, static H1 and research disclaimer before JavaScript hydration.
   - Verify the production frontend artifact contains no `.map` files and no API/provider secrets.
-  - Verify `/api/scan` and `/api/analyze/:symbol` responses retain source, snapshot time, freshness and model-version fields used by the UI.
+  - Verify `/api/scan` and `/api/analyze/:symbol` retain the values and timestamps required by the UI, while display adapters discard source, model-version and implementation metadata.
 
 #### B. GEX and research-model governance
 
-- ✅ Add a versioned model metadata contract to every GEX-derived product DTO.
-  - Implemented in four independently deployable steps: (1) API adapter and persisted scan payload, (2) shared `DataDetails` UI, (3) deterministic GEX/Flip/Wall fixture validation, (4) versioned POP/Expected Move inputs and validation.
+- ✅ Retain versioned GEX metadata for validation without rendering it in product UI.
+  - Implemented initially in four steps: (1) API adapter and persisted scan payload, (2) the former `DataDetails` UI, (3) deterministic GEX/Flip/Wall fixture validation, (4) versioned POP/Expected Move inputs and validation. Step 2 was removed on 2026-07-30 under the frontend confidentiality boundary.
   - Step 1 completed: `/api/options/:symbol/gex`, `/api/scan`, and `/api/weekly/:symbol` expose `gex_metadata` with model, data state, coverage and calculation parameters.
   - `gex_metadata.model` carries metric, model version, unit, formula ID, positioning model and public-OI limitation. `data_state` carries status, snapshot time, age, refresh state, confidence and a public source label. `coverage` carries contract/quality and expiry-window fields. `parameters` carries move size, multiplier, local window, flip grid and risk-free rate.
   - Scanner materialization persists this metadata in its existing JSON payload, so it is tied to the GEX snapshot that generated the scanner row. Old rows without that payload are explicitly `partial`, never backfilled with invented assumptions.
-  - The UI must render a compact user-facing data-details view and retain a richer admin/debug view.
+  - Product UI must not render this contract. Display adapters keep only result values, user-facing availability, timestamps and risk caveats; full metadata remains available to backend validation/replay paths.
 - ✅ Establish a reproducible GEX validation suite.
   - Step 3 plan: freeze option-chain fixtures with a known valuation timestamp; verify contract exposure, strike aggregation, Global/Local GEX, Wall selection, Gamma Flip interpolation and no-crossing behavior. Recompute the same fixture twice and require byte-stable output.
   - Add a fixture manifest containing model version, valuation date, multiplier, expiry range, expected outputs and tolerances. A separate replay command will load the fixture through the collector calculation path and emit a machine-readable result.
@@ -600,11 +616,11 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
   - Fixed option-chain fixtures must verify per-contract GEX, aggregate GEX, Gamma Flip interpolation, Call/Put Wall selection, 1%-move units and sign-assumption labeling.
   - Run a historical comparison across at least one ETF and one single-stock chain before making any performance or market-structure claim.
 - ✅ Define and document expected-move and POP inputs per strategy.
-  - Implemented on every concrete Scanner candidate as versioned `expected_move` and `pop` objects. The public DTO does not expose the full chain; it exposes only the selected setup, declared model inputs and the originating quote-snapshot timestamp.
+  - Implemented on every concrete Scanner candidate as versioned `expected_move` and `pop` objects. The response does not expose the full chain; it returns the selected setup and internal estimate objects, while the UI renders only compact EM/POP results and a risk caveat.
   - Expected Move is `expected-move-v1-atm-iv-sqrt-time`: spot × the mean IV of the nearest same-expiry Call/Put × sqrt(calendar DTE / 365). It declares `contract_iv`, `nearest_atm_call_put_mean`, one standard deviation, calendar-day convention, expiry/DTE, input contracts and lower/upper range.
   - POP is `pop-v1-lognormal-breakeven`: risk-neutral lognormal terminal-price probability at the candidate expiry using that declared IV, `SCAN_RISK_FREE_RATE` (default `4.5%`), zero dividend-yield assumption and executable bid/ask-derived break-evens. It supports static-expiry Bear Call, Bull Put, Iron Condor, Iron Butterfly, Strangle, long/short single-leg and Jade Lizard payoff shapes. Calendar/Diagonal are explicitly unavailable because they do not have one static expiry payoff model.
   - Required inputs are fail-closed. Missing same-expiry ATM IV, non-positive DTE, absent static break-evens or an unsupported payoff shape return `status: unavailable` with a reason; the system never substitutes a fixed POP, mark price or fallback IV. Missing leg quotes prevent candidate construction.
-  - Scanner UI renders compact `EM` / `POP` state with an in-context tooltip; EM/POP are model estimates, not a prediction, tradable quote or return guarantee.
+  - Scanner UI renders compact `EM` / `POP` state with a generic risk tooltip; formulas, input-selection logic and model versions are not displayed.
   - Verification: `cd server && npm test` covers credit spread, debit strategy, Iron Condor, absent IV and missing quote behavior; route tests assert the public DTO includes the declared fields and contract-IV sample input. Frontend test/lint/build verify the compact rendering path.
 - ✅ Reconcile stored watchlist GEX after a model-version upgrade.
   - Root cause observed 2026-07-16: option-chain snapshots existed for 67 watchlist symbols, but 64 latest GEX rows were calculated with the legacy unversioned formula. The API correctly rejected those rows because it requires `gex-v2-1pct-positioning-proxy`, causing Analyze to say GEX/Wall unavailable.
@@ -619,10 +635,9 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 
 #### C. Product architecture and disclosure follow-through
 
-- ✅ Implement a reusable `DataDetails` component across Analyze, Scan and Weekly.
-  - `frontend/src/components/DataDetails.jsx` is collapsed by default. Analyze shows the selected GEX snapshot; each Scanner row offers a compact expandable detail; Weekly follows its selected historical GEX point.
-  - It shows public snapshot/model context without emitting provider/internal implementation names: model version and unit, snapshot time, contract coverage/completeness, expiry window, positioning proxy and Local/Flip parameters.
-  - State vocabulary is rendered as `fresh` / `delayed` / `stale` / `partial` / `unavailable` / `historical`. The detail disclosure is intentionally secondary to the opportunity/analysis result.
+- ✅ Remove the former `DataDetails` component from Analyze, Scan and Weekly.
+  - Model version, unit, contract coverage, positioning assumptions and calculation parameters remain backend-only.
+  - Product pages retain user-facing freshness, timestamp and risk state without rendering the implementation contract.
 - [ ] Implement full SSR/SSG only after choosing the frontend migration path.
   - The current static HTML semantic summary satisfies the immediate crawler requirement; route-level SSR/SSG remains a separate architecture migration.
 - [ ] Complete V3A follow-up tasks already specified below: backend Analyze DTO, authorization/entitlement fail-closed gate, internal-status split, DB role separation, shared rate limiting/cache coordination, deployment security headers and CI artifact checks.
@@ -691,11 +706,11 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 **前端路由（Vite + React Router）**
 - ✅ 安装 react-router-dom，配置多页路由
 - ✅ `/` 产品入口：Quantrift hero 使用真实 scanner 视觉、live Market Regime、Scan/Analyze/Weekly workflow；品牌导航返回首页；desktop/mobile responsive
-  - 2026-07-16：首页 Hero 的主入口改为高亮“分析标的”，次级入口为“打开扫描器”；workflow 卡片同样以 Analyze 为首项。
+  - 2026-07-16：首页 Hero 的主入口改为高亮“分析标的”，次级入口现为“打开期权扫描”；workflow 卡片同样以 Analyze 为首项。
   - 2026-07-16：`/analyze` 未指定 symbol 时默认加载 SPY；Hero 主入口直接使用 `/analyze?symbol=SPY`。
 - ✅ `/learn` → V1 教育工具（Learn.jsx）
-- ✅ `/analyze` → V2 标的分析页（真实数据：GEX / 价格趋势 / OI异动）
-- ✅ `/scan` → V2 扫描器页（真实数据：scanner_results_snapshots）
+- ✅ `/analyze` → 个股/ETF 分析页（真实数据：GEX / 价格趋势 / OI异动）
+- ✅ `/scan` → 期权扫描页（真实数据：scanner_results_snapshots）
 
 **V2 核心流程（ticker-first）**
 - ✅ 用户输入标的 → 系统分析（不再要求用户先选策略）
@@ -1934,7 +1949,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - ✅ 保留 admin/debug provenance：合法 `ADMIN_API_TOKEN` 时 DTO 带 `provenance`（source、provider_status、snapshot_ts、confidence、model_version）。
 - ✅ Tests：`server/test/analyzeSummary.test.js` 11 个（compactMoney 与客户端一致、legacy model 不 usable、结论逐字节、unusable 给原因不造 wall、legacy 与 unusable 区分、情景 wall 触发 + 距离下限、缺 wall 返回 null、标签不泄露 provider、normal 隐藏/admin 保留 provenance、recommendation_ref）+ `analyzeRoute.test.js` 新增 2 个（route 组装、无 GEX 返回 unavailable）。
 - ✅ 验证：server 134/134（121 → 134）。真实 runtime（2026-07-17，直连 Railway）：`GET /api/analyze/AAPL/summary` 普通用户返回 `正Gamma $348M，Call Wall $340.00 / Put Wall $330.00…`、scenarios `{340,350,330,320}`、`data_status=数据更新于2小时前`、无 provenance;带 admin token 额外返回 `provenance.source=polygon_licensed`。
-- [ ] **前端切流（与 E11 一并，受 E13 同一 visual-verification 限制）**：`analyzeData.js` 的 `applyGex` 目前同时产出图表数据（gexByStrike/walls/gexMeta）和结论/情景,二者交织在同一函数;把结论/情景改读 `/summary` 需跨 4 个调用点重构,且 Analyze 页渲染无法在本环境自动截图验证。故前端切流与 E11 stale-while-refresh 一并做,按项目既有标准（ESLint + 单测 + 生产 build + 人工浏览器验证）交付。后端逻辑已就绪且可调用——IP 保护的实质（结论逻辑离开浏览器）在服务端已成立。
+- [ ] **前端切流（与 E11 一并，受 E13 同一 visual-verification 限制）**：`analyzeData.js` 的 `applyGex` 目前仍同时产出图表数据（gexByStrike/walls）和结论/情景，二者交织在同一函数；原 `gexMeta` 前端字段已于 2026-07-30 删除。把结论/情景改读 `/summary` 仍需跨 4 个调用点重构，按项目既有标准（ESLint + 单测 + production build + 人工浏览器验证）交付。后端逻辑已就绪且可调用——IP 保护的实质（结论逻辑离开浏览器）在服务端已成立。
 
 ### V3A-5 Auth, Entitlement, And Fail-Closed Production Gate
 
@@ -2034,11 +2049,11 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - API：`default-src 'none'; frame-ancestors 'none'; base-uri 'none'`（只出 JSON，不加载任何资源、不该被 frame）、nosniff、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、`Cross-Origin-Resource-Policy: same-site`；移除 `X-Powered-By`；HSTS 仅 production。
   - Runtime 验证：`NODE_ENV=production` 起服务 curl `/health`，六个 header 全部实际下发，`X-Powered-By` 不存在。
 - ✅ Do not display internal source names in normal product UI：
-  - 审计结论：目前**没有任何** provider 名被渲染。所有 `source` 字段都只写进 view model 后无人读取，或只用于 `freshness`/`isStale` 等兄弟字段的条件判断。
+  - 审计结论：目前**没有任何** provider 名被渲染。Analyze、Scanner 与 Technical Levels 的 display adapter 已删除无消费者的 source/provider/model 元数据字段，只保留用户可理解的 freshness、时间和结果。
   - 已移除 `Scan.jsx` 中完全无消费者的 `dataMeta`（携带 `row.source`、`row.price_source`、`row.quote_source` 三个原始 provider 字符串进入组件 props）。
 - ✅ Tests:
   - production build contains no source maps → `check:dist`，CI 强制。
-  - `frontend/src/lib/providerDisclosure.test.js`：生产代码不得硬编码 `polygon_licensed` / `ib_internal` / `tt_internal` / `tastytrade` / `stooq`；`DataDetails` 不得读取 `data_state.source`；scanner row 不得携带原始 provider 字符串。
+  - `frontend/src/lib/providerDisclosure.test.js`：生产代码不得硬编码内部 provider；产品 UI 不得出现模型版本、公式、参数、定位假设或原始元数据；scanner row 不得携带原始 provider 字符串。
   - `server/test/securityHeaders.test.js`：baseline header 齐全；HSTS 仅在 production 下发。
 - ✅ CI（`.github/workflows/ci.yml`，此前仓库完全没有 CI）：四个 job —— server tests、frontend lint/test/build/check:dist、collector unittest（Python 3.11，环境置空以确保不读 `.env`、不触达 provider）、`scripts/scan-secrets.sh`。
   - `scan-secrets.sh` 保留 docs 在扫描范围内（Polygon key 曾进入 Git 历史，正是文档类泄露），改为过滤占位符而不是跳过文件。反向验证：4 类真实 secret 全部捕获，`YOUR_PASSWORD@` 占位符正确放行。
@@ -2047,7 +2062,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 **已知边界（不要当作已完成）**：
 
 - CSP 的 `script-src`/`connect-src` 目前只覆盖当前实际运行的应用：自有 bundle、`logo.clearbit.com` 图片、Railway API。**Clerk 尚未包含**——当前未配置 `VITE_CLERK_PUBLISHABLE_KEY`，`ClerkProvider` 根本不挂载，且无法对真实 Clerk 实例域名做验证。启用 Clerk 前必须扩展 CSP，见 V3A-5 / P3 的对应前置项。宁可留下明确前置，也不猜测 Clerk host 而发布一个未经验证、会静默打断登录的 CSP。
-- `providerDisclosure.test.js` 是静态断言（测试运行器无 JSX transform，全仓测试均为源码文本断言）。它能挡住硬编码的 provider 名和 `DataDetails` 长出 source 字段，但**不能证明**运行时值永远不会被渲染——这些字符串来自 API。真正的根治是服务端对普通用户降级 provider/source，见 V3A-4 / E10。
+- `providerDisclosure.test.js` 是静态断言（测试运行器无 JSX transform）。它能挡住硬编码的 provider 名、实现细节文案和 display adapter 重新携带原始元数据，但**不能证明**运行时值永远不会被渲染；服务端仍需维持普通用户响应降级边界。
 
 ### V3A-10 Worker And Runtime Boundaries
 
@@ -2191,8 +2206,8 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - ✅ React Router 多页路由：/learn、/analyze、/scan
 - ✅ NavBar 组件：页面导航
 - ✅ /learn：V1 所有组件完整保留（Learn.jsx）
-- ✅ /analyze：标的分析页的初始 UI scaffold（当时使用示例数据；现已由真实数据路径与 fail-closed 状态取代）
-- ✅ /scan：扫描器页的初始 UI scaffold（当时使用示例数据；现已由 `/api/scan` 候选 DTO 取代）
+- ✅ /analyze：个股/ETF 分析页的初始 UI scaffold（当时使用示例数据；现已由真实数据路径与 fail-closed 状态取代）
+- ✅ /scan：期权扫描页的初始 UI scaffold（当时使用示例数据；现已由 `/api/scan` 候选 DTO 取代）
 - ✅ 历史示例数据：9 个标的；不再作为生产 Analyze/Scan 的 fallback
 - ✅ Analyze ↔ Scan 联动：扫描器点击行自动填入并分析
 
@@ -2267,13 +2282,12 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   - ✅ `server/src/routes/prices.js`
   - ✅ `server/src/index.js` 挂载 `/api/prices`
   - ✅ `frontend/src/lib/api.js` 新增 `getPrices(symbol, limit)`
-- ✅ **Tab2Trend.jsx 改用真实价格**：优先调用 `/api/prices/:symbol`，fallback 保留 LCG mock
+- ✅ **Tab2Trend.jsx 改用真实价格（历史阶段）**：当时优先调用 `/api/prices/:symbol`，并短暂保留 LCG mock；生产 fallback 后续已删除
   - KF 计算逻辑不变，输入换成真实价格数组
   - RVol = 当日成交量 / 20日均量（从 price_history 算）
-- ✅ **Weekly Sec1 改用真实价格**：`/weekly/:symbol` 优先读取 `/api/prices/:symbol`
-  - AAPL/SPY/QQQ 仍保留完整 5-section mock/GEX/flow 结构
-  - 若有真实价格历史，则覆盖 Sec1 的 weekClose / prevClose / weekHigh / weekLow / 5日 K线
-  - GEX / flow / Max Pain 仍需授权 options data，不能用 mock 伪装成真实
+- ✅ **Weekly Sec1 改用真实价格（历史阶段）**：`/weekly/:symbol` 当时优先读取 `/api/prices/:symbol`
+  - 当时 AAPL/SPY/QQQ 仍保留 5-section mock/GEX/flow 结构；该生产 mock 路径现已删除
+  - 现行 Weekly 只读真实 `/api/weekly/:symbol`；price/GEX/Max Pain/ΔOI 缺失时局部 unavailable，不用 mock 补齐
 
 ### 真实 IV（Tastytrade）
 - ✅ **`/api/metrics?symbols=X` 已上线**，前端 /analyze 接入

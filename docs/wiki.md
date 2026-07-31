@@ -24,7 +24,7 @@ curl -fsS http://127.0.0.1:3001/api/market/earnings-this-week
 
 ### 功能页视觉约定
 
-Scanner 是产品功能页的视觉基线。`/scan`、`/analyze`、`/market`、`/earnings`、`/ledger`、`/weekly`、`/account` 与 `/portfolio` 均复用 `index.css` 中的 `.product-page` 标题壳：20px/700 的标题、相同的 32px 左侧起点和页内纵向滚动。数据卡和表格可随功能变化，但不为单页引入更大的 hero 标题、额外 eyebrow 或另一套页面宽度。移动端统一改为 14px 左右内边距。
+`/scan`、`/analyze`、`/market`、`/earnings`、`/weekly`、`/account` 与 `/portfolio` 均复用 `index.css` 中的 `.product-page` 页面壳：20px/700 的标题、相同的 32px 左侧起点、共享的弹性内容宽度和页内纵向滚动。`/market` 不再单独限制为 1160px；页面级容器必须使用同一宽度轨道，只有图表、表格或阅读型模块可以在内部设置自己的合理上限。移动端统一改为约 14px 左右内边距。
 
 ### Scanner Candidate Boundary (V3A immediate core)
 
@@ -34,26 +34,26 @@ The Scanner UI may send selected strategy types and advanced filters, then rende
 
 ### User-facing research semantics (2026-07-16)
 
-All product outputs are research views, not trade instructions or broker orders. A user-visible value must be attributable to a stored snapshot or a documented model calculation, with its source/date/freshness exposed in the product data details. Missing fields remain unavailable; they must not be filled by example data.
+All product outputs are research views, not trade instructions or broker orders. A user-visible value must be attributable to a stored snapshot or documented backend calculation. The product exposes only the result, user-meaningful availability, timestamp and risk caveat; full source/model provenance remains in backend audit data. Missing fields remain unavailable and must not be filled by example data.
 
 - **GEX / Gamma Flip / Wall**: GEX is an estimated positioning proxy derived from option-chain inputs and sign assumptions, not observed dealer inventory. The current formula reports estimated dollar-delta change for a **1% underlying move**: `gamma * OI * multiplier * spot^2 * 0.01`. Call Wall, Put Wall and Gamma Flip are model observation levels, not deterministic support, resistance, reversal or acceleration levels.
 - **PCR and OI**: Put/Call ratios are explicitly labeled as OI- or volume-based. They do not reveal opening/closing direction, trade intent or net market sentiment by themselves.
-- **POP, expected move and payoff charts**: these are model estimates using displayed snapshot inputs and assumptions. They are not realized win probabilities, execution prices or P/L guarantees; fees, slippage, early assignment and volatility changes can materially change results.
-- **Data states**: the UI uses source, timestamp and freshness labels. “Delayed”, “stale”, “partial” and “unavailable” are product states, not concealed implementation failures.
+- **POP, expected move and payoff charts**: these are estimates, not realized win probabilities, execution prices or P/L guarantees; fees, slippage, early assignment and volatility changes can materially change results.
+- **Data states**: the UI uses timestamp and user-facing freshness labels. “Delayed”, “partial” and “unavailable” describe availability without exposing internal pipeline states.
 - **Static homepage preview**: homepage preview rows are explicitly illustrative and non-current; the product does not imply a live scanner before a scan response is available.
 
-### Unified GEX product metadata
+### GEX metadata and public display boundary
 
-Every GEX-derived public DTO uses `gex_metadata`; the same contract is attached to Analyze GEX snapshots, each Scanner candidate, and each Weekly historical point. It prevents a chart, card or scanner row from presenting a model number without its calculation context.
+GEX snapshots retain version, unit, formula, quality, coverage and positioning metadata for backend validation, replay and audit. Product pages do not render that implementation contract; their display adapters do not preserve it and keep only values, user-facing state, timestamp and risk caveats.
 
 - `model`: metric identifier, `model_version`, unit, formula ID, positioning proxy and its limitation.
-- `data_state`: `fresh`, `delayed`, `stale`, `partial`, `unavailable` or `historical`; includes snapshot time, age, refresh state, confidence and a public label (`期权链快照`). Internal provider identifiers remain outside the public DTO.
+- `data_state`: `fresh`, `delayed`, `stale`, `partial`, `unavailable` or `historical`; includes snapshot time, age, refresh state and confidence for backend use.
 - `coverage`: contract count, data-completeness ratios, selected expiry range/DTE window and underlying price timestamp.
 - `parameters`: 1% move convention, contract multiplier, Local Gamma window, Gamma Flip grid, quality threshold and risk-free rate.
 
 The current GEX calculation uses `gex-v2-1pct-positioning-proxy`. Scanner materialization persists the GEX metadata inside the scanner snapshot payload so candidates can be traced to the calculation that produced them. A missing historical payload is reported as `partial`; it is not reconstructed from guessed model inputs.
 
-`DataDetails` is the shared, closed-by-default product component for this contract. It appears below the selected Analyze snapshot, as a compact disclosure in each Scanner positioning cell, and below the selected Weekly Gamma history point. It deliberately provides a public source label rather than an internal provider or routing name.
+The former `DataDetails` component has been removed from Analyze, Scan and Weekly. Internal provider names, model versions, formulas, parameters, positioning assumptions, coverage ratios and pipeline states must remain non-rendered validation data. Verification: `docs/validation/FRONTEND_IMPLEMENTATION_BOUNDARY_2026-07-30.md`.
 
 ### GEX validation and replay
 
@@ -97,14 +97,14 @@ frontend/src/
 │   └── InsightCarousel.jsx   # 解读条（黄色静态列表，全部条目一次展示）
 ├── pages/
 │   ├── Learn.jsx             # /learn — V1 教育工具
-│   ├── Analyze.jsx           # /analyze — V2 标的分析（4-tab，?tab=0-3）；header 显示公司 logo + 中文名
-│   ├── Scan.jsx              # /scan — V2 扫描器
+│   ├── Analyze.jsx           # /analyze — 个股/ETF 分析（4-tab，?tab=0-3）；header 显示公司 logo + 中文名
+│   ├── Scan.jsx              # /scan — 期权扫描
 │   ├── Weekly.jsx            # /weekly/:symbol — 周复盘（5-section，?sec=0-4）
 │   ├── analyze/
-│   │   ├── Tab1Overview.jsx  # 今日概览：sector/Q&A/conclusion/playbook + InsightCarousel
-│   │   ├── Tab2Trend.jsx     # 日内变化：KF趋势图/Trend Spread Canvas + InsightCarousel
-│   │   ├── Tab3Options.jsx   # 数据解读：GEX Canvas/4格数字(GEX/PCR OI/PCR Vol/IV)/Unusual + InsightCarousel
-│   │   └── Tab4Signals.jsx   # 信号追踪：价格区间chip/OI密度分布Canvas(连续填充)/Wall距离 + InsightCarousel
+│   │   ├── Tab1Overview.jsx  # 最新概览：sector/Q&A/conclusion/playbook + InsightCarousel
+│   │   ├── Tab2Trend.jsx     # 价格与动量：KF趋势图/Trend Spread Canvas + InsightCarousel
+│   │   ├── Tab3Options.jsx   # 期权结构：GEX Canvas/4格数字(GEX/PCR OI/PCR Vol/IV)/Unusual + InsightCarousel
+│   │   └── Tab4Signals.jsx   # 关键价位与情景：价格区间chip/OI密度分布Canvas(连续填充)/Wall距离 + InsightCarousel
 │   └── weekly/
 │       ├── Sec1Tone.jsx      # 本周定调：公司logo+中文名/K线Canvas/CME Gauge Canvas
 │       ├── Sec2Gamma.jsx     # Gamma迁徙：时间轴滑块(Mon-Fri)/GEX日图Canvas/迁移表
@@ -509,10 +509,12 @@ Host mac-studio
 
 ### 路由结构
 ```
-/              → Quantrift 产品入口（live regime + Scan/Analyze/Weekly workflow）
+/              → Quantrift 产品入口（市场状态 + 个股/ETF 分析、期权扫描、周复盘）
+/market        → 市场概览（每日简报/全市场宽度/期权体征/状态矩阵/板块轮动）
+/earnings      → 本周财报（纽约时区自然周）
 /learn         → V1 教育工具（现有 options-lab 所有组件）
-/analyze       → V2 标的分析 + 策略推荐（4-tab：今日概览/日内变化/数据解读/信号追踪）
-/scan          → V2 扫描器（批量筛选）
+/analyze       → 个股/ETF 分析 + 策略候选（4-tab：最新概览/价格与动量/期权结构/关键价位与情景）
+/scan          → 期权扫描（批量筛选）
 /weekly        → 周复盘入口（默认加载 SPY；常用标的快捷入口和代码输入）
 /weekly/:symbol → 周复盘详情（5-section：本周定调/Gamma迁徙/交割偏离/仓位变化/下周分叉）
 /api/status/data → 数据覆盖状态：watchlist 覆盖率、missing/stale symbols、source counts、latest_date
@@ -521,11 +523,10 @@ Host mac-studio
 
 ### Weekly Recap 数据化状态
 
-- 完整 5-section mock 仍只有 AAPL / SPY / QQQ。
-- `/weekly/:symbol` 现在会查真实 `/api/metrics` 和 `/api/prices/:symbol`。
-- 若存在 `price_history`，Sec1 会用真实 5日 OHLCV 覆盖 weekClose / prevClose / weekHigh / weekLow / 日K线。
-- Weekly 不再读取 mock。真实 price/GEX/Max Pain/ΔOI 按 section 独立返回；缺失 section 显示 unavailable。
-- 完整数据化仍需要后续接入 `gex_snapshots`、OI/flow 数据；GEX/flow/Max Pain 不应用 mock 伪装成真实。
+- `/weekly/:symbol` 读取真实 `/api/weekly/:symbol`，不再读取 mock。
+- Sec1 使用实际五个交易日 OHLCV；Gamma、Max Pain 与 ΔOI 按 section 独立返回。
+- 任一数据块缺失时只显示对应 unavailable 状态，不用其他标的或示例值补齐。
+- ΔOI 只描述未平仓量变化，不表示资金流；Wall 和 Max Pain 只作为模型观察位。
 
 ### 框架决策
 - **框架**: 继续用 **Vite + React Router**（不迁移 Next.js）
@@ -539,8 +540,8 @@ src/
   pages/
     Home.jsx          → / 落地页
     Learn.jsx         → /learn V1 教育工具
-    Analyze.jsx       → /analyze V2 标的分析
-    Scan.jsx          → /scan V2 扫描器
+    Analyze.jsx       → /analyze 个股/ETF 分析
+    Scan.jsx          → /scan 期权扫描
   components/         → 现有 V1 组件（直接复用）
   data/               → 现有策略数据
   lib/                → BS 引擎等
@@ -1270,12 +1271,12 @@ The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily sco
 - **Symbol State Matrix（R1.1,`/api/market/state-matrix`）**:全 universe 分成 6+兜底状态(强势上行/上行回调/突破/中性/企稳/空头/高波动),结构优先 first-match-wins,每标的带 reasons。**标签描述状态、不给买卖动作**(合规边界)。
 - **板块轮动 RRG（R1.3,`/api/market/sector-rotation`）**:26 板块/主题 ETF 相对 SPY 的强弱×动量四象限。因 SIC sector 字段 65% 空且不含 ETF,用 ETF 当板块代理(也是 RRG 标准)。散点+联动列表解决点重叠。**资金流维度(2026-07-24 增强)**:复用 `deriveMfi` 算每 ETF 的 MFI → `flow`(流入/流出/中性)+ `grade`(S–D from rs);**位置=趋势、flow=钱是否真进,二者会背离**(A 级领先但资金流出=价格领先、钱在撤)。
 
-**信任层 · `/ledger`「模型记录」（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准;多到期结构标 not_evaluable 不臆造。定位=模型验证非跟单,结果随候选到期积累。
+**后台验证台账（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准;多到期结构标 not_evaluable 不臆造。它仅用于后台验证，不提供产品页面、导航或公开读取端点。
 
 **新闻摄取 MVP（R3.2,2026-07-26）**:Analyze「近期消息」区块 + `GET /api/news/:symbol`。数据源只用 IB Gateway(live 实测对比 GDELT 后拍板,GDELT 429 限流紧且标的关联要靠字符串猜测,不准)。**关键教训**:一开始接的是 `reqHistoricalNews`,实测发现它读的是一个没有刷新 SLA 的服务端缓存,同一查询隔几分钟重跑"最新一条"会变旧——改用 `reqMktData`+genericTick 292(`tickNews`,实时推送)才拿到真正新鲜的新闻。采集节奏是每 5 分钟一次的 PM2 定时任务,不是常驻订阅——Mac/IB Gateway 本来就 7×24 开着,两种方案在"要不要开机"上没有区别,MVP 只验证参与度,展示型延迟几分钟无感。`volatilityAttribution` 的"消息面"归因有真实新闻时会引用具体 headline(仍是"仅参考、不构成因果"的措辞),没有则退回原来的隔夜跳空代理。**MVP 暂无文章链接**(`tickNews` 不带 URL,取全文/链接要等以后接 `reqNewsArticle`)。详见 `docs/validation/NEWS_SOURCE_SELECTION_2026-07-26.md`。
 
 Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
-- 本周定调：last five actual daily bars and a transparent composite score;
+- 本周定调：last five actual daily bars and a user-facing composite state label;
 - Gamma 迁徙：one actual latest GEX/by-strike snapshot per New York market date;
 - 交割偏离：latest actual Max Pain versus latest close;
 - 仓位变化：daily aggregate ΔOI and unusual count, never described as dollar flow;
@@ -1287,7 +1288,7 @@ Weekly consumes `/api/weekly/:symbol` and has no symbol-specific mock path:
 
 `Home.jsx` is the first product signal. It uses the scanner interface as the hero visual, reads the real Market Regime endpoint for context, and exposes direct actions for the three core workflows. It does not duplicate feature documentation or hide the actual app behind a signup screen. `/learn` stays available as a distinct education workspace.
 
-The hero's highlighted first action is `分析标的` (`/analyze?symbol=SPY`); `打开扫描器` (`/scan`) is the secondary action. The workflow grid follows the same priority: Analyze, Scan, then Weekly. A direct `/analyze` visit also defaults to SPY.
+The hero's highlighted first action is `分析标的` (`/analyze?symbol=SPY`); `打开期权扫描` (`/scan`) is the secondary action. The workflow grid follows the same priority: 个股/ETF 分析、期权扫描、周复盘. A direct `/analyze` visit also defaults to SPY.
 
 ### Analyze 与 Scanner 的真实数据边界
 
@@ -1394,6 +1395,8 @@ Payoff 图的蓝色阴影是以策略各腿的数量加权 IV、最长 DTE、利
 ### Scanner 的 Expected Move 与 POP
 
 Scanner 对每个具体候选单返回两个可复核的模型对象，而不是固定的“胜率”数字。`Expected Move` 使用同一到期日、最接近现价的 Call 和 Put 的 IV 均值，按 `spot × IV × sqrt(calendar DTE / 365)` 计算一标准差价格区间；结果会声明模型版本、输入合约、IV、DTE、上下界和快照时间。
+
+上述对象用于后台验证与 API 契约；Scanner 前台只显示 EM/POP 结果和通用风险提示，不显示公式、模型版本、输入选择、利率或分布假设。
 
 `POP` 使用该 IV，在候选单到期日按风险中性对数正态分布计算价格落在可盈利区间的模型概率。盈亏平衡点严格从候选单真实 bid/ask 选腿推导，利率来自 `SCAN_RISK_FREE_RATE`（默认 4.5%），股息率当前假设为 0。它不是历史回测胜率、成交保证或投资建议。
 

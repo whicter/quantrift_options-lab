@@ -10,11 +10,18 @@ const PRODUCTS = [
 ];
 
 const HERO_PREVIEW_ROWS = [
-  { symbol: 'SPY', price: '$642.08', iv: 'IV Rank 42', gamma: 'Positive Gamma', wall: 'Call Wall $650', strategy: 'Bull Put Spread', score: '82' },
-  { symbol: 'QQQ', price: '$571.42', iv: 'IV Rank 37', gamma: 'Positive Gamma', wall: 'Put Wall $560', strategy: 'Iron Condor', score: '78' },
-  { symbol: 'AAPL', price: '$213.50', iv: 'IV Rank 31', gamma: 'Balanced Gamma', wall: 'Call Wall $220', strategy: 'Call Calendar', score: '74' },
-  { symbol: 'NVDA', price: '$164.92', iv: 'IV Rank 56', gamma: 'Negative Gamma', wall: 'Put Wall $160', strategy: 'Bear Call Spread', score: '71' },
+  { symbol: 'SPY', price: '$642.08', iv: 'IV Rank 42', gamma: 'Positive Gamma', wall: 'Call Wall $650', strategy: 'Bull Put Spread', match: '较高' },
+  { symbol: 'QQQ', price: '$571.42', iv: 'IV Rank 37', gamma: 'Positive Gamma', wall: 'Put Wall $560', strategy: 'Iron Condor', match: '较高' },
+  { symbol: 'AAPL', price: '$213.50', iv: 'IV Rank 31', gamma: 'Balanced Gamma', wall: 'Call Wall $220', strategy: 'Call Calendar', match: '中等' },
+  { symbol: 'NVDA', price: '$164.92', iv: 'IV Rank 56', gamma: 'Negative Gamma', wall: 'Put Wall $160', strategy: 'Bear Call Spread', match: '中等' },
 ];
+
+function momentumState(momentum) {
+  if (momentum?.status !== 'ready') return '数据不足';
+  if (momentum.score >= 60) return '动量偏强';
+  if (momentum.score <= 40) return '动量偏弱';
+  return '动量中性';
+}
 
 export default function Home() {
   const [market, setMarket] = useState(null);
@@ -28,7 +35,7 @@ export default function Home() {
             <span>ILLUSTRATIVE RESEARCH VIEW · 示例数据，非当前市场</span>
           </div>
           <div className="home-dashboard-head">
-            <span>标的</span><span>波动</span><span>期权定位</span><span>候选单</span><span>分数</span>
+            <span>标的</span><span>波动</span><span>期权环境</span><span>候选单</span><span>匹配度</span>
           </div>
           {HERO_PREVIEW_ROWS.map(row => (
             <div className="home-dashboard-row" key={row.symbol}>
@@ -36,7 +43,7 @@ export default function Home() {
               <span>{row.iv}</span>
               <span><i className={row.gamma.startsWith('Negative') ? 'negative' : ''} />{row.gamma}<small>{row.wall}</small></span>
               <span>{row.strategy}</span>
-              <b>{row.score}</b>
+              <b>{row.match}</b>
             </div>
           ))}
           <img className="home-hero-mark" src={heroMark} alt="" />
@@ -56,7 +63,7 @@ export default function Home() {
           {(market?.instruments || []).map(item => (
             <div key={item.symbol}>
               <span>{item.symbol}</span>
-              <strong>{item.momentum?.status === 'ready' ? item.momentum.score : '--'}</strong>
+              <strong>{momentumState(item.momentum)}</strong>
               <small>{item.gex?.gamma_regime ? `${item.gex.gamma_regime} Gamma` : 'GEX 暂不可用'}</small>
             </div>
           ))}

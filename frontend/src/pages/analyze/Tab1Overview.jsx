@@ -13,7 +13,7 @@ function Badge({ label, value, colorFn }) {
 }
 
 export default function Tab1Overview({ data }) {
-  const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, recommendationUnavailableReason, earnings,
+  const { sector, gexTotal, putWall, callWall, trend, conclusion, scenarios, price, recommendation, earnings,
     ivHvDiff, gammaFlip, localGamma, focusScore, supportResistance, mfi } = data;
   const gexPositive = gexTotal > 0;
   const gexStr = compactMoney(gexTotal);
@@ -214,7 +214,7 @@ export default function Tab1Overview({ data }) {
         <div className="az-card" style={{ marginTop: 12 }}>
           <div className="az-card-title">策略候选</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            {recommendationUnavailableReason ? '当前没有可用的策略候选。' : '当前没有可用的策略候选。'}
+            当前没有可用的策略候选。
           </div>
         </div>
       )}

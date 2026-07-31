@@ -19,6 +19,7 @@ const SECTIONS = [
 const COMMON_SYMBOLS = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMZN', 'META', 'MSFT'];
 
 function toViewModel(result) {
+  const stateLabel = result.score < 30 ? '偏弱' : result.score < 50 ? '中性偏弱' : result.score < 70 ? '中性偏强' : '偏强';
   return {
     symbol: result.symbol,
     week: `${result.period.start} - ${result.period.end}`,
@@ -30,7 +31,8 @@ function toViewModel(result) {
     candles: result.price.candles,
     priceMeta: { latestDate: result.period.end, freshness: 'fresh', isStale: false },
     tone: result.tone,
-    modelScore: result.score,
+    stateScore: result.score,
+    stateLabel,
     gamma: result.gamma,
     pinning: result.pinning,
     positioning: result.positioning,
@@ -126,8 +128,8 @@ export default function Weekly() {
             </div>
             <div className="wk-overview-score">
               <span>综合状态</span>
-              <strong>{data.modelScore}</strong>
-              <small>{data.modelScore < 30 ? '偏弱' : data.modelScore < 50 ? '中性偏弱' : data.modelScore < 70 ? '中性偏强' : '偏强'}</small>
+              <strong>{data.stateLabel}</strong>
+              <small>周度观察</small>
             </div>
           </div>
           <div className="wk-section-nav">

@@ -115,7 +115,9 @@ Universe reference metadata is complete: `collect_universe_metadata.py` uses Pol
 
 Unusual Whales sweep/TRF data layer is code-complete: account-configured WebSocket JSON transport, official FlowAlert/TradeReport normalization, idempotent event/state tables, `/api/flow/:symbol`, Analyze UI and disabled-safe PM2 process. Railway migration is applied and both empty tables are confirmed. PM2 registration is saved and disabled runtime remains online/idle with restart count 0. Fresh stream + no ticker event is quiet; absent heartbeat is missing; only `market_center=L/2` is dark pool. Collector 95, server 62, frontend 25, lint and build pass. Real stream acceptance requires `UW_WS_URL`, `UW_API_TOKEN`, and the account subscription envelope.
 
-Composite Momentum is complete in `/api/sr/:symbol` and Analyze Tab2: regular-session 30M, daily and weekly-aggregated closes produce disclosed 30/40/30 weighted components. Missing timeframe history fails closed; lagging 30M marks the result stale. Railway AAPL replay used 250 daily/200 intraday rows and returned 84 with a correct 7/15 vs 7/14 stale gate.
+Composite Momentum is complete in `/api/sr/:symbol` and Analyze Tab2: regular-session 30M, daily and weekly-aggregated closes retain internal 30/40/30 weighted components, while the UI shows only timeframe states and the composite label. Missing timeframe history fails closed; lagging 30M marks the result stale. Railway AAPL replay used 250 daily/200 intraday rows and returned 84 with a correct 7/15 vs 7/14 stale gate.
+
+2026-07-30 产品壳与公开信息边界已统一：导航为市场概览/个股分析/期权扫描/周复盘/策略库，Analyze 标题为个股/ETF 分析，Market 与其他产品页共享弹性内容宽度，Analyze 报价头部统一字号和主次行。`DataDetails`、`/ledger` 页面和公开 ledger 读取端点已删除；provider、模型、公式、参数、覆盖与队列信息只留后台，`candidate_ledger` 继续内部 capture/evaluate。
 
 Analyze P1.2 已完成：`/api/sr/:symbol` 从最多 250 根真实日线派生 pivots/Focus；`/api/chain/stats/:symbol` 从真实 IV contracts 派生 skew/term structure。日期统一 ISO；纽约当日 incomplete volume 不算 daily RVol；缺真实数据不生成 mock 曲线或 synthetic legs。
 

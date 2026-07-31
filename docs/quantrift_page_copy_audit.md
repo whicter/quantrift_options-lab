@@ -4,6 +4,8 @@
 审查基准：`b71c7eff7e0fba9e4c3e1238b995d824c91b5f1a`（2026-07-16 拉取）
 审查范围：用户可见页面、导航、状态提示、图表标题、风险文案与 HTML metadata。本文审查的是文案准确性和用户可能形成的理解，不等同于代码安全审计或量化模型验证。
 
+> **2026-07-30 policy supersession:** 本文保留 2026-07-16 的原始审计证据，但“将实现细节放进数据详情”的建议已被新边界取代。产品前台现在只展示结果、用户可理解的状态、时间和风险；模型版本、公式、参数、阈值依据、评分构成、权重、代理假设、provider、覆盖与队列信息全部保留在后台。`DataDetails` 与 `/ledger` 产品页面均已删除。
+
 ## 等级定义
 
 - **P0 — 阻断上线**：可能让用户误认为演示/研究结果是实时数据、交易动作或权威指标，存在明显财务误导风险。
@@ -31,13 +33,15 @@ The following status reflects a source-level implementation review after the cop
 | Audit area | Status | Implemented outcome |
 |---|---|---|
 | Global metadata, language, theme labels, persistent risk disclosure | Complete | `zh-CN`, product title/description, Chinese theme controls, and the research/risk footer are in the app shell. |
-| Homepage static preview and product boundary | Complete | Hero is labeled illustrative/non-current; the copy says covered symbols, snapshot candidates and decision support rather than live market/execution. |
-| Analyze terminology, GEX, walls, IV, POP, earnings and tabs | Complete | Snapshot/model wording, conditional scenarios, GEX positioning qualification, and POP/earnings limitations replace deterministic or advisory language. |
+| Homepage static preview and product boundary | Complete | Hero is labeled illustrative/non-current; opaque numeric scores are replaced by match-state labels. |
+| Analyze terminology, GEX, walls, IV, POP, earnings and tabs | Complete | Result-oriented wording, conditional scenarios and generic risk caveats replace deterministic, advisory or implementation-level explanations. |
 | Trend, PCR, OBV and external-event interpretation | Complete | OBV is price-volume momentum; PCR describes relative Put/Call measures; event flow shows timestamped external events rather than asserted net flow. |
-| Scan labels, score, Gamma, community and strategy language | Complete | Stored quote snapshot, heuristic filter-match score, model positioning, sample-limited community context, and candidate-not-order wording are used. |
-| Weekly score, Gamma/Wall/Max Pain/OI and playbook | Complete | The custom score is now a weekly model score; gamma/wall/max-pain and scenarios are framed as model/conditional observations. |
-| Learn, payoff export, portfolio and account copy | Complete | Greeks and payoff ranges use model assumptions; exports are annotated; portfolio close is a record-only action; plans use snapshot-frequency wording. |
-| GEX unit and positioning-model disclosure | Complete | The calculation uses the 1%-move unit, carries model version/unit metadata, and UI/wiki wording states it is an estimate based on assumptions. |
+| Scan labels, score, Gamma, community and strategy language | Complete | Candidate-not-order wording is retained; numeric match scores and scoring ingredients are replaced by state labels and generic risk text. |
+| Weekly score, Gamma/Wall/Max Pain/OI and playbook | Complete | The raw composite score is hidden; gamma/wall/max-pain and scenarios remain conditional observations. |
+| Learn, payoff export, portfolio and account copy | Complete | Standard educational concepts remain; product-specific estimate mechanics are removed from visible chart labels and tooltips. |
+| GEX unit and positioning-model governance | Superseded 2026-07-30 | Backend snapshots retain version/unit metadata for validation; product UI shows only estimates, state, time and risk caveats. |
+| Product navigation, width and hierarchy | Complete 2026-07-30 | Navigation now uses 市场概览、个股分析、期权扫描、周复盘、策略库；`/market` shares the same elastic page width; Analyze ticker/price typography and header rows are aligned. |
+| Implementation-detail exposure | Complete 2026-07-30 | `DataDetails` was removed from Analyze/Scan/Weekly; the public ledger page/API were removed while durable backend validation remains. |
 
 ### Remaining items that are not completed in this pass
 
@@ -55,7 +59,7 @@ The following status reflects a source-level implementation review after the cop
 | `frontend/index.html:7` | `<title>options-lab</title>` | P2 | 使用内部项目名，品牌、产品用途和搜索意图都没有体现。 | `<title>Quantrift — Options Research & Strategy Lab</title>` |
 | `frontend/index.html` | 缺少 description | P3 | 搜索结果没有受控摘要。 | `<meta name="description" content="Quantrift combines price trends, options positioning, volatility and defined-risk strategy research in one workflow.">` |
 | 全站 | `Dark` / `Light` | P3 | 与中文主界面不一致。 | `深色` / `浅色` |
-| 全站 | 多处 `price_history`、`materialized snapshot`、`collector watchlist`、`regular-session 30M bars` | P2 | 将实现细节直接暴露给终端用户；用户无法据此采取行动。 | 分别改为 `价格历史`、`已生成的数据快照`、`数据覆盖列表`、`常规交易时段 30 分钟K线`。技术字段可放进“数据详情”。 |
+| 全站 | 多处 `price_history`、`materialized snapshot`、`collector watchlist`、`regular-session 30M bars` | P2 | 将实现细节直接暴露给终端用户；用户无法据此采取行动。 | 统一改为用户可理解的结果或可用状态；技术字段不进入产品前台。 |
 | 全站 | 没有持续可见的研究/数据风险说明 | P1 | 单句“不构成建议”只出现在局部页面，且页面同时给出“推荐策略、目标、止损”等强行动语言。 | 页脚固定文案：`仅供研究与教育用途，不构成投资建议或交易指令。期权可能导致全部本金损失，裸卖策略的损失可能超过初始收取的权利金。数据可能延迟、不完整或存在计算误差。` |
 
 ## `/` 首页
@@ -73,13 +77,13 @@ The following status reflects a source-level implementation review after the cop
 | `GEX unavailable` | P3 | 语言不一致。 | `GEX 暂不可用` |
 | `把价格趋势与期权仓位变成可核验的研究路径。` | P2 | “可核验”需要同时提供数据源、快照时间、公式和计算口径；目前首页没有这些信息。 | `把价格趋势与期权仓位整理成带数据状态的研究路径。` |
 
-## `/analyze` 标的分析入口
+## `/analyze` 个股/ETF 分析入口
 
 来源：`frontend/src/pages/Analyze.jsx`
 
 | 具体原文 | 等级 | 问题 | 推荐替换文案 |
 |---|---:|---|---|
-| `盘中即时分析` | **P0** | 页面混合日线、30 分钟线、期权快照和外部 flow；“即时”暗示当前、同步且实时。 | `标的分析` |
+| `盘中即时分析` | **P0** | 页面混合日线、30 分钟线、期权快照和外部 flow；“即时”暗示当前、同步且实时。 | `个股/ETF 分析` |
 | `输入标的，查看 GEX 结构、趋势格局、期权信号与筹码位置` | P1 | “筹码”不是此处数据的规范定义；OI、GEX、成交量不能识别持仓者成本或身份。 | `输入标的，查看 GEX 估算、价格趋势、期权链指标与关键价位。` |
 | `高IV — 卖方有优势` | **P1** | IV 高不等于期权被高估，也不保证卖方有正期望；需要与实现波动率、期限结构、事件风险和交易成本比较。 | `IV Rank 较高 · 相对自身历史区间` |
 | `低IV — 买方有优势` | **P1** | IV 低也可能对应低预期波动，买方仍会损失时间价值。 | `IV Rank 较低 · 相对自身历史区间` |
@@ -117,7 +121,7 @@ The following status reflects a source-level implementation review after the cop
 | `缩量，趋势可靠性存疑` | P2 | 缩量在盘整、假期或稳定趋势中含义不同。 | `成交量低于参考水平；信号确认度有限。` |
 | `PCR < 0.6：看多拥挤，逆向需谨慎` | P1 | PCR 受标的、期限、保护性 Put、卖出 Put 等影响，不能直接判定拥挤。 | `PCR(OI) 较低，Call OI 相对较多；方向含义需结合成交方向、期限与持仓用途。` |
 | `PCR > 1.0：看空拥挤，可能存在反弹机会` | **P1** | 从聚合 PCR 直接推断反弹机会属于未经验证的交易结论。 | `PCR(OI) 较高，Put OI 相对较多；该比率本身不预测反弹。` |
-| `Kalman Filter` | P2 | 页面未说明滤波参数，用户无法复核“趋势格局”。 | 标题改为 `模型平滑趋势`；数据详情增加参数、采样周期和最后更新时间。 |
+| `Kalman Filter` | P2 | 直接暴露内部平滑方法，对用户决策没有必要。 | 标题改为 `价格趋势概览`；参数与采样方法保留后台。 |
 
 ## `/analyze` → 期权结构
 
@@ -148,7 +152,7 @@ The following status reflects a source-level implementation review after the cop
 | `突破前建议观望，勿追高` | P1 | 这是直接交易建议，与免责声明冲突。 | `突破前仍处于 Call Wall 观察位下方；页面不据此给出交易指令。` |
 | `今天最该观察的风险点` | P2 | 数据可能不是今天或已 stale。 | `当前数据快照下最接近的模型观察位` |
 
-## `/scan` 扫描器
+## `/scan` 期权扫描
 
 来源：`frontend/src/pages/Scan.jsx`
 
@@ -269,32 +273,32 @@ The following status reflects a source-level implementation review after the cop
 | 具体原文 | 等级 | 问题 | 推荐替换文案 |
 |---|---:|---|---|
 | Free：`策略学习与延迟分析。` | P2 | 没有定义延迟多久、哪些数据延迟、是否有扫描额度。 | `策略学习；分析数据可能延迟。具体数据时效与使用限制见方案详情。` |
-| Pro：`实时分析、扫描器、提醒与组合持仓。` | **P0** | “实时”必须有明确数据授权、来源、刷新频率和服务边界；目前多个页面本身存在 stale/待接入状态。 | `更高频的数据快照、扫描器、条件提醒与持仓记录。数据频率和覆盖范围因来源而异。` |
+| Pro：`实时分析、扫描器、提醒与组合持仓。` | **P0** | “实时”必须有明确数据授权、来源、刷新频率和服务边界；目前多个页面本身存在 stale/待接入状态。 | `更高频的数据快照、期权扫描、条件提醒与持仓记录。数据频率和覆盖范围因来源而异。` |
 | `可用功能 {count}` | P3 | 数量对用户没有意义。 | 直接列出功能名称，或改为 `已启用 {count} 项功能` 并提供展开列表。 |
 | 原始订阅状态 `{account.subscription.status}` | P3 | 可能直接显示 `past_due`、`incomplete_expired` 等内部枚举。 | 映射为中文状态，并为欠费/取消提供明确下一步。 |
 
 ## 建议统一采用的数据标签
 
-所有分析、扫描和复盘卡片都建议固定显示以下四项，避免反复使用含糊的“真实”“实时”“最新”：
+产品前台只固定显示用户能理解并用于判断结果是否可用的信息；完整 provenance、模型参数与覆盖明细留在后台审计记录：
 
 | 字段 | 示例 |
 |---|---|
-| 数据来源 | `Polygon options snapshot` |
-| 快照时间 | `2026-07-16 12:35 PT` |
-| 新鲜度 | `延迟约 15 分钟` / `收盘数据` / `实时流` |
-| 计算口径 | `GEX model v1 · 0–60 DTE · OI as of prior close` |
+| 数据截至 | `2026-07-16 12:35 ET` |
+| 可用状态 | `已更新` / `延迟` / `部分可用` / `暂不可用` |
+| 结果口径 | `模型估算` / `收盘数据` / `报价快照` |
+| 风险提示 | `仅供研究，不代表可成交价格或实现结果` |
 
 页面中的推荐统一改为“候选”或“情景”；预测性动词统一改为条件表达：
 
 - `会反弹` → `若出现反弹，观察…`
 - `确认上攻` → `满足确认条件后，观察上行延续性`
 - `触发加速` → `观察波动是否扩大`
-- `支撑/压力` → `模型观察位`，除非另有经过验证的 S/R 计算
-- `真实报价` → `报价快照`
+- `支撑/压力` → `观察位`，除非另有经过验证的 S/R 计算
+- `真实报价` → `市场价格可能变化`
 - `实时` → 明确的刷新频率或 `数据截至…`
 
 ## 总体结论
 
-当前最大问题不是语法，而是**确定性和权威性过强**：静态 demo 被包装成 live、启发式分数被包装成情绪指数、聚合 OI/GEX 被用来推断做市商持仓和价格因果、快照报价被称为“真实报价”，以及研究记录按钮使用了近似交易执行的措辞。
+原始审计的最大问题不是语法，而是**确定性和权威性过强**：静态 demo 被包装成 live、启发式分数被包装成情绪指数、聚合 OI/GEX 被用来推断做市商持仓和价格因果、快照报价被称为“真实报价”，以及研究记录按钮使用了近似交易执行的措辞。2026-07-30 的实现已进一步删除所有产品级实现细节和内部数字分数。
 
-上线前至少应完成全部 P0 和 P1。P2/P3 可以分批处理，但“数据来源 + 时间戳 + 新鲜度 + 模型口径”最好作为一个全站组件一次性解决，否则每个页面还会继续产生相同的可信度问题。
+上线前至少应完成全部 P0 和 P1。P2/P3 可以分批处理；前台统一使用“结果 + 数据截至 + 可用状态 + 风险提示”，完整 provider、模型版本、公式、参数和覆盖信息只进入后台审计或受控管理工具。
