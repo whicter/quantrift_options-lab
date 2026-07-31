@@ -63,7 +63,7 @@ export default function Earnings() {
               </section>
             ))}
           </div>
-          <p className="earnings-foot">数据源：已落库的 earnings_date。此日历仅供研究，不构成买卖建议。</p>
+          <p className="earnings-foot">财报日期仅供研究；时间可能调整，不构成买卖建议。</p>
         </section>
       )}
     </main>

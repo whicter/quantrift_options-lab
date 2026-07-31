@@ -26,11 +26,9 @@ export function applyGex(data, gexData) {
       partialData: {
         type: 'gex_unusable',
         title: 'GEX / Wall 暂不可用',
-        message: gexData?.raw_metrics?.model_version && gexData.raw_metrics.model_version !== SUPPORTED_GEX_MODEL_VERSION
-          ? 'GEX 快照使用旧模型口径，等待新模型重算后再生成 GEX / Wall 结论和期权策略腿。'
-          : gexData?.freshness === 'stale'
-          ? 'GEX/Wall 快照已过期，暂不生成 Call Wall / Put Wall 结论和期权策略腿。'
-          : 'GEX/Wall 快照不可用，暂不生成 Call Wall / Put Wall 结论和期权策略腿。',
+        message: gexData?.freshness === 'stale'
+          ? '期权数据已延迟，相关结论与策略候选暂不可用。'
+          : '期权数据暂不可用，相关结论与策略候选暂不显示。',
       },
       gexTotal: null,
       gexByStrike: [],
@@ -46,14 +44,6 @@ export function applyGex(data, gexData) {
       conclusion: 'GEX/Wall 数据不可用或已过期；当前不显示 Call Wall / Put Wall 结论。',
       recommendation: null,
       gexNotice: null,
-      gexMeta: gexData && gexData.freshness !== 'missing' ? {
-        source: gexData.source,
-        snapshotTs: gexData.snapshot_ts,
-        freshness: gexData.freshness,
-        confidence: gexData.confidence,
-        reason: gexData.is_stale ? 'stale' : 'unusable',
-        metadata: gexData.gex_metadata || null,
-      } : null,
     };
   }
 
@@ -61,12 +51,6 @@ export function applyGex(data, gexData) {
     .map(row => ({
       strike: toNumber(row.strike),
       gex: toNumber(row.net_gex),
-      callGex: toNumber(row.call_gex),
-      putGex: toNumber(row.put_gex),
-      callOi: toNumber(row.call_oi),
-      putOi: toNumber(row.put_oi),
-      callVolume: toNumber(row.call_volume),
-      putVolume: toNumber(row.put_volume),
     }))
     .filter(row => row.strike != null && row.gex != null);
 
@@ -105,18 +89,6 @@ export function applyGex(data, gexData) {
     gammaFlip,
     localGamma,
     gammaRegime: gexData.gamma_regime,
-    gexMeta: {
-      source: gexData.source,
-      snapshotTs: gexData.snapshot_ts,
-      freshness: gexData.freshness,
-      isStale: Boolean(gexData.is_stale),
-      ageMinutes: toNumber(gexData.age_minutes),
-      confidence: gexData.confidence,
-      providerStatus: gexData.provider_status,
-      wallMethod: gexData.wall_method,
-      rawMetrics: gexData.raw_metrics || null,
-      metadata: gexData.gex_metadata || null,
-    },
     scenarios: {
       ...data.scenarios,
       upTrigger: Number(callWall.toFixed(2)),
@@ -135,30 +107,22 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats, volume
   return {
     ...data,
     supportResistance: srReady ? {
-      support: supportResistance.support || [],
-      resistance: supportResistance.resistance || [],
-      method: supportResistance.method,
-      source: supportResistance.source,
-      latestDate: supportResistance.latest_date,
-      barCount: supportResistance.bar_count,
+      support: (supportResistance.support || []).map(level => ({ price: toNumber(level.price) })).filter(level => level.price != null),
+      resistance: (supportResistance.resistance || []).map(level => ({ price: toNumber(level.price) })).filter(level => level.price != null),
     } : null,
-    focusScore: srReady && supportResistance.focus?.ready ? supportResistance.focus : null,
+    focusScore: srReady && supportResistance.focus?.ready ? {
+      label: supportResistance.focus.label,
+    } : null,
     obv: srReady && supportResistance.obv?.status === 'ready' ? {
-      latest: toNumber(supportResistance.obv.latest),
-      change20d: toNumber(supportResistance.obv.change_20d),
       trend: supportResistance.obv.trend,
       series: supportResistance.obv.series || [],
     } : null,
     mfi: srReady && supportResistance.mfi?.status === 'ready' ? {
       value: toNumber(supportResistance.mfi.value),
       signal: supportResistance.mfi.signal,
-      period: supportResistance.mfi.period,
     } : null,
     compositeMomentum: srReady && supportResistance.momentum ? supportResistance.momentum : null,
     volumeProfile: volumeProfile?.status === 'ready' ? {
-      source: volumeProfile.source,
-      days: volumeProfile.days,
-      barCount: volumeProfile.bar_count,
       priceLow: toNumber(volumeProfile.price_low),
       priceHigh: toNumber(volumeProfile.price_high),
       totalVolume: toNumber(volumeProfile.total_volume),
@@ -166,22 +130,12 @@ export function applyDerivedAnalysis(data, supportResistance, chainStats, volume
       highVolumeNodes: volumeProfile.high_volume_nodes || [],
     } : null,
     chainStats: chainReady ? {
-      source: chainStats.source,
-      snapshotTs: chainStats.snapshot_ts,
-      freshness: chainStats.freshness,
       termStructure: chainStats.term_structure || [],
       skew: chainStats.skew || { expiry: null, points: [] },
-      ivContractCount: chainStats.iv_contract_count || 0,
       oiDensity: chainStats.oi_density?.status === 'ready' ? {
-        source: chainStats.oi_density.source,
         snapshotTs: chainStats.oi_density.snapshot_ts,
         freshness: chainStats.oi_density.freshness,
-        aggregation: chainStats.oi_density.aggregation,
-        expiryCount: chainStats.oi_density.expiry_count || 0,
-        contractCount: chainStats.oi_density.contract_count || 0,
-        totalOpenInterest: chainStats.oi_density.total_open_interest || 0,
         maxPain: toNumber(chainStats.oi_density.max_pain),
-        windowPct: toNumber(chainStats.oi_density.window_pct),
         points: chainStats.oi_density.points || [],
       } : null,
     } : null,
@@ -193,17 +147,8 @@ function buildGexNotice(gexData) {
   const partial = gexData.confidence === 'low';
   if (!stale && !partial) return null;
 
-  const age = toNumber(gexData.age_minutes);
-  const ageText = age == null ? '' : `，快照约 ${age} 分钟前采集`;
-  const quality = gexData.quality || {};
-  const contractCount = toNumber(quality.contract_count);
-  const missingOiRatio = toNumber(quality.missing_oi_ratio);
-  const oiText = contractCount == null || missingOiRatio == null
-    ? ''
-    : `，${contractCount} 个合约中约 ${(missingOiRatio * 100).toFixed(1)}% 暂缺 OI`;
-
   return {
-    title: stale ? '延迟期权快照' : '部分期权数据',
-    message: `当前仍展示已采集的 GEX 模型估算、Call Wall 与 Put Wall${ageText}${oiText}。`,
+    title: stale ? '期权数据延迟' : '部分期权数据可用',
+    message: '当前结果可能不完整，请结合页面时间与风险提示使用。',
   };
 }

@@ -19,8 +19,7 @@ export default function Market() {
         <div className="product-kicker">Market pulse · 市场脉搏</div>
         <h1 className="product-title">市场 · Market</h1>
         <p className="product-subtitle">
-          整个覆盖池现在处于什么状态——规则把每个标的判成一个市场状态（描述状态、不给买卖动作），
-          点标的看触发原因。上方是全市场宽度与覆盖池期权体征，下方是逐标的状态矩阵。
+          查看市场宽度、期权环境、标的状态与板块相对表现。页面描述当前市场，不提供买卖指令。
         </p>
       </header>
 
@@ -81,10 +80,8 @@ export default function Market() {
                         key={sym.symbol}
                         className="sm-sym"
                         to={`/analyze?symbol=${encodeURIComponent(sym.symbol)}`}
-                        title={sym.reasons.join(' · ')}
                       >
                         <b>{sym.symbol}</b>
-                        <small>{sym.signal}</small>
                       </Link>
                     ))}
                   </div>
@@ -92,8 +89,7 @@ export default function Market() {
               ))}
           </div>
           <p className="sm-foot">
-            点标的 → 分析页；小字是触发该状态的信号，不是买卖建议。阈值：IV Rank≥{view.thresholds?.ivrHigh ?? 80} 判高波动、
-            突破需放量 RVol≥{view.thresholds?.rvolBreakout ?? 1.5}、回调/企稳需 5 日动量超 ±{view.thresholds?.momBand ?? 1.5}%。
+            点标的进入分析页。状态仅用于研究观察，不构成买卖建议。
           </p>
           </section>
         )}

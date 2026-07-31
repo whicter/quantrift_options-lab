@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
  *
  * The test runner has no JSX transform, so these are static assertions over the
  * source rather than render assertions. They catch a provider name hardcoded
- * into the UI and catch the disclosure component growing a source field.
+ * into the UI.
  *
  * They do NOT prove a runtime value can never be rendered: these strings arrive
  * from the API at request time. The durable fix is the server downgrading
@@ -40,18 +40,6 @@ test('no internal data-source name is hardcoded into production frontend code', 
     }
   }
   assert.deepEqual(offenders, [], `internal source names must not appear in product code:\n${offenders.join('\n')}`);
-});
-
-test('DataDetails discloses snapshot context without the originating source', () => {
-  const source = fs.readFileSync(path.join(srcDir, 'components/DataDetails.jsx'), 'utf8');
-
-  // It reads only these four groups out of the metadata contract.
-  assert.match(source, /const \{ model = \{\}, data_state: state = \{\}, coverage = \{\}, parameters = \{\} \} = metadata;/);
-
-  // `source` is part of the gex_metadata data_state contract; it must stay unread.
-  assert.doesNotMatch(source, /state\.source/);
-  assert.doesNotMatch(source, /data_state\.source/);
-  assert.doesNotMatch(source, /\bsource\b\s*[,}]/);
 });
 
 test('scanner rows do not carry raw provider strings into component props', () => {

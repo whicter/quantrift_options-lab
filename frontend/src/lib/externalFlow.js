@@ -10,7 +10,6 @@ export function applyExternalFlow(data, flowData) {
   return {
     ...data,
     externalFlow: {
-      source: flowData.source,
       status: flowData.status,
       freshness: flowData.freshness,
       isStale: Boolean(flowData.is_stale),

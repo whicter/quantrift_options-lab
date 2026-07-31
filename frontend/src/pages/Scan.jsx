@@ -5,7 +5,6 @@ import ScannerAlerts from '../components/ScannerAlerts';
 import { gammaBehavior, gammaHeadline, splitScannerDetails, wallSummary } from '../lib/scannerPresentation';
 import { OPPORTUNITY_PRESETS } from '../lib/scannerPresets';
 import { dedupeScannerRows, nextScannerSort, scanCandidateId, sortScannerRows } from '../lib/scannerResults';
-import DataDetails from '../components/DataDetails';
 
 const STRATEGY_OPTIONS = [
   'Iron Condor', 'Bull Put Spread', 'Bear Call Spread', 'Long Straddle',
@@ -17,7 +16,7 @@ const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
 const STRATEGY_PARAMETER_PRESETS = {
   none: {
     label: '不限',
-    desc: '枚举当前快照全部达标候选',
+    desc: '查看所有符合条件的候选',
     values: {
       dteMin: '',
       dteMax: '',
@@ -42,7 +41,7 @@ const STRATEGY_PARAMETER_PRESETS = {
     },
   },
   standard: {
-    label: '平衡参数',
+    label: '平衡',
     desc: '平衡 Delta、到期日与流动性；不代表胜率或收益',
     values: {
       dteMin: '30',
@@ -107,10 +106,10 @@ const DIR_COLOR = (score) =>
 const SORTABLE_COLUMNS = [
   { key: 'symbol', label: '标的', title: '股票或 ETF 代码' },
   { key: 'ivRank', label: '波动', title: 'IV Rank：当前 IV 在过去一年隐含波动率区间中的位置。下方同时显示 IV30 / HV30。' },
-  { key: 'direction', label: '方向', title: '由价格历史派生的趋势标签。' },
-  { key: 'gex', label: '期权定位', title: 'GEX、最近 Wall 与 OI 异动。GEX 未采集时不会据此作结论。' },
-  { key: 'strategy', label: '策略候选', title: '基于已采集 bid/ask 快照的合约组成具体策略腿；不保证可按显示价格成交。Calendar / Diagonal 可以跨到期日。' },
-  { key: 'score', label: '筛选匹配分', title: '根据 DTE、Delta、bid/ask spread、OI、Volume 和收益风险的启发式综合评分，用于排序，不代表胜率、预期收益或投资建议。' },
+  { key: 'direction', label: '方向', title: '当前价格趋势。' },
+  { key: 'gex', label: '期权环境', title: 'GEX、最近 Wall 与 OI 活动。' },
+  { key: 'strategy', label: '策略候选', title: '候选结构与市场价格可能变化，不保证按显示价格成交。Calendar / Diagonal 可以跨到期日。' },
+  { key: 'score', label: '匹配度', title: '仅用于结果排序，不代表胜率、预期收益或投资建议。' },
   { key: 'earnings', label: '财报', title: '下一次财报日期；括号内是距离今天的天数。' },
 ];
 
@@ -150,12 +149,24 @@ function researchModelLines(setup) {
     : 'EM 不可用';
   const probability = pop?.status === 'available' && Number.isFinite(Number(pop.probability))
     ? `POP ${(Number(pop.probability) * 100).toFixed(0)}%`
-    : pop?.reason === 'strategy_has_no_static_expiry_breakeven_model'
-      ? 'POP 需跨期情景模型'
-      : pop?.reason === 'expected_move_unavailable'
-        ? 'POP 缺少 IV 输入'
-        : 'POP 暂无模型';
+    : 'POP 暂不可用';
   return [expectedMove, probability];
+}
+
+function momentumLabel(score) {
+  const value = num(score);
+  if (value == null) return '动量不足';
+  if (value >= 60) return '动量偏强';
+  if (value <= 40) return '动量偏弱';
+  return '动量中性';
+}
+
+function matchLabel(score) {
+  const value = num(score);
+  if (value == null) return '—';
+  if (value >= 75) return '较高';
+  if (value >= 50) return '中等';
+  return '一般';
 }
 
 function oiDeltaSummary(unusual) {
@@ -227,7 +238,6 @@ function toScanRow(row, concreteSetup) {
       volumeOiRatio: num(row.volume_oi_ratio),
       score: Math.round(num(row.signal_score) ?? 0),
     },
-    gexMetadata: row.gex_metadata || null,
     unusual: {
       count: num(row.unusual_oi_count) ?? 0,
       maxDelta: num(row.max_oi_delta),
@@ -424,7 +434,7 @@ export default function Scan() {
       <div className="product-header scan-header">
         <div className="product-kicker">Opportunity finder · 机会筛选</div>
         <div className="product-title scan-title">期权扫描</div>
-        <div className="product-subtitle scan-subtitle">扫描已采集的报价快照，输出到期日、策略腿候选与模型收益风险</div>
+        <div className="product-subtitle scan-subtitle">按波动率、趋势、Gamma、流动性与策略条件查找候选</div>
       </div>
 
       {marketRegime?.regime?.status === 'ready' && (
@@ -432,12 +442,12 @@ export default function Scan() {
           <div>
             <span className="scan-market-label">Market Regime</span>
             <strong>{marketRegime.regime.label}</strong>
-            <span>综合 {marketRegime.regime.score}</span>
+            <span>当前市场环境</span>
           </div>
           {marketRegime.instruments.map(item => (
             <div key={item.symbol} className="scan-market-symbol">
               <strong>{item.symbol}</strong>
-              <span>{item.momentum.status === 'ready' ? `动量 ${item.momentum.score}` : '动量不足'}</span>
+              <span>{item.momentum.status === 'ready' ? momentumLabel(item.momentum.score) : '动量不足'}</span>
               <span>{item.gex ? `${item.gex.gamma_regime} Gamma` : 'GEX --'}</span>
               <span className={item.momentum.breakout_30m?.confirmed ? 'active' : ''}>
                 {item.momentum.breakout_30m?.confirmed
@@ -474,7 +484,7 @@ export default function Scan() {
         <div className={`scan-filters${mobileFiltersOpen ? ' mobile-open' : ''}`}>
           <div className="scan-filter-section">
             <div className="scan-filter-label">机会类型</div>
-            <div className="scan-filter-help">不知道参数怎么填时，从这里开始。</div>
+            <div className="scan-filter-help">选择一种筛选风格快速开始。</div>
             <div className="scan-opportunity-grid">
               {Object.entries(OPPORTUNITY_PRESETS).map(([key, preset]) => (
                 <button
@@ -516,8 +526,8 @@ export default function Scan() {
           </div>
 
           <div className="scan-filter-section">
-            <div className="scan-filter-label">策略参数</div>
-            <div className="scan-filter-help">系统会把风格自动转换成 DTE、Delta、bid/ask spread 和流动性条件。</div>
+            <div className="scan-filter-label">到期与流动性</div>
+            <div className="scan-filter-help">选择适合你的到期、Delta 与流动性风格。</div>
             <div className="scan-profile-grid">
               {Object.entries(STRATEGY_PARAMETER_PRESETS).map(([key, preset]) => (
                 <button
@@ -532,7 +542,7 @@ export default function Scan() {
               ))}
             </div>
             {strategyProfile === 'custom' && (
-              <div className="scan-filter-help">当前使用自定义高级参数。</div>
+              <div className="scan-filter-help">当前使用自定义条件。</div>
             )}
           </div>
 
@@ -540,7 +550,7 @@ export default function Scan() {
             <summary>高级期权数据过滤</summary>
             <div className="scan-filter-section">
               <div className="scan-filter-label">Universe / 标的池</div>
-              <div className="scan-filter-help">市值单位为十亿美元，最低日成交额单位为百万美元。元数据缺失时，填写对应条件会将该标的排除。</div>
+              <div className="scan-filter-help">市值单位为十亿美元，最低日成交额单位为百万美元。</div>
               <div className="scan-filter-row">
                 <span className="scan-filter-sub">Market Cap ($B)</span>
                 <input type="number" min={0} className="scan-num-input" placeholder="min" value={marketCapMin} onChange={e => setMarketCapMin(e.target.value)} />
@@ -562,7 +572,7 @@ export default function Scan() {
               <div className="scan-filter-row">
                 <span className="scan-filter-sub">Optionable</span>
                 <select className="scan-select" value={optionable} onChange={e => setOptionable(e.target.value)}>
-                  <option value="all">不限（允许元数据缺失）</option>
+                  <option value="all">不限</option>
                   <option value="true">仅已确认可交易期权</option>
                   <option value="false">仅不可交易期权</option>
                 </select>
@@ -618,7 +628,7 @@ export default function Scan() {
                 />
               </div>
               <div className="scan-filter-row">
-                <span className="scan-filter-sub" title="Bid/Ask Spread 百分比，按 (ask-bid)/mid 计算。">Max Spread</span>
+                <span className="scan-filter-sub" title="限制候选合约的买卖价差。">Max Spread</span>
                 <input
                   type="number" min={0} step={0.5}
                   className="scan-wide-input"
@@ -651,7 +661,7 @@ export default function Scan() {
 
             <div className="scan-filter-section">
               <div className="scan-filter-label">Gamma / Wall</div>
-              <div className="scan-filter-help">Gamma 描述 Delta 对标的价格变化的敏感度。这里显示的是基于 OI 和模型假设的定位代理，不是确定的价格预测。</div>
+              <div className="scan-filter-help">Gamma 环境用于观察波动特征，不是价格预测。</div>
               <div className="scan-filter-row">
                 <span className="scan-filter-sub" title="Gamma Regime，全局 Gamma 环境。正 Gamma 往往压制波动，负 Gamma 往往放大波动。">Gamma Regime</span>
                 <select className="scan-select" value={gammaRegime} onChange={e => setGammaRegime(e.target.value)}>
@@ -678,7 +688,7 @@ export default function Scan() {
                 />
               </div>
               <div className="scan-filter-row">
-                <span className="scan-filter-sub" title="Local Gamma，当前价格附近的 Gamma 强度；不是用户手工输入的数据，由系统从期权链计算。">Local Gamma</span>
+                <span className="scan-filter-sub" title="筛选当前价格附近的 Gamma 强度。">Local Gamma</span>
                 <input
                   type="number" min={0}
                   className="scan-wide-input"
@@ -691,7 +701,7 @@ export default function Scan() {
 
             <div className="scan-filter-section">
               <div className="scan-filter-label">Open Interest / Volume</div>
-              <div className="scan-filter-help">这些值来自期权链快照。用户不需要自己知道，通常用于排除流动性差的标的。</div>
+              <div className="scan-filter-help">用于排除流动性较差的标的。</div>
               <div className="scan-filter-row">
                 <span className="scan-filter-sub" title="Open Interest，未平仓合约数量。">Total OI</span>
                 <input
@@ -733,7 +743,7 @@ export default function Scan() {
 
             <div className="scan-filter-section">
               <div className="scan-filter-label">Unusual OI / Put-Call Ratio</div>
-              <div className="scan-filter-help">OI Delta 比较连续快照中的未平仓量变化；Put/Call Ratio 是相对比例，不直接代表市场情绪或方向。</div>
+              <div className="scan-filter-help">OI 活动与 Put/Call Ratio 仅作相对观察，不直接代表市场方向。</div>
               <label className="scan-toggle">
                 <input
                   type="checkbox"
@@ -743,7 +753,7 @@ export default function Scan() {
                 <span>仅显示 Unusual OI</span>
               </label>
               <div className="scan-filter-row">
-                <span className="scan-filter-sub" title="Unusual Count，命中 OI Delta 阈值的合约数量。">Unusual Count</span>
+                <span className="scan-filter-sub" title="显著 OI 活动的合约数量。">Unusual Count</span>
                 <input
                   type="number" min={0}
                   className="scan-wide-input"
@@ -753,7 +763,7 @@ export default function Scan() {
                 />
               </div>
               <div className="scan-filter-row">
-                <span className="scan-filter-sub" title="OI Delta，当前快照相对上一快照的 Open Interest 变化量。">OI Delta</span>
+                <span className="scan-filter-sub" title="Open Interest 的变化量。">OI Delta</span>
                 <input
                   type="number" min={0}
                   className="scan-wide-input"
@@ -821,7 +831,7 @@ export default function Scan() {
                 </span>
               )}
             </div>
-            <div className="scan-filter-help">扫描池会按需扩展；只有已生成的数据快照中具备所需字段的标的会通过筛选。</div>
+            <div className="scan-filter-help">仅显示当前具备可用数据并符合所选条件的标的。</div>
           </div>
 
           <button className="scan-btn" onClick={handleScan} disabled={loading}>
@@ -837,10 +847,10 @@ export default function Scan() {
               <div className="scan-empty-icon">⌁</div>
               <div className="scan-empty-copy">
                 <strong>尚未开始扫描</strong>
-                <span>选择机会类型或调整参数后，点击「立即扫描」</span>
+                <span>选择机会类型或调整条件后，点击「立即扫描」</span>
                 <div className="scan-empty-steps">
                   <i><b>01</b>选机会</i>
-                  <i><b>02</b>定参数</i>
+                  <i><b>02</b>定条件</i>
                   <i><b>03</b>看候选</i>
                 </div>
               </div>
@@ -848,14 +858,14 @@ export default function Scan() {
           ) : results.length === 0 ? (
             <div className="scan-empty">
               <div className="scan-empty-icon">∅</div>
-              <div>当前没有能用已采集报价快照组成的完整候选结构，请调整机会类型或参数</div>
+              <div>当前没有符合条件的完整候选结构，请调整机会类型或筛选条件</div>
             </div>
           ) : (
             <>
               <div className="scan-results-header">
                 <span>扫描结果</span>
                 <strong>{results.length}</strong>
-                <small>个基于报价快照生成的候选结构</small>
+                <small>个候选结构</small>
               </div>
               <div className="scan-table" key={`${tableSort.key}:${tableSort.direction}`}>
                 <div className="scan-table-head">
@@ -902,7 +912,6 @@ export default function Scan() {
                         wallSummary(d.gex, d.price),
                         ...splitScannerDetails(oiDeltaSummary(d.unusual)),
                       ].map((item, index) => <small key={`${d.id}:position:${index}`}>{item}</small>)}
-                      <DataDetails metadata={d.gexMetadata} compact />
                     </span>
                     <span className={`scan-candidate ${d.concreteSetup.status}`} title={[strategyAction(d.recommendation.strategy), ...d.concreteSetup.legLabels].join('\n')}>
                       <strong>{d.recommendation.strategy}</strong>
@@ -915,15 +924,15 @@ export default function Scan() {
                         <small
                           key={`${d.id}:candidate:${index}`}
                           title={item.startsWith('EM ') || item.startsWith('POP ')
-                            ? 'Expected Move 使用同到期、最接近现价的 Call/Put IV 均值与日历日。POP 仅在静态期末盈亏平衡点明确且 IV 输入完整时计算；Calendar / Diagonal 跨到期结构需要情景模型。'
+                            ? '估算区间与概率仅供研究，不保证实际价格或胜率。'
                             : undefined}
                         >
                           {item}
                         </small>
                       ))}
                     </span>
-                    <span className="scan-opportunity-score" title="DTE、Delta、spread、OI、Volume 和收益风险的启发式综合评分，仅用于排序，不代表胜率、预期收益或投资建议。">
-                      {d.concreteSetup.score}
+                    <span className="scan-opportunity-score" title="仅用于结果排序，不代表胜率、预期收益或投资建议。">
+                      {matchLabel(d.concreteSetup.score)}
                     </span>
                     <span style={{ color: d.earnings.warning ? 'var(--yellow)' : 'var(--text-muted)', fontSize: 11 }}>
                       {d.earnings.date

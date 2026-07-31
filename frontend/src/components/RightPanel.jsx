@@ -143,7 +143,7 @@ export default function RightPanel() {
           <div className="panel-subtitle">风险指标</div>
           <div className="metrics-grid">
             <div className="metric-item">
-              <div className="metric-label" title="基于当前模型输入的情景估值，不是券商实际持仓盈亏。">模型情景 P/L</div>
+              <div className="metric-label" title="情景估值不是券商实际持仓盈亏。">情景 P/L</div>
               <div className={`metric-value ${metrics.currentPL > 0 ? 'pos' : metrics.currentPL < 0 ? 'neg' : 'neu'}`}>
                 {fmt(metrics.currentPL)}
               </div>
@@ -173,7 +173,7 @@ export default function RightPanel() {
               </div>
             </div>
             <div className="metric-item">
-              <div className="metric-label" title="基于当前模型输入的估算概率，不保证实际胜率。">模型估算 POP</div>
+              <div className="metric-label" title="估算概率不保证实际胜率。">估算 POP</div>
               <div className={`metric-value ${metrics.pop > 0.5 ? 'pos' : 'neg'}`}>
                 {(metrics.pop * 100).toFixed(0)}%
               </div>

@@ -1,8 +1,4 @@
-const express = require('express');
-const pool = require('../db');
-const { evaluateOutcome, aggregateLedger } = require('../domain/scanner/ledger.cjs');
-
-const router = express.Router();
+const { evaluateOutcome } = require('../domain/scanner/ledger.cjs');
 
 function num(v) {
   if (v == null) return null;
@@ -97,50 +93,4 @@ async function evaluateLedger(db) {
   return resolved;
 }
 
-async function sendLedger(req, res) {
-  try {
-    const [resolvedRes, countRes] = await Promise.all([
-      pool.query(
-        `SELECT strategy_family, outcome, return_on_risk, pop
-         FROM candidate_ledger WHERE outcome IS NOT NULL`,
-      ),
-      pool.query(
-        `SELECT COUNT(*) tracked,
-                COUNT(*) FILTER (WHERE outcome IS NULL) pending,
-                MIN(expiry) FILTER (WHERE outcome IS NULL) next_expiry
-         FROM candidate_ledger`,
-      ),
-    ]);
-    // aggregateLedger's own `tracked` means "resolved rows passed into it"
-    // (ledger.cjs is tested on that meaning directly) -- a different concept
-    // from this route's `tracked` (every candidate ever captured, resolved or
-    // not). Destructure it out so the spread cannot silently overwrite the
-    // correct total with "count of resolved rows" (which is 0 until anything
-    // expires, and was clobbering the real total -- e.g. 23,342 captured
-    // candidates rendering as "追踪中 0" while "待到期" correctly showed 23,342).
-    const { tracked: _aggTracked, ...agg } = aggregateLedger(resolvedRes.rows.map(r => ({
-      strategy_family: r.strategy_family, outcome: r.outcome,
-      return_on_risk: num(r.return_on_risk), pop: num(r.pop),
-    })));
-    const c = countRes.rows[0] || {};
-    return res.json({
-      status: 'ready',
-      tracked: Number(c.tracked || 0),
-      pending: Number(c.pending || 0),
-      // pg parses `date` columns into a JS Date at local midnight; String(date)
-      // gives its verbose form ("Wed Jul 29 2026 00:00:00 GMT...") rather than
-      // ISO, so slice(0,10) on that produced "Wed Jul 29" instead of a real
-      // date. toISOString().slice(0,10) matches this codebase's existing
-      // convention for date columns (technicalLevels.js, supportResistance.js).
-      next_expiry: c.next_expiry ? new Date(c.next_expiry).toISOString().slice(0, 10) : null,
-      ...agg,
-    });
-  } catch (error) {
-    console.error('GET /api/scanner/ledger error:', error.message);
-    return res.status(500).json({ error: 'database error' });
-  }
-}
-
-router.get('/ledger', sendLedger);
-
-module.exports = { router, captureLedger, evaluateLedger, sendLedger };
+module.exports = { captureLedger, evaluateLedger };

@@ -27,9 +27,6 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
         <NavLink to="/scan" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           期权扫描
         </NavLink>
-        <NavLink to="/ledger" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          模型记录
-        </NavLink>
         <NavLink to="/weekly" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           周复盘
         </NavLink>

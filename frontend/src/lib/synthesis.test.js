@@ -105,7 +105,7 @@ test('C6 attribution: overnight gap + negative gamma amplification', () => {
   assert.ok(r.clauses.some(c => c.includes('量能确认')));
 });
 
-test('C6 attribution: a real recent headline replaces the generic overnight-gap proxy', () => {
+test('C6 attribution: a real recent headline uses the compact disclosure', () => {
   const bars = [
     { close: 100 },
     { open: 95, high: 95.5, low: 94.5, close: 95 },
@@ -118,17 +118,17 @@ test('C6 attribution: a real recent headline replaces the generic overnight-gap 
   assert.match(r.text, /Company X Cuts Guidance/);
   assert.match(r.text, /DJ-N/);
   assert.doesNotMatch(r.text, /隔夜信息（消息面\/外盘）主导/);
-  assert.match(r.note, /真实新闻标题/);
+  assert.match(r.note, /近期消息仅作参考/);
 });
 
-test('C6 attribution: without headlines the overnight-gap proxy text is unchanged', () => {
+test('C6 attribution: without headlines uses the market-review disclosure', () => {
   const bars = [
     { close: 100 },
     { open: 95, high: 95.5, low: 94.5, close: 95 },
   ];
   const r = volatilityAttribution({ priceHistory: bars, iv30Pct: 30 });
   assert.match(r.text, /隔夜信息（消息面\/外盘）主导/);
-  assert.match(r.note, /无新闻源/);
+  assert.match(r.note, /仅作市场复盘/);
 });
 
 test('C6 attribution: earnings proximity wins primary attribution', () => {

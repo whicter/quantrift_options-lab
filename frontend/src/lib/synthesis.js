@@ -69,7 +69,7 @@ export function gexEnvironmentConclusion({ globalGex, localGamma, gammaFlip, pri
     text = `全局 GEX 为负（${gStr}），整体波动容易被放大；但现价附近 Gamma 为正（局部 ${lStr}），当前区域有一定减震效果，暂时压制波动。`;
   } else {
     key = 'neg_neg';
-    text = `全局与现价附近 Gamma 均为负（全局 ${gStr} / 局部 ${lStr}），对冲盘顺势，波动最容易被放大。`;
+    text = `全局与现价附近 Gamma 均为负（全局 ${gStr} / 局部 ${lStr}），当前区域的波动放大风险较高。`;
   }
 
   // Flip proximity: within 1.5% of the gamma-flip level the environment can
@@ -93,7 +93,7 @@ export function gexEnvironmentConclusion({ globalGex, localGamma, gammaFlip, pri
     divergent: lPos != null && gPos !== lPos,
     nearFlip,
     text,
-    note: '基于公开 OI 的模型估算，不代表任何参与者的真实仓位。',
+    note: 'GEX 仅作波动环境参考，不代表真实持仓或价格方向。',
   };
 }
 
@@ -170,7 +170,7 @@ export function expectedMoveConclusion({ iv30Pct, price, ivRank, dte = 30 } = {}
     daily_move_pct: dailyPct,
     to_expiry_move_dollar: dollarToExpiry,
     text: `ATM IV ${ivPct.toFixed(1)}%${rankLabel}：期权对未来 ${days} 天的定价约 ±${toExpiryPct.toFixed(1)}%${dollarToExpiry == null ? '' : `（±$${dollarToExpiry.toFixed(2)}）`}，折算日波动约 ±${dailyPct.toFixed(1)}%。`,
-    note: '按 ATM IV × √t 估算，是期权定价的隐含波动，不是方向预测。',
+    note: '估算区间不是方向或价格保证。',
   };
 }
 
@@ -282,14 +282,12 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
       surprise,
       return_pct: retPct,
       primary: 'within_pricing',
-      text: `今日${direction} ${Math.abs(retPct).toFixed(1)}%，约为期权隐含日波动的 ${surprise.toFixed(2)} 倍，波动仍在期权定价范围内，无需特别归因。`,
-      note: '模型归因，基于公开数据，不指向具体消息。',
+      text: `今日${direction} ${Math.abs(retPct).toFixed(1)}%，波动仍在期权定价范围内。`,
+      note: '仅作市场复盘，不构成因果证明。',
     };
   }
 
-  const magnitudeClause = surprise != null
-    ? `今日${direction} ${Math.abs(retPct).toFixed(1)}%，约为期权隐含日波动（±${(impliedDaily * 100).toFixed(1)}%）的 ${surprise.toFixed(2)} 倍`
-    : `今日${direction} ${Math.abs(retPct).toFixed(1)}%`;
+  const magnitudeClause = `今日${direction} ${Math.abs(retPct).toFixed(1)}%`;
 
   // Test 2 — event proximity (highest-priority attribution).
   const daysToEarnings = num(earnings?.daysAway);
@@ -314,7 +312,7 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
           : `盘中波动 ${Math.round(gapShare * 100)}% 来自隔夜跳空，隔夜信息（消息面/外盘）主导`);
       } else if (gapShare < 0.3) {
         if (!primary) primary = 'intraday';
-        clauses.push('波动主要发生在盘中，更偏结构/资金驱动而非隔夜消息');
+        clauses.push('波动主要发生在盘中，隔夜跳空影响较小');
       }
     }
   }
@@ -325,7 +323,7 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
     if (rv >= 1.3 && (obvTrend === 'inflow' || obvTrend === 'outflow')) {
       clauses.push(`RVol ${rv.toFixed(2)}× 且 OBV ${obvTrend === 'inflow' ? '上行' : '下行'}，有真实量能确认`);
     } else if (rv < 0.8) {
-      clauses.push(`RVol ${rv.toFixed(2)}× 缩量，波动更可能来自对冲盘等结构性力量而非新增资金`);
+      clauses.push(`RVol ${rv.toFixed(2)}×，量能偏低，波动缺少成交确认`);
       if (!primary) primary = 'structural';
     }
   }
@@ -335,14 +333,14 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
   const l = num(localGamma);
   if (l != null && surprise != null) {
     if (l < 0 && surprise > 1.3) {
-      clauses.push('现价附近为负 Gamma，对冲盘顺势放大了波动');
+      clauses.push('现价附近为负 Gamma，波动放大风险较高');
       if (!primary) primary = 'gamma_amplified';
     } else if (l > 0 && surprise < 1.0) {
-      clauses.push('现价附近为正 Gamma，对冲盘反向、对波动有压制');
+      clauses.push('现价附近为正 Gamma，波动相对受抑');
     }
   }
 
-  const body = clauses.length ? clauses.join('；') : '各归因测试均未触发明显信号，波动来源不明确';
+  const body = clauses.length ? clauses.join('；') : '当前没有明确的波动主因';
 
   return {
     available: true,
@@ -353,8 +351,8 @@ export function volatilityAttribution({ priceHistory, iv30Pct, rvol, obvTrend, e
     clauses,
     text: `${magnitudeClause}。${body}。`,
     note: latestHeadline
-      ? '模型归因，基于公开数据；"消息面"引用的是近期采集到的真实新闻标题（来源可查），仅作参考，不构成因果证明，不构成买卖建议。'
-      : '模型归因，基于公开数据；无新闻源，"消息面"仅指隔夜跳空或事件日历，不指向具体新闻。',
+      ? '近期消息仅作参考，不构成因果证明或买卖建议。'
+      : '仅作市场复盘，不构成因果证明或买卖建议。',
   };
 }
 
@@ -430,7 +428,7 @@ export function coreConclusion({ symbol, gexEnv, consistency, attribution, earni
     headline: candidates[0].text,
     headline_key: candidates[0].key,
     alternates: candidates.slice(1).map(c => ({ key: c.key, text: c.text })),
-    note: '模型结论，仅供研究，不构成投资建议。',
+    note: '仅供研究，不构成投资建议。',
   };
 }
 

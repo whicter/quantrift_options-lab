@@ -212,10 +212,10 @@ export default function Tab4Signals({ data }) {
   const nearerCall = Math.abs(callWall - price) < Math.abs(price - putWall);
 
   const insights = [
-    `模型观察区间 $${putWall} ~ $${callWall}，当前价 $${price} ${nearerCall ? `距 Call Wall $${dToCall}（+${pctToCall}%）` : `距 Put Wall $${dToPut}（-${pctToPut}%）`}；距离不代表价格一定触及。`,
+    `关键观察区间 $${putWall} ~ $${callWall}，当前价 $${price} ${nearerCall ? `距 Call Wall $${dToCall}（+${pctToCall}%）` : `距 Put Wall $${dToPut}（-${pctToPut}%）`}；距离不代表价格一定触及。`,
     `上行情景：若日线收盘站上 $${scenarios.upTrigger}，观察下一价位 $${scenarios.upTarget}`,
     `下行情景：若日线收盘跌破 $${scenarios.downTrigger}，观察下一价位 $${scenarios.downTarget}`,
-    'Call Wall 与 Put Wall 是按当前 OI/GEX 模型得出的观察位，不是确定支撑、阻力或交易指令。',
+    'Call Wall 与 Put Wall 是观察位，不是确定支撑、阻力或交易指令。',
   ];
 
   return (
@@ -226,14 +226,13 @@ export default function Tab4Signals({ data }) {
       </div>
       {supportResistance && (
         <div className="az-level-strip">
-          <span>S/R 基于 {supportResistance.barCount} 根价格日线</span>
           <span>S {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
           <span>R {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
         </div>
       )}
       {Number.isFinite(putWall) && Number.isFinite(callWall) && Number.isFinite(price) && (
         <div className="az-card az-price-ruler-card">
-          <div className="az-card-title">主力筹码标尺 · Integrated Price Axis</div>
+          <div className="az-card-title">关键价位标尺</div>
           <PriceRuler putWall={putWall} callWall={callWall} price={price} />
         </div>
       )}
@@ -245,24 +244,24 @@ export default function Tab4Signals({ data }) {
               <div className="az-oi-density-meta">
                 <span><i className="put" />Put OI</span><span><i className="call" />Call OI</span>
                 {Number.isFinite(oiDensity.maxPain) && (
-                  <span>Max Pain <strong>${oiDensity.maxPain}</strong>{Number.isFinite(oiDensity.windowPct) ? ` · ±${oiDensity.windowPct}% 全链` : ''}</span>
+                  <span>Max Pain <strong>${oiDensity.maxPain}</strong></span>
                 )}
-                <span>{oiDensity.aggregation === 'wide_oi_only_adaptive_window' ? `${oiByStrike.length} 档 strike` : `${oiDensity.expiryCount} 个到期日`} · {oiDensity.freshness === 'fresh' ? '数据较新' : '数据延迟'} · 数据截至 {String(oiDensity.snapshotTs || '').slice(0, 16).replace('T', ' ') || '--'}</span>
+                <span>{oiDensity.freshness === 'fresh' ? '数据较新' : '数据延迟'} · 数据截至 {String(oiDensity.snapshotTs || '').slice(0, 16).replace('T', ' ') || '--'}</span>
               </div>
               <ChipRuler oiByStrike={oiByStrike} putWall={putWall} callWall={callWall} price={price} />
             </>
-          ) : <div className="az-chart-unavailable">期权 OI 快照暂不可用</div>}
+          ) : <div className="az-chart-unavailable">期权 OI 数据暂不可用</div>}
         </div>
 
         <div className="az-signals-info">
           <div className="az-wall-dist az-wall-dist-call">
-            <div className="az-wall-dist-label">Call Wall 模型观察位</div>
+            <div className="az-wall-dist-label">Call Wall 观察位</div>
             <div className="az-wall-dist-price">${callWall}</div>
             <div className="az-wall-dist-num">+{pctToCall}% / +${dToCall}</div>
           </div>
 
           <div className="az-wall-dist az-wall-dist-put">
-            <div className="az-wall-dist-label">Put Wall 模型观察位</div>
+            <div className="az-wall-dist-label">Put Wall 观察位</div>
             <div className="az-wall-dist-price">${putWall}</div>
             <div className="az-wall-dist-num">-{pctToPut}% / -${dToPut}</div>
           </div>
@@ -271,8 +270,8 @@ export default function Tab4Signals({ data }) {
             <div className="az-obs-title">观察结论</div>
             <div className="az-obs-text">
               {nearerCall
-                ? `现价距 Call Wall $${callWall} 更近（+${pctToCall}%）。这是当前快照中的模型观察位，距离本身不代表价格一定触及或反转。`
-                : `现价距 Put Wall $${putWall} 更近（-${pctToPut}%）。这是当前快照中的模型观察位，距离本身不代表价格一定触及或反转。`}
+                ? `现价距 Call Wall $${callWall} 更近（+${pctToCall}%）。距离本身不代表价格一定触及或反转。`
+                : `现价距 Put Wall $${putWall} 更近（-${pctToPut}%）。距离本身不代表价格一定触及或反转。`}
             </div>
             <div className="az-obs-note">这些观察位仅用于研究，不构成交易指令或投资建议。</div>
           </div>

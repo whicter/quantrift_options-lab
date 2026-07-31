@@ -39,7 +39,7 @@ test('stale GEX remains visible when required real fields exist', () => {
   assert.equal(result.callWall, 140);
   assert.equal(result.putWall, 130);
   assert.equal(result.partialData, undefined);
-  assert.equal(result.gexNotice.title, '延迟期权快照');
+  assert.equal(result.gexNotice.title, '期权数据延迟');
 });
 
 test('usable GEX price override stamps an intraday as-of from the snapshot ts', () => {
@@ -80,7 +80,7 @@ test('missing GEX clears mock walls and does not keep mock strategy legs', () =>
   assert.equal(result.callWall, null);
   assert.equal(result.putWall, null);
   assert.equal(result.recommendation, null);
-  assert.equal(result.gexMeta, null);
+  assert.equal(result.gexMeta, undefined);
 });
 
 test('fresh usable GEX replaces mock walls with real values', () => {
@@ -122,7 +122,8 @@ test('fresh usable GEX replaces mock walls with real values', () => {
   assert.equal(result.partialData, undefined);
   assert.equal(result.gammaFlip, 132.5);
   assert.equal(result.localGamma, 884400);
-  assert.equal(result.gexMeta.rawMetrics.unit, 'usd_delta_change_per_1pct_move');
+  assert.equal(result.gexMeta, undefined);
+  assert.deepEqual(result.gexByStrike, [{ strike: 140, gex: 1000 }]);
   assert.match(result.conclusion, /Call Wall \$140.00 \/ Put Wall \$140.00/);
 });
 
@@ -150,7 +151,7 @@ test('legacy GEX model is rejected instead of being presented as current analysi
   assert.equal(result.callWall, null);
   assert.equal(result.putWall, null);
   assert.equal(result.recommendation, null);
-  assert.match(result.partialData.message, /旧模型口径/);
+  assert.match(result.partialData.message, /期权数据暂不可用/);
 });
 
 test('low-confidence delayed data remains visible with a quality notice', () => {
@@ -174,8 +175,8 @@ test('low-confidence delayed data remains visible with a quality notice', () => 
   const result = applyGex(mockSeed, gex);
   assert.equal(result.callWall, 200);
   assert.equal(result.putWall, 185);
-  assert.equal(result.gexNotice.title, '部分期权数据');
-  assert.match(result.gexNotice.message, /19.2% 暂缺 OI/);
+  assert.equal(result.gexNotice.title, '部分期权数据可用');
+  assert.equal(result.gexNotice.message, '当前结果可能不完整，请结合页面时间与风险提示使用。');
 });
 
 test('derived analysis only attaches ready real-data products', () => {
@@ -212,15 +213,15 @@ test('derived analysis only attaches ready real-data products', () => {
     nodes: [{ price: 130, volume: 800000, volume_pct: 40 }],
     high_volume_nodes: [{ price: 130, volume: 800000, volume_pct: 40 }],
   });
-  assert.equal(result.focusScore.score, 68);
+  assert.deepEqual(result.focusScore, { label: '偏强' });
   assert.equal(result.compositeMomentum.score, 72);
   assert.equal(result.obv.trend, 'inflow');
   assert.equal(result.mfi.value, 73.4);
   assert.equal(result.supportResistance.support[0].price, 130);
-  assert.equal(result.chainStats.ivContractCount, 20);
+  assert.equal(result.chainStats.ivContractCount, undefined);
   assert.equal(result.chainStats.oiDensity.points[0].put_oi, 7000);
-  assert.equal(result.chainStats.oiDensity.expiryCount, 3);
-  assert.equal(result.volumeProfile.days, 20);
+  assert.equal(result.chainStats.oiDensity.expiryCount, undefined);
+  assert.equal(result.volumeProfile.days, undefined);
   assert.equal(result.volumeProfile.highVolumeNodes[0].price, 130);
 });
 

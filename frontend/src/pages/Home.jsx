@@ -5,7 +5,7 @@ import heroMark from '../assets/hero.png';
 
 const PRODUCTS = [
   { title: '个股/ETF 分析', label: 'Analyze', text: '把价格结构、GEX 估算、观察位、波动率与期权链指标放进同一份分析。', to: '/analyze', accent: 'green' },
-  { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，并基于已采集的期权链快照生成到期日与策略腿候选。', to: '/scan', accent: 'blue' },
+  { title: '机会扫描', label: 'Scan', text: '按 IV、趋势、Gamma 与流动性筛选，查看到期日和策略腿候选。', to: '/scan', accent: 'blue' },
   { title: '周度复盘', label: 'Weekly', text: '比较价格、Gamma 结构、Max Pain 与可比较合约的 ΔOI。', to: '/weekly', accent: 'red' },
 ];
 
@@ -45,7 +45,7 @@ export default function Home() {
         <div className="home-hero-content">
           <div className="home-kicker">OPTIONS INTELLIGENCE</div>
           <h1>Quantrift</h1>
-          <p>从已覆盖标的的扫描，到具体期权结构，把价格趋势与期权定位整理成带数据状态的研究路径。</p>
+          <p>从市场扫描到具体期权结构，把价格趋势、波动率与关键价位整理成清晰的研究路径。</p>
           <div className="home-actions">
             <Link className="home-primary" to="/analyze?symbol=SPY">分析标的</Link>
             <Link className="home-secondary" to="/scan">打开期权扫描</Link>

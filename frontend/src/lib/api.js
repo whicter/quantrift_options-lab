@@ -202,10 +202,6 @@ export function getEarningsThisWeek(week = 'current') {
   return getJson(`/api/market/earnings-this-week${week === 'next' ? '?week=next' : ''}`);
 }
 
-export function getScannerLedger() {
-  return getJson('/api/scanner/ledger');
-}
-
 export function getWeekly(symbol) {
   return getJson(`/api/weekly/${encodeURIComponent(symbol.toUpperCase())}`);
 }

@@ -28,7 +28,7 @@ function toViewModel(result) {
     weekHigh: result.price.high,
     weekLow: result.price.low,
     candles: result.price.candles,
-    priceMeta: { source: result.price.source, latestDate: result.period.end, freshness: 'fresh', isStale: false },
+    priceMeta: { latestDate: result.period.end, freshness: 'fresh', isStale: false },
     tone: result.tone,
     modelScore: result.score,
     gamma: result.gamma,
@@ -71,7 +71,7 @@ export default function Weekly() {
         if (cancelled) return;
         if (result.status !== 'ready') {
           setData(null);
-          setError(`${selectedSymbol} 至少需要 6 个有效交易日的价格历史，才能计算本周与前一收盘的比较。`);
+          setError(`${selectedSymbol} 的周度复盘暂不可用。`);
           return;
         }
         setData(toViewModel(result));
@@ -80,7 +80,7 @@ export default function Weekly() {
       .catch(() => {
         if (cancelled) return;
         setData(null);
-        setError(`暂时无法生成 ${selectedSymbol} 的周度快照。请查看数据状态或稍后重试。`);
+        setError(`暂时无法生成 ${selectedSymbol} 的周度复盘，请稍后重试。`);
       });
     return () => { cancelled = true; };
   }, [selectedSymbol]);
@@ -90,7 +90,7 @@ export default function Weekly() {
       <div className="product-header wk-page-header">
         <div className="wk-heading-copy">
           <div className="product-kicker">Weekly playbook · 周度复盘</div>
-          <div className="product-title wk-page-title">周度市场快照</div>
+          <div className="product-title wk-page-title">周度市场复盘</div>
           {data && <div className="wk-page-meta">{data.symbol} · {data.week}</div>}
         </div>
         <div className="wk-symbol-controls">
@@ -125,7 +125,7 @@ export default function Weekly() {
               <small>{data.gamma.latest?.call_wall ? `Call Wall $${data.gamma.latest.call_wall}` : '等待结构数据'}</small>
             </div>
             <div className="wk-overview-score">
-              <span>周度模型</span>
+              <span>综合状态</span>
               <strong>{data.modelScore}</strong>
               <small>{data.modelScore < 30 ? '偏弱' : data.modelScore < 50 ? '中性偏弱' : data.modelScore < 70 ? '中性偏强' : '偏强'}</small>
             </div>

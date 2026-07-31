@@ -21,7 +21,7 @@ export default function StrategyNotes() {
       <div className="section-header">
         <div>
           <div className="section-label">Notes</div>
-          <div className="section-title">策略说明与管理口径</div>
+          <div className="section-title">策略说明与管理提示</div>
         </div>
       </div>
       <div className="notes-grid">

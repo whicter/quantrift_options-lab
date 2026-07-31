@@ -304,7 +304,7 @@ export default function PayoffChart() {
             canvasRef.current,
             `${strategy.id || 'strategy'}-payoff.png`,
             document,
-            `Model estimate · Black-Scholes inputs as of ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC · Educational use only`,
+            `Scenario estimate as of ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC · Educational use only`,
           )}
         >
           导出 PNG
@@ -325,7 +325,7 @@ export default function PayoffChart() {
         {cone && (
           <div className="legend-item">
             <svg width="22" height="10"><rect width="22" height="10" fill="rgba(59,130,246,0.18)"/></svg>
-            <span title="基于输入 IV、对数正态分布与约一标准差假设；不是价格保证。">模型一标准差区间（约 68% 假设）${cone.lower.toFixed(0)}-${cone.upper.toFixed(0)} ({cone.dte} DTE)</span>
+            <span title="估算区间不是价格保证。">估算价格区间 ${cone.lower.toFixed(0)}-${cone.upper.toFixed(0)} ({cone.dte} DTE)</span>
           </div>
         )}
         {snapshots.map((snapshot, index) => (

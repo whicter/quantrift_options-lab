@@ -138,7 +138,7 @@ export default function MarketInternals() {
       <section className="mi-panel mi-breadth-panel" aria-label="Full Market Breadth">
         <div className="mi-head">
           <h3>全市场宽度 · Market Breadth</h3>
-          <span className="mi-native">{broadMarket ? '收盘快照' : '等待数据'}</span>
+          <span className="mi-native">{broadMarket ? '收盘数据' : '等待数据'}</span>
           <span className="mi-asof">
             {broadMarket ? `${broadMarket.marketDate} 收盘` : '每日收盘更新'}
           </span>
@@ -149,8 +149,8 @@ export default function MarketInternals() {
           ? <BroadMarketModule market={broadMarket} />
           : (
             <div className="mi-broad-missing">
-              <b>等待首个全市场日终快照</b>
-              <span>收盘数据完成聚合后，这里将显示涨跌家数、A/D Ratio、上涨成交量占比和交易所分项。</span>
+              <b>等待全市场日终数据</b>
+              <span>更新后将显示涨跌家数、A/D Ratio、上涨成交量占比和交易所分项。</span>
             </div>
           )}
       </section>

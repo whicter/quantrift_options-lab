@@ -128,7 +128,7 @@ function WeeklyModelGauge({ score }) {
     ctx.fillStyle = theme.text; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
     ctx.fillText(score, cx, cy - r / 2 - 4);
     ctx.fillStyle = theme.axis; ctx.font = '9px monospace';
-    ctx.fillText('周度模型分数', cx, cy - r / 2 + 10);
+    ctx.fillText('综合状态', cx, cy - r / 2 + 10);
   }, [score]);
   return <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />;
 }
@@ -176,12 +176,12 @@ export default function Sec1Tone({ data }) {
           <CandleChart candles={candles} />
         </div>
         <div className="az-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>标的周度模型状态</div>
+          <div className="az-card-title" style={{ alignSelf: 'flex-start' }}>标的周度状态</div>
           <WeeklyModelGauge score={modelScore} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
             {modelScore < 30 ? '偏弱' : modelScore < 50 ? '中性偏弱' : modelScore < 70 ? '中性偏强' : '偏强'}
           </div>
-          <div className="az-data-note">由周涨跌幅与 Gamma 状态按固定规则合成，不是恐慌贪婪指数。</div>
+          <div className="az-data-note">综合状态仅用于周度研究，不构成买卖建议。</div>
         </div>
       </div>
 

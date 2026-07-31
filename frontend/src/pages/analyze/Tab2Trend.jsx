@@ -122,7 +122,7 @@ function TrendCanvas({ prices, dates, kf, spread, weekly, levels }) {
       // Left-align inside the plot area; right-aligning at PAD.left-2 pushed the
       // label off the left edge so it rendered as "nd Spread".
       ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      ctx.fillText('Trend Spread', PAD.left + 2, PAD.top + 8);
+      ctx.fillText('短期动量', PAD.left + 2, PAD.top + 8);
     };
 
     // Weekly resonance layer: the weekly spread expanded to the daily x-axis, a
@@ -156,7 +156,7 @@ function TrendCanvas({ prices, dates, kf, spread, weekly, levels }) {
       ctx.beginPath(); ctx.strokeStyle = theme.gridSoft;
       ctx.lineWidth = 1; ctx.moveTo(PAD.left, zero); ctx.lineTo(W - PAD.right, zero); ctx.stroke();
       ctx.fillStyle = theme.axis; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      ctx.fillText('Weekly Spread', PAD.left + 2, PAD.top + 8);
+      ctx.fillText('周度动量', PAD.left + 2, PAD.top + 8);
     };
 
     drawMain(); drawSpread(); drawWeekly();
@@ -192,7 +192,7 @@ function VolumeProfile({ profile, spot }) {
       <div className="az-trend-header">
         <div>
           <div className="az-card-title">Volume Profile · 价位成交分布</div>
-          <div className="az-data-note">近 {profile.days} 天，{profile.barCount} 根常规交易时段 30 分钟K线；横条越长，成交越密集。</div>
+          <div className="az-data-note">横条越长，近期成交越密集。</div>
         </div>
         <span className="az-mini-badge yellow">{profile.highVolumeNodes.length} 个高量节点</span>
       </div>
@@ -261,7 +261,7 @@ function ObvPanel({ obv }) {
       <div className="az-trend-header">
         <div>
           <div className="az-card-title">OBV · On-Balance Volume</div>
-          <div className="az-data-note">上涨日累加成交量、下跌日扣减成交量；用于观察价格方向是否有量能确认。</div>
+          <div className="az-data-note">用于观察价格方向是否有量能确认。</div>
         </div>
         <span className={`az-mini-badge ${tone}`}>{label}</span>
       </div>
@@ -296,11 +296,11 @@ export default function Tab2Trend({ data }) {
   const volumeProfile = data.volumeProfile;
 
   const insights = [
-    `趋势格局：${trend.regime}，KF均线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
+    `趋势格局：${trend.regime}，趋势线${trend.momentum.includes('向上') ? '向上倾斜，多头结构' : trend.momentum.includes('向下') ? '向下倾斜，空头结构' : '横盘整理'}`,
     `动量信号：${trend.momentum}，${trend.signal}`,
     `相对量能 RVol ${trend.rvol.toFixed(2)}×${trend.rvol > 1.3 ? '，成交量高于参考水平；需结合价格方向和后续延续性判断' : trend.rvol >= 1.0 ? '，量能接近参考水平' : '，成交量低于参考水平'}`,
     priceOnly
-      ? '期权持仓比例：暂不可用，当前没有可用的 IV、期权链或 GEX 快照'
+      ? '期权持仓比例：暂不可用，当前没有可用的期权数据'
       : `期权持仓比例：PCR(OI) ${pcr?.toFixed(2) ?? '--'}；Put/Call 比例不单独预测方向，也不识别买卖方开仓意图`,
   ];
 
@@ -309,7 +309,7 @@ export default function Tab2Trend({ data }) {
       <div className="az-card">
         <div className="az-trend-header">
           <div className="az-card-title">
-            模型平滑趋势 · Kalman Filter
+            价格趋势概览
             {stale ? ' · 价格历史已延迟' : ''}
           </div>
           <span className={`az-mini-badge ${trend.regime.includes('多头') ? 'green' : trend.regime.includes('空头') ? 'red' : 'yellow'}`}>
@@ -338,26 +338,25 @@ export default function Tab2Trend({ data }) {
 
       <div className="az-card az-momentum-card">
         <div className="az-trend-header">
-          <div className="az-card-title">Composite Momentum · 多周期动量</div>
+          <div className="az-card-title">多周期趋势</div>
           <span className={`az-mini-badge ${composite?.status === 'ready' ? (composite.score >= 55 ? 'green' : composite.score < 45 ? 'red' : 'yellow') : 'yellow'}`}>
-            {composite?.status === 'ready' ? `${composite.score} · ${composite.label}` : composite?.status === 'stale' ? 'Stale · 30M落后' : '历史不足'}
+            {composite?.status === 'ready' ? composite.label : composite?.status === 'stale' ? '部分数据延迟' : '历史不足'}
           </span>
         </div>
         {composite?.timeframes ? (
           <div className="az-momentum-grid">
             {[
-              ['30M', composite.timeframes['30m'], '30%'],
-              ['1D', composite.timeframes['1d'], '40%'],
-              ['1W', composite.timeframes['1w'], '30%'],
-            ].map(([label, timeframe, weight]) => (
+              ['30M', composite.timeframes['30m']],
+              ['1D', composite.timeframes['1d']],
+              ['1W', composite.timeframes['1w']],
+            ].map(([label, timeframe]) => (
               <div className="az-momentum-cell" key={label}>
                 <span>{label}</span>
-                <strong>{timeframe.score}</strong>
-                <small>权重 {weight}</small>
+                <strong>{timeframe.score >= 55 ? '偏强' : timeframe.score < 45 ? '偏弱' : '中性'}</strong>
               </div>
             ))}
           </div>
-        ) : <div className="az-empty-copy">需要至少 60 根日线、12 个周线观察与 26 根常规交易时段 30 分钟 K 线。</div>}
+        ) : <div className="az-empty-copy">当前历史数据不足。</div>}
         {composite?.status === 'stale' && (
           <div className="az-data-note">日线 {composite.latest_daily_date} · 30M {composite.latest_intraday_market_date}，不作为当前多周期确认。</div>
         )}

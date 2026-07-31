@@ -11,7 +11,6 @@ import Tab1Overview from './analyze/Tab1Overview';
 import Tab2Trend from './analyze/Tab2Trend';
 import Tab3Options from './analyze/Tab3Options';
 import Tab4Signals from './analyze/Tab4Signals';
-import DataDetails from '../components/DataDetails';
 import TechnicalLevelsPanel from '../components/TechnicalLevelsPanel';
 
 const TABS = [
@@ -58,10 +57,7 @@ function applyMetrics(data, metrics) {
     hv30,
     hv60,
     ivHvDiff,
-    dataMeta: {
-      date: metrics.date ? String(metrics.date).slice(0, 10) : null,
-      source: metrics.source,
-    },
+    dataMeta: { available: true },
     earnings: {
       ...data.earnings,
       date: earningsDate,
@@ -80,7 +76,7 @@ function formatPriceAsOf(priceAsOf) {
     return priceAsOf.date ? `截至 ${priceAsOf.date} 收盘` : null;
   }
   if (priceAsOf.kind === 'intraday') {
-    if (!priceAsOf.ts) return '盘中快照';
+    if (!priceAsOf.ts) return '盘中数据';
     const d = new Date(priceAsOf.ts);
     if (Number.isNaN(d.getTime())) return null;
     const et = d.toLocaleString('en-US', {
@@ -104,7 +100,6 @@ function createRealAnalysis(symbol, priceData) {
     price: latest ? Number(latest.close.toFixed(2)) : null,
     priceHistory,
     priceMeta: latest ? {
-      source: priceData?.source,
       latestDate: String(priceData?.latest_date || latest.date).slice(0, 10),
       count: priceData?.count,
       freshness: priceData?.freshness,
@@ -147,7 +142,7 @@ function createRealAnalysis(symbol, priceData) {
     localGamma: null,
     gammaRegime: null,
     scenarios: null,
-    conclusion: '等待已采集的期权快照。',
+    conclusion: '期权分析暂不可用。',
     recommendation: null,
   };
 }
@@ -193,13 +188,8 @@ function applyUnusual(data, unusualData) {
     date: item.expiry ? String(item.expiry).slice(0, 10) : '--',
     vol: Number(item.volume || 0),
     oi: toNumber(item.open_interest),
-    previousOi: toNumber(item.previous_open_interest),
     oiDelta: toNumber(item.oi_delta),
-    oiDeltaPct: toNumber(item.oi_delta_pct),
-    volumeOiRatio: toNumber(item.volume_oi_ratio),
     status: item.status,
-    isUnusual: Boolean(item.is_unusual),
-    contract: item.contract_symbol || item.provider_contract_id,
   })).filter(item => item.strike != null);
 
   return {
@@ -209,7 +199,6 @@ function applyUnusual(data, unusualData) {
       freshness: unusualData.freshness,
       status: unusualData.status,
       snapshotTs: unusualData.snapshot_ts,
-      unusualCount: unusualData.unusual_count || 0,
     },
   };
 }
@@ -315,17 +304,13 @@ function buildPriceOnlyAnalysis(symbol, priceData) {
     partialData: {
       type: 'price_only',
       title: '期权指标暂不可用',
-      message: `${symbol} 已有价格数据，但 IV Rank / GEX / Call Wall / Put Wall 等期权数据尚未写入；当前只展示价格趋势，不生成策略候选。`,
+      message: `${symbol} 当前只展示价格趋势，期权结构与策略候选暂不可用。`,
     },
     trend: deriveTrendFromPriceHistory(priceHistory, data.trend),
     direction: {
       score: 0,
-      label: 'Price-only',
-      signals: [
-        { name: 'Price History', value: '已采集', bullish: true },
-        { name: 'Options Metrics', value: '待接入', bullish: false },
-        { name: 'GEX / Walls', value: '待接入', bullish: false },
-      ],
+      label: '仅价格',
+      signals: [],
     },
     recommendation: null,
   };
@@ -340,12 +325,8 @@ function buildGexOnlyAnalysis(symbol, priceData, gexData) {
     trend: deriveTrendFromPriceHistory(priceHistory, base.trend),
     direction: {
       score: 0,
-      label: 'GEX + Price',
-      signals: [
-        { name: 'Price History', value: priceHistory.length > 0 ? '已采集' : '待接入', bullish: priceHistory.length > 0 },
-        { name: 'GEX / Walls', value: '已采集', bullish: true },
-        { name: 'IV Metrics', value: '待接入', bullish: false },
-      ],
+      label: '部分分析',
+      signals: [],
     },
   };
 }
@@ -365,8 +346,7 @@ function UnavailableOptionsPanel({ symbol }) {
     <div className="az-card az-unavailable-panel">
       <div className="az-card-title">期权分析暂不可用</div>
       <div className="az-unavailable-text">
-        {symbol} 当前缺少可用的 IV Rank、GEX、Call Wall、Put Wall、PCR、期权腿或 POP 输入。
-        为避免把不完整数据当成完整分析，这些模块暂不展示。
+        {symbol} 当前只展示可用内容，期权结构与策略候选将在数据恢复后显示。
       </div>
     </div>
   );
@@ -374,15 +354,15 @@ function UnavailableOptionsPanel({ symbol }) {
 
 function buildMissingMessage(symbol, status, onDemand) {
   if (onDemand?.status === 'queued') {
-    return `${symbol} 正在补齐价格与期权数据。页面会自动检查更新；等待时间取决于数据源与队列${onDemand.estimated_wait ? `（当前估计 ${onDemand.estimated_wait}，仅供参考）` : ''}。`;
+    return `${symbol} 的分析正在更新，完成后页面会自动刷新。`;
   }
   if (!status) {
-    return `暂无 ${symbol} 的可用数据快照。数据覆盖状态暂时不可用，请稍后再试。`;
+    return `${symbol} 的分析数据暂不可用，请稍后再试。`;
   }
   if (status.expected_symbols?.includes(symbol)) {
-    return `暂无 ${symbol} 的可用数据快照：该标的已在数据覆盖列表中，但尚未写入最新记录。数据补齐后会自动可用。`;
+    return `${symbol} 的分析数据正在更新，请稍后再试。`;
   }
-  return `暂无 ${symbol} 的可用数据快照：该标的还不在数据覆盖列表中。加入覆盖列表并完成采集后才会显示。`;
+  return `${symbol} 暂无可用分析。`;
 }
 
 function IVGauge({ value }) {
@@ -569,7 +549,7 @@ export default function Analyze() {
       {onDemandStatus?.status === 'queued' && !result ? (
         <div className="az-collecting" role="status">
           <strong>正在准备 {onDemandStatus.symbol} 的分析</strong>
-          <span>数据写入后会自动检查更新；等待时间取决于数据源与队列{onDemandStatus.estimated_wait ? `（当前估计 ${onDemandStatus.estimated_wait}，仅供参考）` : ''}。</span>
+          <span>完成后页面会自动刷新。</span>
         </div>
       ) : error && <div className="az-error">{error}</div>}
 
@@ -614,17 +594,16 @@ export default function Analyze() {
 
           <PartialDataNotice partialData={result.partialData} />
           <PartialDataNotice partialData={result.gexNotice} />
-          <DataDetails metadata={result.gexMeta?.metadata} />
           {result.onDemandStatus?.status === 'queued' && (
             <PartialDataNotice partialData={{
-              title: '后台数据补全中',
-              message: `${result.symbol} 正在补齐价格与期权数据。页面会自动检查更新；当前继续展示已存在的数据${result.onDemandStatus.estimated_wait ? `（当前等待估计 ${result.onDemandStatus.estimated_wait}，仅供参考）` : ''}。`,
+              title: '分析更新中',
+              message: `${result.symbol} 的部分数据正在更新；当前继续展示可用内容。`,
             }} />
           )}
           {result.onDemandStatus?.blockers?.length > 0 && (
             <PartialDataNotice partialData={{
-              title: '部分字段暂未补全',
-              message: `价格与期权结构继续可用；${result.onDemandStatus.blockers.map(item => item.field).join(' / ')} 当前被数据任务阻断，系统不会重复排队。`,
+              title: '部分内容暂不可用',
+              message: '价格与可用的期权结构继续展示，其余内容将在恢复后自动更新。',
             }} />
           )}
 

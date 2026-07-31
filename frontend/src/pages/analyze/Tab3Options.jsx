@@ -128,7 +128,7 @@ export default function Tab3Options({ data }) {
   const insights = [
     gexEnv.available
       ? `${gexEnv.text} ${gexEnv.note}`
-      : `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}），短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
+      : `${gexPositive ? '正' : '负'} Gamma 环境（估算 ${gexStr}），短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     pcrRead.available
       ? pcrRead.text
       : `PCR(OI) ${pcr?.toFixed(2) ?? '--'}，表示 Put/Call 未平仓量比例；它不单独代表看多或看空`,
@@ -138,8 +138,8 @@ export default function Tab3Options({ data }) {
     unusualActivity?.length
       ? unusualActivity[0].status === 'confirmed'
         ? `OI异动：${unusualActivity[0].type} $${unusualActivity[0].strike} ΔOI ${unusualActivity[0].oiDelta?.toLocaleString() ?? '--'}，需要结合价格与成交确认`
-        : `OI状态：${unusualActivity[0].status}，当前只能作为基线/活跃度观察`
-      : '当前没有达到异动阈值的合约，或相关快照尚未采集',
+        : '当前期权活动正在建立观察基线'
+      : '当前未显示显著合约活动',
   ];
 
   return (
@@ -152,9 +152,9 @@ export default function Tab3Options({ data }) {
       {/* 4 core numbers */}
       <div className="az-gex-numbers az-gex-numbers-4">
         <div className="az-gex-num">
-          <div className="az-gex-num-label">GEX Total · 1% Move</div>
+          <div className="az-gex-num-label">GEX Total</div>
           <div className={`az-gex-num-val ${gexPositive ? 'c-green' : 'c-red'}`}>{gexStr}</div>
-          <div className="az-gex-num-sub">{gexPositive ? '正 Gamma 环境' : '负 Gamma 环境'} · 模型估算，非现金流</div>
+          <div className="az-gex-num-sub">{gexPositive ? '正 Gamma 环境' : '负 Gamma 环境'} · 估算值，非现金流</div>
         </div>
         <div className="az-gex-num">
           <div className="az-gex-num-label">PCR (OI)</div>
@@ -194,7 +194,7 @@ export default function Tab3Options({ data }) {
                 return ts.available ? <div className="az-chain-conclusion">{ts.text}</div> : null;
               })()}
             </>
-          ) : <div className="az-empty-copy">当前期权快照没有可用 ATM IV 期限结构。</div>}
+          ) : <div className="az-empty-copy">当前没有可用的 ATM IV 期限结构。</div>}
         </div>
         <div className="az-card">
           <div className="az-card-title">IV Skew · {chainStats?.skew?.expiry || '偏斜'}</div>
@@ -208,7 +208,7 @@ export default function Tab3Options({ data }) {
                 </div>
               ))}
             </div>
-          ) : <div className="az-empty-copy">当前期权快照没有可用 strike IV skew。</div>}
+          ) : <div className="az-empty-copy">当前没有可用的 strike IV skew。</div>}
         </div>
       </div>
 
@@ -217,7 +217,7 @@ export default function Tab3Options({ data }) {
         <div className="az-card-title">期权成交与 OI 异动</div>
         {unusualMeta && (
           <div className="az-unusual-meta">
-            {unusualMeta.status || unusualMeta.freshness}
+            {unusualMeta.freshness === 'fresh' ? '数据较新' : unusualMeta.freshness === 'stale' ? '数据延迟' : '数据暂不可用'}
             {unusualMeta.snapshotTs ? ` · ${String(unusualMeta.snapshotTs).slice(0, 16).replace('T', ' ')}` : ''}
           </div>
         )}
@@ -231,13 +231,13 @@ export default function Tab3Options({ data }) {
                 <span className="az-unusual-date">{item.date}</span>
                 <span className="az-unusual-vol">Vol: {item.vol.toLocaleString()}</span>
                 <span className="az-unusual-vol">
-                  ΔOI: {item.oiDelta == null ? item.status : item.oiDelta.toLocaleString()}
+                  ΔOI: {item.oiDelta == null ? '暂不可用' : item.oiDelta.toLocaleString()}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>暂无达到当前筛选阈值的合约，或相关数据尚未采集。</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>当前未显示显著合约活动。</div>
         )}
       </div>
 
@@ -269,7 +269,7 @@ export default function Tab3Options({ data }) {
               {externalFlow.items.length === 0 && <div className="az-empty-copy">过去 {externalFlow.windowHours || 24} 小时该标的没有匹配事件。</div>}
             </div>
           </>
-        ) : <div className="az-empty-copy">外部事件流尚未形成可用的数据快照，不展示推断值。</div>}
+        ) : <div className="az-empty-copy">外部事件流暂不可用。</div>}
       </div>
 
       {/* Recent news (R3.2) */}

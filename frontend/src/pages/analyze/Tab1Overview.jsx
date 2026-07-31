@@ -1,6 +1,6 @@
 import InsightCarousel from '../../components/InsightCarousel';
 import { compactMoney } from '../../lib/scannerPresentation';
-import { buildSynthesis, popContext } from '../../lib/synthesis';
+import { buildSynthesis } from '../../lib/synthesis';
 
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
@@ -24,10 +24,10 @@ export default function Tab1Overview({ data }) {
   const synth = buildSynthesis(data);
 
   const insights = [
-    `${gexPositive ? '正' : '负'} Gamma 环境（模型估算 ${gexStr}）：短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
+    `${gexPositive ? '正' : '负'} Gamma 环境（估算 ${gexStr}）：短线波动可能${gexPositive ? '较容易收窄' : '较容易放大'}`,
     `格局：${trend.regime}，动量${trend.momentum}，信号：${trend.signal}`,
     `值得关注的点位：上方 Call Wall $${callWall}（+${((callWall / price - 1) * 100).toFixed(1)}%）/ 下方 Put Wall $${putWall}（${((putWall / price - 1) * 100).toFixed(1)}%）。`,
-    recommendation ? `策略候选：${recommendation.strategy}${recommendation.params.pop == null ? '' : `，模型估算 POP ${recommendation.params.pop}%`}，DTE ${recommendation.params.dte}天` : null,
+    recommendation ? `策略候选：${recommendation.strategy}${recommendation.params.pop == null ? '' : `，估算 POP ${recommendation.params.pop}%`}，DTE ${recommendation.params.dte}天` : null,
   ].filter(Boolean);
 
   const questions = [
@@ -38,8 +38,8 @@ export default function Tab1Overview({ data }) {
       a: synth.gexEnv.available
         ? `${synth.gexEnv.text}${synth.pcr.available ? ` ${synth.pcr.text}` : ''} ${synth.gexEnv.note}`
         : gexPositive
-          ? `当前模型显示正 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格靠近关键行权价时，短线波动通常较容易收窄或被拉回。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`
-          : `当前模型显示负 Gamma 环境（估算 GEX ${gexStr}）。盘面上，价格一旦向上或向下加速，短线波动更可能被放大。这个结论基于公开 OI 的模型估算，不代表已确认任何参与者的实际仓位。`,
+          ? `当前为正 Gamma 环境（估算 GEX ${gexStr}）。价格靠近关键行权价时，短线波动通常较容易收窄或被拉回。`
+          : `当前为负 Gamma 环境（估算 GEX ${gexStr}）。价格一旦向上或向下加速，短线波动更可能被放大。`,
       type: gexPositive ? 'bull' : 'bear',
     },
     {
@@ -53,7 +53,7 @@ export default function Tab1Overview({ data }) {
     },
     {
       q: '接下来的关键位置是什么？',
-      a: `上方 $${callWall}（Call Wall，+${((callWall / price - 1) * 100).toFixed(1)}%）和下方 $${putWall}（Put Wall，${((putWall / price - 1) * 100).toFixed(1)}%）是接下来值得重点关注的价位。它们是期权持仓集中的模型参考位，不是价格一定会触及或反转的位置。${synth.expectedMove.available ? ` ${synth.expectedMove.text}` : ''}`,
+      a: `上方 $${callWall}（Call Wall，+${((callWall / price - 1) * 100).toFixed(1)}%）和下方 $${putWall}（Put Wall，${((putWall / price - 1) * 100).toFixed(1)}%）是接下来值得重点关注的价位。它们不是价格一定会触及或反转的位置。${synth.expectedMove.available ? ` ${synth.expectedMove.text}` : ''}`,
       type: 'neutral',
     },
   ];
@@ -80,9 +80,9 @@ export default function Tab1Overview({ data }) {
 
       <div className="az-analysis-metrics">
         <div className="az-analysis-metric">
-          <span>Focus Score</span>
-          <strong>{focusScore?.score ?? '--'}</strong>
-          <small>{focusScore?.label || '历史不足'}</small>
+          <span>综合状态</span>
+          <strong>{focusScore?.label || '--'}</strong>
+          <small>{focusScore ? '价格与量能综合观察' : '历史不足'}</small>
         </div>
         <div className="az-analysis-metric">
           <span>MFI · 价量动量</span>
@@ -90,26 +90,25 @@ export default function Tab1Overview({ data }) {
           <small>{mfi?.signal === 'overbought' ? '超买区' : mfi?.signal === 'oversold' ? '超卖区' : mfi?.signal === 'neutral' ? '中性区' : '14日历史不足'}</small>
         </div>
         <div className="az-analysis-metric">
-          <span>Vol Risk Premium</span>
+          <span>波动率差</span>
           <strong>{ivHvDiff == null ? '--' : `${ivHvDiff > 0 ? '+' : ''}${ivHvDiff.toFixed(1)}pt`}</strong>
-          <small>IV30 - HV30</small>
+          <small>隐含与历史波动率</small>
         </div>
         <div className="az-analysis-metric">
           <span>Gamma Flip</span>
           <strong>{gammaFlip == null ? '--' : `$${gammaFlip.toFixed(2)}`}</strong>
-          <small>{gammaFlip == null ? '当前快照未得出' : `${((price / gammaFlip - 1) * 100).toFixed(1)}% from spot`}</small>
+          <small>{gammaFlip == null ? '当前不可用' : `${((price / gammaFlip - 1) * 100).toFixed(1)}% from spot`}</small>
         </div>
         <div className="az-analysis-metric">
           <span>Local Gamma 局部净 GEX</span>
           <strong>{compactMoney(localGamma)}</strong>
-          <small>现价 ±1% 内的模型估算净 GEX</small>
+          <small>现价附近净 GEX</small>
         </div>
       </div>
 
       <div className="az-gex-explainer">
         <strong>GEX 怎么看</strong>
-        <span>GEX 用 Gamma、OI、合约乘数和现价估算标的变动 1% 时的 Delta-dollar 变化。它不是资金流，也不是目标价。</span>
-        <span>正/负只用来描述模型下可能较收敛或较放大的波动环境；局部 GEX 只看现价附近 ±1% 的期权结构。公开 OI 无法确认任何参与者的真实仓位。</span>
+        <span>GEX 仅用于观察波动环境，不是资金流、目标价或交易指令。</span>
       </div>
 
       {supportResistance && (
@@ -163,15 +162,14 @@ export default function Tab1Overview({ data }) {
 
       {recommendation ? (
         <div className="az-card" style={{ marginTop: 12 }}>
-          <div className="az-card-title">策略候选 · 模型筛选结果</div>
+          <div className="az-card-title">策略候选</div>
           <div className="az-rec-header">
             <div>
               <div className="az-rec-strategy">{recommendation.strategy}</div>
-              <div className="az-rec-reason">{recommendation.reason}</div>
             </div>
             <div className="az-rec-pop">
               <div className="az-rec-pop-val">{recommendation.params.pop == null ? '--' : `${recommendation.params.pop}%`}</div>
-              <div className="az-rec-pop-label">模型估算 POP</div>
+              <div className="az-rec-pop-label">估算 POP</div>
             </div>
           </div>
           <div className="az-rec-params">
@@ -194,12 +192,6 @@ export default function Tab1Overview({ data }) {
               </span>
             </div>
           </div>
-          {recommendation.directionNote && (
-            <div className="az-rec-warning">{recommendation.directionNote}：该候选按流动性/结构分入选，方向上与当前趋势不一致，仅作研究参考</div>
-          )}
-          {recommendation.gammaNote && (
-            <div className="az-rec-context">{recommendation.gammaNote}</div>
-          )}
           {recommendation.params.maxLoss === null && (
             <div className="az-rec-warning">裸卖策略风险无限，建议加保护腿转为 defined-risk</div>
           )}
@@ -216,17 +208,13 @@ export default function Tab1Overview({ data }) {
               </div>
             ))}
           </div>
-          {(() => {
-            const ctx = popContext(recommendation.strategy);
-            return ctx.available ? <div className="az-data-note">{ctx.text}</div> : null;
-          })()}
-          <div className="az-data-note">POP 基于当前模型和输入，不是实际胜率保证；未必包含滑点、手续费、提前指派和波动率变化。</div>
+          <div className="az-data-note">估算概率不保证实际胜率；未必包含滑点、手续费、提前指派和波动率变化。</div>
         </div>
       ) : (
         <div className="az-card" style={{ marginTop: 12 }}>
-          <div className="az-card-title">策略候选 · 模型筛选结果</div>
+          <div className="az-card-title">策略候选</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            {recommendationUnavailableReason || '当前没有满足筛选门槛的真实策略腿。'}
+            {recommendationUnavailableReason ? '当前没有可用的策略候选。' : '当前没有可用的策略候选。'}
           </div>
         </div>
       )}
