@@ -512,6 +512,7 @@ export default function Analyze() {
           buyer: candidateState.buyer,
           seller: candidateState.seller,
           environment: candidateState.environment,
+          structure: candidateState.structure,
         },
         onDemandStatus,
       }, supportResistance, chainStats, volumeProfile), flowData), newsData);

@@ -144,3 +144,35 @@ test('an unavailable environment is null, not a fabricated neutral reading', () 
   });
   assert.equal(result.environment, null);
 });
+
+test('only a structure that actually holds is surfaced', () => {
+  // weak/absent/unavailable are withheld: a half-met structure shown at all
+  // reads as a signal, and the caveat only means something attached to a
+  // positive detection.
+  for (const status of ['weak', 'absent', 'unavailable']) {
+    const result = toAnalyzeRecommendation({
+      status: 'ready',
+      candidate: { strategy: 'Long Call', legs: [], pop: null, dte: 30, debit: 5, maxLoss: 5 },
+      structure: { status, reason: 'x', confirmations: [] },
+    });
+    assert.equal(result.structure, null, `${status} must not surface`);
+  }
+});
+
+test('a present structure carries its thesis, expression and caveat', () => {
+  const result = toAnalyzeRecommendation({
+    status: 'ready',
+    candidate: { strategy: 'Long Call', legs: [], pop: null, dte: 30, debit: 5, maxLoss: 5 },
+    structure: {
+      status: 'present',
+      reason: 'AAPL 处于上行趋势中的回调：...',
+      caveat: '回调与破位在事前无法区分...',
+      expression: { side: 'seller', shape: 'put_spread_below_support', text: '权利金偏贵时...' },
+      support: { kind: 'put_wall', level: 330, distance_pct: 1.8 },
+    },
+  });
+  assert.equal(result.structure.favours, 'seller');
+  assert.equal(result.structure.shape, 'put_spread_below_support');
+  assert.match(result.structure.caveat, /无法区分/);
+  assert.equal(result.structure.support.level, 330);
+});

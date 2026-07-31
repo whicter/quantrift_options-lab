@@ -88,10 +88,29 @@ function StrategySide({ side }) {
  */
 function StrategySides({ sides }) {
   if (!sides || (!sides.buyer && !sides.seller)) return null;
-  const { buyer, seller, environment } = sides;
+  const { buyer, seller, environment, structure } = sides;
   return (
     <div className="az-card az-sides-card" style={{ marginTop: 12 }}>
       <div className="az-card-title">买方 / 卖方 · 两种风险形状</div>
+      {/* Only a structure that actually holds reaches here -- weak/absent are
+          withheld upstream, because a half-met structure shown at all reads as
+          a signal. The caveat is non-negotiable: it is what keeps this a
+          description of measurable conditions rather than a bottom call. */}
+      {structure && (
+        <div className="az-thesis">
+          <div className="az-thesis-head">
+            <span className="az-mini-badge blue">回调-支撑结构</span>
+            {structure.favours && (
+              <span className="az-mini-badge green">
+                典型表达偏{structure.favours === 'seller' ? '卖方' : '买方'}
+              </span>
+            )}
+          </div>
+          <div className="az-thesis-reason">{structure.reason}</div>
+          {structure.expressionText && <div className="az-thesis-expr">{structure.expressionText}</div>}
+          <div className="az-thesis-caveat">{structure.caveat}</div>
+        </div>
+      )}
       {environment && (
         <div className={`az-env ${environment.signalsAgree === false ? 'az-env-split' : ''}`}>
           <div className="az-env-chips">

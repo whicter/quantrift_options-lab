@@ -4,10 +4,12 @@ const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 const { toCandidateDto } = require('../domain/scanner/candidateDto.cjs');
 const { environmentEdge } = require('../domain/scanner/environmentEdge.cjs');
+const { pullbackStructure } = require('../domain/scanner/pullbackStructure.cjs');
+const { classifyState } = require('./market');
 const freshness = require('../domain/status/freshness');
 const { buildAnalyzeSummary } = require('../domain/analyze/analyzeDto');
 const { tokenMatches, requestToken } = require('../lib/adminAuth');
-const { deriveSupportResistance } = require('./supportResistance');
+const { deriveSupportResistance, deriveFocusScore, deriveMfi } = require('./supportResistance');
 const { deriveVolumeProfile } = require('./volumeProfile');
 const { buildConfluence } = require('../domain/confluence/engine');
 
@@ -48,6 +50,66 @@ async function deriveTrendRegime(symbol) {
   } catch {
     return null; // never let a weighting input break candidate generation
   }
+}
+
+/**
+ * Assemble the inputs pullbackStructure needs and run it.
+ *
+ * Reuses the already-validated derivations rather than recomputing: the market
+ * state from classifyState (S2 is "uptrend, pulling back"), the pivot-clustered
+ * supports and MFI from the S/R route, and RSI from its focus score. Nothing
+ * here invents a level -- if a derivation is unavailable the corresponding
+ * confirmation is simply absent, which lowers the structure to `weak` rather
+ * than producing a claim with no evidence behind it.
+ */
+async function derivePullbackStructure(symbol, snapshot) {
+  const { rows } = await pool.query(
+    `SELECT date, high, low, close, volume FROM price_history
+     WHERE symbol = $1 AND close IS NOT NULL
+     ORDER BY date DESC LIMIT 200`,
+    [symbol]
+  );
+  if (rows.length < 200) {
+    // Distinct from "absent": we cannot judge the structure, which is not the
+    // same as having judged it and found none. A newly listed symbol lands here
+    // legitimately and must not be reported as "no pullback".
+    return {
+      status: 'unavailable',
+      reason: `历史日线不足 200 根（当前 ${rows.length} 根），无法判断趋势结构。`,
+      confirmations: [],
+    };
+  }
+  const bars = rows.slice().reverse();
+  const closes = bars.map(bar => Number(bar.close)).filter(Number.isFinite);
+  const sr = deriveSupportResistance(bars);
+  const focus = deriveFocusScore(sr.bars);
+  const mfi = deriveMfi(bars);
+
+  const avg = (arr, n) => arr.slice(-n).reduce((sum, v) => sum + v, 0) / Math.min(n, arr.length);
+  const close = closes[closes.length - 1];
+  const ret5 = closes.length >= 6 ? ((close / closes[closes.length - 6]) - 1) * 100 : null;
+  const { state } = classifyState({
+    close,
+    ma50: avg(closes, 50),
+    ma200: avg(closes, 200),
+    ret5,
+    ivRank: snapshot.iv_rank == null ? null : Number(snapshot.iv_rank),
+    rvol: focus.components?.rvol ?? null,
+    hi20: null,
+    ret20: null,
+    ext50: null,
+  });
+
+  return pullbackStructure({
+    state,
+    symbol,
+    spot: Number(snapshot.price_close),
+    support: sr.supports?.[0]?.price ?? null,
+    putWall: snapshot.put_wall == null ? null : Number(snapshot.put_wall),
+    rsi14: focus.components?.rsi14 ?? null,
+    mfi14: mfi?.value ?? null,
+    ivRank: snapshot.iv_rank == null ? null : Number(snapshot.iv_rank),
+  });
 }
 
 // Which enqueue decision, if any, governs each positioning product's refresh
@@ -355,6 +417,12 @@ async function sendAnalyzeCandidate(req, res) {
       gammaRegime: snapshot.gamma_regime || null,
       ivRank: snapshot.iv_rank == null ? null : Number(snapshot.iv_rank),
     };
+    // Whether a measurable pullback-to-support structure currently holds. This
+    // is what gives a directional pick a stated basis: without one the engine
+    // will happily rank a Long Call top on liquidity alone in a trendless
+    // market, then flip to a Long Put when quotes move (live SPY, 2026-07-30).
+    // Best-effort -- a failure here must never block the candidate itself.
+    const pullback = await derivePullbackStructure(symbol, snapshot).catch(() => null);
     const ranked = buildActionableSetups(contracts, snapshot, {}, ACTIONABLE_STRATEGIES, environment);
     const candidate = ranked[0] || null;
     if (!candidate) {
@@ -387,6 +455,10 @@ async function sendAnalyzeCandidate(req, res) {
       // source of edge -- price-derived expected value is ~0 by construction --
       // so it is surfaced as product copy rather than left as a hidden weight.
       environment: environmentEdge(environment),
+      // A named structure the directional pick can rest on, or null. Never a
+      // bottom call: it reports that the measurable conditions hold and ships
+      // its own pullback-vs-breakdown caveat.
+      structure: pullback,
       candidate: toCandidateDto(candidate, { inputSnapshotTs: snapshot.snapshot_ts }),
       // Either side may legitimately be null (no qualifying legs); the UI says
       // so rather than padding the card with a weaker structure.

@@ -107,6 +107,20 @@ export function toAnalyzeRecommendation(candidateResponse) {
         reason: candidateResponse.environment.reason,
       }
       : null,
+    // Only a structure that actually holds is surfaced. `weak`, `absent` and
+    // `unavailable` are all withheld rather than shown as a hedged claim: a
+    // half-met structure presented at all would read as a signal, and the
+    // caveat is only meaningful attached to a positive detection.
+    structure: candidateResponse.structure?.status === 'present'
+      ? {
+        reason: candidateResponse.structure.reason,
+        caveat: candidateResponse.structure.caveat,
+        favours: candidateResponse.structure.expression?.side ?? null,
+        shape: candidateResponse.structure.expression?.shape ?? null,
+        expressionText: candidateResponse.structure.expression?.text ?? null,
+        support: candidateResponse.structure.support ?? null,
+      }
+      : null,
     recommendation: {
       strategy: candidate.strategy,
       reason: candidate.pricing || candidate.summary || `筛选匹配分 ${candidate.score}`,
