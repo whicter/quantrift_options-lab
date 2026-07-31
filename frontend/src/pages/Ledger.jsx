@@ -17,11 +17,10 @@ export default function Ledger() {
   useEffect(() => { getScannerLedger().then(setD).catch(() => setError(true)); }, []);
 
   return (
-    <main className="ledger-page">
-      <header className="ledger-head">
-        <div className="ledger-kicker">信任层 · 模型记录</div>
-        <h1>候选结果台账</h1>
-        <p>
+    <main className="product-page ledger-page">
+      <header className="product-header ledger-head">
+        <h1 className="product-title">候选结果台账</h1>
+        <p className="product-subtitle">
           扫描器过去给出的候选，到期后用真实标的收盘价逐个结算，统计按策略族的胜率与 POP 校准。
           这是模型验证，不是跟单信号；随候选陆续到期而积累。
         </p>

@@ -316,13 +316,12 @@ const briefingInputs = {
 test('briefing synthesizes a market tilt + headline from the reused aggregates', () => {
   const b = buildBriefing(briefingInputs);
   assert.equal(b.tilt, '偏多头');           // S1 20 > S5 9
-  assert.match(b.headline, /2026-07-24 市场偏多头/);
-  assert.match(b.headline, /55% 标的处正 Gamma/);
-  assert.match(b.headline, /IV Rank 中位 60/);   // 59.5 rounded
-  assert.match(b.headline, /强势上行 20 \/ 回调 21 \/ 空头 9/);
-  assert.match(b.headline, /11 只高波动观望/);
-  assert.match(b.headline, /能源·S、医疗·A 领跑/);   // grades from the re-audit enhancement
-  assert.match(b.headline, /未来一周 3 只财报（MSFT、META、AAPL）/);
+  assert.equal(b.headline, '市场整体略偏强，但上涨并不全面。');
+  assert.deepEqual(b.summary, [
+    { label: '趋势', text: '强势上行 20 只，多于空头 9 只；另有 21 只处于上涨后的回调阶段。' },
+    { label: '期权', text: '正 Gamma 略占优势，波动环境相对稳定（55% 为正 Gamma）；IV Rank 中位数为 60，处于中等区间；11 只标的处于高波动或事件驱动状态。' },
+    { label: '关注', text: '能源和医疗相对领先；太阳能和机器人/AI偏弱；未来一周有 3 只标的公布财报。' },
+  ]);
 });
 
 test('briefing callouts carry rotation leaders/laggards and gamma labels', () => {
@@ -346,7 +345,8 @@ test('briefing tilts bearish when downtrend outnumbers strong uptrend', () => {
 test('briefing degrades gracefully when aggregates are empty', () => {
   const b = buildBriefing({ dateLabel: '2026-07-24', breadth: {}, stateMatrix: {}, rotation: {}, earnings: [], unusual: [] });
   assert.equal(b.tilt, '多空均衡');
-  assert.match(b.headline, /2026-07-24 市场多空均衡/);
+  assert.equal(b.headline, '市场多空力量接近，暂未形成明确方向。');
+  assert.deepEqual(b.summary, []);
   assert.deepEqual(b.earnings_ahead, []);
 });
 

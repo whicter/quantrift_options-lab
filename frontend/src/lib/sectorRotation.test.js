@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildRotationView, dotPosition, RS_DOMAIN, MOM_DOMAIN, PLOT_HALF, QUADRANTS } from './sectorRotation.js';
+import {
+  buildRotationView,
+  dotPosition,
+  tooltipPlacement,
+  RS_DOMAIN,
+  MOM_DOMAIN,
+  PLOT_HALF,
+  QUADRANTS,
+} from './sectorRotation.js';
 
 const res = {
   status: 'ready',
@@ -25,6 +33,13 @@ test('dotPosition maps rs to x and momentum to an inverted y, clamped to the plo
   // out-of-domain clamps to the edge, never escapes
   assert.equal(dotPosition(999, 0).x, 50 + PLOT_HALF);
   assert.equal(dotPosition(0, -999).y, 50 + PLOT_HALF);
+});
+
+test('tooltip placement turns inward at every plot edge', () => {
+  assert.equal(tooltipPlacement(6, 40), 'rrg-tip-left rrg-tip-above');
+  assert.equal(tooltipPlacement(94, 40), 'rrg-tip-right rrg-tip-above');
+  assert.equal(tooltipPlacement(50, 6), 'rrg-tip-center rrg-tip-below');
+  assert.equal(tooltipPlacement(50, 50), 'rrg-tip-center rrg-tip-above');
 });
 
 test('builds dots with positions + quadrant tone, and groups by quadrant', () => {

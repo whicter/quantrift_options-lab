@@ -86,10 +86,11 @@ export default function Weekly() {
   }, [selectedSymbol]);
 
   return (
-    <div className="az-page">
-      <div className="wk-page-header">
-        <div>
-          <div className="wk-page-title">周度市场快照</div>
+    <div className="product-page az-page weekly-page">
+      <div className="product-header wk-page-header">
+        <div className="wk-heading-copy">
+          <div className="product-kicker">Weekly playbook · 周度复盘</div>
+          <div className="product-title wk-page-title">周度市场快照</div>
           {data && <div className="wk-page-meta">{data.symbol} · {data.week}</div>}
         </div>
         <div className="wk-symbol-controls">
@@ -112,6 +113,23 @@ export default function Weekly() {
       {error && <div className="az-error">{error}</div>}
       {data && (
         <>
+          <div className="wk-overview-strip">
+            <div className={data.weekChange >= 0 ? 'wk-overview-positive' : 'wk-overview-negative'}>
+              <span>本周表现</span>
+              <strong>{data.weekChange >= 0 ? '+' : ''}{data.weekChange.toFixed(2)}%</strong>
+              <small>${data.weekClose}</small>
+            </div>
+            <div className={`wk-overview-gamma wk-overview-${data.gamma.latest?.gamma_regime || 'neutral'}`}>
+              <span>Gamma 环境</span>
+              <strong>{data.gamma.latest?.gamma_regime === 'positive' ? '正 Gamma' : data.gamma.latest?.gamma_regime === 'negative' ? '负 Gamma' : '数据不足'}</strong>
+              <small>{data.gamma.latest?.call_wall ? `Call Wall $${data.gamma.latest.call_wall}` : '等待结构数据'}</small>
+            </div>
+            <div className="wk-overview-score">
+              <span>周度模型</span>
+              <strong>{data.modelScore}</strong>
+              <small>{data.modelScore < 30 ? '偏弱' : data.modelScore < 50 ? '中性偏弱' : data.modelScore < 70 ? '中性偏强' : '偏强'}</small>
+            </div>
+          </div>
           <div className="wk-section-nav">
             {SECTIONS.map(section => (
               <button key={section.id} className={`wk-sec-btn ${activeSection === section.id ? 'active' : ''}`} onClick={() => setSection(section.id)}>

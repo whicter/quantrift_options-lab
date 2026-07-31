@@ -304,6 +304,7 @@ export default function Scan() {
   const [dataStatusFailed, setDataStatusFailed] = useState(false);
   const [marketRegime, setMarketRegime] = useState(null);
   const [opportunityPreset, setOpportunityPreset] = useState('');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   useEffect(() => {
     getDataStatus().then(setDataStatus).catch(() => setDataStatusFailed(true));
@@ -352,6 +353,7 @@ export default function Scan() {
   async function handleScan(overrides = {}) {
     setLoading(true);
     setError('');
+    setMobileFiltersOpen(false);
 
     try {
       const rows = await getScan({
@@ -409,20 +411,24 @@ export default function Scan() {
   const watchlist = dataStatus?.expected_symbols || [];
   const universeCount = dataStatus?.universe?.scan_enabled_count || watchlist.length;
   const displayedResults = results ? sortScannerRows(results, tableSort) : null;
+  const regimeLabel = String(marketRegime?.regime?.label || '').toLowerCase();
+  const regimeTone = regimeLabel.includes('off') ? 'risk-off' : regimeLabel.includes('on') ? 'risk-on' : 'neutral';
+  const opportunityLabel = OPPORTUNITY_PRESETS[opportunityPreset]?.label || '自定义条件';
 
   function toggleTableSort(key) {
     setTableSort(prev => nextScannerSort(prev, key));
   }
 
   return (
-    <div className="scan-page">
-      <div className="scan-header">
-        <div className="scan-title">扫描器</div>
-        <div className="scan-subtitle">扫描已采集的报价快照，输出到期日、策略腿候选与模型收益风险</div>
+    <div className="product-page scan-page">
+      <div className="product-header scan-header">
+        <div className="product-kicker">Opportunity finder · 机会筛选</div>
+        <div className="product-title scan-title">扫描器</div>
+        <div className="product-subtitle scan-subtitle">扫描已采集的报价快照，输出到期日、策略腿候选与模型收益风险</div>
       </div>
 
       {marketRegime?.regime?.status === 'ready' && (
-        <div className="scan-market-regime">
+        <div className={`scan-market-regime scan-regime-${regimeTone}`}>
           <div>
             <span className="scan-market-label">Market Regime</span>
             <strong>{marketRegime.regime.label}</strong>
@@ -445,9 +451,27 @@ export default function Scan() {
 
       <ScannerAlerts minIvr={minIvr} gammaRegime={gammaRegime} unusualOnly={unusualOnly} />
 
+      <div className="scan-context-strip">
+        <span className="scan-context-primary"><i />{opportunityLabel}</span>
+        <span>IV Rank <b>{minIvr}–{maxIvr}</b></span>
+        <span>策略 <b>{selectedStrategies.length || '不限'}</b></span>
+        <span>扫描池 <b>{universeCount || '—'}</b></span>
+        {results && <span className="scan-context-result">候选 <b>{results.length}</b></span>}
+      </div>
+
+      <button
+        type="button"
+        className={`scan-mobile-filter-toggle${mobileFiltersOpen ? ' active' : ''}`}
+        aria-expanded={mobileFiltersOpen}
+        onClick={() => setMobileFiltersOpen(open => !open)}
+      >
+        <span>{mobileFiltersOpen ? '收起筛选条件' : '调整筛选条件'}</span>
+        <b>{mobileFiltersOpen ? '−' : '+'}</b>
+      </button>
+
       <div className={`scan-body${results === null ? ' scan-body-idle' : ''}`}>
         {/* 过滤面板 */}
-        <div className="scan-filters">
+        <div className={`scan-filters${mobileFiltersOpen ? ' mobile-open' : ''}`}>
           <div className="scan-filter-section">
             <div className="scan-filter-label">机会类型</div>
             <div className="scan-filter-help">不知道参数怎么填时，从这里开始。</div>
@@ -810,10 +834,15 @@ export default function Scan() {
           {error && <div className="az-error">{error}</div>}
           {results === null ? (
             <div className="scan-empty scan-empty-idle">
-              <div className="scan-empty-icon">+</div>
-              <div>
+              <div className="scan-empty-icon">⌁</div>
+              <div className="scan-empty-copy">
                 <strong>尚未开始扫描</strong>
                 <span>选择机会类型或调整参数后，点击「立即扫描」</span>
+                <div className="scan-empty-steps">
+                  <i><b>01</b>选机会</i>
+                  <i><b>02</b>定参数</i>
+                  <i><b>03</b>看候选</i>
+                </div>
               </div>
             </div>
           ) : results.length === 0 ? (
@@ -824,7 +853,9 @@ export default function Scan() {
           ) : (
             <>
               <div className="scan-results-header">
-                找到 <strong>{results.length}</strong> 个基于报价快照生成的候选结构
+                <span>扫描结果</span>
+                <strong>{results.length}</strong>
+                <small>个基于报价快照生成的候选结构</small>
               </div>
               <div className="scan-table" key={`${tableSort.key}:${tableSort.direction}`}>
                 <div className="scan-table-head">
@@ -847,7 +878,7 @@ export default function Scan() {
                 {displayedResults.map(d => (
                   <div
                     key={d.id}
-                    className="scan-table-row"
+                    className={`scan-table-row scan-row-${d.gex.regime}`}
                     onClick={() => handleRowClick(d.symbol)}
                     title="点击查看详细分析"
                   >

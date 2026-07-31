@@ -755,20 +755,46 @@ function buildBriefing({ dateLabel, breadth, stateMatrix, rotation, spyGamma, qq
   const leaders = sectors.filter(x => x.quadrant === 'leading').slice(0, 2);
   const laggards = sectors.filter(x => x.quadrant === 'lagging').slice(-2).reverse();
 
-  const parts = [];
-  parts.push(`${dateLabel} 市场${tilt}`);
-  if (g.positive_pct != null) parts.push(`${g.positive_pct}% 标的处正 Gamma`);
-  if (iv.median != null) parts.push(`IV Rank 中位 ${Math.round(iv.median)}`);
-  parts.push(`状态 强势上行 ${bull} / 回调 ${s('S2')} / 空头 ${bear}${s('S0') ? `，${s('S0')} 只高波动观望` : ''}`);
-  const withGrade = x => `${x.label}${x.grade ? `·${x.grade}` : ''}`;
-  if (leaders.length) parts.push(`板块 ${leaders.map(withGrade).join('、')} 领跑${laggards.length ? `、${laggards.map(withGrade).join('、')} 落后` : ''}`);
-  if (earnings?.length) parts.push(`未来一周 ${earnings.length} 只财报（${earnings.slice(0, 4).map(e => e.symbol).join('、')}${earnings.length > 4 ? '…' : ''}）`);
-  const headline = `${parts.join('，')}。`;
+  const headline = tilt === '偏多头'
+    ? '市场整体略偏强，但上涨并不全面。'
+    : tilt === '偏空头'
+      ? '市场整体偏弱，空头状态占得更多。'
+      : '市场多空力量接近，暂未形成明确方向。';
+
+  const summary = [];
+  const trendParts = [];
+  if (bull || bear) trendParts.push(`强势上行 ${bull} 只，${bull >= bear ? '多于' : '少于'}空头 ${bear} 只`);
+  if (s('S2')) trendParts.push(`另有 ${s('S2')} 只处于上涨后的回调阶段`);
+  if (trendParts.length) summary.push({ label: '趋势', text: `${trendParts.join('；')}。` });
+
+  const optionsParts = [];
+  if (g.positive_pct != null) {
+    const gammaContext = g.positive_pct >= 55
+      ? '正 Gamma 略占优势，波动环境相对稳定'
+      : g.positive_pct <= 45
+        ? '负 Gamma 占比较高，波动更容易放大'
+        : '正负 Gamma 接近，波动环境没有明显倾向';
+    optionsParts.push(`${gammaContext}（${g.positive_pct}% 为正 Gamma）`);
+  }
+  if (iv.median != null) {
+    const roundedIv = Math.round(iv.median);
+    const ivContext = roundedIv >= 70 ? '整体偏高' : roundedIv < 30 ? '整体偏低' : '处于中等区间';
+    optionsParts.push(`IV Rank 中位数为 ${roundedIv}，${ivContext}`);
+  }
+  if (s('S0')) optionsParts.push(`${s('S0')} 只标的处于高波动或事件驱动状态`);
+  if (optionsParts.length) summary.push({ label: '期权', text: `${optionsParts.join('；')}。` });
+
+  const rotationParts = [];
+  if (leaders.length) rotationParts.push(`${leaders.map(x => x.label).join('和')}相对领先`);
+  if (laggards.length) rotationParts.push(`${laggards.map(x => x.label).join('和')}偏弱`);
+  if (earnings?.length) rotationParts.push(`未来一周有 ${earnings.length} 只标的公布财报`);
+  if (rotationParts.length) summary.push({ label: '关注', text: `${rotationParts.join('；')}。` });
 
   return {
     date: dateLabel,
     tilt,
     headline,
+    summary,
     callouts: {
       regime: {
         positive_gamma_pct: g.positive_pct ?? null,

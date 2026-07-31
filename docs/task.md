@@ -4,7 +4,8 @@
 
 - [x] 新增 `/earnings` 导航页与 `GET /api/market/earnings-this-week`；按纽约时区本周或下周周一至周五展示 active/scan-enabled universe 的真实 `earnings_date`，页面内切换，每个标的可点击转到 Analyze。
 - [x] 空周保留五个日期栏；无可信数据时不展示 logo、预期值或报前/盘后时间。
-- [x] 前端全量测试（99）、ESLint、production build 和 dist 检查通过；服务端既有 market briefing 回归通过。生产 API/UI 尚待部署验收。
+- [x] Scan、Analyze、Market、Earnings、Ledger 与 Weekly 已收敛到 Scanner 的同一 product-page 标题基线：无专属 eyebrow、20px/700 标题、32px 左侧起点与页面内滚动；内容组件保持各自职责。
+- [x] 前端全量测试（103）、ESLint、production build 和 dist 检查通过；服务端既有 market briefing 回归通过。生产 API/UI 尚待部署验收。
 
 ## 2026-07-30 — Market Rebound Monitor（市场反弹确认监控）实施路线
 

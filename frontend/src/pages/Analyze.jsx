@@ -533,33 +533,37 @@ export default function Analyze() {
   }, [onDemandStatus?.status, onDemandStatus?.symbol]);
 
   return (
-    <div className="az-page">
-      <div className="az-header">
-        <div className="az-title">标的快照分析</div>
-        <div className="az-subtitle">输入标的，查看 GEX 估算、价格趋势、期权链指标与关键价位</div>
-      </div>
+    <div className="product-page az-page analyze-page">
+      <div className="product-header az-header analyze-hero">
+        <div className="analyze-hero-copy">
+          <div className="product-kicker">Analysis cockpit · 标的研究</div>
+          <div className="product-title az-title">标的分析</div>
+          <div className="product-subtitle az-subtitle">输入标的，查看 GEX 估算、价格趋势、期权链指标与关键价位</div>
+        </div>
 
-      <div className="az-search">
-        <input
-          className="az-input"
-          placeholder="输入股票代码，如 AAPL"
-          value={input}
-          onCompositionStart={() => setIsComposing(true)}
-          onCompositionEnd={e => {
-            setIsComposing(false);
-            setInput(normalizeTickerInput(e.currentTarget.value));
-          }}
-          onChange={e => {
-            const value = e.target.value;
-            setInput(isComposing || e.nativeEvent?.isComposing ? value : normalizeTickerInput(value));
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !isComposing && !e.nativeEvent?.isComposing) handleAnalyze();
-          }}
-        />
-        <button className="az-btn" onClick={() => handleAnalyze()} disabled={loading}>
-          {loading ? '分析中...' : '分析'}
-        </button>
+        <div className="az-search analyze-hero-search">
+          <input
+            className="az-input"
+            aria-label="股票代码"
+            placeholder="输入股票代码，如 AAPL"
+            value={input}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={e => {
+              setIsComposing(false);
+              setInput(normalizeTickerInput(e.currentTarget.value));
+            }}
+            onChange={e => {
+              const value = e.target.value;
+              setInput(isComposing || e.nativeEvent?.isComposing ? value : normalizeTickerInput(value));
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !isComposing && !e.nativeEvent?.isComposing) handleAnalyze();
+            }}
+          />
+          <button className="az-btn" onClick={() => handleAnalyze()} disabled={loading}>
+            {loading ? '分析中...' : '开始分析'}
+          </button>
+        </div>
       </div>
 
       {onDemandStatus?.status === 'queued' && !result ? (

@@ -25,6 +25,10 @@ Persistence: PostgreSQL
 Ingestion: Python collector
 ```
 
+### 功能页视觉壳
+
+`/scan` 是功能页的视觉基线。Scan、Analyze、Market、Earnings、Ledger、Weekly、Account 和 Portfolio 都使用 `frontend/src/index.css` 的 `.product-page`、`.product-header`、`.product-title` 与 `.product-subtitle`：固定 20px/700 标题、同一左侧与顶部起点，以及页面自身的纵向滚动。页面可以保留各自的数据卡、表格和窄屏响应式布局，但不能再定义独立的 hero 字号、eyebrow 或不同的页面滚动容器。
+
 当前生产环境已完成 Vercel + Railway + Railway PostgreSQL 部署。2026-07-14 验证结果：
 
 - `https://quantrift.io` 返回 HTTP 308，并跳转至 `https://www.quantrift.io/`。

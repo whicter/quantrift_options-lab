@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getEarningsThisWeek } from '../lib/api';
-import { buildEarningsWeekView } from '../lib/earningsCalendar';
+import { buildEarningsWeekView, earningsCountLabel } from '../lib/earningsCalendar';
 
 export default function Earnings() {
   const [raw, setRaw] = useState(null);
@@ -21,11 +21,11 @@ export default function Earnings() {
   const companyInitial = (symbol) => String(symbol || '?').slice(0, 1);
 
   return (
-    <main className="earnings-page">
-      <header className="market-head earnings-head">
-        <div className="market-kicker">Earnings calendar</div>
-        <h1>财报日历</h1>
-        <p>仅展示已采集、在覆盖池中的真实财报日期。点击任一标的即可转到策略分析；报前/盘后时间未提供时不作推断。</p>
+    <main className="product-page earnings-page">
+      <header className="product-header earnings-head">
+        <div className="product-kicker">Event radar · 事件雷达</div>
+        <h1 className="product-title">财报日历</h1>
+        <p className="product-subtitle">仅展示已采集、在覆盖池中的真实财报日期。点击任一标的即可转到策略分析；报前/盘后时间未提供时不作推断。</p>
       </header>
 
       <div className="earnings-week-tabs" role="tablist" aria-label="财报周次">
@@ -37,11 +37,17 @@ export default function Earnings() {
       {error && <div className="earnings-loading">{isNextWeek ? '下周' : '本周'}财报暂不可用。</div>}
       {view.status === 'ready' && (
         <section className="earnings-calendar" aria-label="本周财报日历">
-          <div className="earnings-summary"><span>{isNextWeek ? '下周' : '本周'} · {view.weekStart} — {view.weekEnd}</span><b>{view.count} 只标的</b></div>
+          <div className="earnings-summary">
+            <span>{isNextWeek ? '下周' : '本周'} · {view.weekStart} — {view.weekEnd}</span>
+            <b>{view.count} 只标的</b>
+          </div>
           <div className="earnings-days">
-            {view.days.map(day => (
-              <section className={day.isToday ? 'earnings-day earnings-day-today' : 'earnings-day'} key={day.date}>
-                <header><b>{day.label}</b><span>{day.dateLabel}</span></header>
+            {view.days.map((day, index) => (
+              <section className={`earnings-day earnings-day-${index + 1}${day.isToday ? ' earnings-day-today' : ''}`} key={day.date}>
+                <header>
+                  <div><b>{day.label}</b><em>{earningsCountLabel(day.earnings.length)}</em></div>
+                  <span>{day.dateLabel}</span>
+                </header>
                 <div className="earnings-symbols">
                   {day.earnings.length === 0 && <p>暂无已知财报</p>}
                   {day.earnings.map(item => (

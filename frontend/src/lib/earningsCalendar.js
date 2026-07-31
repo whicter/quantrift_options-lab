@@ -15,6 +15,11 @@ function shortDate(isoDate) {
   return month && day ? `${Number(month)}月${Number(day)}日` : isoDate;
 }
 
+export function earningsCountLabel(count) {
+  const value = Number(count) || 0;
+  return value > 0 ? `${value} 家公司` : '无财报';
+}
+
 // The API is the source of truth. Dates outside Monday-Friday are omitted
 // rather than displayed beneath a guessed weekday.
 export function buildEarningsWeekView(raw) {

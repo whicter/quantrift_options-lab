@@ -22,6 +22,10 @@ curl -fsS http://127.0.0.1:3001/api/market/earnings-this-week
 
 ## Architecture
 
+### 功能页视觉约定
+
+Scanner 是产品功能页的视觉基线。`/scan`、`/analyze`、`/market`、`/earnings`、`/ledger`、`/weekly`、`/account` 与 `/portfolio` 均复用 `index.css` 中的 `.product-page` 标题壳：20px/700 的标题、相同的 32px 左侧起点和页内纵向滚动。数据卡和表格可随功能变化，但不为单页引入更大的 hero 标题、额外 eyebrow 或另一套页面宽度。移动端统一改为 14px 左右内边距。
+
 ### Scanner Candidate Boundary (V3A immediate core)
 
 `/api/scan` is a product-result endpoint. It reads the latest stored scanner/quote inputs, runs `server/src/domain/scanner/candidateEngine.cjs` inside the API process, and returns candidate DTOs with concrete legs, expiry/DTE, economics, quality and score. It does not return the complete `option_contracts` snapshot to the browser.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildEarningsWeekView } from './earningsCalendar.js';
+import { buildEarningsWeekView, earningsCountLabel } from './earningsCalendar.js';
 
 test('earnings calendar creates five weekday columns and groups real dates', () => {
   const view = buildEarningsWeekView({
@@ -25,4 +25,9 @@ test('next-week calendar does not incorrectly mark a current-week day as today',
   });
   assert.equal(view.days.some(day => day.isToday), false);
   assert.deepEqual(view.days[2].earnings.map(item => item.symbol), ['DIS']);
+});
+
+test('weekday counts always include a user-facing unit', () => {
+  assert.equal(earningsCountLabel(4), '4 家公司');
+  assert.equal(earningsCountLabel(0), '无财报');
 });

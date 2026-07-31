@@ -116,6 +116,6 @@ function PortfolioData() {
 }
 
 export default function Portfolio({ authConfigured }) {
-  if (!authConfigured) return <main className="portfolio-page"><h1>组合持仓</h1><p>账户服务尚未配置。</p></main>;
-  return <main className="portfolio-page"><h1>组合持仓</h1><SignedOut><p>登录后记录持仓与估算组合 Greeks。</p><SignInButton mode="modal"><button type="button" className="primary-btn">登录</button></SignInButton></SignedOut><SignedIn><PortfolioData /></SignedIn></main>;
+  if (!authConfigured) return <main className="product-page portfolio-page"><h1 className="product-title">组合持仓</h1><p className="product-subtitle">账户服务尚未配置。</p></main>;
+  return <main className="product-page portfolio-page"><h1 className="product-title">组合持仓</h1><SignedOut><p className="product-subtitle">登录后记录持仓与估算组合 Greeks。</p><SignInButton mode="modal"><button type="button" className="primary-btn">登录</button></SignInButton></SignedOut><SignedIn><PortfolioData /></SignedIn></main>;
 }

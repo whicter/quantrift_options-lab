@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getSectorRotation } from '../lib/api';
-import { buildRotationView } from '../lib/sectorRotation';
+import { buildRotationView, tooltipPlacement } from '../lib/sectorRotation';
 
 const signed = (v, d = 1) => (v == null || !Number.isFinite(Number(v)) ? '--' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(d)}`);
 const FLOW_ZH = { inflow: '流入', outflow: '流出', neutral: '中性' };
@@ -53,13 +53,18 @@ export default function SectorRotation() {
                 style={{ left: `${d.x}%`, top: `${d.y}%` }}
                 onMouseEnter={() => setHovered(d.symbol)}
                 onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered(d.symbol)}
+                onBlur={() => setHovered(null)}
               >
                 <b className={`rrg-tone-${d.tone}`} />
                 <span>{d.symbol}</span>
               </Link>
             ))}
             {hot && (
-              <div className="rrg-tip" style={{ left: `${hot.x}%`, top: `${hot.y}%` }}>
+              <div
+                className={`rrg-tip ${tooltipPlacement(hot.x, hot.y)}`}
+                style={{ left: `${hot.x}%`, top: `${hot.y}%` }}
+              >
                 <b>{hot.symbol} · {hot.label}{hot.grade ? ` · ${hot.grade} 级` : ''}</b>
                 <small>{view.groups.find(g => g.id === hot.quadrant)?.label} · rs {signed(hot.rs)} · 动量 {signed(hot.momentum)}</small>
                 <small>20日 {signed(hot.ret20)}%{hot.iv_rank != null ? ` · IVR ${Math.round(hot.iv_rank)}` : ''}{hot.flow ? ` · 资金${FLOW_ZH[hot.flow]}${hot.mfi != null ? `(MFI ${hot.mfi})` : ''}` : ''}</small>
@@ -83,6 +88,8 @@ export default function SectorRotation() {
                     className={`rrg-chip${s.symbol === hovered ? ' hot' : ''}`}
                     onMouseEnter={() => setHovered(s.symbol)}
                     onMouseLeave={() => setHovered(null)}
+                    onFocus={() => setHovered(s.symbol)}
+                    onBlur={() => setHovered(null)}
                     title={`${s.label} · ${s.grade || '-'} 级 · rs ${signed(s.rs)} · 动量 ${signed(s.momentum)}${s.flow ? ` · 资金${FLOW_ZH[s.flow]}` : ''}`}
                   >
                     {s.grade && <i className={`rrg-grade rrg-grade-${s.grade}`}>{s.grade}</i>}

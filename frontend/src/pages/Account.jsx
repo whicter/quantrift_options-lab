@@ -49,10 +49,10 @@ function AccountData() {
 }
 
 export default function Account({ authConfigured }) {
-  if (!authConfigured) return <main className="account-page"><h1>账户</h1><p>账户服务尚未配置。</p></main>;
+  if (!authConfigured) return <main className="product-page account-page"><h1 className="product-title">账户</h1><p className="product-subtitle">账户服务尚未配置。</p></main>;
   return (
-    <main className="account-page">
-      <h1>账户</h1>
+    <main className="product-page account-page">
+      <h1 className="product-title">账户</h1>
       <SignedOut><p>登录后查看订阅与持仓。</p><SignInButton mode="modal"><button type="button" className="primary-btn">登录</button></SignInButton></SignedOut>
       <SignedIn><AccountData /></SignedIn>
     </main>

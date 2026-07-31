@@ -488,6 +488,8 @@ GEX compute job：
 
 ## Scanner Strategy Lessons (2026-07-15)
 
+- **功能页要先统一壳，再允许内容分化**：Scan、Analyze、Market、Earnings、Ledger 与 Weekly 共享同一个标题字号、起点和滚动容器；页面特有的数据卡、表格与筛选器不应借由 hero、eyebrow 或不同内容轨道破坏导航后的视觉连续性。
+
 - **“最新 snapshot”不是单一排序问题**：Polygon 最新快照有 Greeks/OI 但 0 bid/ask；直接 `DISTINCT ON symbol ORDER BY snapshot_ts DESC` 让 55 个已有真实报价的标的全部变成空 scanner。Positioning 和 quote 必须各自选择最新可用 snapshot。
 - **报价必须带自己的 provenance/freshness**：不能把 GEX source 或 scanner materialization time 当作 legs 的报价时间。API 增加 `quote_source/quote_snapshot_ts/quote_freshness`。
 - **DTE 也受 UTC 午夜影响**：SQL 中 `expiry - CURRENT_DATE` 在美东晚间会提前减一天。scanner 与 ATM pipeline 都统一到 `America/New_York` market date。

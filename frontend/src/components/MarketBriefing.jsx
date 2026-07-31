@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMarketBriefing } from '../lib/api';
+import { buildMarketBriefingView } from '../lib/marketBriefing';
 
 const compactOi = (v) => {
   if (v == null || !Number.isFinite(Number(v))) return '';
@@ -19,21 +20,32 @@ export default function MarketBriefing() {
   useEffect(() => { getMarketBriefing().then(setB).catch(() => {}); }, []);
 
   if (!b || b.status !== 'ready') return null;
-  const earnings = b.earnings_ahead || [];
-  const unusual = b.top_unusual || [];
+  const view = buildMarketBriefingView(b);
+  const earnings = view.earnings_ahead || [];
+  const unusual = view.top_unusual || [];
 
   return (
-    <section className={`brief brief-${TILT_TONE[b.tilt] || 'neutral'}`}>
+    <section className={`brief brief-${TILT_TONE[view.tilt] || 'neutral'}`}>
       <div className="brief-top">
         <span className="brief-kicker">今日市场简报</span>
-        <span className="brief-date">{b.date}</span>
+        <span className="brief-date">{view.date}</span>
       </div>
-      <p className="brief-headline">{b.headline}</p>
+      <p className="brief-headline">{view.headline}</p>
+      {view.summary.length > 0 && (
+        <div className="brief-summary">
+          {view.summary.map(item => (
+            <p key={item.label}>
+              <b>{item.label}</b>
+              <span>{item.text}</span>
+            </p>
+          ))}
+        </div>
+      )}
       <div className="brief-callouts">
-        {(b.spy_gamma_label || b.qqq_gamma_label) && (
+        {(view.spy_gamma_label || view.qqq_gamma_label) && (
           <div className="brief-co">
             <span className="brief-co-lbl">指数 Gamma</span>
-            <span>SPY {b.spy_gamma_label || '—'} · QQQ {b.qqq_gamma_label || '—'}</span>
+            <span>SPY {view.spy_gamma_label || '—'} · QQQ {view.qqq_gamma_label || '—'}</span>
           </div>
         )}
         {earnings.length > 0 && (
@@ -45,7 +57,16 @@ export default function MarketBriefing() {
                   {e.symbol}<small>{String(e.date).slice(5)}</small>
                 </Link>
               ))}
-              {earnings.length > 6 && <span className="brief-more">+{earnings.length - 6}</span>}
+              {earnings.length > 6 && (
+                <Link
+                  className="brief-more"
+                  to="/earnings"
+                  title={`查看其余 ${earnings.length - 6} 只财报`}
+                  aria-label={`查看其余 ${earnings.length - 6} 只财报`}
+                >
+                  +{earnings.length - 6}
+                </Link>
+              )}
             </span>
           </div>
         )}

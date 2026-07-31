@@ -60,6 +60,12 @@ export function dotPosition(rs, momentum, rsDomain = RS_DOMAIN, momDomain = MOM_
   };
 }
 
+export function tooltipPlacement(x, y) {
+  const horizontal = x <= 25 ? 'left' : x >= 75 ? 'right' : 'center';
+  const vertical = y <= 18 ? 'below' : 'above';
+  return `rrg-tip-${horizontal} rrg-tip-${vertical}`;
+}
+
 export function buildRotationView(res) {
   if (!res || res.status !== 'ready') return { status: res?.status || 'missing' };
 
