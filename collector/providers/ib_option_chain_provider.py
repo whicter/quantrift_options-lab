@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -7,6 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapshot
+
+log = logging.getLogger(__name__)
 
 
 class IbOptionChainProvider:
@@ -114,12 +117,25 @@ class IbOptionChainProvider:
             contracts = []
             contracts_by_expiry: dict[date, int] = {}
             discovered_contract_count = 0
+            # Per-expiry failures are isolated. A single slow expiry used to abort
+            # the whole fetch, discarding every expiry already retrieved -- so a
+            # near-week chain that had succeeded was thrown away because a
+            # months-out expiry timed out (observed live on PLTR 2026-08-03: the
+            # requested 2026-08-07 legs were fetched, then lost when 2026-09-04
+            # timed out). Callers care about usable expiries, not an all-or-
+            # nothing chain, so a failed expiry is skipped and disclosed in
+            # raw_metadata rather than destroying the batch.
+            failed_expiries: list[dict[str, str]] = []
             for expiry in selected_expirations:
                 actual_contracts = []
-                for right in ('C', 'P'):
-                    actual_contracts.extend(
-                        self._fetch_actual_option_contracts(app, symbol, expiry, right, trading_class)
-                    )
+                try:
+                    for right in ('C', 'P'):
+                        actual_contracts.extend(
+                            self._fetch_actual_option_contracts(app, symbol, expiry, right, trading_class)
+                        )
+                except (TimeoutError, RuntimeError) as exc:
+                    failed_expiries.append({'expiry': str(expiry), 'error': str(exc)})
+                    continue
                 discovered_contract_count += len(actual_contracts)
                 selected_contracts = self._select_actual_contracts(
                     actual_contracts,
@@ -148,7 +164,17 @@ class IbOptionChainProvider:
                 'missing_oi_count': missing_oi,
                 'max_contracts': self.max_contracts,
                 'max_contracts_per_expiration': self.max_contracts_per_expiration,
+                # Disclosed, never silent: a partial chain must be distinguishable
+                # from a complete one by any consumer reading the snapshot.
+                'requested_expiration_count': len(selected_expirations),
+                'failed_expirations': failed_expiries,
             })
+            if failed_expiries:
+                log.warning(
+                    '%s: %s/%s expiries failed and were skipped: %s',
+                    symbol, len(failed_expiries), len(selected_expirations),
+                    ', '.join(f['expiry'] for f in failed_expiries),
+                )
 
             return OptionChainSnapshot(
                 symbol=symbol,
