@@ -262,11 +262,26 @@ def run():
             except Exception as e:
                 log.error(f'DB upsert failed: {e}')
                 conn.rollback()
+                # These symbols were fetched successfully and then lost at the
+                # write. Not counting them let a run that dropped all 50 report
+                # "0 rows written, 0 errors" -- the same shape as a run with
+                # nothing to do.
+                errors.extend(row['symbol'] for row in rows)
 
     conn.close()
+    attempted = len(watchlist)
     log.info(f'=== Done: {total_written} rows written, {len(errors)} errors ===')
     if errors:
         log.warning(f'Failed symbols: {errors}')
+    # A 100% failure rate must not look like success. Without this, the only
+    # signal was a count of zero that reads identically to an empty universe --
+    # the failure mode that hid the occ_ticker bug for weeks.
+    if attempted and total_written == 0:
+        log.error(
+            'collected 0 of %d symbols -- every write failed; treating as a failed run',
+            attempted,
+        )
+        raise RuntimeError(f'metrics collection wrote nothing for {attempted} symbols')
 
 
 if __name__ == '__main__':

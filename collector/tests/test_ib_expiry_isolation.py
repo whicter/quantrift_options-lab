@@ -88,5 +88,60 @@ class PartialChainDisclosureTest(unittest.TestCase):
         )
 
 
+class DeadSocketDetectionTest(unittest.TestCase):
+    """ibapi does not raise when the socket dies -- it calls error(504
+    NOT_CONNECTED) and returns. With 504 absent from the terminal set, every
+    remaining contract waited out its full stream timeout producing all-None
+    fields: at OPTION_MAX_CONTRACTS=240 x 5s that is ~20 minutes spinning on a
+    dead connection, and the snapshot was still reported provider_status='ok'.
+    """
+
+    def _market_data(self, codes):
+        from providers.ib_option_chain_provider import _MarketData
+        data = _MarketData()
+        data.raw = {'errors': [{'code': code} for code in codes]}
+        return data
+
+    def test_connection_loss_codes_are_terminal(self):
+        for code in (504, 1100, 1101, 1102, 10197):
+            self.assertTrue(
+                self._market_data([code]).has_terminal_error(),
+                f'IB code {code} must stop the wait, not run out the timeout',
+            )
+
+    def test_per_contract_answers_remain_terminal(self):
+        # Pre-existing behaviour must not regress.
+        for code in (200, 321, 354):
+            self.assertTrue(self._market_data([code]).has_terminal_error())
+
+    def test_an_ordinary_warning_is_not_terminal(self):
+        # 2104/2106 are market-data farm status notices, not failures.
+        self.assertFalse(self._market_data([2104]).has_terminal_error())
+
+    def test_connection_errors_are_distinguished_from_contract_errors(self):
+        # A dead socket invalidates the whole fetch; "no security definition"
+        # invalidates only that contract.
+        self.assertTrue(self._market_data([504]).has_connection_error())
+        self.assertFalse(self._market_data([200]).has_connection_error())
+
+
+class ProviderStatusHonestyTest(unittest.TestCase):
+    def test_partial_is_distinguishable_from_clean(self):
+        """'ok' used to mean only "some contracts came back", so a fetch that
+        lost its connection partway was indistinguishable from a complete one.
+        app.error_msg was assigned on every IB error and never read anywhere."""
+        def status(contracts, failed_expiries, error_msg):
+            if not contracts:
+                return 'empty'
+            if failed_expiries or error_msg:
+                return 'partial'
+            return 'ok'
+
+        self.assertEqual(status(['c'], [], None), 'ok')
+        self.assertEqual(status([], [], None), 'empty')
+        self.assertEqual(status(['c'], [{'expiry': '2026-09-04'}], None), 'partial')
+        self.assertEqual(status(['c'], [], 'IB error 504: not connected'), 'partial')
+
+
 if __name__ == '__main__':
     unittest.main()

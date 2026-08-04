@@ -551,18 +551,52 @@ def insert_rows(conn, rows):
     update_cols = [col for col in cols if col not in ('scan_key', 'symbol', 'snapshot_ts')]
     update_set = ', '.join(f'{col} = EXCLUDED.{col}' for col in update_cols)
 
-    with conn.cursor() as cur:
-        execute_values(
-            cur,
-            f"""
-            INSERT INTO scanner_results_snapshots ({', '.join(cols)})
-            VALUES %s
-            ON CONFLICT (scan_key, symbol, snapshot_ts) DO UPDATE SET {update_set}
-            """,
-            values,
-        )
-    conn.commit()
-    return len(values)
+    sql = f"""
+        INSERT INTO scanner_results_snapshots ({', '.join(cols)})
+        VALUES %s
+        ON CONFLICT (scan_key, symbol, snapshot_ts) DO UPDATE SET {update_set}
+    """
+
+    # Chunked, with a per-row fallback. This used to be one execute_values over
+    # every scan row plus a single commit, so one out-of-range numeric or one
+    # unserializable payload aborted the whole statement and the cycle produced
+    # ZERO scanner rows -- taking /api/scan, the alert evaluator and the ledger
+    # down with it. The scanner rematerializes every few minutes, so "missing one
+    # symbol" is vastly preferable to "missing the entire table".
+    chunk_size = max(int(os.getenv('SCAN_INSERT_CHUNK_SIZE', '100')), 1)
+    written = 0
+    dropped: list[str] = []
+    symbol_index = cols.index('symbol')
+
+    for start in range(0, len(values), chunk_size):
+        chunk = values[start:start + chunk_size]
+        try:
+            with conn.cursor() as cur:
+                execute_values(cur, sql, chunk)
+            conn.commit()
+            written += len(chunk)
+            continue
+        except Exception as exc:  # noqa: BLE001 - isolate the bad row, keep the rest
+            conn.rollback()
+            log.warning('scan insert chunk of %d failed (%s); retrying row by row', len(chunk), exc)
+
+        for row in chunk:
+            try:
+                with conn.cursor() as cur:
+                    execute_values(cur, sql, [row])
+                conn.commit()
+                written += 1
+            except Exception as exc:  # noqa: BLE001
+                conn.rollback()
+                dropped.append(str(row[symbol_index]))
+                log.error('scan row dropped for %s: %s', row[symbol_index], exc)
+
+    if dropped:
+        # Never silent: a materialization that quietly lost symbols would read as
+        # a genuinely smaller market.
+        log.warning('scan materialization dropped %d of %d rows: %s',
+                    len(dropped), len(values), ', '.join(sorted(dropped)))
+    return written
 
 
 def run():

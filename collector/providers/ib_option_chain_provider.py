@@ -153,12 +153,27 @@ class IbOptionChainProvider:
                     for contract in selected_contracts:
                         if len(contracts) >= self.max_contracts:
                             break
+                        # A dead socket must fail in seconds, not grind through
+                        # every remaining contract at one full stream timeout
+                        # each. ibapi does not raise on disconnect, so this is
+                        # the only place the loop can notice.
+                        if not app.isConnected():
+                            raise RuntimeError(f'IB connection lost while fetching {symbol} {expiry}')
                         contracts.append(self._fetch_contract_snapshot(app, contract, symbol))
                         contracts_by_expiry[expiry] = contracts_by_expiry.get(expiry, 0) + 1
                         if self.contract_delay > 0:
                             time.sleep(self.contract_delay)
                 except (TimeoutError, RuntimeError, ValueError) as exc:
                     failed_expiries.append({'expiry': str(expiry), 'error': str(exc)})
+                    if not app.isConnected():
+                        # Nothing further can succeed on this connection; record
+                        # the untried expiries instead of failing them one slow
+                        # timeout at a time.
+                        for skipped in selected_expirations[selected_expirations.index(expiry) + 1:]:
+                            failed_expiries.append({
+                                'expiry': str(skipped), 'error': 'IB connection lost before this expiry',
+                            })
+                        break
                     continue
                 if len(contracts) >= self.max_contracts:
                     # The global contract budget is spent, so any remaining
@@ -194,13 +209,26 @@ class IbOptionChainProvider:
                     ', '.join(f['expiry'] for f in failed_expiries),
                 )
 
+            # 'ok' used to mean only "some contracts came back", so a fetch that
+            # lost its connection partway -- or skipped most expiries -- was
+            # indistinguishable from a clean one. app.error_msg was assigned on
+            # every IB error and then never read anywhere; it now participates,
+            # matching ib_price_provider, which has always surfaced it.
+            if not contracts:
+                provider_status = 'empty'
+            elif failed_expiries or app.error_msg:
+                provider_status = 'partial'
+            else:
+                provider_status = 'ok'
+            if app.error_msg:
+                raw_metadata['provider_error'] = app.error_msg
             return OptionChainSnapshot(
                 symbol=symbol,
                 underlying=underlying,
                 contracts=contracts,
                 snapshot_ts=snapshot_ts,
                 source=self.source,
-                provider_status='ok' if contracts else 'empty',
+                provider_status=provider_status,
                 raw_metadata=raw_metadata,
             )
         finally:
@@ -626,9 +654,26 @@ class _MarketData:
             )
         )
 
+    # 200 no security definition / 321 invalid request / 354 not subscribed are
+    # per-contract answers. The rest are connection-level: ibapi does NOT raise
+    # when the socket dies, it calls error(504 NOT_CONNECTED) and returns, so
+    # without these every remaining contract waited out its full stream timeout
+    # producing all-None fields. At OPTION_MAX_CONTRACTS=240 x 5s that is ~20
+    # minutes of spinning on a dead socket, after which the snapshot was still
+    # reported provider_status='ok'.
+    TERMINAL_ERROR_CODES = (200, 321, 354, 504, 1100, 1101, 1102, 10197)
+
     def has_terminal_error(self) -> bool:
         return any(
-            error.get('code') in (200, 321, 354)
+            error.get('code') in self.TERMINAL_ERROR_CODES
+            for error in self.raw.get('errors', [])
+        )
+
+    def has_connection_error(self) -> bool:
+        """Connection-level failures, which invalidate the whole fetch rather
+        than just this contract."""
+        return any(
+            error.get('code') in (504, 1100, 1101, 1102)
             for error in self.raw.get('errors', [])
         )
 
