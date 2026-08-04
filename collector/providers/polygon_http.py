@@ -29,6 +29,7 @@ class PolygonHttpClient:
         default_backoff: float = 60,
         default_retries: int = 5,
         mount_retries: bool = False,
+        pacing_scope: str = 'stocks',
     ) -> None:
         self.api_key = os.getenv('POLYGON_API_KEY', '').strip()
         if not self.api_key:
@@ -37,7 +38,15 @@ class PolygonHttpClient:
         self.timeout = float(os.getenv('POLYGON_TIMEOUT', '30'))
         self.backoff = max(float(os.getenv(backoff_env, str(default_backoff))), 0)
         self.max_retries = max(int(os.getenv(retries_env, str(default_retries))), 0)
-        self.pacer = PolygonStockRequestPacer()
+        # Scope decides which shared queue this client waits in. Every Polygon
+        # client used to hardcode 'stocks', so option-chain, price and reference
+        # requests -- separate endpoints with separate quotas -- serialized
+        # behind one 16s-spaced queue and blocked each other. Measured
+        # 2026-08-03: a price sweep that costs 2.7h on its own took ~10h queued
+        # behind a round-the-clock option refresh, while total demand was only
+        # 33% of the budget. The limiter always supported scopes; nothing used
+        # them.
+        self.pacer = PolygonStockRequestPacer(scope=pacing_scope)
         self.session = session or requests.Session()
         self.session.headers['Authorization'] = f'Bearer {self.api_key}'
         if session is None or mount_retries:

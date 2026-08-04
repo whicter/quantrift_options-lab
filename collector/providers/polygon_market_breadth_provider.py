@@ -30,6 +30,7 @@ class PolygonMarketBreadthProvider:
         self.http = PolygonHttpClient(
             session=session,
             required_for='PolygonMarketBreadthProvider',
+            pacing_scope='breadth',
         )
         self.api_key = self.http.api_key
         self.base_url = self.http.base_url

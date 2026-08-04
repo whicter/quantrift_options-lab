@@ -33,6 +33,9 @@ class PolygonOptionChainProvider:
             session=requests.Session(),
             required_for='PolygonOptionChainProvider',
             mount_retries=True,
+            # Options endpoints have their own quota; queueing behind the
+            # price sweep is what stretched a 2.7h sweep to ~10h.
+            pacing_scope='options',
         )
         self.api_key = self.http.api_key
         self.base_url = self.http.base_url

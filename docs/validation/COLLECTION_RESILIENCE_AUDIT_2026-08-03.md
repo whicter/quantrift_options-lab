@@ -101,6 +101,39 @@ It was not — the server-side hang, pool exhaustion and socket leak were all st
 there, and *more* hidden, because the client now bailed before the server ever
 reported. The real fix was the pool deadlines.
 
+## Follow-up: the 10-hour sweep was queue contention, not capacity
+
+The measured ~10h full sweep looked like a capacity problem and the first
+instinct was to ration it — tier the universe, rotate symbols. Measuring the
+budget first showed that was wrong:
+
+| | |
+|---|---|
+| Budget at 16s/request | 5,400 requests/day |
+| Actual demand (price 1,204 + options 590) | **1,794/day — 33%** |
+| Price sweep, uncontended | 2.7h |
+| Price sweep, as observed | ~10h |
+
+Two thirds of the budget sat idle while the sweep crawled. The cause was in
+`polygon_http.py`: every client constructed `PolygonStockRequestPacer()` with the
+default scope, so option-chain, price, reference and breadth requests — separate
+endpoints with separate quotas — all serialized behind **one** 16s-spaced queue.
+The option refresh runs around the clock (10-44 snapshots every hour, no idle
+window), so the price sweep was interleaved with it end to end.
+
+`DatabaseRequestPacer` had always accepted a `scope`; nothing ever passed one,
+and only a single `polygon/stocks` row had ever existed in the table.
+
+Each client now declares its own scope (`options` / `stocks` / `reference` /
+`breadth`). **Measured immediately after: 2m07s per symbol → ~30s**, which is
+exactly 2 requests × 16s, i.e. uncontended. Full sweep 10h → 2.7h, with no
+change to the rate limit and no symbol tiering.
+
+The generalisable part: *"we are at the limit"* and *"we are queued behind
+ourselves"* look identical from inside a single symptom. Comparing demand
+against the budget separated them in one query, and it was the cheap check to
+run first.
+
 ## Not yet addressed
 
 Ranked findings still open, from the same audit:

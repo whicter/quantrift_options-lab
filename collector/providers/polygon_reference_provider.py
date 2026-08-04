@@ -34,6 +34,9 @@ class PolygonReferenceProvider:
             backoff_env='POLYGON_REFERENCE_RATE_LIMIT_BACKOFF',
             retries_env='POLYGON_REFERENCE_RATE_LIMIT_RETRIES',
             default_retries=4,
+            # Reference data is low-volume and weekly; it must not sit behind
+            # either of the high-volume queues.
+            pacing_scope='reference',
         )
         self.api_key = self.http.api_key
         self.base_url = self.http.base_url
