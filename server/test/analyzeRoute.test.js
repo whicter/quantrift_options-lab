@@ -17,6 +17,12 @@ require.cache[refreshPath] = {
 delete require.cache[routePath];
 const { sendAnalyzeStatus, sendConfluence } = require(routePath);
 
+// 2026-08-03 14:00Z = 10:00 ET on a Monday. Pinned so these tests do not depend
+// on when the suite happens to run: the quote-enqueue path is deliberately
+// skipped outside regular hours, which silently flipped four assertions from
+// 'queued' to 'partial' when the suite ran after the close.
+const MARKET_OPEN = new Date('2026-08-03T14:00:00Z');
+
 test.beforeEach(() => { queryResults.length = 0; refreshCalls.length = 0; queries.length = 0; });
 
 test('unknown symbol is registered and enqueues the complete data bundle', async () => {
@@ -26,7 +32,7 @@ test('unknown symbol is registered and enqueues the complete data bundle', async
     metrics_blocked: false,
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'new1' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'new1' } }, res);
   assert.equal(res.body.status, 'queued');
   assert.equal(res.body.estimated_wait, '约 1 分钟');
   assert.deepEqual(refreshCalls.map(call => call.jobType), [
@@ -45,7 +51,7 @@ test('symbol with an existing chain but outdated GEX queues local recompute with
     active_jobs: 0, queue_depth: 0, metrics_blocked: false,
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'RKLB' } }, res);
   assert.equal(res.body.status, 'queued');
   assert.deepEqual(refreshCalls.map(call => call.jobType), ['gex_recompute']);
   assert.equal(refreshCalls[0].provider, 'internal');
@@ -59,7 +65,7 @@ test('fully covered symbol returns ready without duplicate jobs', async () => {
     metrics_blocked: false,
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'AAPL' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'AAPL' } }, res);
   assert.equal(res.body.status, 'ready');
   assert.equal(refreshCalls.length, 0);
 });
@@ -70,7 +76,7 @@ test('derived IV Rank readiness satisfies metrics without a Tastytrade job', asy
     active_jobs: 0, queue_depth: 0, metrics_blocked: false,
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'AAPL' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'AAPL' } }, res);
   assert.equal(res.body.status, 'ready');
   assert.equal(res.body.coverage.metrics_source, 'derived');
   assert.equal(refreshCalls.some(call => call.jobType === 'symbol_metrics_snapshot'), false);
@@ -83,7 +89,7 @@ test('recent non-retryable metrics failure is exposed without enqueue loop', asy
     metrics_last_error: 'tastytrade metrics auth unavailable: device challenge',
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'COST' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'COST' } }, res);
   assert.equal(res.body.status, 'partial');
   assert.equal(res.body.refresh.metrics, 'blocked');
   assert.equal(res.body.blockers[0].field, 'metrics');
@@ -92,7 +98,7 @@ test('recent non-retryable metrics failure is exposed without enqueue loop', asy
 
 test('malformed ticker is rejected before persistence', async () => {
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: "SS'TS'T'X" } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: "SS'TS'T'X" } }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(queryResults.length, 0);
 });
@@ -103,7 +109,7 @@ test('existing chain without bid/ask quotes is queued for an immediate quote ref
     active_jobs: 0, queue_depth: 0, metrics_blocked: false,
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'RKLB' } }, res);
 
   assert.equal(res.body.status, 'queued');
   assert.equal(res.body.coverage.option_quotes, false);
@@ -123,7 +129,7 @@ test('failed quote collection is exposed without an enqueue loop', async () => {
     quotes_last_error: 'option quote unavailable: tastytrade returned no usable bid/ask quotes',
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'RKLB' } }, res);
 
   assert.equal(res.body.status, 'partial');
   assert.equal(res.body.refresh.option_quotes, 'blocked');
@@ -142,7 +148,7 @@ test('transient quote collection failure is retried instead of becoming a blocke
     quotes_last_error: null,
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'RKLB' } }, res);
 
   assert.equal(res.body.status, 'queued');
   assert.equal(res.body.blockers.length, 0);
@@ -157,7 +163,7 @@ test('worker-specific quote authentication failure does not block a different co
     quotes_last_error: 'tastytrade auth unavailable: device challenge',
   }] });
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'RKLB' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'RKLB' } }, res);
 
   assert.equal(res.body.status, 'queued');
   assert.equal(refreshCalls.length, 1);
@@ -217,7 +223,7 @@ test('per-product state reports stale data as stale rather than collapsing to re
   }] });
 
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'TEST' } }, res);
 
   assert.equal(res.body.products.price_daily.state, 'fresh');
   assert.equal(res.body.products.price_30m.state, 'fresh');
@@ -237,7 +243,7 @@ test('missing product with an in-flight refresh reports queued, not missing', as
   }] });
 
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'NEW1' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'NEW1' } }, res);
 
   assert.equal(res.body.products.price_daily.state, 'queued');
   assert.equal(res.body.products.option_chain.state, 'queued');
@@ -258,7 +264,7 @@ test('a quote blocker cannot block a missing Polygon chain and GEX refresh', asy
   }] });
 
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'TEST' } }, res);
 
   assert.equal(res.body.products.metrics.state, 'failed');
   assert.equal(res.body.products.option_chain.state, 'queued');
@@ -280,7 +286,7 @@ test('option quotes are their own product state, not folded into the chain', asy
   }] });
 
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'TEST' } }, res);
 
   assert.equal(res.body.products.option_chain.state, 'fresh');
   assert.equal(res.body.products.option_quotes.state, 'queued');
@@ -296,7 +302,7 @@ test('product states never leak provider or internal source names', async () => 
   }] });
 
   const res = responseRecorder();
-  await sendAnalyzeStatus({ params: { symbol: 'TEST' } }, res);
+  await sendAnalyzeStatus({ now: MARKET_OPEN, params: { symbol: 'TEST' } }, res);
 
   const serialized = JSON.stringify(res.body.products);
   for (const name of ['polygon_licensed', 'ib_internal', 'tt_internal', 'tastytrade', 'stooq']) {

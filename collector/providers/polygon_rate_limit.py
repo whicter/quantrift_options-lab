@@ -6,6 +6,8 @@ import os
 import time
 from pathlib import Path
 
+from .provider_rate_limit import RateLimitDeferred
+
 log = logging.getLogger(__name__)
 
 
@@ -59,6 +61,14 @@ class PolygonStockRequestPacer:
             try:
                 self._db_pacer.wait()
                 return
+            except RateLimitDeferred:
+                # NOT a pacer failure -- it is the pacer working. The slot is
+                # beyond the inline wait budget (almost always an active 429
+                # penalty), so the caller must back off rather than fire. Falling
+                # through to the local lock here would reintroduce the exact
+                # deadlock the conditional claim exists to prevent: bypass the
+                # backoff, earn another 429, push the slot further out.
+                raise
             except Exception as exc:
                 # Pacing must never take the collector down. Degrade to the local
                 # lock, which still bounds this host, and say so rather than

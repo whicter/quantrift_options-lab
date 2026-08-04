@@ -498,10 +498,25 @@ async function migrate() {
       finished_at     TIMESTAMPTZ
     );
 
+    -- Earliest time a re-queued job may be claimed again. NULL means "now",
+    -- so every pre-existing row stays immediately eligible.
+    --
+    -- Without it, a failed job returned to 'queued' was instantly re-selectable
+    -- and the quote worker polls every 5s, so all three attempts burned in
+    -- ~10-15 seconds against a provider that was still down -- identical work,
+    -- deterministically failing the same way, after which the symbol was dead
+    -- until something re-enqueued it. A transient IB restart or Polygon blip is
+    -- exactly the case retries exist for, and it was the case they could not
+    -- survive.
+    ALTER TABLE provider_fetch_jobs
+      ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;
+
     CREATE INDEX IF NOT EXISTS provider_fetch_jobs_symbol_type_created
       ON provider_fetch_jobs (symbol, job_type, created_at DESC);
     CREATE INDEX IF NOT EXISTS provider_fetch_jobs_status_created
       ON provider_fetch_jobs (status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS provider_fetch_jobs_claimable
+      ON provider_fetch_jobs (status, next_attempt_at) WHERE status = 'queued';
 
     CREATE TABLE IF NOT EXISTS provider_request_usage (
       id              BIGSERIAL PRIMARY KEY,

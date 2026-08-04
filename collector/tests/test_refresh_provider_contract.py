@@ -42,11 +42,20 @@ class RefreshProviderContractTest(unittest.TestCase):
             RuntimeError('temporary provider timeout')
         ))
 
-    def test_unquoted_option_snapshot_is_non_retryable(self):
+    def test_unquoted_option_snapshot_is_retryable(self):
+        """"No usable bid/ask" is the most transient condition in the system.
+
+        A dropped IB socket, a market-data farm reconnect, a hit market-data-line
+        cap, or simply being outside RTH all surface as this exact error. Marking
+        it permanent meant one bad 5-second window killed the job at attempts=1 --
+        so a symbol could go unquotable for good because IB blinked. It now
+        retries on the shared backoff; the enqueue side separately declines to
+        queue these outside RTH, where an empty book is the expected answer.
+        """
         import run_refresh_worker
 
-        self.assertFalse(run_refresh_worker.should_retry(
-            RuntimeError('option quote unavailable: polygon_licensed returned no usable bid/ask quotes')
+        self.assertTrue(run_refresh_worker.should_retry(
+            RuntimeError('option quote unavailable: ib_internal returned no usable bid/ask quotes')
         ))
 
     def test_transitional_non_polygon_fallback_defaults_to_ib(self):

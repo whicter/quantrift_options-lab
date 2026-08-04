@@ -44,6 +44,7 @@ import derive_volatility
 import materialize_oi_delta
 import materialize_scan
 import symbol_data_state
+from providers.provider_rate_limit import RateLimitDeferred
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -90,7 +91,13 @@ NON_RETRYABLE_ERROR_PREFIXES = (
     'tastytrade metrics auth unavailable:',
     'provider auth unavailable for this worker run:',
     'provider unavailable for this worker run:',
-    'option quote unavailable:',
+    # NOTE: 'option quote unavailable:' is deliberately NOT here. It is the most
+    # transient condition in the system -- a dropped IB socket, a market-data
+    # farm reconnect, a hit market-data-line cap, or simply being outside RTH all
+    # surface as "no usable bid/ask". Treating it as permanent meant one bad
+    # 5-second window killed the job at attempts=1. It now retries on the shared
+    # backoff, and the enqueue side declines to queue it outside RTH at all,
+    # where an empty quote is the expected answer rather than a fault.
     # A spent daily budget does not replenish until the next budget day, so
     # retrying the same job 3x only multiplies failures against the wall.
     'provider budget exhausted:',
@@ -121,6 +128,9 @@ def fetch_jobs(
               FROM provider_fetch_jobs
               WHERE status = 'queued'
                 AND attempts < %s
+                -- NULL means "never deferred", so first attempts and every
+                -- pre-existing row stay immediately claimable.
+                AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                 AND (
                   (%s = 'quotes' AND job_type = 'option_quote_snapshot')
                   OR
@@ -215,7 +225,42 @@ def recover_stale_running_jobs(conn) -> int:
     return count
 
 
-def finish_job(conn, job_id: int, status: str, summary: dict | None = None, error: str | None = None) -> None:
+def release_attempt(conn, job_id: int) -> None:
+    """Give back the attempt consumed by claiming a job we never actually ran.
+
+    A rate-limit deferral means no provider request was issued, so charging it
+    against the 3-attempt budget would let a busy provider exhaust a job's
+    retries without a single call reaching it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            'UPDATE provider_fetch_jobs SET attempts = GREATEST(attempts - 1, 0) WHERE id = %s',
+            (job_id,),
+        )
+    conn.commit()
+
+
+def retry_delay_seconds(attempts: int) -> float:
+    """Exponential backoff before a re-queued job may be claimed again.
+
+    30s, 2min, 8min. Transient failures -- an IB Gateway restart, a Polygon
+    blip, a rate-limit penalty -- resolve well inside that window, and it is
+    the window retries previously never had: a re-queued job was instantly
+    claimable and the quote worker polls every 5s, so all three attempts burned
+    in ~10-15 seconds against a provider that was still down.
+    """
+    base = float(os.getenv('REFRESH_WORKER_RETRY_BASE_SECONDS', '30'))
+    return base * (4 ** max(int(attempts) - 1, 0))
+
+
+def finish_job(
+    conn,
+    job_id: int,
+    status: str,
+    summary: dict | None = None,
+    error: str | None = None,
+    retry_after_seconds: float | None = None,
+) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -223,10 +268,14 @@ def finish_job(conn, job_id: int, status: str, summary: dict | None = None, erro
             SET status = %s,
                 result_summary = %s,
                 last_error = %s,
-                finished_at = NOW()
+                finished_at = NOW(),
+                next_attempt_at = CASE
+                  WHEN %s::float IS NULL THEN NULL
+                  ELSE NOW() + %s::float * INTERVAL '1 second'
+                END
             WHERE id = %s
             """,
-            (status, _job_json(summary), error, job_id),
+            (status, _job_json(summary), error, retry_after_seconds, retry_after_seconds, job_id),
         )
     conn.commit()
 
@@ -1037,9 +1086,19 @@ def handle_job(
         if auth_provider and is_provider_unavailable(exc):
             blocked_providers.add(auth_provider)
         status = 'queued' if should_retry(exc) and job.get('attempts', 1) < WORKER_MAX_ATTEMPTS else 'failed'
-        finish_job(conn, job_id, status, error=str(exc))
+        # A rate-limit deferral is not a failure and must not consume the retry
+        # budget: the provider is telling us when to come back, so honour that
+        # time exactly and hand the attempt back.
+        if isinstance(exc, RateLimitDeferred):
+            status = 'queued'
+            retry_after = max(exc.wait_seconds, 1.0)
+            release_attempt(conn, job_id)
+        else:
+            retry_after = retry_delay_seconds(job.get('attempts', 1)) if status == 'queued' else None
+        finish_job(conn, job_id, status, error=str(exc), retry_after_seconds=retry_after)
         record_job_state(conn, job, error=str(exc))
-        log.error('job %s %s: %s', job_id, status, exc)
+        log.error('job %s %s (retry in %ss): %s', job_id, status,
+                  round(retry_after) if retry_after else '-', exc)
 
 
 def run(

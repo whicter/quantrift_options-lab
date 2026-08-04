@@ -30,9 +30,26 @@ from typing import Any, Callable
 log = logging.getLogger(__name__)
 
 DEFAULT_SCOPE = 'default'
-# A claimed slot should never park a worker indefinitely. Bounds a
-# misconfigured delay or a provider penalty from stalling the queue silently.
+# How far out a slot may be and still be worth waiting for inline. Beyond this
+# the caller is told to come back later instead of blocking.
 MAX_WAIT_SECONDS = float(os.getenv('PROVIDER_RATE_LIMIT_MAX_WAIT', '300'))
+
+
+class RateLimitDeferred(Exception):
+    """The next slot is further out than the caller is willing to wait inline.
+
+    Raised INSTEAD of claiming a slot, which is the whole point: the caller must
+    not fire, and `next_allowed_at` must not advance. See the deadlock note on
+    `_claim_slot`.
+    """
+
+    def __init__(self, provider: str, scope: str, wait_seconds: float) -> None:
+        self.provider = provider
+        self.scope = scope
+        self.wait_seconds = wait_seconds
+        super().__init__(
+            f'{provider}/{scope} rate limit slot is {wait_seconds:.0f}s out; deferring'
+        )
 
 
 class DatabaseRequestPacer:
@@ -52,30 +69,46 @@ class DatabaseRequestPacer:
         self.delay = max(float(delay), 0.0)
         self._sleep = sleep
 
-    def wait(self) -> float:
+    def wait(self, max_wait_seconds: float | None = None) -> float:
         """Claim the next request slot and block until it is due.
+
+        Raises RateLimitDeferred when the slot is further out than
+        `max_wait_seconds` (default MAX_WAIT_SECONDS); in that case no slot is
+        claimed and the caller must not issue the request.
 
         Returns the seconds actually waited.
         """
         if self.delay <= 0:
             return 0.0
 
-        wait_seconds = self._claim_slot()
-        if wait_seconds > MAX_WAIT_SECONDS:
-            log.warning(
-                'provider %s/%s slot is %.1fs out; capping wait at %.1fs',
-                self.provider, self.scope, wait_seconds, MAX_WAIT_SECONDS,
-            )
-            wait_seconds = MAX_WAIT_SECONDS
+        limit = MAX_WAIT_SECONDS if max_wait_seconds is None else float(max_wait_seconds)
+        wait_seconds = self._claim_slot(limit)
         if wait_seconds > 0:
             self._sleep(wait_seconds)
         return max(wait_seconds, 0.0)
 
-    def _claim_slot(self) -> float:
+    def _claim_slot(self, max_wait_seconds: float) -> float:
         """Reserve the next slot and return seconds until it is due.
 
-        Both branches resolve to the same rule: this caller fires at
-        max(next_allowed_at, now) and pushes the next slot one delay past that.
+        The claim is CONDITIONAL: the row advances only when the slot is already
+        within `max_wait_seconds`. Otherwise nothing is written and
+        RateLimitDeferred is raised.
+
+        That condition is what breaks a deadlock this pacer used to create. The
+        cap used to be applied by the caller AFTER an unconditional claim: the
+        slot advanced by one delay, the caller slept the capped 300s instead of
+        the real wait, then fired anyway. Against a provider that had just
+        returned 429 -- which is exactly when `penalize` pushes the slot far out
+        -- every worker therefore skipped the backoff it had just been given,
+        earned a fresh 429, and pushed the slot further still, while each claim
+        added another delay on top. Measured 2026-08-03: polygon/stocks sat
+        1076s out with last_status=429 and climbing, the price collector was
+        taking ~10 minutes per symbol, and daily prices had not advanced since
+        the previous Friday.
+
+        Declining to claim is what makes the backoff self-clearing: during a
+        penalty nobody fires and nobody advances the row, so it simply drains
+        with wall-clock time.
         """
         conn = self.connect()
         try:
@@ -89,15 +122,42 @@ class DatabaseRequestPacer:
                           GREATEST(provider_rate_limits.next_allowed_at, NOW())
                           + %(delay)s * INTERVAL '1 second',
                         updated_at = NOW()
+                    WHERE provider_rate_limits.next_allowed_at
+                          <= NOW() + %(max_wait)s * INTERVAL '1 second'
                     RETURNING EXTRACT(EPOCH FROM (
                       next_allowed_at - %(delay)s * INTERVAL '1 second' - NOW()
                     ))
                     """,
-                    {'provider': self.provider, 'scope': self.scope, 'delay': self.delay},
+                    {
+                        'provider': self.provider, 'scope': self.scope,
+                        'delay': self.delay, 'max_wait': max_wait_seconds,
+                    },
                 )
-                wait_seconds = float(cur.fetchone()[0])
+                claimed = cur.fetchone()
+                if claimed is None:
+                    # The WHERE excluded the update, so read how far out it is
+                    # purely to report it. No write, no advance.
+                    cur.execute(
+                        """
+                        SELECT EXTRACT(EPOCH FROM (next_allowed_at - NOW()))
+                        FROM provider_rate_limits
+                        WHERE provider = %s AND scope = %s
+                        """,
+                        (self.provider, self.scope),
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    pending = float(row[0]) if row and row[0] is not None else max_wait_seconds
+                    log.warning(
+                        'provider %s/%s slot is %.0fs out (> %.0fs); deferring without claiming',
+                        self.provider, self.scope, pending, max_wait_seconds,
+                    )
+                    raise RateLimitDeferred(self.provider, self.scope, pending)
+                wait_seconds = float(claimed[0])
             conn.commit()
             return max(wait_seconds, 0.0)
+        except RateLimitDeferred:
+            raise
         except Exception:
             conn.rollback()
             raise

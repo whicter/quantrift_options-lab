@@ -1,6 +1,6 @@
 import unittest
 
-from providers.provider_rate_limit import DatabaseRequestPacer
+from providers.provider_rate_limit import DatabaseRequestPacer, RateLimitDeferred
 
 
 class DatabaseRequestPacerTest(unittest.TestCase):
@@ -65,14 +65,53 @@ class DatabaseRequestPacerTest(unittest.TestCase):
         other = DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=lambda _s: None)
         self.assertEqual(other.wait(), 300.0)
 
-    def test_wait_is_capped_so_a_bad_slot_cannot_park_a_worker_forever(self):
+    def test_a_far_slot_defers_instead_of_firing_anyway(self):
+        """The deadlock this pacer used to create.
+
+        The cap used to be applied by the CALLER, after an unconditional claim:
+        the slot advanced, the caller slept the capped 300s rather than the real
+        wait, and then fired regardless. Against a provider that had just
+        returned 429 -- precisely when penalize() pushes the slot far out --
+        every worker skipped the backoff it had just been handed, earned a fresh
+        429, and pushed the slot further, while each claim added another delay.
+        Measured live 2026-08-03: polygon/stocks sat 1076s out with
+        last_status=429 and climbing, and daily prices had not advanced in days.
+        """
         db = _FakeRateLimitDb(delay=16)
         pacer = DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=lambda _s: None)
         pacer.penalize(99999)
 
         other = DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=lambda _s: None)
-        from providers import provider_rate_limit
-        self.assertEqual(other.wait(), provider_rate_limit.MAX_WAIT_SECONDS)
+        with self.assertRaises(RateLimitDeferred) as caught:
+            other.wait()
+        self.assertGreater(caught.exception.wait_seconds, 300)
+
+    def test_a_deferred_claim_does_not_advance_the_slot(self):
+        """What makes the backoff self-clearing: declining to claim writes
+        nothing, so the penalty drains with wall-clock time instead of being
+        pushed further out by every worker that checks it."""
+        db = _FakeRateLimitDb(delay=16)
+        DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=lambda _s: None).penalize(99999)
+        before = db.next_allowed_at[('polygon', 'stocks')]
+
+        for _ in range(5):
+            pacer = DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=lambda _s: None)
+            with self.assertRaises(RateLimitDeferred):
+                pacer.wait()
+
+        self.assertEqual(db.next_allowed_at[('polygon', 'stocks')], before,
+                         'a deferred claim must not push the slot out')
+
+    def test_a_caller_willing_to_wait_longer_still_gets_the_slot(self):
+        """A cron collector can afford a long inline wait where a worker cannot;
+        the budget is per-call, and the sleep is the TRUE wait, never capped."""
+        db = _FakeRateLimitDb(delay=16)
+        DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=lambda _s: None).penalize(600)
+
+        slept = []
+        patient = DatabaseRequestPacer(db.connect, 'polygon', 'stocks', delay=16, sleep=slept.append)
+        self.assertEqual(patient.wait(max_wait_seconds=1800), 600.0)
+        self.assertEqual(slept, [600.0])
 
     def test_connections_are_released_and_not_held_while_sleeping(self):
         # Claim commits and closes before the caller sleeps; a paced request
@@ -121,10 +160,15 @@ class _FakeRateLimitDb:
         self.open_connections += 1
         return _FakeConn(self)
 
-    def claim(self, key, delay):
+    def claim(self, key, delay, max_wait):
+        """Mirrors the SQL: the UPDATE's WHERE excludes rows whose slot is
+        further out than max_wait, so no row is returned and nothing advances."""
         if self.fail:
             raise RuntimeError('database unavailable')
-        fires_at = max(self.next_allowed_at.get(key, self.now), self.now)
+        pending = self.next_allowed_at.get(key, self.now)
+        if pending > self.now + max_wait:
+            return None
+        fires_at = max(pending, self.now)
         self.next_allowed_at[key] = fires_at + delay
         return fires_at - self.now
 
@@ -139,11 +183,16 @@ class _FakeCursor:
 
     def execute(self, sql, params=None):
         db = self._conn.db
+        if isinstance(params, tuple):  # the "how far out is it" SELECT
+            key = (params[0], params[1])
+            self._result = (db.next_allowed_at.get(key, db.now) - db.now,)
+            return
         key = (params['provider'], params['scope'])
         if 'last_status' in sql:
             db.penalize(key, float(params['seconds']))
         else:
-            self._result = (db.claim(key, float(params['delay'])),)
+            claimed = db.claim(key, float(params['delay']), float(params['max_wait']))
+            self._result = None if claimed is None else (claimed,)
 
     def fetchone(self):
         return self._result

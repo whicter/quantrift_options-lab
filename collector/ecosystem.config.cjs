@@ -96,6 +96,12 @@ module.exports = {
         PRICE_30M_LOOKBACK_DAYS: '35',
         POLYGON_STOCK_REQUEST_DELAY: '16',
         POLYGON_PRICE_RATE_LIMIT_BACKOFF: '60',
+        // This is a dedicated batch cron with nothing queued behind it, so it
+        // can afford to sit out a long provider penalty inline. The worker keeps
+        // the 300s default because it must stay responsive and can re-queue
+        // instead. Beyond this budget the pacer defers rather than firing, so a
+        // generous value here means "wait out a 429", never "ignore one".
+        PROVIDER_RATE_LIMIT_MAX_WAIT: '1800',
         DERIVED_VOLATILITY_ENABLED: 'true',
       },
     },

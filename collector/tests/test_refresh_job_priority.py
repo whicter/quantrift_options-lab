@@ -47,3 +47,29 @@ class RefreshJobPriorityTests(unittest.TestCase):
         load_contracts.assert_called_once_with(conn, 101)
         self.assertEqual(summary['snapshot_id'], 101)
         self.assertEqual(summary['gex_id'], 88)
+
+
+class RetryBackoffTest(unittest.TestCase):
+    """A re-queued job used to be instantly claimable, and the quote worker polls
+    every 5s -- so all three attempts burned in ~10-15 seconds against a provider
+    that was still down, on identical work that failed the same way each time.
+    Transient faults (IB restart, Polygon blip) are exactly what retries are for,
+    and were exactly what they could not survive."""
+
+    def test_backoff_grows_so_retries_outlast_a_transient_outage(self):
+        import run_refresh_worker as w
+        first = w.retry_delay_seconds(1)
+        second = w.retry_delay_seconds(2)
+        third = w.retry_delay_seconds(3)
+        self.assertEqual([first, second, third], [30.0, 120.0, 480.0])
+        self.assertGreater(third, 300, 'the last retry must clear a multi-minute outage')
+
+    def test_first_attempt_is_not_penalized(self):
+        import run_refresh_worker as w
+        self.assertEqual(w.retry_delay_seconds(0), w.retry_delay_seconds(1))
+
+    def test_claim_query_skips_jobs_still_in_backoff(self):
+        import inspect
+        import run_refresh_worker as w
+        sql = inspect.getsource(w.fetch_jobs)
+        self.assertIn('next_attempt_at IS NULL OR next_attempt_at <= NOW()', sql)

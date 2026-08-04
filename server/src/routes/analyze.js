@@ -4,6 +4,7 @@ const { enqueueRefreshJob } = require('../lib/refreshJobs');
 const { ACTIONABLE_STRATEGIES, buildActionableSetups } = require('../domain/scanner/candidateEngine.cjs');
 const { environmentEdge } = require('../domain/scanner/environmentEdge.cjs');
 const { pullbackStructure } = require('../domain/scanner/pullbackStructure.cjs');
+const { isRegularMarketSession } = require('../lib/marketTime');
 const {
   toPublicAnalyzeCandidate,
   toPublicEnvironment,
@@ -303,6 +304,15 @@ async function sendAnalyzeStatus(req, res) {
       });
     } else if (!coverage.has_quoted_options) {
       if (coverage.quotes_blocked) refresh.option_quotes = 'blocked';
+      // Executable bid/ask only exists while market makers are quoting. Outside
+      // regular hours IB legitimately returns an empty book, so queueing here
+      // would burn the retry budget on a job whose failure is guaranteed and
+      // then mark the symbol permanently unquotable. Reported as a distinct
+      // state so the UI can say "market closed" rather than "unavailable".
+      // `req.now` is a test seam only -- production never sets it. Without it the
+      // enqueue decision depends on the real wall clock, which would make these
+      // tests pass during market hours and fail outside them.
+      else if (!isRegularMarketSession(req.now)) refresh.option_quotes = 'deferred_market_closed';
       else {
         refresh.option_quotes = await enqueueRefreshJob({
           symbol, jobType: 'option_quote_snapshot', provider: 'ib_internal',
