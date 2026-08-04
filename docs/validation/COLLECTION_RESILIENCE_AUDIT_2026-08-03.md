@@ -73,8 +73,12 @@ the cron.
 - Reset the stuck limiter row.
 
 **Measured after**: 4 minutes → 6 symbols, against 0.4 symbols per 4 minutes
-before. ~15× recovery. The remaining ~2.7h for a full sweep is the intended
-floor of `POLYGON_STOCK_REQUEST_DELAY=16` (301 × 2 requests × 16s), not a defect.
+before. ~15× recovery. The remaining runtime is the intended floor of
+`POLYGON_STOCK_REQUEST_DELAY=16`, not a defect — though the first estimate of
+~2.7h assumed 2 requests per symbol. Measured steady state is **~2m07s per
+symbol** (≈8 paced requests: daily and 30-minute aggregates each paginate), so a
+full 301-symbol sweep is closer to **10 hours**. That is a real constraint on
+how often the full universe can be refreshed, not something the fixes changed.
 
 ## Fixes applied
 
@@ -112,10 +116,23 @@ Ranked findings still open, from the same audit:
 - Silent-failure counterparts: `polygon_option_chain_provider` pagination `break`
   with no log, `_parse_contract` dropping rows without a counter,
   `backfill_iv_history` still not flagging `days > 0 and computed == 0`.
-- `POLYGON_STOCK_REQUEST_DELAY=16` was likely set to suppress the 429s whose real
-  cause (30 concurrent processes) is now gone. Polygon's paid tier has a
-  per-second rate limit but no call quota, so this is probably far more
-  conservative than necessary — but it needs measurement, not assumption.
+- ~~`POLYGON_STOCK_REQUEST_DELAY=16` is probably far more conservative than
+  necessary now that the 429 storm's real cause is gone~~ — **measured, and the
+  hypothesis was wrong. Do not lower it.** Live probe against the production key
+  on 2026-08-03:
+
+  | delay | result |
+  |---|---|
+  | ~0.3s (≈3.3 req/s) | 4 of 12 succeeded, then **8 consecutive 429s** |
+  | 5.0s | 6 of 8 succeeded, then 2 × 429 |
+  | 3.0s | 4 of 8 succeeded, then 4 × 429 |
+
+  Every run succeeds for the first few requests and then fails continuously —
+  a token bucket with a small burst allowance and slow refill, not a simple
+  per-second cap. 16s is a defensible steady-state value; 5s already draws 25%
+  rejections. The unlimited-*calls* property of the paid plan says nothing about
+  the *rate* limit, and conflating the two is what made this look like easy
+  headroom.
 - PM2 and crontab both remain as schedulers. Only the duplicates were removed;
   consolidating on one would prevent a recurrence by construction.
 
