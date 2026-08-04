@@ -37,8 +37,28 @@ TT_BATCH = 50
 TT_METRICS_ENABLED = os.getenv('TT_METRICS_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
 
 
+# How stale a ready symbol's Tastytrade row may get before it is refreshed
+# anyway. Earnings dates move on a quarterly cadence, so a weekly touch is far
+# more than enough to keep them current while still avoiding a daily call for
+# every symbol whose IV Rank we now derive ourselves.
+TT_READY_REFRESH_DAYS = int(os.getenv('TT_READY_REFRESH_DAYS', '7'))
+
+
 def filter_symbols_requiring_tastytrade(conn, symbols: list[str]) -> list[str]:
-    """Stop provider IV Rank collection once a symbol has a ready derived rank."""
+    """Which symbols still need a Tastytrade call today.
+
+    A ready derived IV Rank means we no longer need Tastytrade for IV Rank --
+    but the same call is also the ONLY source of `earnings_date`, which has no
+    derived equivalent. Dropping ready symbols outright therefore froze their
+    earnings dates permanently: measured 2026-08-03, the 207 symbols with a
+    ready rank had earnings data last updated 2026-07-30 while the other 303
+    were current, and the problem compounds as more symbols reach readiness.
+
+    So readiness now only lowers the cadence instead of stopping collection: a
+    ready symbol is refreshed when its newest row is older than
+    TT_READY_REFRESH_DAYS, which keeps quarterly-moving earnings dates fresh at
+    a fraction of the daily call volume.
+    """
     if not symbols:
         return []
     with conn.cursor() as cur:
@@ -51,7 +71,22 @@ def filter_symbols_requiring_tastytrade(conn, symbols: list[str]) -> list[str]:
             (symbols,),
         )
         ready = {row[0] for row in cur.fetchall()}
-    return [symbol for symbol in symbols if symbol not in ready]
+        # Ready symbols that are also recently collected can be skipped today.
+        cur.execute(
+            """
+            SELECT symbol
+            FROM iv_history
+            WHERE symbol = ANY(%s)
+            GROUP BY symbol
+            HAVING MAX(date) >= CURRENT_DATE - %s::int
+            """,
+            (list(ready) or [''], TT_READY_REFRESH_DAYS),
+        )
+        recently_collected = {row[0] for row in cur.fetchall()}
+    return [
+        symbol for symbol in symbols
+        if symbol not in ready or symbol not in recently_collected
+    ]
 
 
 def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
@@ -182,9 +217,10 @@ def run():
     watchlist = filter_symbols_requiring_tastytrade(conn, watchlist)
     if not watchlist:
         conn.close()
-        log.info('All symbols have derived IV Rank readiness; Tastytrade metrics collection skipped')
+        log.info('Every symbol has a ready derived IV Rank and a recent Tastytrade row; nothing to collect')
         return
-    log.info('Tastytrade still required for %d symbols without derived IV Rank readiness', len(watchlist))
+    log.info('Tastytrade required for %d symbols (no derived IV Rank yet, or earnings data older than %d days)',
+             len(watchlist), TT_READY_REFRESH_DAYS)
 
     # Auth only after readiness filtering, so a fully derived universe makes no TT request.
     session_token = get_session_token()
