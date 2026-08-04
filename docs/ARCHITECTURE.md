@@ -2207,3 +2207,71 @@ completion after unmount; repeated company-image failure handling lives in
 `components/CompanyLogo.jsx`; and the shared research disclosure box uses the
 `research-note` style primitive. These are frontend-only modules; no runtime
 package is shared with the server.
+
+## 48. Scheduler Ownership and Collection Resilience
+
+PM2 is the single scheduler for the collector pipeline. `crontab` must not
+schedule anything PM2 already runs.
+
+This is not a style preference. Until 2026-08-03 crontab carried
+`* * * * 1-5 run_refresh_worker.py` — one worker started every minute, while a
+run takes minutes to tens of minutes. Starts outran exits and the processes
+accumulated: 30 live workers spanning 2h33m of start times, none exiting. Each
+claimed shared rate-limit slots at +16s, advancing the row ~30x faster than
+wall-clock drained it, which stalled the price collector at ~10 minutes per
+symbol and left daily prices frozen for days. It was also the real source of the
+429 storm previously attributed to the limiter itself. PM2's
+`quantrift-options-collector` already ran the same work at the same cadence
+(`COLLECTOR_POLL_SECONDS=60`, `SCAN_MATERIALIZE_SECONDS=300`), so two schedulers
+were driving one pipeline against one database — the single-writer rule violated
+in a way nothing surfaced.
+
+Before adding any scheduled job, check `ecosystem.config.cjs` for an existing
+owner. A long-running task must never be scheduled at an interval shorter than
+its own runtime.
+
+### Pacing contract
+
+`DatabaseRequestPacer` claims slots **conditionally**: the row advances only when
+the slot is already within the caller's wait budget. Otherwise it raises
+`RateLimitDeferred` and writes nothing. Declining to claim is what makes a
+penalty self-clearing — during one, nobody fires and nobody advances the row, so
+it drains with wall-clock time.
+
+The previous design applied the cap in the caller *after* an unconditional claim:
+it slept a capped 300s instead of the true wait and then issued the request
+anyway, bypassing the backoff it had just been given and earning another 429.
+Any wrapper that catches broadly around `wait()` must re-raise
+`RateLimitDeferred` rather than degrading to a local lock, or it reintroduces
+exactly that bypass.
+
+Batch crons may pass a larger budget (`PROVIDER_RATE_LIMIT_MAX_WAIT`) because
+nothing is queued behind them; the worker keeps the default and re-queues.
+
+### Failure-isolation rules for collectors
+
+Derived from three production incidents in one week:
+
+- **A skip-gate must account for every field the skipped call produces.** Gating
+  Tastytrade on derived IV-Rank readiness also froze `earnings_date` and
+  `term_structure`, which have no other source, for 207 symbols — and it
+  compounded as more symbols reached readiness. Readiness may lower cadence; it
+  may not stop collection.
+- **A skip must not report freshness it did not establish.** The worker's early
+  return carried no `market_date`, so `symbol_data_state` kept the stale date
+  while stamping `refresh_status='ok'` — data frozen, product reported healthy.
+- **One item's failure must not discard completed work.** Per-expiry, per-symbol
+  and per-row isolation, with failures counted and named. A bulk write over
+  independent rows needs a per-row fallback.
+- **Partial results must be distinguishable from complete ones.** IB chains carry
+  `failed_expirations` / `requested_expiration_count`, and a fetch with a
+  provider error or skipped expiries is `partial`, never `ok`.
+- **A 100% failure rate must not look like an empty universe.** Any best-effort
+  loop reports attempted vs. succeeded, and a run that attempted work and wrote
+  nothing fails loudly.
+- **Retries need backoff and must make forward progress.** `next_attempt_at`
+  gates re-queued jobs (30s/2m/8m). Retrying identical work with no delay burned
+  all three attempts in ~15 seconds against a provider that was still down.
+- **Transient conditions must not be classified permanent.** "No usable bid/ask"
+  is a dropped socket, a farm reconnect, or simply being outside RTH — it retries,
+  and out-of-hours quote jobs are not enqueued at all.
