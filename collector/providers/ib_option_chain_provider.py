@@ -144,14 +144,32 @@ class IbOptionChainProvider:
                     strike_limit,
                 )[:self.max_contracts_per_expiration]
 
-                for contract in selected_contracts:
-                    if len(contracts) >= self.max_contracts:
-                        break
-                    contracts.append(self._fetch_contract_snapshot(app, contract, symbol))
-                    contracts_by_expiry[expiry] = contracts_by_expiry.get(expiry, 0) + 1
-                    if self.contract_delay > 0:
-                        time.sleep(self.contract_delay)
+                # The snapshot phase needs the same isolation as discovery above.
+                # It is by far the slower and more failure-prone half (one wait
+                # per contract), so leaving it outside the guard meant a raise
+                # here still destroyed every expiry already collected -- exactly
+                # the failure the per-expiry guard was added to prevent.
+                try:
+                    for contract in selected_contracts:
+                        if len(contracts) >= self.max_contracts:
+                            break
+                        contracts.append(self._fetch_contract_snapshot(app, contract, symbol))
+                        contracts_by_expiry[expiry] = contracts_by_expiry.get(expiry, 0) + 1
+                        if self.contract_delay > 0:
+                            time.sleep(self.contract_delay)
+                except (TimeoutError, RuntimeError, ValueError) as exc:
+                    failed_expiries.append({'expiry': str(expiry), 'error': str(exc)})
+                    continue
                 if len(contracts) >= self.max_contracts:
+                    # The global contract budget is spent, so any remaining
+                    # expiries are dropped. Recorded rather than dropped
+                    # silently: a truncated chain must not read as a complete one.
+                    remaining = selected_expirations[selected_expirations.index(expiry) + 1:]
+                    for skipped in remaining:
+                        failed_expiries.append({
+                            'expiry': str(skipped),
+                            'error': f'max_contracts budget ({self.max_contracts}) exhausted by earlier expiries',
+                        })
                     break
 
             missing_greeks = sum(1 for c in contracts if c.gamma is None or c.delta is None)

@@ -893,12 +893,34 @@ def is_provider_unavailable(exc: Exception) -> bool:
 
 def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     symbol = job['symbol']
+    # A ready derived IV Rank means Tastytrade is no longer needed FOR IV RANK.
+    # It does not mean the call can be skipped: the same response is the only
+    # source of `earnings_date` and `term_structure`, which have no derived
+    # equivalent anywhere. Skipping outright froze those fields permanently --
+    # the identical defect fixed in collect.py::filter_symbols_requiring_tastytrade
+    # (2026-08-03), which this on-demand path duplicated.
+    #
+    # Worse here than there: the old early return carried no `market_date`, so
+    # job_product_facts fed None into symbol_data_state.record_success, whose
+    # COALESCE preserved the stale date while stamping refresh_status='ok' and
+    # updated_at=NOW(). The freshness table reported the metrics product healthy
+    # while its data was frozen -- falsely green, not merely silent.
+    #
+    # So readiness only lowers the cadence, matching collect.py's rule.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT EXISTS (SELECT 1 FROM volatility_history WHERE symbol=%s AND iv_rank_ready=TRUE)",
-            (symbol,),
+            """
+            SELECT
+              EXISTS (SELECT 1 FROM volatility_history WHERE symbol=%s AND iv_rank_ready=TRUE) AS derived_ready,
+              EXISTS (
+                SELECT 1 FROM iv_history
+                WHERE symbol=%s AND date >= CURRENT_DATE - %s::int
+              ) AS recently_collected
+            """,
+            (symbol, symbol, collect.TT_READY_REFRESH_DAYS),
         )
-        if cur.fetchone()[0]:
+        derived_ready, recently_collected = cur.fetchone()
+        if derived_ready and recently_collected:
             return {'symbol': symbol, 'source': 'derived', 'status': 'already_ready'}
     provider_name = job['provider'] if job['provider'] != 'metrics_provider' else 'tastytrade'
     reserve_budget(conn, provider_name, job['job_type'])

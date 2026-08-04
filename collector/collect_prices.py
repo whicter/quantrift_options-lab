@@ -203,10 +203,21 @@ def run():
     )
     if failed:
         log.warning(f'Failed symbols: {failed}')
-        raise RuntimeError(f'price collection failed for {len(failed)} symbols: {failed}')
+
+    # Derivation runs on whatever prices DID land. It used to sit after an
+    # unconditional `raise` on any failure, so a single delisted or illiquid
+    # ticker -- routine in a ~300 symbol universe -- discarded HV30/60/90, ATM IV
+    # and IV-Rank readiness for EVERY symbol, even though their prices were
+    # already committed. The least important item was destroying the most
+    # important work, and a universe this size may never have a zero-failure run.
     if os.getenv('DERIVED_VOLATILITY_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes'):
         import derive_volatility
         derive_volatility.run(backfill=False)
+
+    # Still a non-zero exit so the operator/PM2 sees a degraded run -- but only
+    # after the derivation that the successful symbols are entitled to.
+    if failed:
+        raise RuntimeError(f'price collection failed for {len(failed)} symbols: {failed}')
 
 
 if __name__ == '__main__':

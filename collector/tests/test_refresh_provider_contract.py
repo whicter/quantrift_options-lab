@@ -91,15 +91,15 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertIn('except SystemExit as exc', source)
         self.assertIn('tastytrade metrics auth unavailable', source)
 
-    def test_ready_derived_rank_skips_tastytrade_metrics_request(self):
-        import run_refresh_worker
-
+    @staticmethod
+    def _metrics_conn(derived_ready, recently_collected):
+        """Stub the single gate query: (derived_ready, recently_collected)."""
         class Cursor:
             def execute(self, *_args):
                 pass
 
             def fetchone(self):
-                return (True,)
+                return (derived_ready, recently_collected)
 
             def __enter__(self):
                 return self
@@ -107,8 +107,14 @@ class RefreshProviderContractTest(unittest.TestCase):
             def __exit__(self, *_args):
                 pass
 
-        cursor = Cursor()
-        conn = SimpleNamespace(cursor=lambda: cursor)
+        return SimpleNamespace(cursor=lambda: Cursor())
+
+    def test_ready_and_recently_collected_skips_tastytrade_metrics_request(self):
+        # The API-saving intent is preserved: once IV Rank is derived AND the
+        # provider-only fields were refreshed recently, no call is needed.
+        import run_refresh_worker
+
+        conn = self._metrics_conn(derived_ready=True, recently_collected=True)
         with patch.object(run_refresh_worker.collect, 'get_session_token') as get_token, \
              patch.object(run_refresh_worker, 'reserve_budget') as reserve:
             summary = run_refresh_worker.run_symbol_metrics_snapshot(
@@ -119,6 +125,33 @@ class RefreshProviderContractTest(unittest.TestCase):
         self.assertEqual(summary['source'], 'derived')
         get_token.assert_not_called()
         reserve.assert_not_called()
+
+    def test_ready_but_stale_still_calls_tastytrade(self):
+        """Regression: readiness must lower the cadence, not stop collection.
+
+        This path is the on-demand twin of collect.py's cron gate. Both were
+        skipping outright on a ready derived IV Rank, which froze `earnings_date`
+        and `term_structure` -- fields the same response is the ONLY source of.
+        Worse here: the early return carried no market_date, so
+        symbol_data_state.record_success COALESCEd the stale date while stamping
+        refresh_status='ok', reporting the product healthy while frozen.
+        """
+        import run_refresh_worker
+
+        conn = self._metrics_conn(derived_ready=True, recently_collected=False)
+        with patch.object(run_refresh_worker.collect, 'get_session_token') as get_token, \
+             patch.object(run_refresh_worker, 'reserve_budget'), \
+             patch.object(run_refresh_worker.collect, 'fetch_metrics') as fetch, \
+             patch.object(run_refresh_worker.collect, 'parse_row') as parse, \
+             patch.object(run_refresh_worker.collect, 'upsert_rows'):
+            fetch.return_value = {'AAPL': {'stub': True}}
+            parse.return_value = {'symbol': 'AAPL', 'date': date(2026, 8, 3), 'source': 'tastytrade'}
+            summary = run_refresh_worker.run_symbol_metrics_snapshot(
+                conn, {'symbol': 'AAPL', 'provider': 'tastytrade', 'job_type': 'symbol_metrics_snapshot'},
+            )
+
+        get_token.assert_called_once()
+        self.assertNotEqual(summary.get('status'), 'already_ready')
 
     def test_auth_failures_are_non_retryable_and_block_provider_for_run(self):
         import run_refresh_worker
