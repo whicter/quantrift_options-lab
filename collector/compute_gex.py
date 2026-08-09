@@ -40,6 +40,10 @@ GEX_MOVE_PCT = 0.01
 GEX_UNIT = 'usd_delta_change_per_1pct_move'
 GEX_POSITIONING_MODEL = 'call_positive_put_negative_proxy'
 GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy'
+# wall / gamma_flip 可信所需的最小链覆盖面（见 strike_coverage 的说明）。
+# 环境变量可调，默认 spot 上下各 3%、至少 4 个到期。
+MIN_WALL_COVERAGE_PCT = float(os.getenv('GEX_MIN_WALL_COVERAGE_PCT', '3'))
+MIN_WALL_EXPIRIES = int(os.getenv('GEX_MIN_WALL_EXPIRIES', '4'))
 
 
 @dataclass(frozen=True)
@@ -153,7 +157,7 @@ def compute_for_snapshot(snapshot: dict[str, Any], contracts: list[Contract]) ->
     gamma_flip = find_gamma_flip(gamma_curve)
     spot_vs_flip_distance_pct = None if gamma_flip is None else ((spot - gamma_flip) / gamma_flip) * 100
     gamma_regime = classify_gamma_regime(global_gex)
-    confidence = confidence_for(snapshot, contracts)
+    confidence = confidence_for(snapshot, contracts, spot)
 
     return {
         'snapshot_id': snapshot['id'],
@@ -175,6 +179,9 @@ def compute_for_snapshot(snapshot: dict[str, Any], contracts: list[Contract]) ->
         'gamma_curve': gamma_curve,
         'by_strike': by_strike,
         'raw_metrics': {
+            'strike_coverage': strike_coverage(contracts, spot),
+            'min_wall_coverage_pct': MIN_WALL_COVERAGE_PCT,
+            'min_wall_expiries': MIN_WALL_EXPIRIES,
             'formula': 'call_gex=gamma*oi*contract_multiplier*spot^2*0.01; put_gex=-gamma*oi*contract_multiplier*spot^2*0.01',
             'formula_id': 'gamma_oi_spot_squared_1pct',
             'unit': GEX_UNIT,
@@ -301,16 +308,62 @@ def compute_max_pain(contracts: list[Contract]) -> float | None:
     return best_strike
 
 
-def confidence_for(snapshot: dict[str, Any], contracts: list[Contract]) -> str:
+def strike_coverage(contracts: list[Contract], spot: float) -> dict[str, Any]:
+    """链覆盖了 spot 周围多大范围、多少个到期。
+
+    与 `missing_*_ratio` 是**两件不同的事**，不可互相替代：
+      · `missing_greeks_ratio` 问「**已抓到的**合约里有多少缺 greeks」
+      · 本函数问「**抓到的这些合约本身**覆盖面够不够」
+
+    2026-08-09 实测 QQQ：36 个合约、3 个到期、行权 721–726（spot 723.03，
+    仅 ±0.4%），`missing_greeks_ratio=0` ⇒ 判定 `confidence='high'`。
+    但 call_wall/put_wall 只能在 721–726 里挑，挑出的是**采集边界**而非
+    真正的 gamma 集中处；`gamma_flip` 更是拿这一小段去外推 ±10% 网格。
+    完整性守卫防的是数据缺失，防不住采集面太窄——**这是静默的口径缺陷**。
+    """
+    if not contracts or not spot:
+        return {'strikes': 0, 'expiries': 0, 'below_pct': 0.0,
+                'above_pct': 0.0, 'span_pct': 0.0}
+    strikes = sorted({c.strike for c in contracts})
+    lo, hi = strikes[0], strikes[-1]
+    return {
+        'strikes': len(strikes),
+        'expiries': len({c.expiry for c in contracts}),
+        'below_pct': max(0.0, (spot - lo) / spot * 100),
+        'above_pct': max(0.0, (hi - spot) / spot * 100),
+        'span_pct': (hi - lo) / spot * 100,
+    }
+
+
+def confidence_for(snapshot: dict[str, Any], contracts: list[Contract],
+                   spot: float | None = None) -> str:
+    """GEX 结果的可信度。
+
+    除原有的数据完整性外，**新增覆盖面门槛**（见 `strike_coverage`）：
+    spot 上下各需 `MIN_WALL_COVERAGE_PCT` 的行权覆盖、到期数达
+    `MIN_WALL_EXPIRIES`，否则 wall / gamma_flip 反映的是采集边界而非
+    市场结构，**不得标 high/medium**。
+
+    `spot` 缺省时回退 `snapshot['underlying_price']`——保持旧调用签名可用。
+    """
     completeness = _to_float(snapshot.get('completeness_pct'))
     missing_greeks_ratio = _to_float(snapshot.get('missing_greeks_ratio'))
     missing_oi_ratio = _to_float(snapshot.get('missing_oi_ratio'))
     completeness = completeness if completeness is not None else 0
     missing_greeks_ratio = missing_greeks_ratio if missing_greeks_ratio is not None else 1
     missing_oi_ratio = missing_oi_ratio if missing_oi_ratio is not None else 1
-    if completeness >= 95 and missing_greeks_ratio <= 0.05 and missing_oi_ratio <= 0.05 and len(contracts) >= 10:
+
+    spot = spot if spot is not None else _to_float(snapshot.get('underlying_price'))
+    cov = strike_coverage(contracts, spot or 0)
+    wide_enough = (cov['below_pct'] >= MIN_WALL_COVERAGE_PCT
+                   and cov['above_pct'] >= MIN_WALL_COVERAGE_PCT
+                   and cov['expiries'] >= MIN_WALL_EXPIRIES)
+
+    if (completeness >= 95 and missing_greeks_ratio <= 0.05
+            and missing_oi_ratio <= 0.05 and len(contracts) >= 10 and wide_enough):
         return 'high'
-    if completeness >= 75 and missing_greeks_ratio <= 0.15 and missing_oi_ratio <= 0.15:
+    if (completeness >= 75 and missing_greeks_ratio <= 0.15
+            and missing_oi_ratio <= 0.15 and wide_enough):
         return 'medium'
     return 'low'
 
