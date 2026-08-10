@@ -44,8 +44,15 @@ async function captureLedger(db, batchId) {
             s.spot,
             COALESCE((s.economics_json->>'credit')::numeric, -(s.economics_json->>'debit')::numeric),
             (s.economics_json->>'maxLoss')::numeric,
+            -- 'probability', NOT 'rate'. Until 2026-08-09 this read pop->>'rate',
+            -- which is RISK_FREE_RATE -- so every captured row stored 0.045 and
+            -- the calibration buckets in aggregateLedger put 100% of the ledger
+            -- in the 0-40 bin. Verified against production: all 212 non-null
+            -- pop rows held exactly 0.0450. Those rows are unrecoverable (their
+            -- source batch is pruned) and are excluded by CALIBRATION_FROM_DATE
+            -- rather than backfilled.
             CASE WHEN s.signals_json->'pop'->>'status' = 'unavailable' THEN NULL
-                 ELSE (s.signals_json->'pop'->>'rate')::numeric END,
+                 ELSE (s.signals_json->'pop'->>'probability')::numeric END,
             (SELECT COUNT(DISTINCT l->>'expiry') = 1 FROM jsonb_array_elements(s.legs_json) l),
             s.legs_json,
             b.algorithm_version

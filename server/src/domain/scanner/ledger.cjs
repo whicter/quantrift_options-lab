@@ -72,13 +72,36 @@ function pct(n, d) {
   return d > 0 ? Math.round((n / d) * 1000) / 10 : null;
 }
 
+// Ledger rows captured before this date hold a corrupt `pop`: captureLedger read
+// signals_json->'pop'->>'rate' (the risk-free rate) instead of ->>'probability',
+// so every one of them stored 0.045 regardless of the real probability. Their
+// source batches are pruned, so the true value is unrecoverable and backfilling
+// would be fabrication. They are excluded from CALIBRATION ONLY -- the bug
+// corrupted the prediction, never the outcome, so win rates over the same rows
+// remain valid and deliberately keep counting them.
+// Unset => no floor (every row with a finite pop is calibrated), which is the
+// correct default for a fresh database.
+const CALIBRATION_FROM_DATE = process.env.LEDGER_CALIBRATION_FROM_DATE || null;
+
+function entryDateAtOrAfter(row, floor) {
+  if (!floor) return true;
+  const entry = row.entry_date instanceof Date
+    ? row.entry_date.toISOString().slice(0, 10)
+    : String(row.entry_date ?? '').slice(0, 10);
+  return entry !== '' && entry >= floor;
+}
+
 /**
- * resolved: [{ strategy_family, outcome, return_on_risk, pop }] — ledger rows
- * whose expiry has passed. Aggregates win rate by family and POP calibration
- * over the win/loss rows only (not_evaluable / no_price are counted but excluded
- * from rates, and surfaced so the coverage is honest).
+ * resolved: [{ strategy_family, outcome, return_on_risk, pop, entry_date }] —
+ * ledger rows whose expiry has passed. Aggregates win rate by family and POP
+ * calibration over the win/loss rows only (not_evaluable / no_price are counted
+ * but excluded from rates, and surfaced so the coverage is honest).
+ *
+ * `calibrationFromDate` drops rows entered before a given YYYY-MM-DD from the
+ * calibration table only. `calibration_excluded` reports how many were dropped,
+ * so a thin calibration never reads as a broad one.
  */
-function aggregateLedger(resolved) {
+function aggregateLedger(resolved, { calibrationFromDate = CALIBRATION_FROM_DATE } = {}) {
   const rows = resolved || [];
   const scored = rows.filter(r => r.outcome === 'win' || r.outcome === 'loss');
 
@@ -95,8 +118,9 @@ function aggregateLedger(resolved) {
     .map(f => ({ strategy_family: f.strategy_family, resolved: f.total, win_rate: pct(f.wins, f.total), avg_return_on_risk: f.total ? Math.round((f.ror_sum / f.total) * 1000) / 1000 : null }))
     .sort((a, b) => b.resolved - a.resolved);
 
+  const calibratable = scored.filter(r => entryDateAtOrAfter(r, calibrationFromDate));
   const calibration = POP_BUCKETS.map(b => {
-    const inBucket = scored.filter(r => Number.isFinite(Number(r.pop)) && Number(r.pop) >= b.lo && Number(r.pop) < b.hi);
+    const inBucket = calibratable.filter(r => Number.isFinite(Number(r.pop)) && Number(r.pop) >= b.lo && Number(r.pop) < b.hi);
     const wins = inBucket.filter(r => r.outcome === 'win').length;
     return {
       bucket: b.id,
@@ -114,6 +138,8 @@ function aggregateLedger(resolved) {
     overall_win_rate: pct(scored.filter(r => r.outcome === 'win').length, scored.length),
     by_family,
     calibration,
+    calibration_from_date: calibrationFromDate,
+    calibration_excluded: scored.length - calibratable.length,
   };
 }
 

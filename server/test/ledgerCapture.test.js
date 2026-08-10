@@ -47,3 +47,20 @@ test('candidates without an expiry are still excluded', async () => {
   await captureLedger(db, 2056);
   assert.match(db.calls[0].sql, /s\.expiry IS NOT NULL/);
 });
+
+test('captured POP is the probability, never the risk-free rate', async () => {
+  // Regression for a defect that silently disabled POP calibration from the day
+  // the ledger shipped (found 2026-08-09): the capture read
+  // signals_json->'pop'->>'rate', which is RISK_FREE_RATE, not ->>'probability'.
+  // Production held 212 non-null pop rows and every single one was 0.0450, so
+  // aggregateLedger's buckets put 100% of the ledger in the 0-40 bin and the
+  // model could never be checked against reality. The two keys sit in the same
+  // object and differ by one word, so assert on both directions -- a future edit
+  // that reintroduces 'rate' fails here rather than in a silently useless chart.
+  const db = recordingDb();
+  await captureLedger(db, 2056);
+
+  const { sql } = db.calls[0];
+  assert.match(sql, /signals_json->'pop'->>'probability'/);
+  assert.doesNotMatch(sql, /signals_json->'pop'->>'rate'/);
+});

@@ -85,6 +85,21 @@ test('buildCandidateBatch ranks globally by score and counts the universe', () =
   assert.match(first.signals_json.gamma_note, /Gamma/);
 });
 
+test('persisted legs carry the entry IV so multi-expiry rows stay settleable', () => {
+  // candidate_ledger.legs_json is a verbatim copy of this, and settling a
+  // multi-expiry structure means repricing the surviving far leg at the near
+  // expiry -- which needs the volatility observed at enumeration time. A leg
+  // captured without iv can never be resolved, and the source batch is pruned
+  // within days, so the omission is permanent for every row already written.
+  const { candidates } = buildCandidateBatch({ rows: [callSpreadRow('AAA')] });
+  const legs = candidates[0].legs_json;
+  assert.ok(legs.length >= 1);
+  for (const leg of legs) {
+    assert.ok('iv' in leg, 'every persisted leg must carry an iv key');
+  }
+  assert.equal(legs[0].iv, 0.3, 'iv is the chain value, not a placeholder');
+});
+
 test('buildCandidateBatch dedupes identical setups across rows to the best score', () => {
   const { candidates } = buildCandidateBatch({ rows: [callSpreadRow('AAA'), callSpreadRow('AAA')] });
   const keys = candidates.map(candidate => candidate.candidate_key);

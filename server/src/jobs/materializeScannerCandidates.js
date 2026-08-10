@@ -67,6 +67,11 @@ function candidateKey(symbol, candidate) {
   return `${symbol}|${candidate.strategy}|${legSignature(candidate.legs)}`;
 }
 
+// `iv` is carried for the ledger's benefit, not the product's: resolving a
+// multi-expiry structure means repricing the surviving far leg at the near
+// expiry, which needs the volatility observed when the candidate was enumerated.
+// legs_json is copied verbatim into candidate_ledger, so a row captured without
+// it can never be settled later. Internal JSONB only -- neither DTO projects it.
 function toLeg(leg) {
   return {
     action: leg.action,
@@ -77,6 +82,7 @@ function toLeg(leg) {
     bid: leg.bid,
     ask: leg.ask,
     delta: leg.delta,
+    iv: leg.iv ?? null,
   };
 }
 

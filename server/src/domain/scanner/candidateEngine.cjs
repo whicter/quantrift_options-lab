@@ -31,6 +31,14 @@ const ACTIONABLE_STRATEGIES = [
   'Short Call',
 ];
 
+// Exported but currently read by nobody on the server; frontend/src/pages/Scan.jsx
+// keeps its own hardcoded copy for chip styling. Two lists, one meaning, no link
+// between them -- edit one and the other drifts silently. This grouping is also
+// wrong on the merits: it lumps Short Put (cash-secured, maxLoss = strike -
+// credit, a real finite number computed at L670) together with Short Call and
+// Short Strangle, whose loss is genuinely uncapped. Both problems are resolved
+// together by STRATEGY_RISK_CLASS + the risk_disclosure DTO field, which lets the
+// client read the classification instead of restating it.
 const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
 
 // Directional stance of each strategy, used to weight candidates by the market
