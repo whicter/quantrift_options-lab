@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg2
+from requests.exceptions import HTTPError
 
 from collector_runtime import configure_collector
 from providers.polygon_market_breadth_provider import (
@@ -43,6 +44,11 @@ EXCHANGE_LABELS = {
     'XNYS': 'NYSE',
     'XASE': 'NYSE American',
 }
+# Polygon answers 403/404 for a grouped-daily date this plan cannot serve yet,
+# which is indistinguishable from "not published" and must not end the walk-back.
+# Everything else (401 bad key, 429 pacing, 5xx) still propagates: a genuinely
+# unentitled key 403s on every date, exhausts the lookback and fails closed.
+UNAVAILABLE_STATUSES = frozenset({403, 404})
 
 
 def expected_market_date(now_et: datetime, settle_hour: int = EOD_SETTLE_HOUR_ET) -> date:
@@ -59,14 +65,37 @@ def latest_grouped_on_or_before(
     candidate: date,
     max_calendar_days: int = LOOKBACK_CALENDAR_DAYS,
 ) -> tuple[date, dict[str, GroupedDailyBar]]:
+    skipped: list[str] = []
     for offset in range(max_calendar_days + 1):
         market_date = candidate - timedelta(days=offset)
         if market_date.weekday() >= 5:
             continue
-        bars = provider.fetch_grouped_daily(market_date)
+        try:
+            bars = provider.fetch_grouped_daily(market_date)
+        except HTTPError as exc:
+            status = getattr(exc.response, 'status_code', None)
+            if status not in UNAVAILABLE_STATUSES:
+                raise
+            skipped.append(f'{market_date.isoformat()}:{status}')
+            log.warning(
+                'grouped daily unavailable for %s (HTTP %s); trying earlier session',
+                market_date.isoformat(),
+                status,
+            )
+            continue
         if bars:
+            if skipped:
+                log.info(
+                    'settled on %s after skipping %s',
+                    market_date.isoformat(),
+                    ', '.join(skipped),
+                )
             return market_date, bars
-    raise RuntimeError(f'no grouped daily data found on or before {candidate}')
+        skipped.append(f'{market_date.isoformat()}:empty')
+    raise RuntimeError(
+        f'no grouped daily data found on or before {candidate} '
+        f'(attempted: {", ".join(skipped) or "none"})'
+    )
 
 
 def pct(value: int | float, total: int | float) -> float | None:

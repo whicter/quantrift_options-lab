@@ -5,6 +5,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import requests
+from requests.exceptions import HTTPError
 
 import collect_market_breadth as breadth
 from providers.polygon_market_breadth_provider import (
@@ -23,6 +24,13 @@ def bar(symbol, close, volume=100):
 
 def ref(symbol, exchange='XNAS'):
     return CommonStockReference(symbol, exchange)
+
+
+def http_error(status_code):
+    """Build an HTTPError carrying a real status, as raise_for_status() would."""
+    response = requests.Response()
+    response.status_code = status_code
+    return HTTPError(f'{status_code} Client Error', response=response)
 
 
 class FakeResponse:
@@ -130,6 +138,48 @@ class MarketBreadthTests(unittest.TestCase):
         self.assertEqual(found_date, date(2026, 7, 2))
         self.assertIn('A', rows)
         self.assertNotIn(date(2026, 7, 4), provider.dates)
+
+    def test_walks_back_when_recent_session_is_not_yet_released(self):
+        """A 403 on the newest date means "not published for this plan", not fatal.
+
+        Production ran 11 consecutive same-day 403s (2026-07-31..08-07) that killed
+        the process instead of stepping back one session, so no breadth was written.
+        """
+        class Provider:
+            def __init__(self):
+                self.dates = []
+
+            def fetch_grouped_daily(self, value):
+                self.dates.append(value)
+                if value >= date(2026, 8, 7):
+                    raise http_error(403)
+                return {'A': bar('A', 1)}
+
+        provider = Provider()
+        found_date, rows = breadth.latest_grouped_on_or_before(
+            provider,
+            date(2026, 8, 7),
+        )
+        self.assertEqual(found_date, date(2026, 8, 6))
+        self.assertIn('A', rows)
+
+    def test_unentitled_key_fails_closed_instead_of_writing_stale_breadth(self):
+        class Provider:
+            def fetch_grouped_daily(self, value):
+                raise http_error(403)
+
+        with self.assertRaises(RuntimeError):
+            breadth.latest_grouped_on_or_before(Provider(), date(2026, 8, 7))
+
+    def test_non_availability_errors_propagate_rather_than_walking_back(self):
+        for status in (401, 429, 500):
+            with self.subTest(status=status):
+                class Provider:
+                    def fetch_grouped_daily(self, value):
+                        raise http_error(status)
+
+                with self.assertRaises(HTTPError):
+                    breadth.latest_grouped_on_or_before(Provider(), date(2026, 8, 7))
 
 
 class PolygonMarketBreadthProviderTests(unittest.TestCase):
