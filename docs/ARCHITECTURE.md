@@ -1770,6 +1770,72 @@ Candidate engine 支持 13 种结构。所有 sell legs 用 bid、buy legs 用 a
 
 2026-07-15 runtime：latest arbitrary snapshots 0 symbols 有 quote，但 latest usable quote snapshots 恢复 55 symbols（54 IB、1 TT）。前 20 scanner rows 产生 667 个默认定义风险 candidates，覆盖 10 种策略。
 
+### 27.1 Quote plane 覆盖率坍塌（2026-08-09 诊断）
+
+上面那组 55 symbols 的数据**已不再成立**。2026-08-09 实测：
+
+```
+symbol_universe (scan_enabled, active)          327
+近 7 天全部候选批次覆盖的 symbol                   1   （TTD）
+polygon_licensed 合约（08-02..08-09）        299,883   其中有 bid 的 0 个
+```
+
+**根因是 2026-07-30 隔离变更的一个未被记录的副作用。** 该变更本身是正确的——
+`option_provider_sequence` 在 primary 为 `polygon_licensed` 时只返回它自己，
+使一次 IB 超时不会占住 GEX worker 槽位。但在此之前，后台 `option_chain_snapshot`
+在 Polygon 失败或返回无报价时**会回退 IB**，那正是产出 55 个 quoted symbol 的机制。
+隔离之后 quote plane 只剩 `analyze.js:317` 的按需入队一条路，而它要求有真人打开 Analyge 页；
+历史上共触发过 4 次。
+
+叠加 Polygon 期权档本身不含 NBBO（`/v3/quotes/...` 返回 403 `NOT_AUTHORIZED`，
+`/v3/snapshot/options/` 只给 greeks/IV/OI/day-OHLCV），
+**positioning plane 覆盖 327 个标的，quote plane 覆盖 1 个**。
+
+后果：`/api/scan`、`/api/v1/scanner/candidates`、`candidate_ledger` 与全部下游打分，
+一直只在一两个标的上运行。任何引用旧候选分布的结论（如「59% 是 time_spread」）
+都是单标的快照，不得当作全市场事实。
+
+**基础设施已经就位，缺的只是调度器。** `quantrift-options-quote-worker` 进程一直在线并空转
+（日志 101,264 行 `No queued refresh jobs in quotes lane`），
+`run_refresh_worker.run(queue_lane='quotes')` 的 claim 分区、`option_quote_snapshot` 的执行路径、
+去重与优先级全部可用。隔离架构预留了这条独立 lane，只是从未有人写过填充它的调度器。
+
+修复方向是补上该调度器（精选清单 + 后台批量入队），而不是重建管线。
+详见 `docs/validation/OPTION_QUOTE_COVERAGE_2026-08-09.md`。
+
+### 27.2 Quote watchlist 与后台报价扫描（2026-08-09 上线）
+
+```text
+quantrift-quote-watchlist (周日 05:30 PT)
+  select_quote_watchlist.py  -> quote_watchlist 表（自动选 + 人工覆盖）
+
+quantrift-quote-refresh (*/10 7-12 PT = 10:00-15:59 ET, 工作日)
+  schedule_quote_refresh.py  -> provider_fetch_jobs (option_quote_snapshot, priority 30)
+                                      |
+quantrift-options-quote-worker (常驻)   |
+  run_refresh_worker.run(queue_lane='quotes', concurrency=1)
+                             -> ib_internal 取链 -> option_chain_snapshots(带 bid/ask)
+                             -> 请求 scanner 重新物化
+```
+
+**`quote_watchlist` 是有界子集，不是 `symbol_universe` 的替代。** 后者回答"扫描器是否跟踪该标的"（全 universe），
+前者回答"是否为它花 IB 时间"（约 50 只）。分表使 universe 裁剪不会静默清空报价扫描，
+报价预算调整也不会改变扫描覆盖。`origin`/`pinned`/`excluded` 编码 auto-plus-override 契约：
+选取器自由改写 `auto` 行、从不触碰 `manual` 行、无视排名保留 `pinned`、永不重新加入 `excluded`。
+
+**三条不可回退的约束**（各自对应一次实测事故）：
+
+1. **陈旧度只按带过可成交报价的快照计算**。Polygon 定位刷新写入的新行毫无 bid/ask，
+   按"最新快照"计算会把它当作刚报过价，永久饿死它刚覆盖的标的。
+2. **后台优先级必须低于按需**（30 < 90）。用户打开 Analyze 的标的绝不能排在 50 只后台扫描之后。
+3. **休市不入队**。无报价流时 IB 不快速失败，而是对最多 240 个合约逐个耗尽 `IB_OPTION_STREAM_TIMEOUT`，
+   实测单标的 197 秒仍在运行且走向完整 ~16 分钟、产出为零；它还会占住串行的 IB client 数小时。
+   该门在调度器内部强制，配错 cron 也无法绕过。
+
+`recover_stale_running_jobs` 相应改为按 job_type 分档：`SLOW_JOB_TYPES`（当前只有 `option_quote_snapshot`）
+用 `REFRESH_WORKER_SLOW_RUNNING_TIMEOUT_MINUTES`（默认 40），其余仍用 15 分钟。
+此前单一 15 分钟规则会把正常运行的长任务判为僵死并重新入队，慢标的因此自己烧光三次重试。
+
 ## 28. Persistent Universe and On-Demand Refresh
 
 `symbol_universe` is the scanner ownership boundary. It is seeded from the former watchlist and every distinct symbol already present in IV, price or option snapshots. A valid unknown ticker requested through `GET /api/analyze/:symbol` is upserted with `added_via=on_demand`.

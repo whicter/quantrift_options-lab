@@ -345,6 +345,24 @@ remember-token 过期时：
 - Production option chain = 授权 options data provider。
 - 数据源必须通过 provider adapter 抽象，避免前端和 GEX 计算逻辑绑定 IB。
 
+**当前阶段例外（2026-08-09，产品负责人确认）**：项目尚未公开，无用户登录与计费，
+因此 IB 与 Tastytrade 可用于本阶段的内部数据采集。
+**该例外在认证、订阅或公开上线任一项落地之前失效**，届时上面的原则原样恢复；
+本阶段任何设计都不得假定授权问题已解决，`source` 字段必须保持可切换。
+
+**报价能力现状（务必与 positioning 分开看）**：
+
+| provider | 结构链 / greeks / IV / OI | 可成交 bid/ask |
+| --- | --- | --- |
+| `polygon_licensed`（当前档） | ✅ 全 universe | ❌ **完全没有**——`/v3/quotes/` 返回 403 `NOT_AUTHORIZED`；实测 299,883 合约 0 个 bid |
+| `ib_internal`（live 模式） | ✅ 部分（44 vs Polygon 80） | ✅ 实测 44/44 可成交 |
+| `tt_internal` | ✅ | ⚠️ token 为 `demo` 档，DXLink 是延迟 feed |
+
+Polygon 暴露的 greeks/IV 正是从它自己持有的 NBBO 反解出来的——低档卖计算结果，高档卖原始行情。
+**不得用 `last`/`day.close` 替代 bid/ask**：成交价不是可成交价，无价差则 `maxSpreadPct` 与 `spreadFit` 同时失效，
+且 `pricing_input: 'executable_bid_ask'` 会变成假陈述。
+详见 `docs/validation/OPTION_QUOTE_COVERAGE_2026-08-09.md`。
+
 ### IB API（内部验证）
 - IB Gateway 跑在 Mac Studio（`IB_HOST=127.0.0.1`/`IB_PORT=4001`），与期货 bot 系列（`ib-bot-*`，各自占用自己的 clientId）共存，每个采集路径各用一个不冲突的 clientId：
   - 股价 fallback：`IB_PRICE_CLIENT_ID`，默认 **12**（`collector/providers/ib_price_provider.py`）
@@ -898,6 +916,8 @@ Current `tt_internal` behavior：
 - After DXLink merge, wrote `option_chain_snapshots.id=6`.
 - Production API returned `source=tt_internal`, `provider_status=ok`, `completeness_pct=100.00`, `missing_greeks_ratio=0.0000`, `missing_oi_ratio=0.0000`.
 - Current TT quote token level returned by API is `demo`; DXLink URL is delayed feed. Treat this as internal validation until formal provider licensing is purchased.
+  - 2026-08-09 补充：本阶段（项目未公开、无登录与计费）TT 可用于内部采集，但 `demo` 档仍是**延迟** feed，
+    做可成交报价源时优先级低于 live 模式的 IB。授权约束在上线前恢复，见「期权链数据源原则」。
 
 Phase 3D-3 GEX calculation is implemented as a cached compute job:
 - Job：`GEX_SYMBOLS=PLTR venv311/bin/python compute_gex.py`

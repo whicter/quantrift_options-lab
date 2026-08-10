@@ -833,3 +833,27 @@ GEX compute job：
 - 前端 async 抽取只适合稳定 loader 的简单只读请求。带 week、symbol、轮询、重试或多请求合并的 effect 继续留在页面内，避免为了复用制造 stale closure 或隐藏业务状态机。
 - 测试 helper 也要纳入重复扫描，但只合并真实相同的协议。普通 JSON response recorder 可以共享，security-header recorder 有 `setHeader/removeHeader` 的不同 contract，必须独立。
 - SQL 重复应只抽稳定的事实边界，不拼成万能 query builder。Scan 与 candidate materializer 对 quoted chain 的可执行性判定和 contract JSON projection 完全相同，适合共享 CTE；各自的 batch、filter、排序 SQL 仍留在所属模块。
+
+## 隔离重构会静默移除它顺带承担的职责（2026-08-09）
+
+- 2026-07-30 让后台 positioning lane 变成 Polygon-only 是**对的**：一次 IB 超时不该占住 GEX worker 槽位。但那条 fallback 同时是**唯一规模化产出可成交报价的机制**，隔离把它一起移除了，quoted symbol 从 55 掉到 1，而这个副作用当时没有被记录。**拆掉一条路径之前，先问它除了你要隔离的那件事之外还在承担什么。**
+- 坍塌之所以三周无人察觉，是因为**每一层都在正常工作**：Polygon 快照 `provider_status='ok'`、GEX 正常、scanner rows 正常、候选批次 `status='completed'`。只有"覆盖了几个标的"这个数字会暴露问题，而没有任何地方在看它。**管线健康 ≠ 管线有用**；成功状态要配一个覆盖率指标，否则一个只处理 1/327 输入的系统看起来和满负荷运行一模一样。
+- `quantrift-options-quote-worker` 在线、0 重启、日志 101,264 行 `No queued refresh jobs in quotes lane`。**一个空转的 worker 在监控上和一个繁忙的 worker 没有区别**——两者都是 online。空队列必须是可告警的状态，不是沉默。
+
+## 派生值与原始行情是两个商品（2026-08-09）
+
+- Polygon 期权档给 delta/gamma/theta/vega、IV、OI、当日 OHLCV，**不给 bid/ask**。这些 greeks 正是他们从自己持有的 NBBO 反解出来的——低档卖计算结果，高档卖原始输入。**"有 IV 和希腊字母"不蕴含"有报价"**，评估 provider 时必须逐字段核对而不是看功能清单。
+- `last`/`day.close` 覆盖率 87.8%，很诱人，但**成交价不是可成交价**：没有价差就无法评估执行成本，`maxSpreadPct` 硬过滤与 `spreadFit`（100 分占 20）同时失效，而 `pricing_input: 'executable_bid_ask'` 会变成假陈述。样本里 `volume=2, OI=1, close==previous_close` 的合约说明了为什么——那个价格没动是因为根本没人交易。
+- 早有同一边界的记录（`polygon_option_chain_provider.py:47` 注明盘中 spot 因 `NOT_AUTHORIZED` 默认关闭），但没人把它推广到"报价大概也在墙外"。**一次 entitlement 拒绝应当触发对同档其余端点的系统性排查，而不是只关掉那一个开关。**
+
+## 过时的验证记录比没有记录更危险（2026-08-09）
+
+- `IB_RAW_TICK_DIAGNOSTIC_2026-07-18.md` 断言 IB 的 bid/ask 被权限阻断。那是 `IB_MARKET_DATA_TYPE=3`（延迟）下的结论；PM2 改成 `=1`（live）后 IB 实际给出 44/44 可成交报价，但没人回来更新。**三周里，写下来的记录说这条路不通，而生产早已在走它。** 一个据此排除 IB 的人会做出错误决策。
+- 修正的方式是给原记录加「SUPERSEDED IN PART」章节并指向新记录，不是删掉重写：**旧结论在它自己的条件下是对的**，要保留的是"结论的适用范围"，被推翻的只是那次过度泛化。
+- 教训：**validation 记录必须写清测试时的运行时配置**（这里是 market data type）。缺了它，结论就无法判断还适不适用，只能整条作废或被误用。
+
+## 样本量与独立性（2026-08-09）
+
+- 候选台账 15 笔已评分，按族看 credit_vertical 3-0、iron 3-0、single_leg 0-7、straddle_strangle 0-2，干净得像在说"卖方有效买方无效"。但**15 笔全部为同一天建仓**——同一次市场波动，统计上更接近 n=1。**看起来在说话的分割，往往只是在描述一个交易日。**
+- 赢均 +0.250 RoR、输均 −0.860 RoR：这是高 POP 结构的典型形态，也正是 POP 不得被呈现为期望值的原因。`payoffForCandidate` 的文件头早已论证过——在产生 POP 的同一个风险中性测度下，任何公平定价期权的期望值按构造约等于 0。**胜率高不等于赚钱。**
+- 更根本的一条：**能回答"这套打分是否有效"的唯一仪器是台账，而它的样本受限于候选流量而非台账本身。** 在流量恢复之前增加功能，等于在一个测不出差异的系统上做优化。先恢复流量，再让台账决定哪些功能配得上被建。

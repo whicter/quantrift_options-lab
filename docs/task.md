@@ -1,5 +1,259 @@
 # Task Tracker
 
+## 2026-08-09 — 期权报价覆盖率：Scanner 候选产品从未在规模上运行过（最高优先级）
+
+**发现经过**：为 Sell Put 页面做实施规划时，第一条验收标准「最新批次里存在 Short Put 行」在当前数据上无法验证。
+追下去发现的不是页面的问题，而是整条候选管线的问题。
+
+### 结论一：Polygon 期权档不含任何报价，且从来没有过
+
+`PolygonOptionChainProvider` 调 `GET /v3/snapshot/options/{symbol}`。该档返回**派生值**，不返回**原始行情**：
+
+| 拿到 | 没拿到 |
+| --- | --- |
+| `details`（类型/行权价/到期日/行权方式） | **整个 `last_quote` 块**（bid/ask/bid_size/ask_size/midpoint） |
+| `day`（OHLCV + VWAP + previous_close） | `last_trade` |
+| `greeks`（delta/gamma/theta/vega） | `rho` |
+| `implied_volatility` | `break_even_price` |
+| `open_interest` | |
+
+Polygon 手上有 NBBO——暴露出来的 greeks 与 IV 正是从它反解的。这是**刻意的分档**：低档卖计算结果，高档卖原始行情。
+`/v3/quotes/...` 直接返回 `403 NOT_AUTHORIZED`。
+
+**不是休市造成的**：2026-08-02～08-09 共 299,883 个 `polygon_licensed` 合约，**有 bid 的是 0 个**；
+08-05/06/07 三个交易日的快照窗口均覆盖 09:30–16:00 ET，仍然全零。
+代码里早有同一边界的记录（`polygon_option_chain_provider.py:47`：盘中分钟 spot 因 `$29 Options plan` 返回 NOT_AUTHORIZED 而默认关闭）。
+
+### 结论二：候选产品的真实覆盖率是 1/327
+
+候选引擎需要可成交 bid/ask 才能组装候选；报价只在 `analyze.js:317` 用户打开 Analyze 时按需入队，历史上共触发过 **4 次**。
+
+```
+symbol_universe (scan_enabled, active)      327
+近 7 天全部候选批次覆盖的 symbol              1   （TTD）
+每批次候选数                                 5
+```
+
+**`/api/scan`、`/api/v1/scanner/candidates`、`candidate_ledger` 及全部下游打分，一直只在一两个标的上运行。**
+本文档此前记录的「4768 个候选、59% 是 time_spread、前三全是 MSFT Diagonal」是**某次有人打开 MSFT 之后的快照，
+不是全市场扫描结果**，不得据此推断策略分布或多样性问题的规模。
+
+这个上限与 Sell Put 无关，只是该功能的验收标准第一次让它显形。
+
+### 结论二之补充：覆盖率是「掉下来的」，而且缺的只是一个调度器
+
+`docs/ARCHITECTURE.md` §27 记录 2026-07-15 时有 **55 个 quoted symbol（54 IB、1 TT）**。
+坍塌发生在 **2026-07-30 的隔离变更**——`option_provider_sequence` 在 primary 为 `polygon_licensed` 时只返回它自己，
+使后台 positioning lane 不再回退 IB。**该变更本身是正确的**（一次 IB 超时不该占住 GEX worker 槽位），
+但它移除的正是唯一能规模化产出报价的机制，而这个副作用当时没有被记录。
+
+```
+2026-07-30 之前   后台刷新回退 IB          →  ~55 个 quoted symbol
+2026-07-30 隔离   后台改为 Polygon-only    →  唯一机制被移除
+按需路径          历史共 4 次任务          →  1 个 quoted symbol
+```
+
+**修复所需的基础设施已经全部就位并在空转。** `quantrift-options-quote-worker` 在线、0 重启、
+日志累计 **101,264 行 `No queued refresh jobs in quotes lane`**；
+`run_refresh_worker.run(queue_lane='quotes')` 的 lane 分区、`option_quote_snapshot` 执行路径、
+去重（`INSERT ... WHERE NOT EXISTS (status IN ('queued','running'))`）与优先级全部可用且已测。
+隔离架构预留了独立 lane 与独立进程，**只是从来没有人写过往这个队列里填任务的调度器**。
+
+所以要补的是调度器，不是重建管线。
+
+### 结论三：IB live 模式可用（推翻 2026-07-18 的记录）
+
+`docs/validation/IB_RAW_TICK_DIAGNOSTIC_2026-07-18.md` 结论「executable quote coverage 被 IB 权限阻断」是
+**延迟模式（`IB_MARKET_DATA_TYPE=3`）下的结论**。PM2 早已改为 `=1`（live），实测：
+
+```
+snapshot 23608  ib_internal  2026-08-06 19:53  partial  44 行  44 有 bid  44 可成交
+```
+
+该记录已加「SUPERSEDED IN PART」章节更正。仍然成立的是：**任何代码都不得用 `last` 或模型价替代 bid/ask**；
+IB 覆盖是部分的（44 vs Polygon 同标的 ~80）；细合约报价质量差（实测 111% 价差、324% IV），必须过滤。
+
+### 结论四：`day.close` 不能替代报价
+
+覆盖率足以诱人（近 2 天 84,829 合约中 87.8% 有成交、56.4% 成交量≥10），但不能用：
+`last` 是**成交价不是可成交价**；无价差则 `maxSpreadPct` 硬过滤与 `spreadFit`（100 分占 20）同时失效；
+`payoffForCandidate` 盖的 `pricing_input: 'executable_bid_ask'` 会变成假陈述。
+
+### 授权立场（推迟，非解除）
+
+`docs/wiki.md:872`、`docs/CLAUDE.md:63` 禁止 `ib_internal`/`tt_internal` 作为公开/付费产品的展示源。
+产品负责人 2026-08-09 确认：**项目未公开、无用户登录与计费，故当前内部阶段可以使用 IB 与 Tastytrade**。
+**该约束在认证、订阅或公开上线任一项落地之前重新生效**，本阶段的任何设计都不得假定授权问题已解决。
+
+### 下一步（已确认执行顺序）
+
+- [x] **精选清单**（2026-08-09 完成）：新增 `quote_watchlist` 表 + `collector/select_quote_watchlist.py`。
+      **按流动性自动选 + 人工覆盖**：`origin='manual'` 的行选取器不改写，`pinned` 无视排名保留，
+      `excluded` 永不重新加入——人工决定在每次自动选取后都存活。
+      选取刻意是**过滤 + 单一排序键**，不是加权分数:仓库已有一套手工设定、从未回测的打分权重，
+      在"哪些标的能被看见"这个上游再加一套未验证的判断，会污染下游全部测量。阈值可检视，复合分数不可。
+      首轮结果：考察 295 → 选中 50；剔除 8 只杠杆/反向 ETF、9 只标的成交额不足、88 只期权 OI 不足，
+      140 只够格但超出目标（**有记录，不静默截断**）。
+      杠杆过滤按名称匹配且**限定 `asset_type='etf'`**——"Build-A-Bear Workshop" 会命中 `/bear/`，实测踩到过。
+- [x] **IB 后台批量报价扫描**（2026-08-09 完成）：`collector/schedule_quote_refresh.py`，
+      PM2 `quantrift-quote-refresh`（`*/10 7-12 * * 1-5` PT = 10:00–15:59 ET）+ `quantrift-quote-watchlist`（周日重选）。
+      **填队列深度而非固定条数**（IB 串行，固定条数会堆积快过 worker 消耗）；
+      **优先级 30 < 按需的 90**（用户正在看的页面绝不排在 50 只后台扫描之后）；
+      **陈旧度只按"确实带过可成交报价的快照"计算**——Polygon 定位刷新会写一条毫无报价的新行，
+      按"最新快照"算会把它当成刚报过价，从而永久饿死它刚覆盖的标的。
+- [x] **两个自伤问题已修**：
+      `recover_stale_running_jobs` 改为按 job_type 分档超时（`SLOW_JOB_TYPES` 用 40 分钟，其余仍 15 分钟）——
+      此前 lane 无关的 15 分钟会把一个正常运行的 16 分钟 IB 任务判为僵死并重新入队，
+      导致慢标的自己烧光 3 次重试，且两个 worker 可能同时抓同一标的（而 IB 固定 clientId 下并发抓取会冲突）。
+      调度器加**市场时段门**：休市时无报价流，IB 不会快速失败，而是对最多 240 个合约逐个耗尽
+      `IB_OPTION_STREAM_TIMEOUT` 后返回空（2026-08-09 周六实测：单标的 197 秒仍在跑，走向完整 ~16 分钟且产出为零）。
+      **不设收盘后扫描**，最后一轮盘内（约 15:59 ET）即产出收盘质量的报价。
+- [ ] **让候选与台账跑几周**，积累跨市场状态的样本，再决定候选引擎的功能优先级。
+- [ ] **人工过一遍首轮 50 只清单**：自动选取按流动性排序是客观的，但"我愿不愿意在这个价位接货"是人的判断。
+      首轮里 SPCX（SpaceX，未上市）、ONDS、DRAM、MARA、MSTR 流动性够但投机性强，
+      用 `excluded=true` 排除、用 `pinned=true` 补入想要的标的。
+
+### 为什么先做数据流量而不是功能
+
+台账现状（Phase 0 修复后）：**15 笔已评分，全部为 2026-07-28 同一天建仓**。
+它们不是 15 个独立观测——同一次市场波动，统计上更接近 n=1。
+按族看 credit_vertical 3-0、iron 3-0、single_leg 0-7、straddle_strangle 0-2 的干净分割，
+是一个平静交易日的产物，描述的是那一天，不是策略。
+赢均 +0.250 RoR / 输均 −0.860 RoR 的不对称值得留意（这正是高 POP 结构的典型形态，
+也正是 POP 不得被呈现为期望值的原因），但在此样本量下不可推断任何结论。
+
+**唯一能回答「这套打分是否有效」的仪器是候选台账，而它的样本受限于候选流量而非台账本身。**
+先恢复流量，再让台账决定哪些功能配得上被建。
+
+详见 `docs/validation/OPTION_QUOTE_COVERAGE_2026-08-09.md` 与 `docs/validation/LEDGER_POP_FIELD_FIX_2026-08-09.md`。
+
+## ✅ 2026-08-09 — 候选台账 POP 字段读错 + 两个连带缺陷（已修复）
+
+**Bug 1 — 台账 POP 从上线起就是坏的。** `captureLedger` 选的是 `signals_json->'pop'->>'rate'`（无风险利率），
+而非 `->>'probability'`。生产库 212 行非空 `pop` **全部是 0.0450**，
+`aggregateLedger` 的 `POP_BUCKETS` 因此把 100% 的行倒进 `0-40` 桶——**POP 校准从未产出过可用结果**。
+
+- 已改为 `->>'probability'`，并在 SQL 内联记录事故，防止两个相邻键再次混淆。
+- **历史行不回填**：真值存在于早已被 `pruneOldBatches` CASCADE 删除的批次里；
+  用今天的链重建一个「当时的预测」正是台账要防的 look-ahead。
+- `aggregateLedger` 新增 `LEDGER_CALIBRATION_FROM_DATE` 下限，仅排除 calibration，
+  并返回 `calibration_from_date` 与 `calibration_excluded`，使稀薄的校准不会读成广泛的。
+- **范围说明**：该 bug 污染的是**预测**，不是**结果**。胜率、`by_family`、`overall_win_rate` 仍然有效并继续计入这些行。
+
+**Bug 2 — `legs_json` 不含 `iv`。** `toLeg` 只投影 8 个字段，而 `candidate_ledger.legs_json` 是其逐字拷贝，
+导致多到期日结构结算时（需在近端到期日重新定价远腿）没有波动率可用。已补 `iv`，
+**仅内部 JSONB**，两个 DTO 均不投影（链上事实属 §6 后端专有）。生产验证：`{'iv': 0.745223, ...}`。
+
+**Bug 3 — scan 级任务被误扫为失败。** `fail_unrunnable_queued_jobs` 只豁免 `scanner_materialize`，
+而入队端 `SCAN_LEVEL_JOB_TYPES` 已包含 `scanner_candidate_materialize`。
+后者每次入队都以 `invalid queued refresh symbol` 失败，**候选批次的按需路径从未工作过**。
+已提取为模块级 `SCAN_SCOPED_JOB_TYPES` 并以 `job_type = ANY(%s)` 传参。
+
+**运维**：`SCANNER_CANDIDATE_BATCH_KEEP` 5 → 20。每个扫描周期写一个批次，
+5 的话一次坏的排序变更会在约 25 分钟内 CASCADE 掉全部已知良好批次，无从 diff 回归。评分/定价工作验收后调回 5。
+
+**验收**：server 293 测试全过、collector 338 全过、secret scan 干净。新增测试三处
+（`ledgerCapture.test.js` 双向断言 POP 字段、`materializeScannerCandidates.test.js` 断言 leg 携带真实 iv、
+`collector/tests/test_scan_scoped_job_sweep.py` 三项含与入队端一致性）。
+
+## ✅ 2026-08-09 — R2.3 Breadth 停摆真因：回退循环不接 HTTP 异常（已修复，序列已补齐）
+
+**此前 task.md 记录的原因是错的**：R2.3 停摆并非"collector 环境没有 `POLYGON_API_KEY`"，也不是 Railway 的问题。
+`collect_market_breadth.py` 由 **Mac Studio 的 PM2** 调度（`ecosystem.config.cjs` 的 `quantrift-market-breadth`，
+`cron_restart: '5 17,19 * * 1-5'`），`configure_collector` 已从 `collector/.env` 加载 key，key 一直都在。
+
+**真因**：`latest_grouped_on_or_before` 本就是为跨周末/假日回退设计的（循环 `LOOKBACK_CALENDAR_DAYS=10` 天、跳周末），
+但只处理**空响应**（`if bars:`），不接 HTTP 异常。Polygon 对本订阅档**尚未发布的当天** grouped daily 返回 403，
+异常直接穿透整个循环打死进程，回退一步（前一交易日可用）从未发生。
+
+- 生产实据：PM2 error log 共 **11 次失败，全部是 403，全部落在"当天"日期**上
+  （2026-07-31 ×2、08-03 ×1、08-04 ×2、08-05 ×2、08-06 ×2、08-07 ×2）。
+  唯一成功的一次是 07-31 手动运行、取**前一天** 2026-07-30。
+- 403 曾被误读为 entitlement 问题。实测该端点对已结算日期正常返回 200；探测时连打多次出现的 429 是本机限速，与权限无关。
+  **不要再用"Options 档 403"的旧结论推断 stocks 类端点不可用。**
+
+**修复**（`collect_market_breadth.py`）：回退循环捕获 `HTTPError`，仅对 `UNAVAILABLE_STATUSES={403,404}`
+记名跳过并继续，其余状态（401 坏 key、429 限速、5xx）一律原样抛出。
+未授权的 key 会在每个日期都 403、走完 lookback 后由末尾 `RuntimeError` **fail closed**，不会写出陈旧数据冒充当日。
+跳过的日期进入 `skipped` 列表并写入日志与最终报错信息，满足"失败必须被计数和命名"的采集失败隔离原则。
+
+**验收**（2026-08-09）：
+
+- `tests/test_market_breadth.py` 新增 3 项：403 回退、未授权 fail-closed、401/429/5xx 必须穿透；**9 tests OK**。
+- 真实运行写入 `market_date=2026-08-07`：`counted=5075`、`coverage_pct=98.6`、advances 3061 / declines 1881，
+  **`counted>=2000` 与覆盖率 `>=90%` 两个质量门槛均达标**。
+- 已补齐 bug 期间丢失的 5 个交易日（07-31、08-03、08-04、08-05、08-06），写入按 `market_date` `ON CONFLICT DO UPDATE` 幂等。
+
+**遗留**：R2.3 尚未完成的是 **Railway API 与 `/market` UI 验收**，数据侧已就绪。
+另注意采集器现在稳定落在 **T-1**（当天 403 → 回退一日），`/market` 展示必须如实标注该市场日期，不得呈现为当日。
+
+## 2026-08-09 — Short Squeeze 数据源调研（结论：可做，零新增 provider；排期在 Phase 1 之后）
+
+**背景**：评估是否可以新增"潜在轧空清单（potential short squeeze list）"。当前仓库完全没有该功能——
+`greeksKnowledge.js` 里的 "Gamma Squeeze 实战案例" 只是教学卡片，不是数据管线。
+
+### 许可结论：FINRA 直连不可用，必须走 Polygon 转授权
+
+- **FINRA 直连 = 死路，不要再重复评估。** API Developer Center 的 Equity Data 条款与 finra.org 网站通用条款
+  双重限制：`"non-commercial personal or professional use"`、`"may not charge or collect from an End User any fee"`，
+  并额外禁止建库（`"develop or create a database of data"`）、禁止爬取、禁止再分发。
+  官方 permissions 页面**没有商业授权流程**，只有一般 contact 入口。本项目有订阅分层，直接违反。
+- **Polygon/Massive 已持有转授权。** `/stocks/v1/short-interest` 的数据源就是 FINRA，由其作为持牌 redistributor 提供，
+  许可层已解决，符合本文档 Phase 2 "先授权、后开发"的要求，**无需新增询价或法务流程**。
+
+### 实测结果（2026-08-09，使用现有 `collector/.env` 中的生产 Polygon key）
+
+关键发现：**现有 Options 档订阅即可访问，无需升级**。此前 P2.1 记录的"Polygon Options 档股票盘中数据 403"
+是 realtime quote 类端点的 entitlement，fundamentals 类端点不受此限制——不要用 403 的旧结论推断这两个端点不可用。
+
+| 端点 | 实测 | 频率/新鲜度 | 历史深度 |
+| --- | --- | --- | --- |
+| `GET /stocks/v1/short-interest` | HTTP 200；**单次调用返回 22,373 个 ticker**（单页，无需翻页） | 双周，最新结算日 2026-07-15 | 2017-12-29 起 |
+| `GET /stocks/v1/short-volume` | HTTP 200；**单次调用返回 15,278 个 ticker** | **日频 T+1**（8/9 可取到 8/7） | **仅 2024-02-06 起** |
+| `GET /v3/reference/tickers/{t}` | 25 次调用 1.0s，**零 rate limit 报错** | 随参考数据 | — |
+
+- **watchlist 覆盖率 313/319 = 98.1%**；缺失 6 个：`ACAC`、`FX`、`OS`、`RE`、`SMS`、`TTM`（疑似退市/改名/ADR，待逐个确认）。
+- 采集成本可忽略：**每日 1 次 short-volume + 每两周 1 次 short-interest** 即覆盖全市场，
+  相对现有 option refresh 每轮数千次调用不构成预算压力。
+- `short_interest` / `avg_daily_volume` / `days_to_cover` 由 API 直接给出，**DTC 无需自算、也不需要 float**。
+- `short-volume` 字段含 `short_volume_ratio`、exempt/non-exempt 拆分及 venue 级明细
+  （`nyse_` / `nasdaq_carteret_` / `nasdaq_chicago_` / `adf_`）。
+
+### 两个必须处理的口径坑
+
+- **ETF 必须按 `type` 过滤，否则数字失真且无意义。** 实测 DTE 排序前 25 名混入 ETF：
+  `XBI` SI% = 114.28%、`KBE` SI% = 66.44%。ETF 的 shares outstanding 每日随创设/赎回变动，
+  且做市商有合法裸卖空豁免，SI% > 100% 属正常但**不代表任何轧空压力**。
+  `collect_universe_metadata.py::asset_type()` 已有 `CS`/`ETF`/`ADRC` 映射，直接复用。
+- **拿不到真 float，只有 shares outstanding。** Polygon 提供 `share_class_shares_outstanding` 与
+  `weighted_shares_outstanding`，均**不扣除内部人持股与限售股**。对股权分散的标的影响小（`GME` 12.35%），
+  但对创始人控股或次新股会系统性低估，属方向性错误。
+  两字段在多股份类别公司会分歧（实测 `FOX`/`DUOL`/`RR` 等 `SO != WSO`）；short interest 按 ticker 上报，
+  **必须配 `share_class_shares_outstanding`，不可用 weighted**。
+  **处理方式：不硬凑 float。**以 `days_to_cover` 作主排序（无需 float、口径更稳），
+  SI% 仅作辅助列，标签必须写"占已发行股本"而非"占流通股"。
+- 仍然缺失且需付费专业源（Ortex / S3）：**borrow fee 与 utilization**。因此本功能只能做
+  "DTC + short volume 异动 + gamma 环境"的组合，**不是完整轧空模型**，产品文案不得暗示其为后者。
+
+### 排期与前置依赖
+
+数据侧已无未知数，但**仍排在 Market Rebound Monitor Phase 1 之后**，理由：
+
+- 适用本文档 Phase 1 首条"底座未通过前不新建重复的 breadth/calendar 管线"。
+- **与 R2.3 共享同一阻塞点**：Railway collector 环境缺 `POLYGON_API_KEY`（本地 `collector/.env` 有，
+  本次实测即用它完成）。**补上该环境变量可同时解锁 R2.3 首个 breadth 快照与本功能。**
+
+最小可用版本（Phase 1 验收后再启动）：
+
+- [ ] `PolygonReferenceProvider` / `TickerReference` 增加 `share_class_shares_outstanding` 字段
+      （现已抓 `market_cap`，为增量改动），并在 `collect_universe_metadata.py` 落库。
+- [ ] 新增日频 short-volume 全市场快照采集与双周 short-interest 采集；沿用 `provider_rate_limits` 共享节流，
+      不得新建绕过路径（参照 `backfill_iv_history.py` 的 bypass 教训）。
+- [ ] 按 `type='CS'` 过滤，`days_to_cover` 主排序，叠加现有 GEX / RVol 做 gamma 环境加权。
+- [ ] 与 State Matrix 同样的合规边界：只描述拥挤度状态与证据，**不得输出买卖动作或未校准概率**。
+- [ ] **历史验证样本量先评估**：short-volume 仅约 2.5 年历史，覆盖不到 2021 轧空行情，
+      需先确认能否支撑本文档要求的 walk-forward / 样本外切分，不达标则只发布规则状态、不发布统计结论。
+
 ## ✅ 2026-07-30 — 产品命名、宽度与信息层级统一
 
 - [x] 顶部导航统一为“市场概览 / 个股分析 / 期权扫描 / 周复盘 / 策略库”；Analyze 页面标题改为“个股/ETF 分析”，保留 `ANALYSIS COCKPIT · 标的研究` 语义。
@@ -362,7 +616,12 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - [ ] **BS 反解的已知系统性偏差**:`implied_vol.py` 未建模股息(dividend yield)也未处理美式期权提前行权溢价,对高股息标的或深度 ITM 美式期权,反解出的 IV 会系统性偏离真实值。多数 tech/growth 标的股息可忽略,但组合里若含 SPY/QQQ 之外的高股息 ETF 或个股需要留意。
 - [ ] **IV Rank 对离群尖峰的敏感性**:标准 IV Rank(区间归一化,`(current - min) / (max - min)`)会被 252 天内单次极端事件(财报/黑天鹅)永久性拉低后续所有读数,直到该尖峰滚出窗口。更稳健的替代或补充指标是 IV Percentile(百分位排名,不受单点极值支配)。可以两个都算,给用户看差异。
 - [ ] **候选打分权重未经验证**:candidate engine 的评分权重(DTE/Delta/spread/OI/Volume 等)目前是手工设定,没有做过历史回测或统计校准。Phase 4 的 TT 对比 harness 之后,应该考虑对 scoring weights 做类似的验证。
-- [ ] **Scanner 候选多样性问题(有生产实据)**:实测 4768 个候选里 59% 是 time_spread 结构,排名前三全部是 MSFT Diagonal。当前排序纯按分数,没有跨策略类型/跨 symbol 的多样性约束,导致用户看到的"Top N"事实上是同一结构同一标的的重复展示,信息量低。需要引入多样性重排(如按策略类型/symbol 分桶后再取每桶 top-K)。
+- [ ] **Scanner 候选多样性问题**:~~实测 4768 个候选里 59% 是 time_spread 结构,排名前三全部是 MSFT Diagonal~~
+      —— **2026-08-09 更正:该观测的解读有误**。候选只在有可成交报价的标的上生成,而报价是用户打开 Analyze 时按需拉取的,
+      所以那 4768 个候选来自**某次有人打开 MSFT 之后**的快照,不是全市场扫描。
+      「59% 是 time_spread」反映的是单个标的上日历/对角的组合数天然多于其它结构(近端 × 远端的笛卡尔积),
+      **不能据此推断全市场的策略分布**。多样性重排本身仍然值得做(单标的内相邻行权价会挤占前 N),
+      但要在报价覆盖到精选清单、能看到真实跨标的分布之后再评估其规模与权重。详见本文档顶部 2026-08-09 条目。
 
 ### 功能
 
@@ -497,7 +756,11 @@ Volume Profile、Anchored VWAP、50/100/200DMA、日线/周线结构、GEX Wall 
 - [x] **R2.2 期权原生 Breadth(前后端均完成 2026-07-23)**:`GET /api/market/breadth`(`server/src/routes/market.js::sendMarketBreadth`)——纯 SQL 聚合 scan-enabled universe:①趋势 % above MA50/MA200(SQL 内 `AVG(close) FILTER (rn<=N)`,bars 不足不计);②**期权版体征**(三家竞品都没有)% 正/负 Gamma(latest `gex_snapshots.gamma_regime`)、IV Rank 中位数+p25/p75+% elevated(latest `volatility_history.iv_rank`,仅 ready)、PCR 中位数+四分位(`pcr_oi`)。每块带 `counted` 诚实披露样本量(薄数据不冒充全面),`pct()` 零样本返回 null 不返回假 0。
   - **前端(方案 B「Market Internals 面板」,用户 2026-07-23 拍板,先出渲染 mockup 对比)**:`components/MarketInternals.jsx` + 纯 view-model `lib/marketBreadth.js`(`buildBreadthView` 把响应转成渲染坐标:Gamma 拆分条宽度、IV/PCR 的 p25-p75 分位带 left/right + 中位标线位置、每块 counted 为 0 时塌缩成 null 显"暂不可用")。挂在首页 hero 与 workflow 卡片之间(`.home-internals`)。配色沿用产品 tokens(正=绿/负=红/IV=蓝/PCR=黄),`gamma_as_of` 按 ET 显示(与 P3 一致)。
   - **验证**:server 纯函数 `buildBreadth`/`percentile` 单测 3 条(187/187);frontend 纯 `buildBreadthView`/`scalePos` 单测 6 条(82/82)+ lint + build 干净。**live 实测**(2026-07-23,80 标的):55% 正 Gamma / 45% 负、IV Rank 中位 59.5(p25-p75 39.9-72.8,56 个 ready)、43% above MA50 / 69% above MA200、PCR 中位 0.98。可复现:`docs/validation/OPTIONS_BREADTH_2026-07-23.md`。
-- [ ] **R2.3 全市场日终 Breadth（生产首个快照待完成）**：不再拿 scan universe 冒充“全市场”。独立 `collect_market_breadth.py` 在收盘后调用 Polygon Grouped Daily，按目标交易日的 `type=CS` point-in-time reference universe 过滤 Nasdaq/NYSE/NYSE American 普通股，排除 ETF/OTC；用拆股调整后 close 对比前一真实交易日，计算上涨/下跌/平盘、净上涨、A/D ratio、上涨/下跌成交量占比与分交易所明细。质量门槛默认 `counted>=2000` 且前收盘覆盖≥90%，不完整响应禁止覆盖。2026-07-30 已对 Railway 成功执行 migration、创建 `market_breadth_daily`；首次采集在请求前因 collector 环境没有 `POLYGON_API_KEY` 停止，尚未验证 provider entitlement、质量门槛或 API/UI 的 ready 状态。
+- [ ] **R2.3 全市场日终 Breadth（生产首个快照待完成）**：不再拿 scan universe 冒充“全市场”。独立 `collect_market_breadth.py` 在收盘后调用 Polygon Grouped Daily，按目标交易日的 `type=CS` point-in-time reference universe 过滤 Nasdaq/NYSE/NYSE American 普通股，排除 ETF/OTC；用拆股调整后 close 对比前一真实交易日，计算上涨/下跌/平盘、净上涨、A/D ratio、上涨/下跌成交量占比与分交易所明细。质量门槛默认 `counted>=2000` 且前收盘覆盖≥90%，不完整响应禁止覆盖。2026-07-30 已对 Railway 成功执行 migration、创建 `market_breadth_daily`。
+  ~~首次采集在请求前因 collector 环境没有 `POLYGON_API_KEY` 停止~~ —— **该归因有误，已于 2026-08-09 更正**：
+  key 一直存在，真因是回退循环不接 HTTP 异常导致当天 403 打死进程，详见本文档顶部 2026-08-09 条目。
+  **provider entitlement 与质量门槛已验证通过**（`counted=5075`、覆盖率 98.6%），07-31 至 08-07 序列已补齐。
+  **剩余：Railway API 与 `/market` UI 验收。**
   - **隔离与持久化**：新 PM2 one-shot `quantrift-market-breadth` 工作日 17:05/19:05 PT 两次尝试；不进 option/GEX worker、不碰 IB。新表 `market_breadth_daily` 每交易日一行幂等 upsert，只存聚合与 JSONB 交易所明细。`GET /api/market/breadth` 新增 `broad_market`，最多返回最近 30 个已采集交易日的净上涨/A-D 历史；表尚未迁移时 fail-soft，不拖垮原期权 breadth。
   - **前端**：`/market` 的 `MarketInternals` 顶部新增全市场涨跌拆分条、净上涨、A/D ratio、上涨成交量占比、覆盖率、三交易所分项和历史柱；下方原 Gamma/IV/PCR/MA 模块明确改称“覆盖池·期权原生体征”。未有首个快照时显示等待状态，绝不回退成两百多只扫描池。
   - **验证**：collector 新增 6 条 provider/纯计算测试；server 新增 full-market DTO/A-D history 2 条；frontend 新增 full-market view-model 2 条。代码级验证 frontend 100/100、server 247/247；生产验收必须先执行 migration，再用 Railway/Mac 的真实 `POLYGON_API_KEY` 跑一次，要求 Grouped Daily HTTP 200、有效普通股数≥2000、覆盖≥90%。可复现：`docs/validation/FULL_MARKET_BREADTH_2026-07-30.md`。
