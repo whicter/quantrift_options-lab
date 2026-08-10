@@ -26,6 +26,14 @@ from collector_runtime import configure_collector
 from providers.ib_news_provider import IBNewsProvider
 
 configure_collector(__file__, datefmt=None)
+# ibapi logs every protocol message at INFO. This collector subscribes and then
+# cancels market data for the whole universe in batches every five minutes, so
+# each cycle emits thousands of REQUEST/SENDING/ANSWER lines. Left at INFO it
+# wrote 5.3M lines and 683MB in ten days -- ~68MB/day of protocol chatter in a
+# file named *-error.log, which also buried the real errors. run_quote_worker_daemon
+# already does this for the same reason; the news lane was missed.
+for logger_name in ('ibapi', 'ibapi.client', 'ibapi.wrapper', 'ibapi.decoder'):
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 

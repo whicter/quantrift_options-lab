@@ -1157,6 +1157,18 @@ Phase 3C implementation status：
 - `/api/admin/status/cache` reports job backlog/failures, scanner stale age, empty/metadata-only option snapshots, and provider budget usage.
 - Runtime：Mac Studio PM2 直接运行 `collector/ecosystem.config.cjs`。`quantrift-options-collector` 每 300 秒按 tier/staleness 填充至 queue target 20、每 60 秒以 3 路进程内并发消费最多 10 个 Polygon/GEX jobs、每 300 秒 materialize scanner；失败 symbol 有 30 分钟 cooldown。`quantrift-options-quote-worker` 是独立的 1 路 IB 按需报价 lane，只消费 `option_quote_snapshot`，IB timeout 不占主 collector 的三路槽位。`quantrift-options-prices` 工作日两次运行以补 EOD finalize。
 - No runtime copy：旧 LaunchAgent、wrappers 和 `~/.quantrift_options_collector` 已移除；当前 repo 是唯一运行代码源。
+- **本地持久化与日志（2026-08-09）**：本机只持久化 PM2 日志与 `backup_facts.py` 输出，均在
+  `/Volumes/X9_Pro/data_seriliazation/quantrift_options-lab/{logs,fact-backups}`，由 `ecosystem.config.cjs`
+  的 `logs(name)` 与 `FACT_BACKUP_DIR` 指定。日志轮转是本仓库自带的 `collector/rotate_logs.py`
+  （PM2 `quantrift-log-rotate`，每小时 :20），**不要装 `pm2-logrotate`**——它轮转 PM2 管理的全部日志且
+  无法按 app 排除，会改到 ib-bot / stock-alert 等其它仓库。运维要点三条：
+  ① 改日志路径必须 `pm2 delete` + `start` + `save`，**`reload` 只更新 env、不重绑 `pm_err_log_path`**，
+  且只重建本仓库的 `quantrift-*`（这台机器 30 个 app 里 19 个属于别的项目）；
+  ② 外置卷未挂载时**绝不 mkdir**，macOS 会在启动盘建同名目录、重新挂载后遮蔽，重启后先 `mount | grep X9_Pro`；
+  ③ 删除任何源之前**用校验和验证**，不能只比大小或目录名——实测有一份备份是被中断的复制，
+  同名目录下 9 个文件只到了 4 个，而那 4 个字节级一致。
+  使用 `ibapi` 的采集器必须把 `ibapi*` logger 降到 WARNING，否则协议帧会以 INFO 淹没日志
+  （`quantrift-news-error.log` 曾因此十天长到 683 MB）。详见 `docs/ARCHITECTURE.md` §49。
 - Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 以 `RunAtLoad=true` 调用 `pm2 resurrect`。2026-07-30 已验证 saved list 含七个 Quantrift collector apps；本次新增 quote worker 后需 `startOrReload` 与 `pm2 save`，使第八个 app 进入 saved list。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
 
 ### 新增 API 端点规划（server/）

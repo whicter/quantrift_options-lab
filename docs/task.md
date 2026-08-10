@@ -1,5 +1,93 @@
 # Task Tracker
 
+## ✅ 2026-08-09 — 本地持久化审计：日志外移、源头静音、项目内轮转
+
+### 盘点
+
+**Railway PostgreSQL 2,002 MB，保留策略完整**，无无界增长的大表。
+`option_contract_snapshots` 818 MB / `option_oi_delta_snapshots` 492 MB / `scanner_results_snapshots` 411 MB 占 86%；
+前两者与 `gex_by_strike_snapshots` 全部 `ON DELETE CASCADE` 挂在 7 天保留的 `option_chain_snapshots` 下
+（这正是上一条 GEX 历史条目的级联真因）。源事实表合计仅 132 MB，有意长期保留。
+
+**本地磁盘 887 MB PM2 日志**，其中 `quantrift-news-error.log` 一个占 **683 MB**——533 万行，
+全是 `ibapi` 按 INFO 打出的协议帧。新闻采集器每 5 分钟对全 universe 分批订阅/取消行情，
+每对约 5 行，**约 68 MB/天**，而它藏在名为 `*-error.log` 的文件里，十天无人察觉。
+
+### 改动
+
+- [x] **先堵源头**：`collect_news.py` 将 `ibapi*` logger 设为 WARNING，与 `run_quote_worker_daemon.py` 一致
+      （后者早有此处理，news 这条线被漏掉）。实测重启后 9 分钟 3 个周期共 275 字节、协议噪音 0 行，**低四个数量级**。
+- [x] **本地数据外移**至 `/Volumes/X9_Pro/data_seriliazation/`，按项目分文件夹。
+      该卷**已有既定结构**，沿用其下划线命名未另造一套。`ecosystem.config.cjs` 新增 `logs(name)`
+      由 app 名派生 out/error 两个路径；`FACT_BACKUP_DIR` 指向外置盘。
+- [x] **项目内轮转** `collector/rotate_logs.py` + PM2 `quantrift-log-rotate`（每小时 :20）。
+      **刻意不装 `pm2-logrotate`**：该模块轮转 PM2 管理的**全部**日志且无法按 app 排除，
+      会改到 ib-bot、stock-alert 等其它仓库的日志行为。
+
+### 四个必须记住的结论
+
+1. **`pm2 reload` 不重新绑定日志路径。** reload 后 `out_file` 已是新值，但 PM2 实际写入的
+   `pm_err_log_path` 仍指向旧路径——实测旧文件一分钟前还在被追加。路径在**进程创建时**解析，
+   必须 `delete` + `start`。只重建了 11 个 quantrift app，其它 19 个未触碰并验证健康。
+2. **进程仍在写时复制 = 归档不完整，且只比大小看不出来。** 首次复制 22 个中有 8 个偏短（52 B 到 3.9 KB）。
+   **删除源之前只有校验和是可接受的证据**——同样大小不同内容会通过大小比对。
+3. **外置盘上有一份被中断的备份复制。** 逐文件比对（而非按目录名）发现 `20260730T200502Z` 整份缺失、
+   `20260730T215404Z` 缺 5 个文件（含 23,430 行的 `candidate_ledger.csv.gz`），而已有的 4 个字节级一致。
+   补齐 14 个文件（9.8 MB）复验后才删本地。**若按目录列表判断会丢两份候选台账快照。**
+4. **轮转必须原地截断。** PM2 对每个日志持有打开描述符，重命名或替换会让它写入无人可读的 inode、
+   日志看似冻结。`os.truncate` 保住 inode，PM2 以 append 模式从新末尾继续。
+   测试直接**断言 inode 不变**——这是唯一能挡住未来重构重新引入该坑的方式。
+   代价是 copytruncate 固有竞态：复制完成到截断落地之间的写入会丢，仅影响诊断输出。
+
+### 回收
+
+```
+~/quantrift-backups       132 MB   117/117 文件 MD5 一致后删除
+~/.pm2/logs/quantrift-*   785 MB   22/22 文件 MD5 一致后删除
+                          ------
+                          917 MB   ~/.pm2/logs 由 887 MB 降至 102 MB
+```
+
+剩余 102 MB 属于其它仓库，需各自配置处理。
+
+### 未处理（需先确认依赖）
+
+- [ ] **166 MB 从未被使用过的索引**（占整库 8%）：`option_oi_delta_snapshots._symbol_unusual` 103 MB、
+      `._pkey` 63 MB，`idx_scan` 均为 0。删除前需确认无外键指向 `_pkey`。
+- [ ] `20260804T091459Z` 备份**两边都是空目录**，该次任务只产出目录壳，原因未查。
+
+详见 `docs/validation/LOCAL_PERSISTENCE_AUDIT_2026-08-09.md`。
+
+## ✅ 2026-08-09 — GEX 历史开始累积（级联删除真因；已实现，待 PM2 reload）
+
+**起因**：评估 Fabio Valentini 的订单流/ORB 体系能否量化到个股。实测该体系的确认层无法复现
+（逐笔成交与 NBBO 在现有 Polygon Options 档均为 403），且用我们自己 15 只标的、约 400 个交易日、
+18 组配置回测其可复现的骨架，**扣成本后 0/18 为正、R 倍数中位数 +0.002**，"等回踩"这条他区别于
+普通 ORB 的核心规则也无系统性改善。结论：不购买 tick 数据订阅，预算转向我们独有的 GEX 持仓方向。
+详见 `docs/validation/ORB_ORDERFLOW_EDGE_2026-08-09.md`。
+
+转向 GEX 后发现 `gex_snapshots` 只有 7 天数据。**真因是级联删除而非保留期参数**：
+GEX 两表以 `ON DELETE CASCADE` 挂在 `option_chain_snapshots` 上，随 7 天链清理一起消失，
+不存在独立的 GEX 保留期开关。而该保留期必须保留——它控制的 `option_contract_snapshots`(818 MB)
+与 `option_oi_delta_snapshots`(492 MB) 占了 2 GB 库的三分之二，调大即重演 2026-07-30 卷写满事故。
+
+**方案**：沿用 `candidate_ledger`（持久）/ `scanner_candidate_snapshots`（被清理）的既有分层，
+新增两张**无外键**的持久表，约 130 MB/年（约 $0.02/月）：
+
+- `gex_history` —— 全部盘中快照，仅标量（实测标量 269 kB vs 两个 JSONB 8,290 kB，占比 3%）
+- `gex_strike_history` —— 每 `(symbol, market_date, strike)` 一行。实测 AAPL 320 当天 20 个快照
+  只有 2 个不同 OI 值，**OI 是日频量**，盘中多存即 20 倍冗余
+
+写入在 `persist_gex` 同一事务内完成，避免"有快照、无历史"的永久缺口。
+
+- [x] 迁移已应用（全量 `migrate.js` 遭遇 deadlock，改为只建两张新表并设 `lock_timeout`）
+- [x] collector 362/362、server 293/293 通过；真实库写入冒烟通过（纽约市场日口径正确）
+- [x] 两表加入 `backup_facts.TABLES`；新增未挂载卷守卫，防止"备份谎称成功"
+- [x] **PM2 reload 后才开始写入**；历史无法回补，越早 reload 越好
+      —— 2026-08-09 22:01 因日志外移对 11 个 quantrift app 做了 `delete` + `start`（`reload` 不重新绑定日志路径），
+      顺带使本项生效。实测首批数据 `gex_history` 4 行、`gex_strike_history` 31 行，
+      时间戳 2026-08-10T05:09:20Z 起，正是重建之后。**已开始累积。**
+
 ## 2026-08-09 — 期权报价覆盖率：Scanner 候选产品从未在规模上运行过（最高优先级）
 
 **发现经过**：为 Sell Put 页面做实施规划时，第一条验收标准「最新批次里存在 Short Put 行」在当前数据上无法验证。

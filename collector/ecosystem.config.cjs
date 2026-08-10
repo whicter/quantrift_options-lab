@@ -1,6 +1,30 @@
+// Local persisted data lives on the X9_Pro external volume, one folder per
+// project (see /Volumes/X9_Pro/data_seriliazation/README.md). Logs were growing
+// ~70MB/day against the boot disk, dominated by ibapi protocol chatter that the
+// news lane logged at INFO.
+//
+// KNOWN FAILURE MODE: if X9_Pro is not mounted, macOS creates /Volumes/X9_Pro as
+// an ordinary directory on the boot disk and PM2 writes there silently; when the
+// drive remounts that directory is shadowed and the logs appear to vanish. Logs
+// are diagnostic, not a source of truth, so this is an annoyance rather than
+// data loss -- but after any reboot confirm the volume before trusting a quiet
+// log directory:  mount | grep X9_Pro
+const DATA_ROOT = '/Volumes/X9_Pro/data_seriliazation/quantrift_options-lab';
+const LOG_DIR = `${DATA_ROOT}/logs`;
+
+// PM2 has no per-config log root, so each app carries its own pair. Building
+// them from the name keeps the two in step -- a hand-written pair is exactly
+// where a typo sends one stream to the wrong file and nobody notices.
+const logs = name => ({
+  out_file: `${LOG_DIR}/${name}-out.log`,
+  error_file: `${LOG_DIR}/${name}-error.log`,
+});
+
 module.exports = {
   apps: [
     {
+      ...logs('quantrift-options-collector'),
+
       name: 'quantrift-options-collector',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'run_collector_daemon.py',
@@ -68,6 +92,8 @@ module.exports = {
       // User-requested strategy pricing is deliberately isolated from the
       // market-wide Polygon/GEX process. A slow IB request can occupy only this
       // one lane and cannot delay the collector's next refresh cycle.
+      ...logs('quantrift-options-quote-worker'),
+
       name: 'quantrift-options-quote-worker',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'run_quote_worker_daemon.py',
@@ -85,6 +111,8 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-options-prices'),
+
       name: 'quantrift-options-prices',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_prices.py',
@@ -113,6 +141,8 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-market-breadth'),
+
       name: 'quantrift-market-breadth',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_market_breadth.py',
@@ -132,9 +162,37 @@ module.exports = {
       },
     },
     {
+      // Log rotation, scoped to LOG_DIR. Deliberately NOT `pm2 install
+      // pm2-logrotate`: that module rotates every log PM2 manages with no way to
+      // exclude an app, so installing it would change log behaviour for the
+      // ib-bot and stock-alert workloads that live in other repositories.
+      //
+      // Hourly rather than daily because the size cap is only half the job. The
+      // other half is noticing a log whose growth RATE jumps -- the failure this
+      // replaces was quantrift-news-error.log reaching 683MB of ibapi protocol
+      // chatter over ten days, unnoticed because it sat in a file named
+      // *-error.log. A daily sample is too coarse to catch that early.
+      ...logs('quantrift-log-rotate'),
+
+      name: 'quantrift-log-rotate',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'rotate_logs.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '20 * * * *',
+      env: {
+        LOG_ROTATE_MAX_BYTES: String(50 * 1024 * 1024),
+        LOG_ROTATE_KEEP: '7',
+        LOG_ROTATE_ALERT_BYTES_PER_HOUR: String(20 * 1024 * 1024),
+        QUANTRIFT_LOG_DIR: LOG_DIR,
+      },
+    },
+    {
       // Refreshes which symbols get IB quote time. Weekly is enough: the ranking
       // is option open interest, which moves slowly, and churning the list more
       // often would keep resetting each symbol's quote age.
+      ...logs('quantrift-quote-watchlist'),
+
       name: 'quantrift-quote-watchlist',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'select_quote_watchlist.py',
@@ -167,6 +225,8 @@ module.exports = {
       // for the full ~16 minutes). The scheduler enforces this itself, so a
       // misconfigured cron cannot reintroduce it. The last in-session run near
       // 15:59 ET is what produces closing-quality quotes.
+      ...logs('quantrift-quote-refresh'),
+
       name: 'quantrift-quote-refresh',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'schedule_quote_refresh.py',
@@ -180,6 +240,8 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-reddit-trends'),
+
       name: 'quantrift-reddit-trends',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_reddit_trends.py',
@@ -192,6 +254,8 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-unusual-whales-flow'),
+
       name: 'quantrift-unusual-whales-flow',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_unusual_whales.py',
@@ -205,6 +269,8 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-news'),
+
       name: 'quantrift-news',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_news.py',
@@ -222,6 +288,8 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-backup-facts'),
+
       name: 'quantrift-backup-facts',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'backup_facts.py',
@@ -236,9 +304,19 @@ module.exports = {
       cron_restart: '15 2 * * *',
       env: {
         FACT_BACKUP_KEEP: '14',
+        // Was defaulting to ~/quantrift-backups on the boot disk while an
+        // identically-named set was already accumulating on X9_Pro -- two copies
+        // of the same 14 runs, neither obviously canonical. The external volume
+        // is the one with history, so it wins. If X9_Pro is unmounted the run
+        // fails or writes to a shadowed boot-disk path; either way a missed
+        // backup is recoverable, since every table here is reproducible from
+        // Railway. Rotation still keeps FACT_BACKUP_KEEP runs.
+        FACT_BACKUP_DIR: `${DATA_ROOT}/fact-backups`,
       },
     },
     {
+      ...logs('quantrift-universe-metadata'),
+
       name: 'quantrift-universe-metadata',
       cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
       script: 'collect_universe_metadata.py',

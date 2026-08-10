@@ -249,6 +249,12 @@ API response 应统一携带数据状态：
 
 Materialized-snapshot tables are recomputed every ~5 minutes and no product reads their history (scan/alerts use only `MAX(snapshot_ts)`; weekly/unusual look back ≤5 trading days), so they are pruned by `collector/prune_snapshots.py` (hourly in the daemon, `SNAPSHOT_PRUNE_SECONDS`). Two prune roots cover the bloat via `ON DELETE CASCADE`: `option_chain_snapshots` (7d) drops its `option_contract_snapshots` / `gex_snapshots` / `gex_by_strike_snapshots` / `option_oi_delta_snapshots` children with it; `scanner_results_snapshots` (3d) is standalone. Windows are env-overridable and exceed the longest consumer look-back. Deletes are ctid-batched and per-call capped so a large first cleanup drains across cycles without a long Railway lock; best-effort, never aborts the cycle. Accumulating fact tables (`volatility_history`, `price_history`, `iv_history`) are never pruned.
 
+**GEX history is exempt from that cascade by design (2026-08-09).** `gex_snapshots` / `gex_by_strike_snapshots` are operational: products read only the latest row, and the 7-day chain prune destroys their history with them. That is correct for serving and fatal for research — dealer positioning at a past moment cannot be recomputed once the chain is gone. Two **durable** tables therefore carry **no foreign key**, the same split as `candidate_ledger` vs the pruned `scanner_candidate_snapshots`: `gex_history` (every intraday snapshot, scalar columns only) and `gex_strike_history` (one row per `symbol, market_date, strike`). Raising `OPTION_CHAIN_RETENTION_DAYS` is **not** an alternative — that window exists to bound `option_contract_snapshots` (818 MB) and `option_oi_delta_snapshots` (492 MB), two thirds of the 2 GB database, and widening it reproduces the 2026-07-30 volume-full outage.
+
+Sizing is measured, not assumed. Across 4,177 rows the two JSONB columns (`gamma_curve` 5,165 kB, `raw_metrics` 3,125 kB) are 97% of the payload while **all scalars total 269 kB** (~66 B/row), so keeping every intraday snapshot costs ~30 MB/yr and there is no reason to downsample. By-strike is kept daily instead because open interest is a **daily** quantity: on 2026-08-07 AAPL strike 320 had 20 snapshots but only 2 distinct `call_oi`/`put_oi` values, so intraday copies are the same OI map recomputed at a moving spot (~100 MB/yr; any intraday gamma profile is reconstructible from this row plus intraday price). Both tables record `model_version` (a model change must not silently splice two regimes into one series — the `iv_source` lesson) and a New York `market_date` (a UTC date rolls over mid-session). A day's `gex_strike_history` rows are the **union** of strikes seen that session, not one instant; filter to `MAX(snapshot_ts)` per `(symbol, market_date)` for a coherent slice.
+
+`persist_gex_history()` runs inside `persist_gex()`'s transaction, before its single commit, so no snapshot can exist without the history row that outlives it. Both tables are in `backup_facts.TABLES` and are backend-only validation data: no product route, no navigation, no public read endpoint. Repro: `docs/validation/GEX_HISTORY_DURABLE_2026-08-09.md`.
+
 ---
 
 ## 2. 架构原则
@@ -2341,3 +2347,57 @@ Derived from three production incidents in one week:
 - **Transient conditions must not be classified permanent.** "No usable bid/ask"
   is a dropped socket, a farm reconnect, or simply being outside RTH — it retries,
   and out-of-hours quote jobs are not enqueued at all.
+
+## 49. Local Persistence and Log Management (2026-08-09)
+
+产品数据在 Railway PostgreSQL（约 2.0 GB，保留策略完整）。本机只持久化两类东西，
+均已移出启动盘，放在外置卷并按项目分文件夹：
+
+```text
+/Volumes/X9_Pro/data_seriliazation/
+├── quantrift_options-lab/
+│   ├── logs/          PM2 stdout/stderr（out_file/error_file 由 ecosystem.config.cjs 指定）
+│   │   └── *.log.gz   rotate_logs.py 的归档，保留 LOG_ROTATE_KEEP 份
+│   ├── fact-backups/  backup_facts.py 输出（FACT_BACKUP_DIR），每日 02:15，保留 14 份
+│   ├── gex-history/
+│   └── research/minute-bars/
+├── quantrift_stock/
+└── stock_volatility_alert/     其它仓库的数据湖
+```
+
+`ecosystem.config.cjs` 顶部的 `logs(name)` 由 app 名同时派生 `out_file` 与 `error_file`。
+PM2 没有 per-config 日志根目录，逐个手写字面量正是"打错一个字、一路日志写进错误文件而无人察觉"的来源。
+
+### 49.1 三条运维约束
+
+**`pm2 reload` 不重新绑定日志路径。** reload 会把新的 `out_file`/`error_file` 读进进程 env，
+但 PM2 实际写入的是 `pm_out_log_path`/`pm_err_log_path`，它们在**进程创建时**解析、reload 不更新。
+改日志路径必须 `pm2 delete` + `pm2 start` + `pm2 save`。
+只重建本仓库的 `quantrift-*` app；ib-bot / stock-alert 等属于其它仓库，不得一并 delete。
+
+**外置卷未挂载时不得创建目录。** macOS 会把 `/Volumes/X9_Pro` 当作启动盘上的普通目录创建，
+写入静默落到内置盘，卷重新挂载后被遮蔽、看起来像凭空消失。
+`rotate_logs.py` 在 `LOG_DIR` 不存在时**报告并退出**，绝不 mkdir，并有测试断言该路径未被创建。
+`backup_facts.py` 同样有未挂载守卫，防止"备份谎称成功"。
+重启后确认：`mount | grep X9_Pro`。
+
+**日志轮转必须原地截断。** PM2 对每个日志持有打开的文件描述符；重命名或替换文件会让它继续写入
+无人可读的 inode，日志表现为冻结。`rotate_logs.py` 用 `os.truncate(path, 0)` 保住 inode，
+PM2 以 append 模式从新末尾继续；测试直接断言 inode 不变。
+固有代价：复制完成到截断落地之间的写入会丢失（copytruncate 竞态），仅影响诊断输出，
+产品读取的数据不得采用此方式。
+
+### 49.2 为什么不用 pm2-logrotate
+
+`pm2-logrotate` 是 PM2 模块，装上后成为一个常驻进程，轮转 **PM2 管理的全部日志**，
+且不提供按 app 排除的机制——会改变 ib-bot、stock-alert 等其它仓库的日志行为。
+`rotate_logs.py` 只扫 `LOG_DIR`，不需要 sudo，配置随代码进版本控制。
+
+它还做了 pm2-logrotate 做不到的一件事:**监控增长速率并告警**。
+本次要防的失败不是磁盘满，而是 `quantrift-news-error.log` 在十天里长到 683 MB / 533 万行
+`ibapi` 协议帧而无人察觉——**只设大小上限只会把它安静地截断，沉默本身依然存在**。
+`LOG_ROTATE_ALERT_BYTES_PER_HOUR`（默认 20 MB/h，对比正常约 8 MB/天、失控约 68 MB/天）
+超阈值时经 `operator_alerts` 告警。每小时跑一次而非每天，因为日采样太粗、抓不到速率突变。
+
+任何新增采集器若使用 `ibapi`，必须像 `run_quote_worker_daemon.py` 与 `collect_news.py` 那样
+把 `ibapi*` logger 降到 WARNING，否则协议帧会以 INFO 淹没日志。
