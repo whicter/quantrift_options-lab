@@ -15,6 +15,13 @@ module.exports = {
         OPTION_MAX_STRIKES_PER_SIDE: '6',
         COLLECTOR_POLL_SECONDS: '60',
         SCAN_MATERIALIZE_SECONDS: '300',
+        // Raised 5 -> 20 for the candidate-engine rework (2026-08). A batch is
+        // written every scan cycle, so at the default of 5 a bad ranking change
+        // CASCADE-drops every known-good batch within ~25 minutes and there is
+        // nothing left to diff a regression against. 20 buys a rollback window
+        // wide enough to compare old and new orderings. Return this to 5 once the
+        // scoring/pricing phases are accepted in production.
+        SCANNER_CANDIDATE_BATCH_KEEP: '20',
         PUBLIC_APP_URL: 'https://www.quantrift.io',
         HEARTBEAT_SECONDS: '60',
         COLLECTOR_RUNTIME: 'mac-refresh-daemon',
@@ -122,6 +129,54 @@ module.exports = {
         MARKET_BREADTH_MIN_COVERAGE_PCT: '90',
         POLYGON_STOCK_REQUEST_DELAY: '16',
         POLYGON_PRICE_RATE_LIMIT_BACKOFF: '60',
+      },
+    },
+    {
+      // Refreshes which symbols get IB quote time. Weekly is enough: the ranking
+      // is option open interest, which moves slowly, and churning the list more
+      // often would keep resetting each symbol's quote age.
+      name: 'quantrift-quote-watchlist',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'select_quote_watchlist.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '30 5 * * 0',
+      env: {
+        QUOTE_WATCHLIST_TARGET: '50',
+      },
+    },
+    {
+      // Fills the quotes lane. `quantrift-options-quote-worker` has been online
+      // and idle since 2026-08-03 (101,264 lines of "No queued refresh jobs in
+      // quotes lane") because nothing ever enqueued for it: the 2026-07-30
+      // positioning/pricing isolation removed the IB fallback that had been the
+      // only mechanism producing executable quotes at scale, and quoted coverage
+      // decayed from ~55 symbols to 1.
+      //
+      // Every 10 min, 07:00-12:59 PT weekdays = 10:00-15:59 ET, i.e. the session
+      // minus its first half hour. This is a top-up, not a sweep: IB is serial at
+      // ~2 min/symbol so 50 symbols need ~100 minutes of worker time, far more
+      // than one cron fire can enqueue. Each run refills the queue to
+      // QUOTE_REFRESH_QUEUE_TARGET and the always-on worker drains it, so the
+      // list is covered across the session rather than in one pass.
+      //
+      // There is deliberately no post-close run. Outside the regular session
+      // there is no quote stream, so IB does not fail fast -- it waits out
+      // IB_OPTION_STREAM_TIMEOUT on each of up to 240 contracts and returns
+      // nothing (measured 2026-08-09: one symbol still running at 197s, on track
+      // for the full ~16 minutes). The scheduler enforces this itself, so a
+      // misconfigured cron cannot reintroduce it. The last in-session run near
+      // 15:59 ET is what produces closing-quality quotes.
+      name: 'quantrift-quote-refresh',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'schedule_quote_refresh.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '*/10 7-12 * * 1-5',
+      env: {
+        QUOTE_REFRESH_QUEUE_TARGET: '4',
+        QUOTE_REFRESH_PRIORITY: '30',
+        QUOTE_REFRESH_MAX_AGE_MINUTES: '360',
       },
     },
     {

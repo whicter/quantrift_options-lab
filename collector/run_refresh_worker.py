@@ -62,6 +62,24 @@ QUOTE_ENRICHMENT_PRIORITY = min(
 )
 WORKER_MAX_ATTEMPTS = int(os.getenv('REFRESH_WORKER_MAX_ATTEMPTS', '3'))
 RUNNING_JOB_TIMEOUT_MINUTES = int(os.getenv('REFRESH_WORKER_RUNNING_TIMEOUT_MINUTES', '15'))
+# Job types that legitimately carry the '__SCAN__' pseudo-symbol because they act
+# on the whole universe rather than one ticker. The invalid-symbol sweep below
+# must exempt every one of them, so this is a set rather than a literal in the
+# SQL: 'scanner_candidate_materialize' was added to the enqueue side
+# (routes/scannerCandidates.js) without being added to the exemption, so every
+# such job was swept to failed with 'invalid queued refresh symbol' and candidate
+# batches were only ever produced by the daemon timer. Keep this list and
+# `SCAN_LEVEL_JOB_TYPES` in server/src/lib/refreshJobs.js in agreement.
+SCAN_SCOPED_JOB_TYPES = ('scanner_materialize', 'scanner_candidate_materialize')
+# Job types whose worst-case runtime exceeds the ordinary stale-job timeout, so
+# they get their own longer one in `recover_stale_running_jobs`. Sized from the
+# IB option path's own bound: OPTION_MAX_CONTRACTS (240) x IB_OPTION_STREAM_TIMEOUT
+# (4s) plus per-symbol connect/contract-details overhead is ~16 minutes when no
+# quote ever arrives, which is a slow success, not a hang.
+SLOW_JOB_TYPES = ('option_quote_snapshot',)
+SLOW_RUNNING_JOB_TIMEOUT_MINUTES = int(
+    os.getenv('REFRESH_WORKER_SLOW_RUNNING_TIMEOUT_MINUTES', '40')
+)
 # Polygon's paid plan is unlimited, so this cap is only a runaway-loop backstop,
 # never a cost throttle. The default MUST stay far above real daily usage
 # (~1-3k requests): `reserve_budget` upserts request_budget on every reservation,
@@ -195,11 +213,11 @@ def fail_unrunnable_queued_jobs(conn) -> int:
                 attempts >= %s
                 OR (
                   NOT (symbol ~ '^[A-Z][A-Z0-9.-]{0,9}$')
-                  AND NOT (job_type = 'scanner_materialize' AND symbol = '__SCAN__')
+                  AND NOT (job_type = ANY(%s) AND symbol = '__SCAN__')
                 )
               )
             """,
-            (WORKER_MAX_ATTEMPTS, WORKER_MAX_ATTEMPTS),
+            (WORKER_MAX_ATTEMPTS, WORKER_MAX_ATTEMPTS, list(SCAN_SCOPED_JOB_TYPES)),
         )
         count = cur.rowcount
     conn.commit()
@@ -207,6 +225,19 @@ def fail_unrunnable_queued_jobs(conn) -> int:
 
 
 def recover_stale_running_jobs(conn) -> int:
+    """Requeue jobs whose worker died mid-flight.
+
+    The timeout is per job type because runtimes differ by an order of magnitude.
+    A Polygon `option_chain_snapshot` is a handful of HTTP calls; an IB
+    `option_quote_snapshot` is serial by construction (one open `reqMktData` at a
+    time, `OPTION_MAX_CONTRACTS` up to 240, each waiting out
+    `IB_OPTION_STREAM_TIMEOUT` when a quote never arrives) and can legitimately
+    run ~16 minutes. Under the previous single 15-minute rule that job was
+    declared stale and requeued *while still running*, so a slow symbol burned
+    all three attempts against itself and two workers could end up fetching the
+    same symbol at once -- against a provider whose fixed client id makes
+    concurrent option fetches conflict.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -215,10 +246,17 @@ def recover_stale_running_jobs(conn) -> int:
                 last_error = 'recovered stale running job after worker timeout',
                 finished_at = NOW()
             WHERE status = 'running'
-              AND started_at < NOW() - (%s::int * INTERVAL '1 minute')
+              AND started_at < NOW() - (
+                CASE WHEN job_type = ANY(%s) THEN %s::int ELSE %s::int END * INTERVAL '1 minute'
+              )
               AND attempts < %s
             """,
-            (RUNNING_JOB_TIMEOUT_MINUTES, WORKER_MAX_ATTEMPTS),
+            (
+                list(SLOW_JOB_TYPES),
+                SLOW_RUNNING_JOB_TIMEOUT_MINUTES,
+                RUNNING_JOB_TIMEOUT_MINUTES,
+                WORKER_MAX_ATTEMPTS,
+            ),
         )
         count = cur.rowcount
     conn.commit()

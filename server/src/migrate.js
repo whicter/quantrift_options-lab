@@ -829,6 +829,41 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS news_articles_symbol_published
       ON news_articles (symbol, published_at DESC);
+
+    -- Quote watchlist (2026-08). The positioning plane covers the whole
+    -- symbol_universe from Polygon, but Polygon's Options tier serves no NBBO at
+    -- all, so executable bid/ask exists only where an ib_internal
+    -- option_quote_snapshot has run. IB is serial (fixed client id, one open
+    -- reqMktData at a time, ~2 min/symbol healthy and up to ~16 when quotes
+    -- never arrive), so quoting all 327 scan symbols is not achievable in a
+    -- session. This table is the bounded subset that DOES get quoted.
+    --
+    -- Not a column on symbol_universe: that table answers "does the scanner
+    -- track this symbol at all", which stays universe-wide. This one answers
+    -- "do we spend IB time on it", a much smaller and differently-maintained
+    -- set. Keeping them separate means a universe prune cannot silently empty
+    -- the quote sweep, and a quote-budget change cannot alter scan coverage.
+    --
+    -- origin/pinned/excluded encode the auto-plus-override contract: the
+    -- selector rewrites 'auto' rows freely, never touches 'manual' ones, always
+    -- keeps pinned symbols regardless of rank, and never re-adds excluded ones.
+    -- So an operator decision survives every subsequent auto-selection.
+    CREATE TABLE IF NOT EXISTS quote_watchlist (
+      symbol          TEXT        PRIMARY KEY,
+      origin          TEXT        NOT NULL DEFAULT 'auto'
+                                  CHECK (origin IN ('auto', 'manual')),
+      pinned          BOOLEAN     NOT NULL DEFAULT FALSE,
+      excluded        BOOLEAN     NOT NULL DEFAULT FALSE,
+      liquidity_rank  INT,
+      liquidity_score NUMERIC(20,2),
+      selected_at     TIMESTAMPTZ,
+      metadata        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    -- The sweep's hot read is "give me the effective list in priority order".
+    CREATE INDEX IF NOT EXISTS quote_watchlist_effective
+      ON quote_watchlist (excluded, pinned DESC, liquidity_rank ASC);
   `);
 
   console.log('Migrations complete.');
