@@ -373,8 +373,17 @@ async function migrate() {
 
     CREATE INDEX IF NOT EXISTS option_oi_delta_snapshots_symbol_ts
       ON option_oi_delta_snapshots (symbol, snapshot_ts DESC);
-    CREATE INDEX IF NOT EXISTS option_oi_delta_snapshots_symbol_unusual
-      ON option_oi_delta_snapshots (symbol, is_unusual, snapshot_ts DESC);
+    -- Dropped 2026-08-09: option_oi_delta_snapshots_symbol_unusual on
+    -- (symbol, is_unusual, snapshot_ts DESC), 103MB, zero scans since the
+    -- statistics epoch. Not merely unused -- unusable. The only query touching
+    -- these columns (routes/unusual.js) filters
+    --   WHERE symbol = $1 AND snapshot_ts = (SELECT MAX(...))
+    -- and mentions is_unusual only in ORDER BY. Putting is_unusual between the
+    -- two predicate columns stops the snapshot_ts equality from reaching the
+    -- index, so symbol_ts above serves that query instead (577k scans against
+    -- this one's zero). Recreating it will not help any ordering either: the
+    -- rows for one (symbol, snapshot_ts) are few enough to sort in memory.
+    DROP INDEX IF EXISTS option_oi_delta_snapshots_symbol_unusual;
 
     CREATE TABLE IF NOT EXISTS scanner_alert_subscriptions (
       id                BIGSERIAL PRIMARY KEY,

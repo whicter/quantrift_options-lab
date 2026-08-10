@@ -50,11 +50,27 @@
 
 剩余 102 MB 属于其它仓库，需各自配置处理。
 
-### 未处理（需先确认依赖）
+### 后续处理（2026-08-09 当日完成）
 
-- [ ] **166 MB 从未被使用过的索引**（占整库 8%）：`option_oi_delta_snapshots._symbol_unusual` 103 MB、
-      `._pkey` 63 MB，`idx_scan` 均为 0。删除前需确认无外键指向 `_pkey`。
-- [ ] `20260804T091459Z` 备份**两边都是空目录**，该次任务只产出目录壳，原因未查。
+- [x] **删除 `option_oi_delta_snapshots_symbol_unusual`（103 MB）**。它不只是没人用，是**用不了**：
+      索引为 `(symbol, is_unusual, snapshot_ts DESC)`，而唯一触及这些列的查询（`routes/unusual.js`）是
+      `WHERE symbol = $1 AND snapshot_ts = (SELECT MAX(...))`，`is_unusual` 只出现在 ORDER BY。
+      把它建在两个谓词列中间，挡住了 `snapshot_ts` 等值条件，所以 `_symbol_ts` 接管了该查询
+      （577k 次扫描 vs 它的 0 次）。`DROP INDEX CONCURRENTLY` 耗时 0.1s，**库 2005 MB → 1902 MB**；
+      删后 EXPLAIN 确认查询仍走 `_symbol_ts` 索引扫描，0.65 ms。`migrate.js` 同步改为 `DROP INDEX IF EXISTS`，
+      否则下次 migration 会重建。
+- [x] **保留 `_pkey`（63 MB）**。无外键指向它、无逻辑复制、代码不按 `id` 访问，今天删是安全的；
+      但 `relreplident = 'd'`，**主键正是 replica identity**——一旦要加只读副本或 CDC，
+      逻辑复制的 UPDATE/DELETE 需要它定位行。63 MB 占整库 3%，换"以后加复制不用回头折腾"，判断为值得。
+- [x] **`20260804T091459Z` 空目录成因查明**：`out.log` 里从未出现该 run，`error.log` 显示
+      `psycopg2.connect(DB_URL)` 处 `KeyboardInterrupt`（Railway proxy 连接可能挂起）。
+      **运行目录建在连库之前**，连接中断即留下空壳；1 秒后另一次运行成功，于是同一分钟两个条目只有一个有数据。
+      修复：连库成功后再 mkdir。
+- [x] **空壳会挤占保留名额**：`prune_old_runs` 数目录不看内容，所以 `KEEP=14` 实际只装了 13 份真备份。
+      现在无视年龄先清空壳，再按 keep 淘汰真备份。已清理，13 份全部为真实备份。
+- [x] **prune 改用 `shutil.rmtree`**：此前的 `unlink(missing_ok=True)` 修的是"删不存在的文件"，
+      但 `iterdir()` 是**惰性生成器**，删真文件会连带移除 exFAT 的 `._` 影子，
+      生成器推进到已消失的条目时中断，留下被剥了一半的目录。
 
 详见 `docs/validation/LOCAL_PERSISTENCE_AUDIT_2026-08-09.md`。
 

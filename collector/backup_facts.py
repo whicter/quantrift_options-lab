@@ -40,6 +40,7 @@ import io
 import json
 import logging
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -88,26 +89,52 @@ def backup_table(conn, table: str, out_dir: Path) -> dict:
     return {'rows': rows, 'bytes': target.stat().st_size}
 
 
-def prune_old_runs(root: Path, keep: int) -> list:
-    """Drop all but the newest `keep` run directories. Best effort.
+def has_backup_content(run_dir: Path) -> bool:
+    """True when a run directory holds at least one real backup file.
 
-    unlink(missing_ok) matters on the exFAT external volume: macOS keeps an
-    AppleDouble `._name` sidecar beside every file, iterdir() lists it, but
-    deleting `name` already removes `._name`. The stale entry then raised
-    FileNotFoundError mid-loop, aborting rmdir for that run -- so retention
-    silently did nothing on that volume and every run ever written was still
-    there. Observed 2026-08-09 with runs back to 2026-07-30 under a KEEP of 14.
+    macOS writes an AppleDouble `._name` sidecar beside every file on the exFAT
+    external volume, so a directory can look populated while containing nothing
+    but sidecars. Those are metadata for files that are gone, never data.
+    """
+    return any(
+        f.is_file() and not f.name.startswith('._')
+        for f in run_dir.iterdir()
+    )
+
+
+def prune_old_runs(root: Path, keep: int) -> list:
+    """Drop all but the newest `keep` run directories, plus any empty shells.
+
+    Two exFAT-specific hazards, both observed on this volume in 2026-08:
+
+    `shutil.rmtree` rather than a manual iterdir loop. iterdir() is a lazy
+    generator over the live directory, and deleting `name` also removes its
+    AppleDouble `._name` sidecar -- so the generator could advance onto an entry
+    that had just vanished and raise mid-loop, aborting the rmdir and leaving a
+    partly-stripped run behind. An earlier fix added unlink(missing_ok=True),
+    which covers deleting an absent file but not iterating a mutating directory.
+
+    Shells are removed regardless of age. prune counted directories, not
+    contents, so a run that died before writing anything still consumed one of
+    the `keep` slots and pushed out a real backup -- KEEP=14 was holding 13
+    backups and one empty 20260804T091459Z.
     """
     runs = sorted([p for p in root.iterdir() if p.is_dir() and p.name.startswith('20')])
+
+    shells = [p for p in runs if not has_backup_content(p)]
+    survivors = [p for p in runs if p not in shells]
+    stale = survivors[:-keep] if len(survivors) > keep else []
+
     removed = []
-    for stale in runs[:-keep] if len(runs) > keep else []:
+    for target in shells + stale:
         try:
-            for child in stale.iterdir():
-                child.unlink(missing_ok=True)
-            stale.rmdir()
-            removed.append(stale.name)
+            shutil.rmtree(target)
+            removed.append(target.name)
         except OSError as exc:
-            log.warning('could not remove old backup %s: %s', stale, exc)
+            log.warning('could not remove old backup %s: %s', target, exc)
+    if shells:
+        log.info('removed %s empty run shell(s): %s',
+                 len(shells), ', '.join(p.name for p in shells))
     return removed
 
 
@@ -142,9 +169,17 @@ def run(out_root: str | None = None) -> dict:
     assert_backup_root_usable(root)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     out_dir = root / stamp
-    out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Connect BEFORE creating the run directory. The directory used to be made
+    # first, so anything that killed the process between mkdir and the first
+    # table write left a run that exists and holds nothing -- and because
+    # prune_old_runs counts directories rather than contents, that shell then
+    # occupied one of the KEEP_RUNS slots and displaced a real backup. Observed
+    # with 20260804T091459Z, interrupted inside psycopg2.connect (the Railway
+    # proxy can hang there); a second run one second later succeeded, leaving
+    # two same-minute entries of which only one had data.
     conn = psycopg2.connect(DB_URL)
+    out_dir.mkdir(parents=True, exist_ok=True)
     result: dict = {'run': stamp, 'dir': str(out_dir), 'tables': {}}
     try:
         for table in TABLES:
