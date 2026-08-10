@@ -100,6 +100,52 @@ export function applyGex(data, gexData) {
   };
 }
 
+/**
+ * Overlay the server-assembled Analyze summary (`GET /api/analyze/:symbol/summary`)
+ * onto the local analysis object. The positioning conclusion and scenario
+ * triggers are assembled server-side (V3A-4) so the browser only renders them.
+ *
+ * The server is authoritative only when it actually has a positioning
+ * (`positioning.available === true`); otherwise the locally computed applyGex
+ * values are kept as a fallback so a missing/failed summary never blanks the
+ * conclusion or scenarios. The server conclusion string was ported byte-for-byte
+ * from applyGex, so when both exist they agree.
+ */
+export function applySummary(data, summary) {
+  if (!data || !summary) return data;
+  const next = { ...data };
+
+  if (summary.data_status) {
+    next.dataStatus = {
+      label: summary.data_status.label ?? null,
+      freshness: summary.data_status.freshness ?? null,
+      isStale: Boolean(summary.data_status.is_stale),
+      ageMinutes: toNumber(summary.data_status.age_minutes),
+      refreshStatus: summary.data_status.refresh_status ?? null,
+    };
+  }
+  next.recommendationRef = summary.recommendation_ref ?? next.recommendationRef ?? null;
+
+  const positioning = summary.positioning;
+  if (positioning && positioning.available) {
+    if (typeof positioning.conclusion === 'string' && positioning.conclusion) {
+      next.conclusion = positioning.conclusion;
+    }
+    if (summary.scenarios) {
+      next.scenarios = {
+        ...next.scenarios,
+        upTrigger: toNumber(summary.scenarios.up_trigger),
+        upTarget: toNumber(summary.scenarios.up_target),
+        downTrigger: toNumber(summary.scenarios.down_trigger),
+        downTarget: toNumber(summary.scenarios.down_target),
+      };
+    }
+    next.positioningSource = 'server';
+  }
+
+  return next;
+}
+
 export function applyDerivedAnalysis(data, supportResistance, chainStats, volumeProfile) {
   if (!data) return data;
   const srReady = supportResistance?.status === 'ready';

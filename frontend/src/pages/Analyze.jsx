@@ -1,8 +1,8 @@
 import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getCompanyInfo } from '../data/companyInfo';
-import { getAnalyzeCandidate, getAnalyzeStatus, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getNews, getPrices, getSupportResistance, getTechnicalLevels, getUnusual, getVolumeProfile } from '../lib/api';
-import { applyDerivedAnalysis, applyGex, isUsableGex, toNumber } from '../lib/analyzeData';
+import { getAnalyzeCandidate, getAnalyzeStatus, getAnalyzeSummary, getChainStats, getDataStatus, getExternalFlow, getGex, getMetrics, getNews, getPrices, getSupportResistance, getTechnicalLevels, getUnusual, getVolumeProfile } from '../lib/api';
+import { applyDerivedAnalysis, applyGex, applySummary, isUsableGex, toNumber } from '../lib/analyzeData';
 import { toAnalyzeRecommendation } from '../lib/analyzeRecommendation';
 import { applyExternalFlow } from '../lib/externalFlow';
 import { applyNews } from '../lib/news';
@@ -437,7 +437,7 @@ export default function Analyze() {
     setTechnicalError('');
 
     try {
-      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, newsData, volumeProfile, candidateResponse, technicalResult] = await Promise.all([
+      const [onDemandStatus, metricsBySymbol, status, priceData, gexData, unusualData, supportResistance, chainStats, flowData, newsData, volumeProfile, candidateResponse, technicalResult, summaryData] = await Promise.all([
         getAnalyzeStatus(sym).catch(() => null),
         getMetrics([sym]),
         dataStatus ? Promise.resolve(dataStatus) : getDataStatus().catch(() => null),
@@ -453,6 +453,7 @@ export default function Analyze() {
         getTechnicalLevels(sym)
           .then(data => ({ data, error: '' }))
           .catch(fetchError => ({ data: null, error: fetchError.message })),
+        getAnalyzeSummary(sym).catch(() => null),
       ]);
       setTechnicalData(technicalResult.data);
       setTechnicalError(technicalResult.error);
@@ -462,7 +463,7 @@ export default function Analyze() {
       const metrics = metricsBySymbol[sym];
       if (!metrics) {
         if (isUsableGex(gexData)) {
-          setResult({ ...applyNews(applyExternalFlow(applyDerivedAnalysis(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), supportResistance, chainStats, volumeProfile), flowData), newsData), onDemandStatus });
+          setResult({ ...applyNews(applyExternalFlow(applyDerivedAnalysis(applySummary(applyUnusual(buildGexOnlyAnalysis(sym, priceData, gexData), unusualData), summaryData), supportResistance, chainStats, volumeProfile), flowData), newsData), onDemandStatus });
           syncSearchParams({ symbol: sym, tab: activeTab }, { replace: true });
           setError('');
           return;
@@ -480,10 +481,10 @@ export default function Analyze() {
       }
 
       const withPrice = applyMetrics(createRealAnalysis(sym, priceData), metrics);
-      const dataWithSignals = applyUnusual(applyGex({
+      const dataWithSignals = applySummary(applyUnusual(applyGex({
         ...withPrice,
         trend: deriveTrendFromPriceHistory(withPrice.priceHistory, withPrice.trend),
-      }, gexData), unusualData);
+      }, gexData), unusualData), summaryData);
       const candidateState = toAnalyzeRecommendation(candidateResponse);
       const data = applyNews(applyExternalFlow(applyDerivedAnalysis({
         ...dataWithSignals,
