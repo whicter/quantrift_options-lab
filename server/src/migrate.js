@@ -265,6 +265,82 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS gex_by_strike_snapshots_snapshot_strike
       ON gex_by_strike_snapshots (snapshot_id, strike);
 
+    -- Durable GEX history (2026-08-09). The two tables above are OPERATIONAL:
+    -- every product read takes only the latest snapshot, and they hang off
+    -- option_chain_snapshots ON DELETE CASCADE, so prune_snapshots' 7-day chain
+    -- retention silently destroys the historical series with them. That is
+    -- correct for serving the product and fatal for research -- dealer
+    -- positioning at a past moment cannot be reconstructed after the fact.
+    -- These two tables therefore carry NO foreign key, exactly the durable /
+    -- pruned split already used by candidate_ledger vs the pruned
+    -- scanner_candidate_snapshots. Backend-only validation data: no product
+    -- route, no navigation, no public read endpoint.
+    --
+    -- gex_history keeps EVERY intraday snapshot but only the scalar columns:
+    -- measured at 66 bytes/row against ~2.9 kB/row for the full record, since
+    -- gamma_curve and raw_metrics are 97% of the payload and are re-derivable.
+    CREATE TABLE IF NOT EXISTS gex_history (
+      id                          BIGSERIAL PRIMARY KEY,
+      symbol                      TEXT        NOT NULL,
+      snapshot_ts                 TIMESTAMPTZ NOT NULL,
+      market_date                 DATE        NOT NULL,
+      source                      TEXT        NOT NULL,
+      model_version               TEXT        NOT NULL,
+      spot                        NUMERIC(14,4),
+      global_gex                  NUMERIC(20,4),
+      local_gamma                 NUMERIC(20,4),
+      gamma_flip                  NUMERIC(14,4),
+      gamma_regime                TEXT,
+      spot_vs_flip_distance_pct   NUMERIC(10,4),
+      call_wall                   NUMERIC(14,4),
+      put_wall                    NUMERIC(14,4),
+      max_pain                    NUMERIC(14,4),
+      pcr_oi                      NUMERIC(10,4),
+      pcr_volume                  NUMERIC(10,4),
+      confidence                  TEXT        NOT NULL DEFAULT 'low',
+      created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (symbol, snapshot_ts, model_version)
+    );
+
+    CREATE INDEX IF NOT EXISTS gex_history_symbol_date
+      ON gex_history (symbol, market_date DESC);
+    CREATE INDEX IF NOT EXISTS gex_history_date
+      ON gex_history (market_date DESC);
+
+    -- gex_strike_history keeps ONE row per (symbol, market_date, strike), the
+    -- latest snapshot of the New York session winning per strike. Intraday
+    -- retention would be ~20x redundancy for no information -- measured
+    -- 2026-08-07, AAPL strike 320 had 20 snapshots but only 2 distinct
+    -- call_oi/put_oi values, because open interest is a daily quantity and the
+    -- intraday net_gex variation is just that same OI map recomputed at a
+    -- moving spot. Any intraday gamma profile is therefore reconstructible
+    -- from this row plus intraday price.
+    --
+    -- NOTE the day's row set is the UNION of strikes seen that session, not a
+    -- single instant: a strike quoted at 10:00 but absent from the closing
+    -- chain keeps its 10:00 values. Each row carries its own snapshot_ts, so
+    -- filter to MAX(snapshot_ts) per (symbol, market_date) when a coherent
+    -- single-moment slice is required.
+    CREATE TABLE IF NOT EXISTS gex_strike_history (
+      symbol          TEXT          NOT NULL,
+      market_date     DATE          NOT NULL,
+      strike          NUMERIC(14,4) NOT NULL,
+      snapshot_ts     TIMESTAMPTZ   NOT NULL,
+      model_version   TEXT          NOT NULL,
+      call_gex        NUMERIC(20,4),
+      put_gex         NUMERIC(20,4),
+      net_gex         NUMERIC(20,4),
+      call_oi         BIGINT,
+      put_oi          BIGINT,
+      call_volume     BIGINT,
+      put_volume      BIGINT,
+      created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (symbol, market_date, strike)
+    );
+
+    CREATE INDEX IF NOT EXISTS gex_strike_history_date
+      ON gex_strike_history (market_date DESC);
+
     CREATE TABLE IF NOT EXISTS option_oi_delta_snapshots (
       id                         BIGSERIAL PRIMARY KEY,
       snapshot_id                BIGINT      NOT NULL REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,

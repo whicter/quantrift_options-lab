@@ -18,6 +18,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg2
 from psycopg2.extras import Json, execute_values
@@ -40,6 +41,9 @@ GEX_MOVE_PCT = 0.01
 GEX_UNIT = 'usd_delta_change_per_1pct_move'
 GEX_POSITIONING_MODEL = 'call_positive_put_negative_proxy'
 GEX_MODEL_VERSION = 'gex-v2-1pct-positioning-proxy'
+# 与 collect_prices.py / derive_volatility.py 同一口径：市场日一律按纽约算，
+# 用 UTC 会在盘中翻页，把同一个交易时段劈成两天。
+MARKET_TIMEZONE = ZoneInfo('America/New_York')
 # wall / gamma_flip 可信所需的最小链覆盖面（见 strike_coverage 的说明）。
 # 环境变量可调，默认 spot 上下各 3%、至少 4 个到期。
 MIN_WALL_COVERAGE_PCT = float(os.getenv('GEX_MIN_WALL_COVERAGE_PCT', '3'))
@@ -457,8 +461,123 @@ def persist_gex(conn, metrics: dict[str, Any]) -> int:
                 """,
                 strike_values,
             )
+
+    persist_gex_history(conn, metrics)
     conn.commit()
     return gex_id
+
+
+def persist_gex_history(conn, metrics: dict[str, Any]) -> None:
+    """Mirror this snapshot into the durable history tables.
+
+    Runs inside persist_gex's transaction on purpose: gex_snapshots and its
+    history row commit together, so there is no window in which a snapshot
+    exists without the history that outlives it. The operational tables are
+    deleted within 7 days by prune_snapshots' CASCADE from
+    option_chain_snapshots, and dealer positioning at a past moment cannot be
+    reconstructed afterwards, so a write skipped here is lost permanently.
+
+    Scalars only -- gamma_curve/raw_metrics are 97% of the payload and are
+    re-derivable. by-strike is upserted per New York market date so the last
+    snapshot of the session wins (see the migration for why intraday copies
+    carry no extra information).
+    """
+    raw = metrics.get('raw_metrics') or {}
+    model_version = raw.get('model_version') or GEX_MODEL_VERSION
+    # New York market date, matching weekly.js and the project-wide convention;
+    # a UTC date would roll over mid-session and split one session in two.
+    market_date = metrics['snapshot_ts'].astimezone(MARKET_TIMEZONE).date()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO gex_history (
+              symbol, snapshot_ts, market_date, source, model_version, spot,
+              global_gex, local_gamma, gamma_flip, gamma_regime,
+              spot_vs_flip_distance_pct, call_wall, put_wall, max_pain,
+              pcr_oi, pcr_volume, confidence
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (symbol, snapshot_ts, model_version) DO UPDATE SET
+              market_date = EXCLUDED.market_date,
+              source = EXCLUDED.source,
+              spot = EXCLUDED.spot,
+              global_gex = EXCLUDED.global_gex,
+              local_gamma = EXCLUDED.local_gamma,
+              gamma_flip = EXCLUDED.gamma_flip,
+              gamma_regime = EXCLUDED.gamma_regime,
+              spot_vs_flip_distance_pct = EXCLUDED.spot_vs_flip_distance_pct,
+              call_wall = EXCLUDED.call_wall,
+              put_wall = EXCLUDED.put_wall,
+              max_pain = EXCLUDED.max_pain,
+              pcr_oi = EXCLUDED.pcr_oi,
+              pcr_volume = EXCLUDED.pcr_volume,
+              confidence = EXCLUDED.confidence
+            """,
+            (
+                metrics['symbol'],
+                metrics['snapshot_ts'],
+                market_date,
+                metrics['source'],
+                model_version,
+                raw.get('spot'),
+                metrics['global_gex'],
+                metrics['local_gamma'],
+                metrics['gamma_flip'],
+                metrics['gamma_regime'],
+                metrics['spot_vs_flip_distance_pct'],
+                metrics['call_wall'],
+                metrics['put_wall'],
+                metrics['max_pain'],
+                metrics['pcr_oi'],
+                metrics['pcr_volume'],
+                metrics['confidence'],
+            ),
+        )
+
+    strike_rows = [
+        (
+            metrics['symbol'],
+            market_date,
+            strike,
+            metrics['snapshot_ts'],
+            model_version,
+            row['call_gex'],
+            row['put_gex'],
+            row['net_gex'],
+            row['call_oi'],
+            row['put_oi'],
+            row['call_volume'],
+            row['put_volume'],
+        )
+        for strike, row in (metrics.get('by_strike') or {}).items()
+    ]
+    if not strike_rows:
+        return
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            """
+            INSERT INTO gex_strike_history (
+              symbol, market_date, strike, snapshot_ts, model_version,
+              call_gex, put_gex, net_gex, call_oi, put_oi,
+              call_volume, put_volume
+            )
+            VALUES %s
+            ON CONFLICT (symbol, market_date, strike) DO UPDATE SET
+              snapshot_ts = EXCLUDED.snapshot_ts,
+              model_version = EXCLUDED.model_version,
+              call_gex = EXCLUDED.call_gex,
+              put_gex = EXCLUDED.put_gex,
+              net_gex = EXCLUDED.net_gex,
+              call_oi = EXCLUDED.call_oi,
+              put_oi = EXCLUDED.put_oi,
+              call_volume = EXCLUDED.call_volume,
+              put_volume = EXCLUDED.put_volume
+            WHERE EXCLUDED.snapshot_ts >= gex_strike_history.snapshot_ts
+            """,
+            strike_rows,
+        )
 
 
 def run() -> None:

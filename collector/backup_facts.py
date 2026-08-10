@@ -64,6 +64,13 @@ TABLES = [
     'news_articles',
     'external_flow_events',
     'symbol_universe',
+    # gex_history / gex_strike_history are irreplaceable for the same reason as
+    # candidate_ledger: they record what dealer positioning WAS at a past
+    # moment. Their operational sources (gex_snapshots, gex_by_strike_snapshots)
+    # are destroyed within 7 days by prune_snapshots' CASCADE, so once a day
+    # passes there is nothing left to recompute from.
+    'gex_history',
+    'gex_strike_history',
 ]
 
 
@@ -82,13 +89,21 @@ def backup_table(conn, table: str, out_dir: Path) -> dict:
 
 
 def prune_old_runs(root: Path, keep: int) -> list:
-    """Drop all but the newest `keep` run directories. Best effort."""
+    """Drop all but the newest `keep` run directories. Best effort.
+
+    unlink(missing_ok) matters on the exFAT external volume: macOS keeps an
+    AppleDouble `._name` sidecar beside every file, iterdir() lists it, but
+    deleting `name` already removes `._name`. The stale entry then raised
+    FileNotFoundError mid-loop, aborting rmdir for that run -- so retention
+    silently did nothing on that volume and every run ever written was still
+    there. Observed 2026-08-09 with runs back to 2026-07-30 under a KEEP of 14.
+    """
     runs = sorted([p for p in root.iterdir() if p.is_dir() and p.name.startswith('20')])
     removed = []
     for stale in runs[:-keep] if len(runs) > keep else []:
         try:
             for child in stale.iterdir():
-                child.unlink()
+                child.unlink(missing_ok=True)
             stale.rmdir()
             removed.append(stale.name)
         except OSError as exc:
@@ -96,10 +111,35 @@ def prune_old_runs(root: Path, keep: int) -> list:
     return removed
 
 
+def assert_backup_root_usable(root: Path) -> None:
+    """Fail loudly when the backup target is an unmounted removable volume.
+
+    The default target lives on an external drive. If that drive is not
+    mounted, `/Volumes/<name>` is either absent or an empty stub, and a plain
+    mkdir(parents=True) would happily create a phantom directory tree that
+    silently disappears the moment the real volume is remounted -- producing
+    backups that appear to succeed and do not exist. A backup that lies about
+    existing is worse than one that fails, so refuse to write instead.
+    """
+    parts = root.resolve().parts
+    if len(parts) < 3 or parts[1] != 'Volumes':
+        return  # not a removable-volume path; nothing to verify
+    mount_point = Path(parts[0]) / parts[1] / parts[2]
+    if not mount_point.is_dir():
+        raise RuntimeError(
+            f'backup volume {mount_point} is not mounted; refusing to write '
+            f'a phantom backup tree under it')
+    if not os.path.ismount(str(mount_point)):
+        raise RuntimeError(
+            f'{mount_point} exists but is not a mount point -- the external '
+            f'drive is detached and this is a leftover stub directory')
+
+
 def run(out_root: str | None = None) -> dict:
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
     root = Path(out_root or DEFAULT_OUT)
+    assert_backup_root_usable(root)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     out_dir = root / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
