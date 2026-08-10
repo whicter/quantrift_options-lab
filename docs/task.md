@@ -212,6 +212,20 @@ IB 覆盖是部分的（44 vs Polygon 同标的 ~80）；细合约报价质量�
       调度器加**市场时段门**：休市时无报价流，IB 不会快速失败，而是对最多 240 个合约逐个耗尽
       `IB_OPTION_STREAM_TIMEOUT` 后返回空（2026-08-09 周六实测：单标的 197 秒仍在跑，走向完整 ~16 分钟且产出为零）。
       **不设收盘后扫描**，最后一轮盘内（约 15:59 ET）即产出收盘质量的报价。
+- [ ] **周一（2026-08-10）盘中首跑实测**：`quantrift-quote-refresh` 排程 `*/10 7-12 * * 1-5`，
+      建成当天是周日，**一次都还没在盘中运行过**。需测：每标的实际耗时、盘中失败率、实际覆盖标的数。
+      这三个数直接决定下面那条采购是否必要。
+      （读日志注意：休市时输出的 `watchlist: 0` 来自市场时段提前返回、并未查库，**不代表清单为空**——
+      实测 `quote_watchlist` 有 50 行 0 排除。真的空会报 `status: empty_watchlist`。）
+- [ ] **报价来源采购决策（等上条实测后再定，勿提前购买）**：详见
+      `docs/validation/QUOTE_SOURCE_DECISION_2026-08-09.md`。要点：
+      Massive 报价**只在 Advanced $199 那档**，$79 的 Developer 加的是 Trades 不是 Quotes，**没有中间档**；
+      IB 权限已实测确认可用（`reqMktData` 零订阅错误，非 354/10167），瓶颈是我们**自己的串行实现**
+      （一次一个合约 + `QUOTE_WORKER_CONCURRENCY=1`），估算 50 标的一轮 50–100 分钟可行、
+      327 标的一轮 5.5–11 小时**跑不完**；Unusual Whales / Bullflow **整个类别不可用**
+      （均为仅限个人使用、禁止再分发，与 FINRA 同一结论）。
+      **另需向 Massive 澄清**：全部档位标注 "Individual use"、Advanced 另标 "Non-pros only"，
+      订阅制产品的合规档位需要确认——此问题对当前 $29 档同样成立，不因是否升级而消失。
 - [ ] **让候选与台账跑几周**，积累跨市场状态的样本，再决定候选引擎的功能优先级。
 - [ ] **人工过一遍首轮 50 只清单**：自动选取按流动性排序是客观的，但"我愿不愿意在这个价位接货"是人的判断。
       首轮里 SPCX（SpaceX，未上市）、ONDS、DRAM、MARA、MSTR 流动性够但投机性强，
@@ -229,7 +243,8 @@ IB 覆盖是部分的（44 vs Polygon 同标的 ~80）；细合约报价质量�
 **唯一能回答「这套打分是否有效」的仪器是候选台账，而它的样本受限于候选流量而非台账本身。**
 先恢复流量，再让台账决定哪些功能配得上被建。
 
-详见 `docs/validation/OPTION_QUOTE_COVERAGE_2026-08-09.md` 与 `docs/validation/LEDGER_POP_FIELD_FIX_2026-08-09.md`。
+详见 `docs/validation/OPTION_QUOTE_COVERAGE_2026-08-09.md`、`docs/validation/LEDGER_POP_FIELD_FIX_2026-08-09.md`
+与 `docs/validation/QUOTE_SOURCE_DECISION_2026-08-09.md`（档位价格、IB 权限与吞吐实测、第三方供应商结论）。
 
 ## ✅ 2026-08-09 — 候选台账 POP 字段读错 + 两个连带缺陷（已修复）
 
