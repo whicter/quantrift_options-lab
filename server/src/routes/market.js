@@ -15,6 +15,7 @@ const {
   STATE_META,
   STATE_THRESHOLDS,
 } = require('../domain/market/stateMatrix');
+const { buildPositioning } = require('../domain/market/positioning');
 const { isoDate, number, percentile } = require('../lib/values');
 
 const router = express.Router();
@@ -409,7 +410,56 @@ async function sendEarningsThisWeek(req, res) {
 
 router.get('/regime', sendMarketRegime);
 router.get('/breadth', sendMarketBreadth);
+async function loadPositioning() {
+  // Latest captured market date only. squeeze_watch holds one row per symbol
+  // per date, so serving "the newest date present" avoids mixing sessions on a
+  // day the capture has not run yet.
+  let result;
+  try {
+    result = await pool.query(`
+      SELECT w.symbol, w.market_date, w.spot, w.top_strike,
+             w.distance_to_top_strike_pct, w.call_oi_above, w.put_oi_above,
+             w.concentration, w.call_put_ratio_above, w.unusual_oi_count,
+             w.days_to_cover, w.gex_confidence
+      FROM squeeze_watch w
+      JOIN symbol_universe u ON u.symbol = w.symbol
+      WHERE w.market_date = (SELECT MAX(market_date) FROM squeeze_watch)
+        -- Common stock only. ETF creation/redemption keeps supply elastic and
+        -- market makers hold a naked-short exemption, so an ETF's positioning
+        -- does not carry the same meaning and its short interest routinely
+        -- exceeds 100% of shares outstanding.
+        AND u.asset_type = 'stock'
+        AND w.call_oi_above >= $1
+        AND w.distance_to_top_strike_pct IS NOT NULL
+        AND w.distance_to_top_strike_pct <= $2
+      ORDER BY w.call_oi_above DESC
+      LIMIT $3
+    `, [
+      Number(process.env.POSITIONING_MIN_CALL_OI ?? 5000),
+      Number(process.env.POSITIONING_MAX_GAP_PCT ?? 10),
+      Number(process.env.POSITIONING_LIMIT ?? 25),
+    ]);
+  } catch (error) {
+    // Additive deployment safety, same as broad-market breadth: the API may be
+    // live before the one-time migration runs.
+    if (error.code === '42P01') return { status: 'missing', calibrated: false, counted: 0, rows: [] };
+    throw error;
+  }
+  const marketDate = result.rows.length ? isoDate(result.rows[0].market_date) : null;
+  return buildPositioning(result.rows, { marketDate });
+}
+
+async function sendMarketPositioning(req, res) {
+  try {
+    return res.json(await loadPositioning());
+  } catch (error) {
+    console.error('GET /api/market/positioning error:', error.message);
+    return res.status(500).json({ error: 'database error' });
+  }
+}
+
 router.get('/state-matrix', sendMarketStateMatrix);
+router.get('/positioning', sendMarketPositioning);
 router.get('/sector-rotation', sendSectorRotation);
 router.get('/briefing', sendMarketBriefing);
 router.get('/earnings-this-week', sendEarningsThisWeek);
@@ -420,4 +470,5 @@ module.exports = {
   classifyState, buildStateMatrix, sendMarketStateMatrix, STATE_META, STATE_THRESHOLDS,
   buildSectorRotation, sendSectorRotation, SECTOR_ETFS,
   buildBriefing, sendMarketBriefing, sendEarningsThisWeek,
+  buildPositioning, sendMarketPositioning,
 };

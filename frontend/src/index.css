@@ -3949,3 +3949,66 @@ select:focus,
 .az-thesis { display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; margin-bottom: 12px; border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 6px; background: var(--bg-hover); }
 .az-thesis-head { display: flex; flex-wrap: wrap; gap: 6px; }
 .az-thesis-caveat { color: var(--text-muted); font-size: 11px; line-height: 1.6; padding-top: 6px; border-top: 1px solid var(--border); }
+
+/* ── 持仓异动 / Positioning ────────────────────────────────────────────────
+   Reuses the shared product-page shell; only the table and the caveat need
+   rules of their own. Colours come from the existing semantic tokens so the
+   page follows both themes without redefining a palette. */
+.positioning-caveat {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn, #d0854a);
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  max-width: 78ch;
+}
+.positioning-caveat strong { color: var(--text); font-weight: 600; }
+
+.positioning-meta {
+  color: var(--text-dim); font-size: 12px; margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wide tables scroll inside their own container so the page body never
+   scrolls sideways. */
+.positioning-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.positioning-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+  font-variant-numeric: tabular-nums; background: var(--bg-card);
+}
+.positioning-table th {
+  text-align: right; font-weight: 500; font-size: 11px; letter-spacing: .04em;
+  color: var(--text-dim); padding: 10px 12px; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.positioning-table th:first-child,
+.positioning-table td:first-child { text-align: left; }
+.positioning-table th:last-child,
+.positioning-table td:last-child { text-align: left; }
+.positioning-table td {
+  padding: 9px 12px; white-space: nowrap; border-bottom: 1px solid var(--border);
+}
+.positioning-table tbody tr:last-child td { border-bottom: none; }
+.positioning-table tbody tr:hover { background: var(--bg-hover, rgba(127,127,127,.06)); }
+
+.pos-sym a { color: var(--text); font-weight: 600; text-decoration: none; }
+.pos-sym a:hover { text-decoration: underline; }
+.pos-strike { color: var(--accent); }
+.pos-notes { color: var(--text-dim); font-size: 12px; white-space: normal; min-width: 22ch; }
+
+/* The gap band is state encoded as form, not only as a number: the closer the
+   price sits to the concentration strike, the more the chip asserts itself. */
+.pos-gap { display: inline-block; padding: 1px 6px; border-radius: 4px; border: 1px solid transparent; }
+.pos-gap-at { border-color: var(--accent); color: var(--accent); }
+.pos-gap-near { color: var(--accent); }
+.pos-gap-mid { color: var(--text); }
+.pos-gap-far { color: var(--text-dim); }
+
+.positioning-foot {
+  margin-top: 14px; color: var(--text-dim); font-size: 12px;
+  line-height: 1.7; max-width: 78ch;
+}

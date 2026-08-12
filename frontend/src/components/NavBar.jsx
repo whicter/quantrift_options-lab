@@ -18,6 +18,9 @@ export default function NavBar({ theme, onThemeChange, authConfigured = false })
         <NavLink to="/market" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           市场概览
         </NavLink>
+        <NavLink to="/positioning" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+          持仓异动
+        </NavLink>
         <NavLink to="/earnings" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           本周财报
         </NavLink>

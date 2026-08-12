@@ -177,6 +177,10 @@ export function getSectorRotation() {
   return getJson('/api/market/sector-rotation');
 }
 
+export function getMarketPositioning() {
+  return getJson('/api/market/positioning');
+}
+
 export function getMarketBriefing() {
   return getJson('/api/market/briefing');
 }
