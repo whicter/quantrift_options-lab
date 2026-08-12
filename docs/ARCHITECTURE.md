@@ -255,6 +255,16 @@ Sizing is measured, not assumed. Across 4,177 rows the two JSONB columns (`gamma
 
 `persist_gex_history()` runs inside `persist_gex()`'s transaction, before its single commit, so no snapshot can exist without the history row that outlives it. Both tables are in `backup_facts.TABLES` and are backend-only validation data: no product route, no navigation, no public read endpoint. Repro: `docs/validation/GEX_HISTORY_DURABLE_2026-08-09.md`.
 
+### 1.2 Squeeze capture and short interest
+
+`squeeze_watch` (2026-08-11) captures the observable option-positioning state once per symbol per market date and **scores nothing**. Every threshold a squeeze screen would apply is currently a guess, and calibration needs samples that only accumulate forward — the `candidate_ledger` pattern applied before the feature rather than after. `collector/capture_squeeze_watch.py` runs at 13:40 PT on weekdays; outcome columns (`fwd_return_5d`, `fwd_max_return_10d`, `reached_top_strike`) are written only by `resolve_outcomes()` afterwards, so nothing captured can carry look-ahead.
+
+**It must not key on the aggregate gamma sign.** `compute_gex` assigns call OI a positive dealer sign, which assumes dealers are LONG calls; the retail call-buying setup a squeeze screen looks for is the opposite, so that sign can be exactly inverted here and a screen gated on it selects the wrong names while every number still looks plausible. `gamma_regime` is recorded as context and a regression test asserts all four values are captured rather than filtered.
+
+**Two OI maps exist and are not interchangeable.** The GEX chain is capped at `OPTION_MAX_STRIKES_PER_SIDE=6` (~±5% on AAPL), which excludes the out-of-the-money call region a squeeze runs through. `option_chain_snapshots.oi_by_strike` is a separate OI-only fetch whose width adapts to the symbol's implied move — measured 45.8 strikes on average, ±17% on AAPL and ±35% on PLTR. Squeeze work reads the latter. Do **not** respond to apparent narrow coverage by widening the GEX chain: it already clears the wall-confidence bar (AAPL above 3.8% / below 4.3% / 6 expiries against thresholds of 3% and 4), so widening only adds storage.
+
+Short data lands in two deliberately separate tables. `short_interest_history` is the bi-weekly settlement snapshot — accumulated positioning, carrying the API's own `days_to_cover`, which is the primary measure precisely because it needs no float (Polygon exposes shares outstanding but not true float, so any percentage must be labelled a share of shares **outstanding**). `short_volume_history` is daily T+1 short volume, most of which is market-maker inventory closed the same session, making a high ratio an activity reading rather than accumulated bearish positioning. Merging them would produce a meaningless "short" number. Only `asset_type='stock'` receives the overlay: ETF SI% routinely exceeds 100% (XBI 114%, KBE 66%) because creation/redemption keeps supply elastic and market makers hold a bona-fide naked-short exemption, which is not squeeze pressure. Licensing note: FINRA's own terms forbid both a derived database and any fee-charging product, so Polygon's redistribution licence is the only lawful route — see the Short Squeeze section of `docs/task.md`. Repro: `docs/validation/SQUEEZE_CAPTURE_2026-08-11.md`.
+
 ---
 
 ## 2. 架构原则
