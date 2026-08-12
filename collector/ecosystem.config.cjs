@@ -328,5 +328,48 @@ module.exports = {
         POLYGON_REFERENCE_RATE_LIMIT_BACKOFF: '60',
       },
     },
+    {
+      // FINRA short interest/volume, redistributed by Polygon. Runs BEFORE the
+      // squeeze capture so the capture finds settled figures already in place;
+      // it also back-fills days_to_cover onto today's unresolved rows itself,
+      // so ordering is a convenience rather than a correctness requirement.
+      // 13:20 PT = 16:20 ET, after the close and after short-volume's T+1 post.
+      ...logs('quantrift-short-interest'),
+
+      name: 'quantrift-short-interest',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_short_interest.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '20 13 * * 1-5',
+      env: {
+        // Bypass path: this does not use the shared provider_rate_limits gate,
+        // so it carries its own backoff. The full-market endpoints 429 within a
+        // couple of pages without it.
+        SHORT_DATA_PAGE_DELAY_SECONDS: '1.5',
+        SHORT_INTEREST_LOOKBACK_DAYS: '60',
+        SHORT_VOLUME_LOOKBACK_DAYS: '10',
+      },
+    },
+    {
+      // Captures the observable squeeze-relevant chain state once per session
+      // and scores nothing -- every threshold worth applying is still a guess,
+      // and calibration needs samples that only accumulate forward. Reads the
+      // wide oi_by_strike map, which the 7-day chain prune destroys, so a
+      // missed run is a permanent hole in the sample rather than a delay.
+      // 13:40 PT = 16:40 ET, after the last in-session option refresh lands.
+      ...logs('quantrift-squeeze-watch'),
+
+      name: 'quantrift-squeeze-watch',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'capture_squeeze_watch.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '40 13 * * 1-5',
+      env: {
+        SQUEEZE_UPSIDE_WINDOW_PCT: '10',
+        SQUEEZE_MIN_CALL_OI_ABOVE: '100',
+      },
+    },
   ],
 };

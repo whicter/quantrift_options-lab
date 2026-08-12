@@ -1,5 +1,29 @@
 # Task Tracker
 
+## ✅ 2026-08-11 — Gamma Squeeze 捕获层 + 空头数据（已上线，仅后端）
+
+**定位**：不是上线"挤压信号"，而是让时间开始为校准工作。阈值目前全是猜的，
+唯一能换成校准的办法是需要时手里已有样本——与 `candidate_ledger` 同一模式。
+
+**必须记住的符号陷阱**：`compute_gex` 的 "call 正 / put 负" 约定**隐含假设做市商持有多头 call**，
+而散户型 squeeze 恰恰相反，**同一持仓会算出相反符号**。故捕获层**不以 gamma 符号为判据**，
+`gamma_regime` 仅作上下文记录（有测试锁定四种取值都必须被捕获）。
+
+**撤回一条错误建议**：初判"行权价采集太窄需放宽 `OPTION_MAX_STRIKES_PER_SIDE`"是**查错了表**——
+`option_chain_snapshots.oi_by_strike` 本就是自适应宽度的独立 OI 抓取（313 标的、均 45.8 档、
+PLTR ±35%），燃料区一直在采；窄 GEX 链也已满足墙体门槛。**采集参数未改。**
+
+- [x] `squeeze_watch` 持久表（无外键）+ `capture_squeeze_watch.py`；首跑 313 候选 → 276 行
+- [x] `short_interest_history` / `short_volume_history` + `collect_short_interest.py`；
+      两张表刻意不合并（SI 是累积持仓，short volume 多为做市商当日了结的活跃度）
+- [x] 三张新表入 `backup_facts.TABLES`；PM2 已注册并 save（13:20 / 13:40 PT 工作日）
+- [x] collector 391/391、server 293/293
+- [ ] **积累样本后再谈阈值**；在能做样本外切分之前不得发布统计结论
+- [ ] 未采购 Massive Advanced（$199/月）的期权逐笔+NBBO —— 那是把"做市商方向假设"
+      变成"实测流向"的唯一途径，2026-08-11 决定暂不买
+
+详见 `docs/validation/SQUEEZE_CAPTURE_2026-08-11.md`（含三个实现自伤的记录）。
+
 ## ✅ 2026-08-09 — 本地持久化审计：日志外移、源头静音、项目内轮转
 
 ### 盘点

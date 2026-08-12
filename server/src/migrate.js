@@ -341,6 +341,109 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS gex_strike_history_date
       ON gex_strike_history (market_date DESC);
 
+    -- Potential-squeeze capture layer (2026-08-11). Records the observable
+    -- option-chain state once per symbol per market date and scores nothing:
+    -- every threshold anyone would use here is currently a guess, and the only
+    -- way to replace guesses with calibration is to have samples when the time
+    -- comes. Same durable/pruned split as candidate_ledger, and the same reason
+    -- as gex_history -- the wide OI map it reads from
+    -- (option_chain_snapshots.oi_by_strike) is destroyed within 7 days.
+    --
+    -- Deliberately NOT keyed on the aggregate gamma sign. compute_gex assigns
+    -- call OI a positive dealer sign, which assumes dealers are LONG calls --
+    -- the opposite of the retail-call-buying setup a squeeze screen looks for,
+    -- so that sign can be exactly inverted for this purpose. Every column below
+    -- is an observable chain fact; dealer direction is not claimed.
+    CREATE TABLE IF NOT EXISTS squeeze_watch (
+      symbol                     TEXT          NOT NULL,
+      market_date                DATE          NOT NULL,
+      snapshot_ts                TIMESTAMPTZ   NOT NULL,
+      model_version              TEXT          NOT NULL,
+      spot                       NUMERIC(14,4) NOT NULL,
+      -- fuel: from the adaptive-width oi_by_strike map, not the narrow GEX chain
+      oi_window_pct              NUMERIC(8,2),
+      strikes_above              INTEGER,
+      call_oi_above              BIGINT,
+      put_oi_above               BIGINT,
+      top_strike                 NUMERIC(14,4),
+      top_strike_call_oi         BIGINT,
+      concentration              NUMERIC(8,6),
+      call_put_ratio_above       NUMERIC(12,4),
+      distance_to_top_strike_pct NUMERIC(10,4),
+      -- freshness: confirmed OI change vs the previous snapshot, which is a
+      -- stronger signal of new positioning than raw volume (volume cannot
+      -- distinguish an opening trade from a close).
+      unusual_oi_count           INTEGER,
+      oi_added                   BIGINT,
+      -- context
+      gamma_regime               TEXT,
+      gamma_flip                 NUMERIC(14,4),
+      call_wall                  NUMERIC(14,4),
+      max_pain                   NUMERIC(14,4),
+      gex_confidence             TEXT,
+      -- short-interest overlay, null until that collector lands
+      days_to_cover              NUMERIC(12,4),
+      short_pct_shares_out       NUMERIC(8,4),
+      -- outcome: null until backfilled after the fact. Never written at capture
+      -- time, so nothing here can leak look-ahead into the captured state.
+      resolved_at                TIMESTAMPTZ,
+      fwd_return_5d              NUMERIC(10,4),
+      fwd_max_return_10d         NUMERIC(10,4),
+      reached_top_strike         BOOLEAN,
+      created_at                 TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (symbol, market_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS squeeze_watch_date
+      ON squeeze_watch (market_date DESC);
+    CREATE INDEX IF NOT EXISTS squeeze_watch_unresolved
+      ON squeeze_watch (market_date) WHERE resolved_at IS NULL;
+
+    -- Short interest, FINRA-sourced via Polygon's redistribution licence (the
+    -- 2026-08-09 research established that direct FINRA access forbids both a
+    -- derived database and any subscription product, so this is the only
+    -- lawful route). Accumulating facts, never pruned.
+    --
+    -- days_to_cover is the API's own figure and is the primary measure on
+    -- purpose: it needs no float. Polygon exposes shares outstanding but not
+    -- true float, so a "% of float" would be systematically understated for
+    -- founder-controlled or recently-listed names -- any percentage derived
+    -- here must be labelled a share of shares OUTSTANDING.
+    CREATE TABLE IF NOT EXISTS short_interest_history (
+      ticker            TEXT          NOT NULL,
+      settlement_date   DATE          NOT NULL,
+      short_interest    BIGINT,
+      avg_daily_volume  BIGINT,
+      days_to_cover     NUMERIC(12,4),
+      source            TEXT          NOT NULL,
+      created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (ticker, settlement_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS short_interest_history_date
+      ON short_interest_history (settlement_date DESC);
+
+    -- Daily T+1 short volume. This is NOT short interest: it counts shares sold
+    -- short during the session, most of which is market-maker inventory that
+    -- closes the same day, so a high ratio is an activity reading rather than
+    -- accumulated bearish positioning. Keeping them in separate tables is what
+    -- stops the two being averaged into a single misleading "short" number.
+    CREATE TABLE IF NOT EXISTS short_volume_history (
+      ticker              TEXT          NOT NULL,
+      market_date         DATE          NOT NULL,
+      total_volume        BIGINT,
+      short_volume        BIGINT,
+      short_volume_ratio  NUMERIC(8,4),
+      exempt_volume       BIGINT,
+      non_exempt_volume   BIGINT,
+      source              TEXT          NOT NULL,
+      created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (ticker, market_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS short_volume_history_date
+      ON short_volume_history (market_date DESC);
+
     CREATE TABLE IF NOT EXISTS option_oi_delta_snapshots (
       id                         BIGSERIAL PRIMARY KEY,
       snapshot_id                BIGINT      NOT NULL REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,

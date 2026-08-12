@@ -72,6 +72,15 @@ TABLES = [
     # passes there is nothing left to recompute from.
     'gex_history',
     'gex_strike_history',
+    # squeeze_watch reads option_chain_snapshots.oi_by_strike, which the 7-day
+    # chain prune destroys, so a captured row can never be rebuilt afterwards --
+    # the candidate_ledger case again.
+    'squeeze_watch',
+    # Short interest is cheap to refetch (two full-market calls) but only within
+    # the provider's lookback; older settlements cannot be recovered once the
+    # window moves past them, same shape as price_history_30m.
+    'short_interest_history',
+    'short_volume_history',
 ]
 
 
