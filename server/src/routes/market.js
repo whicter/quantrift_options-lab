@@ -420,9 +420,20 @@ async function loadPositioning() {
       SELECT w.symbol, w.market_date, w.spot, w.top_strike,
              w.distance_to_top_strike_pct, w.call_oi_above, w.put_oi_above,
              w.concentration, w.call_put_ratio_above, w.unusual_oi_count,
-             w.days_to_cover, w.gex_confidence
+             w.days_to_cover, w.gex_confidence,
+             b.fee_rate, b.shortable_shares
       FROM squeeze_watch w
       JOIN symbol_universe u ON u.symbol = w.symbol
+      -- Borrow cost is the only input here that moves daily; short interest
+      -- settles fortnightly and lands a week late. Its own latest date is used
+      -- rather than the squeeze date so a day the borrow capture missed shows
+      -- the last real reading instead of a hole.
+      LEFT JOIN (
+        SELECT DISTINCT ON (symbol) symbol, fee_rate, shortable_shares
+        FROM borrow_availability_history
+        WHERE fee_rate IS NOT NULL
+        ORDER BY symbol, market_date DESC
+      ) b ON b.symbol = w.symbol
       WHERE w.market_date = (SELECT MAX(market_date) FROM squeeze_watch)
         -- Common stock only. ETF creation/redemption keeps supply elastic and
         -- market makers hold a naked-short exemption, so an ETF's positioning

@@ -41,6 +41,14 @@ function Row({ row }) {
       </td>
       <td className="pos-num">{row.call_put_ratio == null ? '—' : row.call_put_ratio.toFixed(1)}</td>
       <td className="pos-num">{row.unusual_oi_count || '—'}</td>
+      <td className="pos-num">
+        {row.fee_rate == null ? '—' : (
+          <span className={row.fee_rate >= 10 ? 'pos-fee-high'
+            : row.fee_rate >= 3 ? 'pos-fee-warm' : ''}>
+            {row.fee_rate.toFixed(2)}%
+          </span>
+        )}
+      </td>
       <td className="pos-num">{row.days_to_cover == null ? '—' : row.days_to_cover.toFixed(1)}</td>
       <td className="pos-notes">{row.notes.join(' · ')}</td>
     </tr>
@@ -93,6 +101,7 @@ export default function Positioning() {
                   <th>最大价位占比</th>
                   <th>看涨÷看跌</th>
                   <th>持仓异动</th>
+                  <th>借券费率</th>
                   <th>回补天数</th>
                   <th>状态</th>
                 </tr>
@@ -103,8 +112,9 @@ export default function Positioning() {
             </table>
           </div>
           <p className="positioning-foot">
-            「集中价位」是现价上方持有最多看涨持仓的行权价，「回补天数」按已发行股本口径的
-            空头持仓除以日均成交量，均为观察到的事实，不代表价格会到达该位置。
+            「集中价位」是现价上方持有最多看涨持仓的行权价；「借券费率」是做空该标的的
+            年化持仓成本，全市场多数标的低于 0.5%；「回补天数」按已发行股本口径的空头持仓
+            除以日均成交量。三者均为观察到的事实，不代表价格会到达该位置。
           </p>
         </>
       )}

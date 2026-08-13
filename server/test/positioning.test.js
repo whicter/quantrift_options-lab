@@ -17,6 +17,8 @@ const row = (over = {}) => ({
   unusual_oi_count: 3,
   days_to_cover: null,
   gex_confidence: 'high',
+  fee_rate: null,
+  shortable_shares: null,
   ...over,
 });
 
@@ -41,6 +43,7 @@ test('no note prescribes an action', () => {
     call_put_ratio_above: 25,
     unusual_oi_count: 90,
     days_to_cover: 9,
+    fee_rate: 32.23,
   }));
   const banned = ['买', '卖', '做多', '做空', '目标', '止损', '建仓', '入场'];
   for (const word of banned) {
@@ -57,6 +60,27 @@ test('notes never claim a dealer position', () => {
   for (const word of ['做市商', '被迫', 'dealer']) {
     assert.ok(!notes.includes(word), `note claims dealer behaviour: ${word}`);
   }
+});
+
+test('borrow cost only surfaces above ordinary levels', () => {
+  // Universe median is ~0.34%, so an ordinary name must not gain a note that
+  // implies something is unusual about it.
+  assert.ok(!describeRow(row({ fee_rate: 0.3 })).join('').includes('借券'));
+  assert.ok(describeRow(row({ fee_rate: 4 })).join('').includes('借券成本高于常见水平'));
+  assert.ok(describeRow(row({ fee_rate: 11.44 })).join('').includes('借券费率 11.4%'));
+});
+
+test('borrow cost reaches the DTO', () => {
+  const out = buildPositioning([row({ fee_rate: 11.44, shortable_shares: 20000 })]).rows[0];
+  assert.strictEqual(out.fee_rate, 11.44);
+  assert.strictEqual(out.shortable_shares, 20000);
+});
+
+test('a missing borrow reading stays null, never zero', () => {
+  // Zero would read as "free to borrow", the opposite conclusion.
+  const out = buildPositioning([row()]).rows[0];
+  assert.strictEqual(out.fee_rate, null);
+  assert.strictEqual(out.shortable_shares, null);
 });
 
 test('gap bands run from at-the-strike to far', () => {

@@ -64,6 +64,13 @@ function describe(row) {
   if (row.unusual_oi_count >= 40) {
     notes.push(`${row.unusual_oi_count} 项持仓异动`);
   }
+  // Borrow cost is the pressure reading: size says how much is short, this
+  // says what holding it costs per day. Median across the universe is ~0.34%,
+  // so these tiers describe genuine outliers rather than ordinary names.
+  if (row.fee_rate != null) {
+    if (row.fee_rate >= 10) notes.push(`借券费率 ${Number(row.fee_rate).toFixed(1)}%`);
+    else if (row.fee_rate >= 3) notes.push('借券成本高于常见水平');
+  }
   if (row.days_to_cover != null && row.days_to_cover >= 5) {
     // "Shares outstanding", never "float": Polygon exposes no true float, so a
     // float-based percentage would be systematically understated.
@@ -88,6 +95,8 @@ function toRow(row) {
       ? null : Number(row.call_put_ratio_above),
     unusual_oi_count: row.unusual_oi_count ?? 0,
     days_to_cover: row.days_to_cover == null ? null : Number(row.days_to_cover),
+    fee_rate: row.fee_rate == null ? null : Number(row.fee_rate),
+    shortable_shares: row.shortable_shares == null ? null : Number(row.shortable_shares),
     chain_quality: row.gex_confidence ?? null,
     notes: describe(row),
   };

@@ -4012,3 +4012,8 @@ select:focus,
   margin-top: 14px; color: var(--text-dim); font-size: 12px;
   line-height: 1.7; max-width: 78ch;
 }
+
+/* Borrow cost is the one column here that moves daily, so it earns emphasis
+   the static measures do not. Semantic, not the page accent. */
+.pos-fee-high { color: var(--danger, #d0584a); font-weight: 600; }
+.pos-fee-warm { color: var(--warn, #d0854a); }
