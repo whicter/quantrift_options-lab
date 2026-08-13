@@ -462,6 +462,14 @@ async function migrate() {
       shortable_shares  BIGINT,
       shortable_level   NUMERIC(6,2),
       status            TEXT          NOT NULL,
+      -- Borrow fee (annualised %) and rebate from IBKR's public securities
+      -- lending file, which the API does not carry. file_available_shares is
+      -- that file's own share count, kept separate from the API's rather than
+      -- merged: two independent readings that corroborate each other are worth
+      -- more than one averaged number that hides a parsing error.
+      fee_rate              NUMERIC(10,4),
+      rebate_rate           NUMERIC(10,4),
+      file_available_shares BIGINT,
       source            TEXT          NOT NULL,
       created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
       PRIMARY KEY (symbol, market_date)

@@ -1,11 +1,17 @@
 """Daily capture of shortable-share availability.
 
 The value is in the trend, not the level: a name whose lendable pool halves in
-a week is tightening whether or not we can see the fee. IB gives availability
-free over the gateway already running; the fee itself is behind Ortex/S3 or the
-IBKR file server, which this network blocks. So capture the free half daily and
-let the series accumulate -- a snapshot taken the day someone asks the question
-is worth very little.
+a week is tightening. Two free sources, combined here:
+
+  * IB gateway (generic tick 236) -- shortable shares and availability level,
+    per symbol, live.
+  * IBKR's public securities-lending file -- the borrow FEE, which the API
+    never sends and which Ortex/S3 charge four figures a year for. Reached on
+    ftp2.interactivebrokers.com; ftp3, which every reference names, no longer
+    accepts connections and times out in a way that reads like a firewall.
+
+A snapshot taken the day someone asks the question is worth very little, which
+is why this runs daily rather than on demand.
 
 Not exposed to the product. IB data is `ib_internal`, an internal/transitional
 source under the project's own disclosure rules, so this stays behind the same
@@ -28,6 +34,7 @@ from psycopg2.extras import execute_values
 
 from collector_runtime import configure_collector
 from providers.ib_borrow_provider import IbBorrowProvider
+from providers import ib_borrow_fee_provider
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -59,9 +66,43 @@ def load_symbols(conn, limit: int = DEFAULT_LIMIT) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
+def merge_fee_rates(rows: list[Any]) -> dict[str, Any]:
+    """Overlay IBKR's published fee file onto the API's availability readings.
+
+    Two sources for overlapping facts, kept deliberately: the API answers per
+    symbol in real time, the file carries the fee the API never sends. Where
+    both give share counts they corroborate each other -- measured 2026-08-13,
+    SLS 24,871 (API) against 20,000 (file), BSP 2,970 against 2,000 -- so a
+    wide disagreement is a parsing warning, not a number to average.
+
+    Best effort: the availability capture is the job, and the fee overlay must
+    not be able to take it down.
+    """
+    try:
+        fees, as_of = ib_borrow_fee_provider.fetch()
+    except Exception as exc:  # noqa: BLE001
+        log.warning('IBKR fee file unavailable (%s); availability captured without it', exc)
+        return {'fee_rows': 0, 'fee_as_of': None, 'matched': 0}
+    by_symbol = {f.symbol: f for f in fees}
+    matched = 0
+    for row in rows:
+        fee = by_symbol.get(row.symbol)
+        if fee is None:
+            continue
+        row.fee_rate = fee.fee_rate
+        row.rebate_rate = fee.rebate_rate
+        if fee.available_shares is not None:
+            row.file_available_shares = fee.available_shares
+        matched += 1
+    return {'fee_rows': len(fees), 'fee_as_of': as_of.isoformat() if as_of else None,
+            'matched': matched}
+
+
 def persist(conn, market_date: date, rows: list[Any]) -> int:
     payload = [
-        (r.symbol, market_date, r.shortable_shares, r.shortable_level, r.status, 'ib_internal')
+        (r.symbol, market_date, r.shortable_shares, r.shortable_level, r.status,
+         getattr(r, 'fee_rate', None), getattr(r, 'rebate_rate', None),
+         getattr(r, 'file_available_shares', None), 'ib_internal')
         for r in rows
     ]
     if not payload:
@@ -71,12 +112,17 @@ def persist(conn, market_date: date, rows: list[Any]) -> int:
             cur,
             """
             INSERT INTO borrow_availability_history
-              (symbol, market_date, shortable_shares, shortable_level, status, source)
+              (symbol, market_date, shortable_shares, shortable_level, status,
+               fee_rate, rebate_rate, file_available_shares, source)
             VALUES %s
             ON CONFLICT (symbol, market_date) DO UPDATE SET
               shortable_shares = EXCLUDED.shortable_shares,
               shortable_level = EXCLUDED.shortable_level,
               status = EXCLUDED.status,
+              fee_rate = COALESCE(EXCLUDED.fee_rate, borrow_availability_history.fee_rate),
+              rebate_rate = COALESCE(EXCLUDED.rebate_rate, borrow_availability_history.rebate_rate),
+              file_available_shares = COALESCE(EXCLUDED.file_available_shares,
+                                               borrow_availability_history.file_available_shares),
               source = EXCLUDED.source
             """,
             payload,
@@ -100,6 +146,7 @@ def run(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> dict[str, Any]:
             return {'market_date': str(market_date), 'symbols': 0, 'written': 0}
 
         rows = IbBorrowProvider().fetch(symbols)
+        fee_info = merge_fee_rates(rows)
         counts: dict[str, int] = {}
         for row in rows:
             counts[row.status] = counts.get(row.status, 0) + 1
@@ -113,6 +160,8 @@ def run(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> dict[str, Any]:
         'symbols': len(symbols),
         'written': written,
         'by_status': counts,
+        'fee_matched': fee_info['matched'],
+        'fee_file_as_of': fee_info['fee_as_of'],
         'dry_run': dry_run,
     }
     log.info('borrow availability: %s', result)

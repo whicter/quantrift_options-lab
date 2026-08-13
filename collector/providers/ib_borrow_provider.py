@@ -51,6 +51,12 @@ class BorrowAvailability:
     shortable_shares: int | None
     shortable_level: float | None
     status: str  # ok | no_data | not_shortable | error
+    # Filled by the fee-file overlay in collect_borrow_availability, not by the
+    # API: generic tick 236 never sends a fee. Declared here rather than set as
+    # loose attributes so the shape is visible at the definition.
+    fee_rate: float | None = None
+    rebate_rate: float | None = None
+    file_available_shares: int | None = None
 
 
 class _App(EWrapper, EClient):

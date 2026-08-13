@@ -102,5 +102,57 @@ class WaitReleaseTest(unittest.TestCase):
         self.assertEqual(app.shares, {})
 
 
+
+class FeeFileParseTest(unittest.TestCase):
+    """The IBKR securities-lending file: the fee the API never sends."""
+
+    SAMPLE = (
+        '#BOF|2026.08.13|18:16:01\n'
+        '#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|FIGI|\n'
+        'GME|USD|GAMESTOP CORP-CLASS A|123|US36467W1099|3.3800|0.2500|6100000|BBG1|\n'
+        'SLS|USD|SELLAS LIFE SCIENCES|456|US81639W1027|-7.5000|11.4400|20000|BBG2|\n'
+        'DEAD|USD|NO QUOTE INC|789|US0000000000|NA|NA|2000||\n'
+        '\n'
+        'BAD|USD|TOO FEW FIELDS\n'
+    )
+
+    def setUp(self):
+        from providers import ib_borrow_fee_provider
+        self.mod = ib_borrow_fee_provider
+        self.rows, self.as_of = ib_borrow_fee_provider.parse(self.SAMPLE)
+
+    def test_parses_fee_and_availability(self):
+        by_symbol = {r.symbol: r for r in self.rows}
+        self.assertAlmostEqual(by_symbol['SLS'].fee_rate, 11.44)
+        self.assertEqual(by_symbol['SLS'].available_shares, 20000)
+        self.assertAlmostEqual(by_symbol['GME'].fee_rate, 0.25)
+
+    def test_na_becomes_none_not_zero(self):
+        """'NA' means no quote. Zero would read as 'free to borrow' -- the
+        opposite conclusion on exactly the names this file exists to flag."""
+        dead = next(r for r in self.rows if r.symbol == 'DEAD')
+        self.assertIsNone(dead.fee_rate)
+        self.assertIsNone(dead.rebate_rate)
+        self.assertEqual(dead.available_shares, 2000)
+
+    def test_negative_rebate_is_preserved(self):
+        # A negative rebate is the hard-to-borrow signature; clamping it at zero
+        # would erase the distinction this column exists for.
+        sls = next(r for r in self.rows if r.symbol == 'SLS')
+        self.assertAlmostEqual(sls.rebate_rate, -7.5)
+
+    def test_header_and_short_lines_are_skipped(self):
+        symbols = {r.symbol for r in self.rows}
+        self.assertEqual(symbols, {'GME', 'SLS', 'DEAD'})
+
+    def test_file_timestamp_is_read(self):
+        self.assertEqual(self.as_of.year, 2026)
+        self.assertEqual(self.as_of.hour, 18)
+
+    def test_empty_payload_does_not_raise(self):
+        rows, as_of = self.mod.parse('')
+        self.assertEqual(rows, [])
+        self.assertIsNone(as_of)
+
 if __name__ == '__main__':
     unittest.main()

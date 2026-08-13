@@ -17,7 +17,10 @@
 - [x] PM2 `quantrift-borrow-availability`,工作日 14:00 PT,已 save
 - [x] 首跑 198 标的 / 2m34s,ok 194;与 FINRA 回补天数交叉印证(BSP 2,970 股 vs 7.5 天)
 - [x] collector 401/401
-- [ ] **换网络重试 IBKR FTP 取费率**(免费,未排除)
+- [x] **借券费率已拿到,零成本(2026-08-13)**:首轮"FTP 被阻断"的判定是错的——
+      逐端口探测发现 `ftp2` 可连、只有 `ftp3` 超时(所有资料都指向 ftp3,且它超时而非拒绝,
+      所以看起来像防火墙)。`usa.txt` 含 `FEERATE`/`REBATERATE`/`AVAILABLE`,
+      宇宙命中 197/198,中位 0.34%,>10% 的 6 只。`NA` 解析为 None 而非 0。
 - [ ] 利用率与真实流通股仍缺(需 Ortex/S3 或自建 EDGAR)
 - [ ] **不进产品**:IB 是 `ib_internal` 内部来源,上前台需过与 IB 报价同一道授权检查
 
