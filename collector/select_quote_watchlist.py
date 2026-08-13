@@ -66,7 +66,7 @@ CANDIDATE_SQL = """
       AND r.optionable
       AND r.total_oi IS NOT NULL
       AND r.underlying_dollar_volume IS NOT NULL
-    ORDER BY r.total_oi DESC
+    ORDER BY r.underlying_dollar_volume DESC
 """
 
 
@@ -96,7 +96,22 @@ def rank_candidates(rows: list[tuple], target: int = TARGET) -> tuple[list[dict]
             continue
         selected.append({
             'symbol': symbol,
-            'liquidity_score': int(total_oi),
+            # Scored on underlying dollar volume, NOT total_oi. total_oi is
+            # summed over the stored chain, which OPTION_MAX_CONTRACTS=120 and
+            # OPTION_MAX_STRIKES_PER_SIDE=6 cap at roughly +-5% of spot -- so it
+            # measures our storage window, not the market. The distortion is
+            # systematic rather than noisy: a high-priced name spreads its OI
+            # across wide strike spacing and lands mostly outside that window,
+            # while a low-priced dense-strike ETF packs its OI inside it.
+            # Measured 2026-08-13 against the wide oi_by_strike map, which is
+            # not capped: META 41,482 stored against 847,623 real (20.4x), AMD
+            # 52,453 against 749,994 (14.3x), TSLA 110,815 against 1,281,359.
+            # Ranking on that put TSLA 54th, AMD 91st and META 107th -- three of
+            # the most actively traded option names in the market, excluded in
+            # favour of symbols with a tenth of their turnover. Dollar volume
+            # comes from price data and no storage cap can distort it.
+            # MIN_TOTAL_OI still gates option liquidity; this only orders.
+            'liquidity_score': int(dollar_volume),
             'asset_type': asset_type,
             'name': name,
         })

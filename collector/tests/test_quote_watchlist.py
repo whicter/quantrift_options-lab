@@ -137,6 +137,45 @@ class ManageCliTests(unittest.TestCase):
             self.assertTrue(manage.CONSEQUENCE[command].strip())
         self.assertIn('symbol_universe', manage.CONSEQUENCE['exclude'])
 
+class RankingKeyTest(unittest.TestCase):
+    """The ranking must not be scored on stored option OI.
+
+    total_oi is summed over the stored chain, which OPTION_MAX_CONTRACTS and
+    OPTION_MAX_STRIKES_PER_SIDE cap at roughly +-5% of spot. It therefore
+    measures the storage window rather than the market, and the error is
+    systematic: a high-priced name spreads OI across wide strike spacing and
+    falls outside the window, a low-priced dense-strike ETF packs it inside.
+    Measured 2026-08-13, META stored 41,482 against 847,623 real -- and ranking
+    on it put META 107th, AMD 91st and TSLA 54th, excluding them from a 50-name
+    list in favour of symbols with a tenth of their turnover.
+    """
+
+    def _row(self, symbol, total_oi, dollar_volume):
+        return (symbol, total_oi, dollar_volume, 'stock', f'{symbol} Inc')
+
+    def test_high_turnover_name_outranks_a_denser_stored_chain(self):
+        rows = [
+            # Order as the SQL now returns it: dollar volume descending.
+            self._row('META', 41_482, 9_369_795_747),
+            self._row('TLT', 2_133_977, 1_912_439_247),
+        ]
+        picked, _ = selector.rank_candidates(rows, target=1)
+        self.assertEqual([p['symbol'] for p in picked], ['META'],
+                         'stored option OI must not decide the ranking')
+
+    def test_score_is_dollar_volume(self):
+        rows = [self._row('AMD', 52_453, 8_996_149_948)]
+        picked, _ = selector.rank_candidates(rows, target=1)
+        self.assertEqual(picked[0]['liquidity_score'], 8_996_149_948)
+
+    def test_option_oi_still_gates_admission(self):
+        """Dollar volume orders the list; option OI decides who is eligible.
+        A heavily traded stock with no option interest is still not quotable."""
+        rows = [self._row('NOOPT', 10, 50_000_000_000)]
+        picked, rejected = selector.rank_candidates(rows, target=5)
+        self.assertEqual(picked, [])
+        self.assertEqual(rejected.get('option_oi_below_floor'), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -200,7 +200,12 @@ module.exports = {
       autorestart: false,
       cron_restart: '30 5 * * 0',
       env: {
-        QUOTE_WATCHLIST_TARGET: '50',
+        // 50 -> 100 (2026-08-13). Measured IB throughput is a 164.6s median per
+        // symbol serially, so a 390-minute session tops out near 142 in one
+        // sweep; 100 leaves room for timeouts and retries instead of running to
+        // the edge. Going beyond needs the quote lane parallelised across
+        // client ids, not a bigger number here.
+        QUOTE_WATCHLIST_TARGET: '100',
       },
     },
     {
