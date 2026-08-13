@@ -371,7 +371,9 @@ class IbOptionChainProvider:
     def _fetch_option_params(self, app, symbol: str, underlying_con_id: int):
         req_id = app.next_req_id()
         app.option_params_done[req_id] = threading.Event()
-        app.reqSecDefOptParams(req_id, symbol, '', 'STK', underlying_con_id)
+        app.reqSecDefOptParams(req_id, symbol, '',
+                                'IND' if _is_index_symbol(symbol) else 'STK',
+                                underlying_con_id)
         if not app.option_params_done[req_id].wait(self.timeout):
             raise TimeoutError(f'IB option params timed out for {symbol}')
         params = app.option_params.get(req_id) or {'expirations': set(), 'strikes': set()}
@@ -482,8 +484,9 @@ class IbOptionChainProvider:
 
         contract = Contract()
         contract.symbol = _ib_contract_symbol(symbol)
-        contract.secType = 'STK'
-        contract.exchange = 'SMART'
+        index = _is_index_symbol(symbol)
+        contract.secType = 'IND' if index else 'STK'
+        contract.exchange = INDEX_EXCHANGE if index else 'SMART'
         contract.currency = 'USD'
         return contract
 
@@ -493,7 +496,7 @@ class IbOptionChainProvider:
         contract = Contract()
         contract.symbol = _ib_contract_symbol(symbol)
         contract.secType = 'OPT'
-        contract.exchange = 'SMART'
+        contract.exchange = INDEX_EXCHANGE if _is_index_symbol(symbol) else 'SMART'
         contract.currency = 'USD'
         contract.lastTradeDateOrContractMonth = expiry.strftime('%Y%m%d')
         contract.right = right
@@ -709,6 +712,18 @@ def _parse_dte_buckets(raw: str | None) -> list[tuple[int, int]]:
         if dte_min <= dte_max:
             buckets.append((dte_min, dte_max))
     return buckets
+
+
+# Index underlyings trade as secType='IND' on CBOE, not STK on SMART. The set is
+# deliberately explicit rather than a pattern: 'SPXL' and 'SPXS' are leveraged
+# ETFs and 'RUTH' is a restaurant chain, so any prefix rule would silently
+# reroute equities that the daily collection depends on.
+INDEX_SYMBOLS = frozenset({'SPX', 'NDX', 'RUT', 'VIX', 'XSP', 'DJX', 'OEX', 'XEO'})
+INDEX_EXCHANGE = 'CBOE'
+
+
+def _is_index_symbol(symbol: str) -> bool:
+    return symbol.strip().upper() in INDEX_SYMBOLS
 
 
 def _ib_contract_symbol(symbol: str) -> str:
