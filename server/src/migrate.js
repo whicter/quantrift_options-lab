@@ -444,6 +444,32 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS short_volume_history_date
       ON short_volume_history (market_date DESC);
 
+    -- Shortable-share availability from IB, captured daily (2026-08-13).
+    -- Cost-to-borrow is what a squeeze read wants and no source we hold
+    -- carries it: Polygon has none, IB's API returns availability but never
+    -- the fee tick, and IBKR's own file server (which does publish FeeRate) is
+    -- unreachable from this network. Availability is the same scarcity from
+    -- the other side -- when the lendable pool collapses the fee spikes -- so
+    -- the series stands in for the price until the fee can be sourced.
+    --
+    -- The signal is the TREND, not the level, which is the whole reason this
+    -- is a daily table rather than an on-demand read. The status column keeps a
+    -- name IB will not lend distinguishable from one it had no answer for; both
+    -- are observations and neither is a null.
+    CREATE TABLE IF NOT EXISTS borrow_availability_history (
+      symbol            TEXT          NOT NULL,
+      market_date       DATE          NOT NULL,
+      shortable_shares  BIGINT,
+      shortable_level   NUMERIC(6,2),
+      status            TEXT          NOT NULL,
+      source            TEXT          NOT NULL,
+      created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (symbol, market_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS borrow_availability_history_date
+      ON borrow_availability_history (market_date DESC);
+
     CREATE TABLE IF NOT EXISTS option_oi_delta_snapshots (
       id                         BIGSERIAL PRIMARY KEY,
       snapshot_id                BIGINT      NOT NULL REFERENCES option_chain_snapshots(id) ON DELETE CASCADE,

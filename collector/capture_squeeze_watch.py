@@ -79,19 +79,33 @@ def latest_positioning(conn, market_date: date) -> list[dict[str, Any]]:
               FROM option_oi_delta_snapshots
               WHERE (snapshot_ts AT TIME ZONE 'America/New_York')::date = %s
               GROUP BY symbol
+            ),
+            -- Read short interest here rather than relying on
+            -- collect_short_interest's backfill pass. Depending on that pass
+            -- made the two cron jobs order-sensitive, and the order was wrong:
+            -- short interest ran at 13:20 and updated rows that the 13:40
+            -- capture had not created yet, so 2026-08-12 landed 279 rows with
+            -- days_to_cover entirely null. Reading it inline makes the result
+            -- the same whichever job runs first, or if one of them is late.
+            si AS (
+              SELECT DISTINCT ON (h.ticker) h.ticker, h.days_to_cover
+              FROM short_interest_history h
+              JOIN symbol_universe u ON u.symbol = h.ticker AND u.asset_type = 'stock'
+              ORDER BY h.ticker, h.settlement_date DESC
             )
             SELECT l.symbol, l.snapshot_ts, l.spot, l.oi_by_strike,
                    g.gamma_regime, g.gamma_flip, g.call_wall, g.max_pain, g.confidence,
-                   COALESCE(f.unusual_oi_count, 0), f.oi_added
+                   COALESCE(f.unusual_oi_count, 0), f.oi_added, si.days_to_cover
             FROM latest l
             LEFT JOIN gex  g ON g.symbol = l.symbol
             LEFT JOIN flow f ON f.symbol = l.symbol
+            LEFT JOIN si       ON si.ticker = l.symbol
             """,
             (market_date, market_date, market_date),
         )
         cols = ('symbol', 'snapshot_ts', 'spot', 'oi_by_strike', 'gamma_regime',
                 'gamma_flip', 'call_wall', 'max_pain', 'gex_confidence',
-                'unusual_oi_count', 'oi_added')
+                'unusual_oi_count', 'oi_added', 'days_to_cover')
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
@@ -141,7 +155,7 @@ def build_rows(records: list[dict[str, Any]]) -> list[tuple]:
             r['unusual_oi_count'], r['oi_added'],
             r['gamma_regime'], r['gamma_flip'], r['call_wall'],
             r['max_pain'] if r['max_pain'] is not None else s['map_max_pain'],
-            r['gex_confidence'],
+            r['gex_confidence'], r.get('days_to_cover'),
         ))
     return rows
 
@@ -160,7 +174,8 @@ def persist(conn, market_date: date, rows: list[tuple]) -> int:
               top_strike, top_strike_call_oi, concentration,
               call_put_ratio_above, distance_to_top_strike_pct,
               unusual_oi_count, oi_added,
-              gamma_regime, gamma_flip, call_wall, max_pain, gex_confidence
+              gamma_regime, gamma_flip, call_wall, max_pain, gex_confidence,
+              days_to_cover
             )
             VALUES %s
             ON CONFLICT (symbol, market_date) DO UPDATE SET
@@ -182,7 +197,10 @@ def persist(conn, market_date: date, rows: list[tuple]) -> int:
               gamma_flip = EXCLUDED.gamma_flip,
               call_wall = EXCLUDED.call_wall,
               max_pain = EXCLUDED.max_pain,
-              gex_confidence = EXCLUDED.gex_confidence
+              gex_confidence = EXCLUDED.gex_confidence,
+              -- COALESCE so a later run cannot blank a value an earlier one
+              -- already established from a settlement that has since aged out.
+              days_to_cover = COALESCE(EXCLUDED.days_to_cover, squeeze_watch.days_to_cover)
             """,
             payload,
             page_size=len(payload) or 1,

@@ -371,5 +371,28 @@ module.exports = {
         SQUEEZE_MIN_CALL_OI_ABOVE: '100',
       },
     },
+    {
+      // Shortable-share availability from IB. Cost-to-borrow is the measure a
+      // squeeze read wants and nothing we hold carries it, but availability is
+      // the same scarcity from the other side, and the signal is its trend --
+      // so this has to start accumulating before anyone asks the question.
+      // Serial by nature (one contract at a time on a single client id);
+      // measured at 2m34s for 198 symbols, so 14:00 PT leaves the session clear.
+      ...logs('quantrift-borrow-availability'),
+
+      name: 'quantrift-borrow-availability',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'collect_borrow_availability.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '0 14 * * 1-5',
+      env: {
+        // Its own client id: 42 is the option chain, 12 price, 55 news, and 96
+        // belongs to the other project sharing this gateway.
+        IB_BORROW_CLIENT_ID: '44',
+        IB_BORROW_SYMBOL_TIMEOUT: '4',
+        BORROW_SYMBOL_LIMIT: '400',
+      },
+    },
   ],
 };

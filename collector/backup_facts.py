@@ -81,6 +81,9 @@ TABLES = [
     # window moves past them, same shape as price_history_30m.
     'short_interest_history',
     'short_volume_history',
+    # IB publishes today's availability and no history, so a lost row is a
+    # permanent hole in exactly the trend this table exists to measure.
+    'borrow_availability_history',
 ]
 
 

@@ -1097,6 +1097,7 @@ GET /api/gex/AAPL
 | `squeeze_watch` | 挤压相关**可观测链状态**的每日捕获，仅后端验证用；不打分、不加产品路由 | `symbol`, `market_date`, `call_oi_above`, `top_strike`, `concentration`, `call_put_ratio_above`, `unusual_oi_count`, `days_to_cover`, `fwd_return_5d`(事后回填) |
 | `short_interest_history` | 双周结算的空头持仓（FINRA 经 Polygon 转授权）。`days_to_cover` 由 API 直接给出 | `ticker`, `settlement_date`, `short_interest`, `avg_daily_volume`, `days_to_cover` |
 | `short_volume_history` | 日频 T+1 卖空成交量。**与上表刻意分离**：这是活跃度读数，多为做市商当日了结的库存，不是累积看空 | `ticker`, `market_date`, `short_volume`, `short_volume_ratio`, `total_volume` |
+| `borrow_availability_history` | 日频可借股数（IB）。费率拿不到，可得性是同一稀缺性的另一面；**信号在趋势不在水平**。`status` 区分不可借/无数据/错误 | `symbol`, `market_date`, `shortable_shares`, `shortable_level`, `status` |
 | `symbol_metrics_snapshots` | 存储 IV/HV/earnings 等 symbol-level 指标 | `symbol`, `snapshot_ts`, `source`, `metrics`, `freshness`, `refresh_status` |
 | `scanner_results_snapshots` | 存储预计算扫描结果 | `scan_key`, `symbol`, `snapshot_ts`, `iv_rank`, `gamma_regime`, `wall_distance`, `signal_score`, `freshness` |
 | `provider_fetch_jobs` | 存储后台刷新队列 | `symbol`, `job_type`, `status`, `attempts`, `last_error`, `created_at`, `started_at`, `finished_at` |

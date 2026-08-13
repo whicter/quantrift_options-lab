@@ -1,5 +1,28 @@
 # Task Tracker
 
+## ✅ 2026-08-13 — 借券可得性采集（免费拿到,费率仍缺）
+
+轧空判断真正要的是**借券成本**,Polygon 没有,Ortex/S3 四位数年费且需单独谈商用授权。
+付费之前先验免费路径:**IB Gateway 本来就在跑**。
+
+实测 `reqMktData` generic tick 236:可借股数(tick 89)与 Shortable 等级(tick 46)**都拿得到**,
+**费率(tick 47)从未返回**。IBKR 另有公开文件 `usa.txt` 含 FeeRate,但本机 FTP 出站被阻断——
+**换网络重试是拿到费率最便宜的一条路,尚未排除**。
+
+可得性可顶替费率:两者是同一稀缺性的两面,可借池塌陷时费率飙升。
+**信号在趋势不在水平**,所以是日频表、必须现在开始积累。
+
+- [x] `providers/ib_borrow_provider.py`(client id 44)+ `collect_borrow_availability.py`
+      + `borrow_availability_history` 持久表;入 `backup_facts.TABLES`
+- [x] PM2 `quantrift-borrow-availability`,工作日 14:00 PT,已 save
+- [x] 首跑 198 标的 / 2m34s,ok 194;与 FINRA 回补天数交叉印证(BSP 2,970 股 vs 7.5 天)
+- [x] collector 401/401
+- [ ] **换网络重试 IBKR FTP 取费率**(免费,未排除)
+- [ ] 利用率与真实流通股仍缺(需 Ortex/S3 或自建 EDGAR)
+- [ ] **不进产品**:IB 是 `ib_internal` 内部来源,上前台需过与 IB 报价同一道授权检查
+
+详见 `docs/validation/BORROW_AVAILABILITY_2026-08-13.md`(含一个把警告当致命错误的自伤记录)。
+
 ## ✅ 2026-08-11 — Gamma Squeeze 捕获层 + 空头数据（已上线，仅后端）
 
 **定位**：不是上线"挤压信号"，而是让时间开始为校准工作。阈值目前全是猜的，
