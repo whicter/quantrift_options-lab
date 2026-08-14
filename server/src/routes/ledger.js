@@ -1,4 +1,4 @@
-const { evaluateOutcome } = require('../domain/scanner/ledger.cjs');
+const { evaluateOutcome, legKey } = require('../domain/scanner/ledger.cjs');
 
 function num(v) {
   if (v == null) return null;
@@ -65,9 +65,48 @@ async function captureLedger(db, batchId) {
   return rowCount;
 }
 
+function toIsoDate(value) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value ?? '').slice(0, 10);
+}
+
+// The date a row settles on: the earliest expiry among its legs. Derived from
+// the legs rather than read off the `expiry` column so the two can never
+// disagree about which leg is the near one.
+function settlementDate(legs) {
+  const expiries = (legs || []).map(l => toIsoDate(l.expiry)).filter(Boolean).sort();
+  return expiries[0] || null;
+}
+
 /**
- * Resolve ledger rows whose expiry has passed: fetch the underlying close on or
- * after expiry and evaluate the payoff. Best-effort per row.
+ * Marks for the legs of a multi-expiry row that were still alive on its
+ * settlement date, keyed for `evaluateOutcome`. Only rows with a usable `mark`
+ * are returned: a captured row with mark NULL records that we looked and the
+ * quote was not two-sided, which must stay a miss rather than become a zero.
+ */
+async function loadFarLegMarks(db, settleOn, symbol) {
+  const { rows } = await db.query(
+    `SELECT expiry, strike, option_right, mark
+       FROM ledger_far_leg_marks
+      WHERE settlement_date = $1 AND symbol = $2 AND mark IS NOT NULL`,
+    [settleOn, symbol],
+  );
+  const marks = {};
+  for (const r of rows) {
+    marks[legKey({ right: r.option_right, strike: r.strike, expiry: toIsoDate(r.expiry) })] = num(r.mark);
+  }
+  return marks;
+}
+
+/**
+ * Resolve ledger rows whose (near) expiry has passed: fetch the underlying
+ * close on or after that expiry and evaluate the payoff. Best-effort per row.
+ *
+ * Multi-expiry rows additionally need each surviving leg's mark on the
+ * settlement date, captured that day by the collector. Marks are looked up
+ * whenever a row has more than one expiry, so an uncaptured far leg resolves as
+ * `no_price` — an honest data gap that improving coverage fixes — instead of
+ * `not_evaluable`, which claimed the structure itself could never be scored.
  */
 async function evaluateLedger(db) {
   const { rows } = await db.query(
@@ -77,7 +116,9 @@ async function evaluateLedger(db) {
      LIMIT 2000`,
   );
   let resolved = 0;
+  const markCache = new Map();
   for (const row of rows) {
+    const legs = row.legs_json || [];
     const { rows: priceRows } = await db.query(
       `SELECT close FROM price_history
        WHERE symbol = $1 AND source = 'polygon_licensed' AND close IS NOT NULL AND date >= $2
@@ -85,9 +126,22 @@ async function evaluateLedger(db) {
       [row.symbol, row.expiry],
     );
     const closeAtExpiry = priceRows[0] ? num(priceRows[0].close) : null;
+
+    const settleOn = settlementDate(legs);
+    const multiExpiry = new Set(legs.map(l => toIsoDate(l.expiry))).size > 1;
+    let farLegMarks = null;
+    if (multiExpiry && settleOn) {
+      const cacheKey = `${row.symbol}|${settleOn}`;
+      if (!markCache.has(cacheKey)) {
+        markCache.set(cacheKey, await loadFarLegMarks(db, settleOn, row.symbol));
+      }
+      farLegMarks = markCache.get(cacheKey);
+    }
+
     const result = evaluateOutcome(
-      { legs: row.legs_json || [], entry_cash: num(row.entry_cash), max_loss: num(row.max_loss) },
+      { legs, entry_cash: num(row.entry_cash), max_loss: num(row.max_loss) },
       closeAtExpiry,
+      { farLegMarks },
     );
     await db.query(
       `UPDATE candidate_ledger

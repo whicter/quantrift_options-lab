@@ -84,6 +84,12 @@ TABLES = [
     # IB publishes today's availability and no history, so a lost row is a
     # permanent hole in exactly the trend this table exists to measure.
     'borrow_availability_history',
+    # The one-shot case: a far leg can only be priced on the day its near leg
+    # expires. The chain snapshot behind it is pruned within 7 days, and a quote
+    # from any later session is a different day's price, so a lost row does not
+    # just delay a candidate_ledger outcome -- it makes that row unscoreable for
+    # good.
+    'ledger_far_leg_marks',
 ]
 
 

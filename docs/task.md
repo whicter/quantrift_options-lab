@@ -1,5 +1,80 @@
 # Task Tracker
 
+## 2026-08-13 — 台账测不了自己排名最高的 60%（已实现，未部署，有时间窗口）
+
+**发现经过**：查「策略开发停在哪里」时顺手看候选构成。报价覆盖确实已恢复
+（08-10~08-13 每日 50 个标的有真 bid，候选流量从「15 笔同一天」变成每天 111–174 笔、
+覆盖 44–50 个标的），但 08-10 以来入账的 538 笔里 **355 笔是多到期日**
+（Diagonal 352 + Calendar 3），`evaluateOutcome` 对它们一律返回 `not_evaluable`。
+最新批次 6,534 个候选中 Diagonal 占 2,561 个，**前 20 名全是 Diagonal**（集中在 IBIT/NVDA）。
+
+**台账是判断打分权重是否有效的唯一仪器，而它测不了自己排名最高的那 60%。**
+
+**这个问题 2026-07-30 被发现过一次，修错了轴**：当时记录「64% 是多到期日排列、
+98.7% 已结算行无法评分」，采取的修复是 `LEDGER_CAPTURE_TOP_N_PER_SYMBOL=3`——
+削的是行数不是构成，前 3 名本身就被 Diagonal 垄断，比例只从 64% 降到 60%。
+**按比例描述的问题，用降低总量来修，比例不会动。**
+
+**真因是两种失败被归成一类**：`not_evaluable/multi_expiry` 说的是「结构上不可能结算」，
+实情是「近腿到期时远腿还活着，需要当天市场价平掉，而我们没去取这个价」。
+前者永远不变，后者提高覆盖率就能修——把后者写成前者，等于把可修的问题登记成物理定律。
+
+- [x] `evaluateOutcome` 支持远腿平仓价：结算日=各腿最早到期日（从 `legs_json` 推导，
+      不读 `expiry` 列，两者不可能分歧）；当天到期按内在价值，未到期按实测 mark 平仓。
+      **两种失败严格区分**：不传 `farLegMarks` = 从未尝试 → 维持 `not_evaluable`（旧行为）；
+      传了但缺 → `no_price/far_leg_mark_missing`。绝不用模型价替代。
+- [x] **测试抓到一个真 bug**：`Number(null)` 是 `0`，有限且非负，
+      于是缺失报价被当成「远腿一文不值」结算，会把每笔未取价的 diagonal 系统性报成亏损——
+      即本设计要防的伪造价格，出现在防线自己身上。已在 `Number()` 之前显式拦截。
+- [x] `ledger_far_leg_marks` 持久表（无外键，同 `gex_history`/`candidate_ledger` 纪律）。
+      理由更硬：每个 mark **只有一天可观测**，错过后任何抓取都无法回补（更晚的价是另一天的价，
+      用它就是 look-ahead）。`ON CONFLICT DO UPDATE ... WHERE mark IS NULL`——重跑可补缺口，
+      已取到的好观测永不被覆盖。入 `backup_facts.TABLES`。
+- [x] `collector/capture_ledger_far_leg_marks.py`（阶段一，零 provider 调用，只读当日已落库快照）。
+      mark 只取双边报价中值；限定结算日当天纽约时区快照、取最新一条；
+      **取不到的腿也写行并逐个具名告警**——不写的话「找过但没有」与「从未找过」不可区分。
+      PM2 `quantrift-ledger-far-leg-marks`，工作日 13:15 PT（最后一轮报价之后）。
+- [x] 实测工作量极小：每个结算日只需 48–147 个 distinct 远腿合约
+      （对比常规链扫描**单个标的**就 120–240 个）。以 08-13 快照对 08-14 试算命中 **36/48 = 75%**，
+      全部来自 `ib_internal`。
+- [x] server 309/309、collector 427/427
+- [x] **已部署（2026-08-14 09:16 PT）**：migration 已跑（`ledger_far_leg_marks` + 索引就位）、
+      PM2 `quantrift-ledger-far-leg-marks` 已 start + save。
+      **一个自伤**：迁移首跑 `SyntaxError`——我在 SQL 注释里写了带反引号的 `not_evaluable`，
+      终止了包住整段 SQL 的 JS 模板字符串，**正是 learning.md 前一天刚记下的那条**；
+      309 个 server 测试没抓到，因为没有测试 `require` 这个文件。
+- [x] **cron 型 PM2 app 在 `pm2 start` 时会立刻先跑一次**：09:16 PT 那轮 `priced=0`，
+      48 行全以 `mark IS NULL` 落库。**没造成损失**，因为 upsert 条件是
+      `WHERE mark IS NULL` 而非「行已存在就跳过」——一次性观测的 upsert
+      必须按「是否已拿到好数据」判断，不能按「行是否存在」判断。
+- [x] **上线当天暴露第二个缺口：报价调度器不知道台账有结算日**。
+      19 个待结算标的中 **6 个（GME/MARA/OXY/RGTI/RKT/XLP）根本不在报价清单里**——
+      前一晚清单重选（50→100、排序键改成交额）把它们挤掉了。那个修复本身正确，
+      但它回答的是「哪些标的值得长期报价」，结算问的是「哪些今天不报就永久丢失」。
+      另 13 个在清单内但截至 12:16 ET 一个未轮到，能不能赶上取决于陈旧度排序，赌不起。
+      - 即时处置：19 个标的按已有按需通道以 priority 90 入队（后台 30 / 用户 100），约 80 分钟完成
+      - 永久修复：`schedule_quote_refresh.py` 新增 `settlement_symbols`/`enqueue_settlement`，
+        **不受清单约束、不受队列深度上限约束、排在空清单早返回之前**（深度上限服务的是
+        可等待的重复扫描，结算没有下个周期；空清单不得连带取消结算——§48 那条）。
+        另加不静默截断的告警：按 250 秒/标的估当日所需时长并具名列全部标的。
+      - 实跑验证 09:21 PT：`{'settling': 19, 'settlement_enqueued': 0, ...}`，
+        19 个全识别，`0` 是去重守卫正确跳过刚手工入的同批任务
+- [ ] **待验证（今天 16:15 ET）**：13:15 PT 那班的 `priced` 实际数。
+      期望接近 48/48（19 个标的今天全部会被报价，昨日同批合约试算命中 36/48）
+- [ ] **阶段二**：约 25% 的远腿（深度实值、落在 ±5% 窗口外）需 IB 定向报价。
+      `IbOptionChainProvider.fetch_option_chain` 只能按 spot 窗口抓，需新增公开方法，
+      `reqContractDetails` 逐个解析后再 `reqMktData`（不得拼笛卡尔积——既有规则）。
+      **不要为此放宽 `OPTION_MAX_STRIKES_PER_SIDE`**：那个窗口约束着占库容三分之二的两张表，
+      放宽会重演 2026-07-30 卷满事故；这里要的是每天几十个合约的精确白名单。
+- [ ] **历史行不回填**：现存 36 行 `not_evaluable` 与 529 行未结算多到期日行，
+      结算日已过或远腿当日报价从未采集，不得用今天的链倒推。
+- [ ] **连带发现，单独处理**：`buildActionableSetups` 内部按策略交错
+      （`candidateEngine.cjs:926`，有测试），但 `materializeScannerCandidates.js:150`
+      随后按 score 全局重排**把交错抹掉**。物化批次正是喂给 `/api/v1/scanner/candidates`
+      和台账的路径，因此毫无多样性保证——这就是前 20 名清一色 Diagonal 且只有两个标的的直接原因。
+
+详见 `docs/validation/LEDGER_MULTI_EXPIRY_SETTLEMENT_2026-08-13.md`。
+
 ## ✅ 2026-08-13 — 报价清单排序键被自己的存储上限污染(真 bug,已修)
 
 **发现经过**:核对一份外部研究备忘录时,发现它把 META、AMD 列为最优先,而这两个恰恰是

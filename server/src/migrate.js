@@ -1032,6 +1032,40 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS candidate_ledger_resolved_family
       ON candidate_ledger (strategy_family) WHERE outcome IS NOT NULL;
 
+    -- Settlement-date marks for ledger legs that outlive the settlement expiry
+    -- (2026-08-13). A diagonal/calendar cannot be scored from the underlying
+    -- close alone: its far leg is still alive and has to be CLOSED at a market
+    -- price on that date. Until now those rows were filed not_evaluable,
+    -- (no backticks anywhere in this file: the whole statement is a JS template
+    -- literal and one backtick in a comment terminates it),
+    -- which read as "structurally unscoreable" when it really meant "nobody
+    -- captured the price" -- 60% of captured candidates, and the top-ranked
+    -- 60% at that.
+    --
+    -- Durable and deliberately outside the prune cascade, same reasoning as
+    -- gex_history and candidate_ledger: option_chain_snapshots is pruned at 7
+    -- days, so the observation that settles a row is destroyed long before
+    -- anyone analyses it. There is also exactly ONE day on which each mark can
+    -- be observed -- miss it and no later fetch can recover it, since a later
+    -- price is a different day's price and using one would be look-ahead.
+    -- Backend-only validation data: no product route, no public endpoint.
+    CREATE TABLE IF NOT EXISTS ledger_far_leg_marks (
+      id               BIGSERIAL   PRIMARY KEY,
+      settlement_date  DATE        NOT NULL,  -- the near expiry being settled
+      symbol           TEXT        NOT NULL,
+      expiry           DATE        NOT NULL,  -- the far leg's own expiry
+      strike           NUMERIC(14,4) NOT NULL,
+      option_right     TEXT        NOT NULL,  -- 'C' | 'P'
+      bid              NUMERIC(14,4),
+      ask              NUMERIC(14,4),
+      mark             NUMERIC(14,4),         -- mid of a two-sided quote; NULL when unusable
+      source           TEXT        NOT NULL,  -- provider code the quote came from
+      observed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (settlement_date, symbol, expiry, strike, option_right)
+    );
+    CREATE INDEX IF NOT EXISTS ledger_far_leg_marks_lookup
+      ON ledger_far_leg_marks (settlement_date, symbol);
+
     -- News ingestion (R3.2, 2026-07-26). Articles are FACTS (a specific
     -- headline was published by a specific provider at a specific time), so
     -- this is an accumulating table like price_history/iv_history, not a

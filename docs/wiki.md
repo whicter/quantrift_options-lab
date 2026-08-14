@@ -1319,7 +1319,9 @@ The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily sco
 - **Symbol State Matrix（R1.1,`/api/market/state-matrix`）**:全 universe 分成 6+兜底状态(强势上行/上行回调/突破/中性/企稳/空头/高波动),结构优先 first-match-wins,每标的带 reasons。**标签描述状态、不给买卖动作**(合规边界)。
 - **板块轮动 RRG（R1.3,`/api/market/sector-rotation`）**:26 板块/主题 ETF 相对 SPY 的强弱×动量四象限。因 SIC sector 字段 65% 空且不含 ETF,用 ETF 当板块代理(也是 RRG 标准)。散点+联动列表解决点重叠。**资金流维度(2026-07-24 增强)**:复用 `deriveMfi` 算每 ETF 的 MFI → `flow`(流入/流出/中性)+ `grade`(S–D from rs);**位置=趋势、flow=钱是否真进,二者会背离**(A 级领先但资金流出=价格领先、钱在撤)。
 
-**后台验证台账（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准;多到期结构标 not_evaluable 不臆造。它仅用于后台验证，不提供产品页面、导航或公开读取端点。
+**后台验证台账（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准。它仅用于后台验证，不提供产品页面、导航或公开读取端点。
+
+**多到期日结算（2026-08-13）**:日历/对角原先一律标 `not_evaluable`,措辞说的是"结构上不可评",实情是"近腿到期时远腿还活着、需要当天市价平掉,而我们没去取这个价"。实测 08-10 以来 538 笔中 355 笔为多到期日,且最新批次前 20 名清一色 Diagonal——**台账测不了自己排名最高的部分**。现按各腿中最早的到期日结算(从 `legs_json` 推导,不读 `expiry` 列),当天到期按内在价值、未到期按**实测** mark 平仓;mark 存于持久无外键表 `ledger_far_leg_marks`,由 `collector/capture_ledger_far_leg_marks.py`(工作日 13:15 PT)写入。两种失败严格区分:根本没尝试取价仍是 `not_evaluable`,取了但缺该腿是 `no_price`。**mark 只取双边报价中值**,不用成交价、不用模型价——用模型价等于让台账拿模型评模型自己。每个 mark **只有一天可观测**,错过后不可回补(更晚的价是另一天的价,用它就是 look-ahead)。
 
 **新闻摄取 MVP（R3.2,2026-07-26）**:Analyze「近期消息」区块 + `GET /api/news/:symbol`。数据源只用 IB Gateway(live 实测对比 GDELT 后拍板,GDELT 429 限流紧且标的关联要靠字符串猜测,不准)。**关键教训**:一开始接的是 `reqHistoricalNews`,实测发现它读的是一个没有刷新 SLA 的服务端缓存,同一查询隔几分钟重跑"最新一条"会变旧——改用 `reqMktData`+genericTick 292(`tickNews`,实时推送)才拿到真正新鲜的新闻。采集节奏是每 5 分钟一次的 PM2 定时任务,不是常驻订阅——Mac/IB Gateway 本来就 7×24 开着,两种方案在"要不要开机"上没有区别,MVP 只验证参与度,展示型延迟几分钟无感。`volatilityAttribution` 的"消息面"归因有真实新闻时会引用具体 headline(仍是"仅参考、不构成因果"的措辞),没有则退回原来的隔夜跳空代理。**MVP 暂无文章链接**(`tickNews` 不带 URL,取全文/链接要等以后接 `reqNewsArticle`)。详见 `docs/validation/NEWS_SOURCE_SELECTION_2026-07-26.md`。
 

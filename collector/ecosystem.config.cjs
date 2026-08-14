@@ -399,5 +399,25 @@ module.exports = {
         BORROW_SYMBOL_LIMIT: '400',
       },
     },
+    {
+      // Settlement-date marks for multi-expiry candidates (diagonals/calendars).
+      // Their far leg outlives the settlement expiry and has to be closed at a
+      // market price on that one date -- the chain snapshot is pruned within 7
+      // days and a later quote belongs to a different day, so a missed run
+      // makes those rows unscoreable permanently, not merely late.
+      //
+      // 13:15 PT = 16:15 ET, after the last intraday quote sweep (which ends at
+      // ~15:59 ET) has landed a close-quality market. Reading the day's own
+      // persisted snapshots costs no provider call, so this is cheap enough to
+      // run every weekday even though most days settle nothing.
+      ...logs('quantrift-ledger-far-leg-marks'),
+
+      name: 'quantrift-ledger-far-leg-marks',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'capture_ledger_far_leg_marks.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '15 13 * * 1-5',
+    },
   ],
 };

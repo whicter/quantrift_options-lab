@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { evaluateOutcome, aggregateLedger, intrinsic } = require('../src/domain/scanner/ledger.cjs');
+const { evaluateOutcome, aggregateLedger, intrinsic, legKey } = require('../src/domain/scanner/ledger.cjs');
 
 test('intrinsic value of a leg at expiry', () => {
   assert.equal(intrinsic('C', 100, 110), 10);
@@ -41,9 +41,75 @@ test('long straddle wins on a big move beyond the debit', () => {
   assert.equal(evaluateOutcome(entry, 750).outcome, 'loss');  // 5 - 28.7 = -23.7
 });
 
-test('multi-expiry (calendar) is not evaluable at a single expiry', () => {
+test('multi-expiry with no far-leg marks supplied stays not_evaluable', () => {
+  // The caller never attempted to price the far leg. Unchanged behaviour, and
+  // deliberately distinct from the "we tried and the quote was absent" case.
   const cal = { legs: [{ action: 'SELL', right: 'C', strike: 170, expiry: '2026-08-28' }, { action: 'BUY', right: 'C', strike: 170, expiry: '2026-10-16' }], entry_cash: -5.5, max_loss: 5.5 };
   assert.equal(evaluateOutcome(cal, 175).outcome, 'not_evaluable');
+  assert.equal(evaluateOutcome(cal, 175).reason, 'multi_expiry');
+});
+
+test('diagonal settles at the near expiry with the far leg closed at its mark', () => {
+  // Production row (XLE, entered 2026-08-13): SELL 65C 09-11 / BUY 58C 10-16,
+  // mid 0.48 credit against 4.25 debit => entry_cash -3.77.
+  const diagonal = {
+    legs: [
+      { action: 'SELL', right: 'C', strike: 65, expiry: '2026-09-11' },
+      { action: 'BUY', right: 'C', strike: 58, expiry: '2026-10-16' },
+    ],
+    entry_cash: -3.77, max_loss: 3.77,
+  };
+  const marks = { 'C:58:2026-10-16': 8.2 };
+  const res = evaluateOutcome(diagonal, 66, { farLegMarks: marks });
+  // near leg bought back at intrinsic 1.00, far leg sold at 8.20
+  assert.equal(res.outcome, 'win');
+  assert.equal(res.realized_pnl, 3.43);
+  assert.equal(res.return_on_risk, 0.91);
+});
+
+test('diagonal whose far-leg mark is absent is no_price, not not_evaluable', () => {
+  // The distinction the ledger depends on: a missing quote is a gap in our data
+  // that better coverage fixes, not a property of the structure.
+  const diagonal = {
+    legs: [
+      { action: 'SELL', right: 'C', strike: 65, expiry: '2026-09-11' },
+      { action: 'BUY', right: 'C', strike: 58, expiry: '2026-10-16' },
+    ],
+    entry_cash: -3.77, max_loss: 3.77,
+  };
+  const res = evaluateOutcome(diagonal, 66, { farLegMarks: {} });
+  assert.equal(res.outcome, 'no_price');
+  assert.equal(res.reason, 'far_leg_mark_missing');
+});
+
+test('a far-leg mark that is not a usable number is never guessed around', () => {
+  const diagonal = {
+    legs: [
+      { action: 'SELL', right: 'P', strike: 65, expiry: '2026-09-18' },
+      { action: 'BUY', right: 'P', strike: 75, expiry: '2026-10-16' },
+    ],
+    entry_cash: -7.5, max_loss: 7.5,
+  };
+  for (const bad of [null, undefined, 'n/a', NaN, -1]) {
+    const res = evaluateOutcome(diagonal, 70, { farLegMarks: { 'P:75:2026-10-16': bad } });
+    assert.equal(res.outcome, 'no_price', `mark ${String(bad)} must not settle`);
+  }
+});
+
+test('settlement is the earliest expiry, and leg keys normalise strike formatting', () => {
+  // Legs listed far-first, and a strike written '62.50' must find a 62.5 key.
+  const diagonal = {
+    legs: [
+      { action: 'BUY', right: 'C', strike: '62.50', expiry: '2026-10-16' },
+      { action: 'SELL', right: 'C', strike: 67.5, expiry: '2026-09-18' },
+    ],
+    entry_cash: -3.2, max_loss: 3.2,
+  };
+  assert.equal(legKey(diagonal.legs[0]), 'C:62.5:2026-10-16');
+  const res = evaluateOutcome(diagonal, 70, { farLegMarks: { 'C:62.5:2026-10-16': 8 } });
+  // settles at 09-18: short 67.5C intrinsic 2.5 bought back, far leg sold at 8
+  assert.equal(res.outcome, 'win');
+  assert.equal(res.realized_pnl, 2.3);
 });
 
 test('missing underlying close yields no_price, not a fabricated outcome', () => {

@@ -21,6 +21,10 @@ Design notes:
   bid/ask, not the last snapshot of any kind: a Polygon positioning refresh
   writes a fresh row with no quotes at all, and treating that as "recently
   quoted" would permanently starve the symbol it just overwrote.
+- Symbols settling a multi-expiry ledger row TODAY jump the queue and ignore the
+  depth target entirely (see `settlement_symbols`). Everything else here is a
+  repeating sweep where deferring a symbol costs a few hours; that work has no
+  next cycle.
 """
 
 from __future__ import annotations
@@ -47,6 +51,15 @@ QUEUE_TARGET = max(int(os.getenv('QUOTE_REFRESH_QUEUE_TARGET', '4')), 1)
 # Below QUOTE_ENRICHMENT_PRIORITY (90), which `analyze.js` uses for a symbol a
 # user is actually looking at.
 BACKGROUND_PRIORITY = min(max(int(os.getenv('QUOTE_REFRESH_PRIORITY', '30')), 0), 89)
+# Ledger settlement rides at the same level analyze.js uses for a symbol a user
+# has open: ahead of the sweep, behind a live request. It is not raised to the
+# API's 100 because a person waiting on a page still outranks a batch job.
+SETTLEMENT_PRIORITY = min(max(int(os.getenv('QUOTE_SETTLEMENT_PRIORITY', '90')), 0), 99)
+# Serial IB, one contract at a time, concurrency 1. Measured 2026-08-13/14:
+# ~165s median, ~250s observed mid-session. Used only to warn when a settlement
+# day cannot physically fit in the remaining session -- never to silently drop
+# symbols from it.
+SECONDS_PER_SYMBOL = max(int(os.getenv('QUOTE_SECONDS_PER_SYMBOL', '250')), 1)
 # A cash-secured put is a 30-45 DTE decision, so hours-old quotes are useful for
 # discovery. This is the age past which a symbol becomes eligible again, not a
 # freshness promise made to any user.
@@ -95,6 +108,91 @@ def queue_depth(conn) -> int:
     with conn.cursor() as cur:
         cur.execute(QUEUE_DEPTH_SQL)
         return int(cur.fetchone()[0])
+
+
+# Symbols holding an unresolved multi-expiry ledger row whose NEAR leg expires
+# today. Their far leg outlives the settlement and has to be closed at a market
+# price on this one date; the chain snapshot behind it is pruned within 7 days
+# and any later quote belongs to a different session, so an unquoted symbol here
+# is a candidate that can never be scored, not one scored late.
+#
+# Deliberately NOT restricted to the quote watchlist. On 2026-08-14, 6 of the 19
+# symbols settling that day were not on it: the previous evening's re-selection
+# switched the ordering key to underlying dollar volume (correct in itself) and
+# those names fell out. Membership answers "what should we keep quoting for
+# discovery"; this answers "what must be quoted today or lost", and the second
+# question does not defer to the first.
+#
+# Symbols already carrying a quoted snapshot today are excluded -- the mark is
+# taken from the day's snapshots, so one is enough.
+SETTLEMENT_SYMBOLS_SQL = """
+    WITH settling AS (
+      SELECT DISTINCT cl.symbol
+        FROM candidate_ledger cl
+       WHERE cl.outcome IS NULL
+         AND cl.single_expiry = FALSE
+         AND (SELECT MIN((l->>'expiry')::date)
+                FROM jsonb_array_elements(cl.legs_json) l)
+             = (NOW() AT TIME ZONE 'America/New_York')::date
+    )
+    SELECT s.symbol
+      FROM settling s
+     WHERE NOT EXISTS (
+       SELECT 1
+         FROM option_chain_snapshots o
+         JOIN option_contract_snapshots c ON c.snapshot_id = o.id
+        WHERE o.symbol = s.symbol
+          AND (o.snapshot_ts AT TIME ZONE 'America/New_York')::date
+              = (NOW() AT TIME ZONE 'America/New_York')::date
+          AND c.bid IS NOT NULL
+     )
+     ORDER BY s.symbol
+"""
+
+
+def settlement_symbols(conn) -> list[str]:
+    with conn.cursor() as cur:
+        cur.execute(SETTLEMENT_SYMBOLS_SQL)
+        return [row[0] for row in cur.fetchall()]
+
+
+def enqueue_settlement(conn, symbols: list[str]) -> int:
+    """Queue every settling symbol at once, ignoring the depth target.
+
+    The depth target exists so a repeating sweep cannot stack jobs faster than a
+    serial worker drains them; a symbol it defers is picked up next cycle. These
+    have no next cycle, so honouring the target here would be trading a
+    permanent loss for a throughput smoothness that only matters to work which
+    can wait.
+    """
+    inserted = 0
+    with conn.cursor() as cur:
+        for symbol in symbols:
+            cur.execute(
+                """
+                INSERT INTO provider_fetch_jobs
+                  (symbol, job_type, provider, status, attempts, request_params)
+                SELECT %s, 'option_quote_snapshot', 'ib_internal', 'queued', 0, %s::jsonb
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM provider_fetch_jobs
+                  WHERE symbol = %s
+                    AND job_type = 'option_quote_snapshot'
+                    AND status IN ('queued', 'running')
+                )
+                """,
+                (
+                    symbol,
+                    Json({
+                        'priority': SETTLEMENT_PRIORITY,
+                        'require_quotes': True,
+                        'reason': 'ledger_settlement',
+                    }),
+                    symbol,
+                ),
+            )
+            inserted += cur.rowcount
+    conn.commit()
+    return inserted
 
 
 def enqueue(conn, candidates: list[dict], capacity: int) -> int:
@@ -160,13 +258,40 @@ def run(
 
     conn = psycopg2.connect(database_url)
     try:
+        # Settlement runs FIRST and independently of the watchlist. It is not
+        # merely higher priority -- it does not share the watchlist's gate at
+        # all, because it answers a different question ("what must be quoted
+        # today or lost") and an empty or mis-selected watchlist must not be
+        # able to cancel it. Ordering the checks the other way round would put a
+        # permanent loss behind a recoverable one, which is the failure this
+        # whole path exists to avoid.
+        settling = settlement_symbols(conn)
+        settlement_enqueued = enqueue_settlement(conn, settling) if settling else 0
+        if settling:
+            # Never a silent cap. If the day's settlement cannot physically fit
+            # in what remains of the session, say so with numbers -- the rows it
+            # will cost are unrecoverable, and the operator can still act.
+            needed_minutes = round(len(settling) * SECONDS_PER_SYMBOL / 60)
+            log.warning(
+                'ledger settlement today: %d symbol(s) need a quote before the close '
+                '(%s); serial IB needs roughly %d minutes. A symbol left unquoted '
+                'makes its candidates permanently unscoreable.',
+                len(settling), ', '.join(settling), needed_minutes,
+            )
+
         watchlist = effective_watchlist(conn)
         if not watchlist:
             log.warning(
                 'Quote watchlist is empty; run select_quote_watchlist.py first. '
                 'Nothing will be quoted, and the candidate engine has no executable legs.'
             )
-            return {'status': 'empty_watchlist', 'watchlist': 0, 'enqueued': 0}
+            return {
+                'status': 'empty_watchlist', 'watchlist': 0, 'enqueued': 0,
+                # Reported even on this path: settlement already ran above, and
+                # a skip must never claim work it did not do -- nor hide work it
+                # did.
+                'settling': len(settling), 'settlement_enqueued': settlement_enqueued,
+            }
 
         depth = queue_depth(conn)
         capacity = max(queue_target - depth, 0)
@@ -184,6 +309,8 @@ def run(
         'queue_depth': depth,
         'capacity': capacity,
         'enqueued': enqueued,
+        'settling': len(settling),
+        'settlement_enqueued': settlement_enqueued,
     }
     log.info('Quote refresh scheduler: %s', result)
     if candidates and not capacity:

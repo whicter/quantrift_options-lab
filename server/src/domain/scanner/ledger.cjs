@@ -9,9 +9,11 @@
  * validation, never a copy-trade signal.
  *
  * Outcomes are computed at expiry from the underlying close and the candidate's
- * legs. Multi-expiry structures (calendars/diagonals) cannot be settled at a
- * single expiry without repricing the far leg, so they are marked
- * `not_evaluable` and excluded from win-rate stats — disclosed, never guessed.
+ * legs. Legs expiring on the settlement date settle at intrinsic value; legs
+ * expiring later must be CLOSED at their market price on that date, which is an
+ * observation we either hold or do not — never a model price. See
+ * `evaluateOutcome` for why the difference between "structurally unscoreable"
+ * and "we lacked the quote" matters.
  */
 
 // Intrinsic value of one option leg at expiry given the underlying close.
@@ -27,15 +29,47 @@ function distinctExpiries(legs) {
 }
 
 /**
+ * Identity of one leg, used to look its settlement-date mark up in `farLegMarks`.
+ * Strike goes through Number so 62.5 and '62.50' cannot become two keys.
+ */
+function legKey(leg) {
+  return [
+    String(leg.right ?? '').toUpperCase(),
+    Number(leg.strike),
+    String(leg.expiry ?? '').slice(0, 10),
+  ].join(':');
+}
+
+/**
  * entry: { legs:[{action,right,strike,expiry}], entry_cash, max_loss }
  *   entry_cash = net cash at entry per share (credit positive, debit negative).
- * underlyingAtExpiry: the underlying close on/after the (single) expiry.
+ * underlyingAtExpiry: the underlying close on/after the settlement expiry.
+ * opts.farLegMarks: { [legKey]: markPerShare } — the observed price at which
+ *   each not-yet-expiring leg could be closed on the settlement date.
+ *
+ * Settlement date = the EARLIEST expiry among the legs. Legs expiring then
+ * settle at intrinsic; later-dated legs are closed at their mark.
+ *
+ * On multi-expiry structures the distinction between the two failure modes is
+ * the whole point. Passing no `farLegMarks` at all means the caller never tried
+ * to price the far leg, which is the pre-2026-08-13 behaviour and still yields
+ * `not_evaluable/multi_expiry`. Passing marks that turn out to be incomplete
+ * means we tried and the quote was not there: that is `no_price`, the same
+ * class as a missing underlying close, because it is a gap in our data and not
+ * a property of the structure. Filing it under `not_evaluable` is what let 60%
+ * of captured candidates look permanently unmeasurable when they were merely
+ * unmeasured. Never substitute a model price for a missing mark — that would
+ * make the ledger score the model against itself.
+ *
  * Returns { outcome, realized_pnl, return_on_risk } (per share).
  */
-function evaluateOutcome(entry, underlyingAtExpiry) {
+function evaluateOutcome(entry, underlyingAtExpiry, { farLegMarks = null } = {}) {
   const legs = entry.legs || [];
   if (!legs.length) return { outcome: 'not_evaluable', reason: 'no_legs' };
-  if (distinctExpiries(legs).length > 1) {
+
+  const expiries = distinctExpiries(legs);
+  const multiExpiry = expiries.length > 1;
+  if (multiExpiry && farLegMarks == null) {
     return { outcome: 'not_evaluable', reason: 'multi_expiry' };
   }
   if (underlyingAtExpiry == null || !Number.isFinite(Number(underlyingAtExpiry))) {
@@ -44,13 +78,33 @@ function evaluateOutcome(entry, underlyingAtExpiry) {
   const entryCash = Number(entry.entry_cash);
   if (!Number.isFinite(entryCash)) return { outcome: 'not_evaluable', reason: 'no_entry_cash' };
 
-  // Cash to close each leg at expiry: a long leg is worth +intrinsic to you; a
-  // short leg you must buy back at -intrinsic.
+  const settlementExpiry = expiries.slice().sort()[0];
+
+  // Cash to close each leg on the settlement date: a long leg is worth +value to
+  // you; a short leg you must buy back at -value. Value is intrinsic for a leg
+  // expiring that day, and the observed mark for one that is still alive.
   let closing = 0;
   for (const leg of legs) {
-    const iv = intrinsic(leg.right, leg.strike, underlyingAtExpiry);
-    if (iv == null) return { outcome: 'not_evaluable', reason: 'bad_leg' };
-    closing += String(leg.action).toUpperCase() === 'BUY' ? iv : -iv;
+    const expiring = String(leg.expiry ?? '').slice(0, 10) === settlementExpiry;
+    let value;
+    if (expiring) {
+      value = intrinsic(leg.right, leg.strike, underlyingAtExpiry);
+      if (value == null) return { outcome: 'not_evaluable', reason: 'bad_leg' };
+    } else {
+      // Guard the empty values BEFORE Number(), which maps null, '' and false
+      // to a perfectly finite 0 — silently settling the far leg as worthless
+      // and turning every unpriced diagonal into a reported loss.
+      const raw = farLegMarks?.[legKey(leg)];
+      if (raw === null || raw === undefined || raw === '') {
+        return { outcome: 'no_price', reason: 'far_leg_mark_missing' };
+      }
+      const mark = Number(raw);
+      if (!Number.isFinite(mark) || mark < 0) {
+        return { outcome: 'no_price', reason: 'far_leg_mark_missing' };
+      }
+      value = mark;
+    }
+    closing += String(leg.action).toUpperCase() === 'BUY' ? value : -value;
   }
 
   const pnl = Math.round((entryCash + closing) * 100) / 100;
@@ -143,4 +197,4 @@ function aggregateLedger(resolved, { calibrationFromDate = CALIBRATION_FROM_DATE
   };
 }
 
-module.exports = { evaluateOutcome, aggregateLedger, intrinsic, POP_BUCKETS };
+module.exports = { evaluateOutcome, aggregateLedger, intrinsic, legKey, POP_BUCKETS };

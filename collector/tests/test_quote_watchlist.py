@@ -89,6 +89,52 @@ class SchedulerTests(unittest.TestCase):
         self.assertIn('NOT EXISTS', sql)
         self.assertIn("status IN ('queued', 'running')", sql)
 
+    def test_settlement_outranks_the_sweep_but_not_a_live_user(self):
+        self.assertGreater(schedule_quote_refresh.SETTLEMENT_PRIORITY,
+                           schedule_quote_refresh.BACKGROUND_PRIORITY)
+        self.assertLess(schedule_quote_refresh.SETTLEMENT_PRIORITY, 100)
+
+    def test_settlement_query_is_not_restricted_to_the_watchlist(self):
+        # 2026-08-14: 6 of the 19 symbols settling that day had just dropped off
+        # the watchlist when its ordering key changed. Membership answers what to
+        # keep quoting for discovery; this answers what is lost if unquoted today.
+        sql = schedule_quote_refresh.SETTLEMENT_SYMBOLS_SQL
+        self.assertNotIn('quote_watchlist', sql)
+        self.assertIn('single_expiry = FALSE', sql)
+        self.assertIn('cl.outcome IS NULL', sql)
+        # Near expiry derived from legs_json, matching the settlement rule the
+        # evaluator uses; and a symbol already quoted today is skipped.
+        self.assertIn("MIN((l->>'expiry')::date)", sql)
+        self.assertIn('c.bid IS NOT NULL', sql)
+
+    def test_settlement_ignores_the_queue_depth_target(self):
+        # The depth target keeps a repeating sweep from outrunning a serial
+        # worker; a deferred settlement symbol has no next cycle to be picked up
+        # in, so the target must not apply to it.
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.rowcount = 1
+        inserted = schedule_quote_refresh.enqueue_settlement(conn, ['A', 'B', 'C', 'D', 'E'])
+        self.assertEqual(inserted, 5)
+        sql = cur.execute.call_args.args[0]
+        self.assertIn('NOT EXISTS', sql)
+
+    def test_an_empty_watchlist_cannot_cancel_settlement(self):
+        # Ordering the gates the other way round would put a permanent loss
+        # behind a recoverable one.
+        conn = MagicMock()
+        with patch.object(schedule_quote_refresh, 'is_regular_us_session', return_value=True), \
+             patch.object(schedule_quote_refresh, 'psycopg2') as pg, \
+             patch.object(schedule_quote_refresh, 'settlement_symbols', return_value=['GME', 'XLP']), \
+             patch.object(schedule_quote_refresh, 'enqueue_settlement', return_value=2) as enq, \
+             patch.object(schedule_quote_refresh, 'effective_watchlist', return_value=[]), \
+             patch.dict('os.environ', {'DATABASE_URL': 'postgres://fake'}):
+            pg.connect.return_value = conn
+            result = schedule_quote_refresh.run()
+        enq.assert_called_once()
+        self.assertEqual(result['status'], 'empty_watchlist')
+        self.assertEqual(result['settlement_enqueued'], 2)
+
     def test_scheduler_refuses_to_enqueue_outside_the_regular_session(self):
         # Verified live on a Saturday: one symbol was still running at 197s and on
         # track for the full ~16 minute worst case, because with no quote stream
