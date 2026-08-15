@@ -1,5 +1,28 @@
 # Task Tracker
 
+## ✅ 2026-08-15 — BRK.B 符号未转换,拖垮整条报价通道(真 bug,已修)
+
+**现象**:2026-08-14 报价任务 22 个失败 / 76 成功。其中 **11 个是 BRK.B 一个标的**,
+在 10:40–13:30 之间每 20 分钟重试一次、每次耗满 30 秒超时;另外 11 个
+(8 次连接超时 + VOO/VTI/UNH 各 1 次)是**排在它后面被串行通道饿死**的。
+SPCX(#3)、NVDA(#4)、TSLA(#13) 当天因此没拿到报价。
+
+**根因**:`_fetch_option_params` 调 `reqSecDefOptParams` 时传的是**原始 ticker**。
+IB 用空格表示股份类别(`BRK B`),而 `symbol_universe`/Polygon 用点(`BRK.B`)——
+`_stock_contract` 一直有转换,所以 contractDetails 成功、conId 正确;
+但 `reqSecDefOptParams` 的符号是**独立于 Contract 的另一个参数**,漏了转换。
+IB 拿到"正确 conId + 不认识的符号",返回空。
+
+同 conId 72063691 实测:`'BRK B'` 0.06 秒返回 20 个交易所,`'BRK.B'` 返回空。
+
+**修复**:该调用点改用 `_ib_contract_symbol(symbol)`。**没有加退避、没有加特例**——
+根因修掉后那 11 次重试自然消失。`_is_index_symbol` 仍用原始符号(它匹配的是我们自己的写法)。
+
+- [x] 修复后实测 BRK.B **0.06 秒**返回(15 个到期 / 111 个行权价),此前耗满 30 秒
+- [x] 新增 `tests/test_ib_option_symbol_translation.py`(6 项);**已验证回退修复后测试变红**
+- [x] collector 441/441、server 316/316
+- [ ] 周一(08-17)盘中确认:BRK.B 有报价、当日失败数回落
+
 ## 2026-08-13 — 台账测不了自己排名最高的 60%（已实现，未部署，有时间窗口）
 
 **发现经过**：查「策略开发停在哪里」时顺手看候选构成。报价覆盖确实已恢复

@@ -436,7 +436,16 @@ class IbOptionChainProvider:
     def _fetch_option_params(self, app, symbol: str, underlying_con_id: int):
         req_id = app.next_req_id()
         app.option_params_done[req_id] = threading.Event()
-        app.reqSecDefOptParams(req_id, symbol, '',
+        # reqSecDefOptParams takes the underlying symbol as its own argument,
+        # separate from any Contract, so it needs the same translation
+        # _stock_contract already applies. Without it BRK.B reached IB verbatim
+        # while the conId beside it was correct, and IB answered with nothing:
+        # measured against conId 72063691, 'BRK B' returns 20 exchanges in
+        # 0.06s and 'BRK.B' returns none. In production that surfaced as a
+        # 30-second timeout per attempt, retried every 20 minutes for a whole
+        # session -- 11 of Friday's 22 quote failures were this one symbol, and
+        # the other 11 were symbols starved behind it on the serial lane.
+        app.reqSecDefOptParams(req_id, _ib_contract_symbol(symbol), '',
                                 'IND' if _is_index_symbol(symbol) else 'STK',
                                 underlying_con_id)
         if not app.option_params_done[req_id].wait(self.timeout):
