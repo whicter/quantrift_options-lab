@@ -203,6 +203,32 @@ module.exports = {
       },
     },
     {
+      // Series-level integrity for market_breadth_daily, weekdays at 07:00 ET
+      // (04:00 PT) -- after the morning breadth fire, before the open.
+      //
+      // The collector validates each row as it writes it. Nothing validates the
+      // series, and breadth is a differenced quantity: a cumulative A/D line
+      // sums each row's move against its stated previous close, so a
+      // previous_market_date that skips or repeats a stored session makes the
+      // running total drift while every individual row still looks correct. That
+      // is invisible until someone plots it.
+      //
+      // Non-zero exit on a broken chain, so the PM2 log shows a failure rather
+      // than a quiet line of JSON.
+      ...logs('quantrift-breadth-verify'),
+
+      name: 'quantrift-breadth-verify',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'verify_market_breadth.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      cron_restart: '0 4 * * 1-5',
+      env: {
+        MARKET_BREADTH_MIN_COUNT: '2000',
+        MARKET_BREADTH_MIN_COVERAGE_PCT: '90',
+      },
+    },
+    {
       // Refreshes which symbols get IB quote time. Weekly is enough: the ranking
       // is option open interest, which moves slowly, and churning the list more
       // often would keep resetting each symbol's quote age.
