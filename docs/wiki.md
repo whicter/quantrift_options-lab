@@ -1321,7 +1321,17 @@ The Scan header consumes `/api/market/regime`. SPY and QQQ each expose daily sco
 
 **后台验证台账（R2.1）**:durable `candidate_ledger` 捕获每个候选入场,到期用真实收盘价结算逐候选盈亏、按策略族胜率、POP 校准。它仅用于后台验证，不提供产品页面、导航或公开读取端点。
 
-**多到期日结算（2026-08-13）**:日历/对角原先一律标 `not_evaluable`,措辞说的是"结构上不可评",实情是"近腿到期时远腿还活着、需要当天市价平掉,而我们没去取这个价"。实测 08-10 以来 538 笔中 355 笔为多到期日,且最新批次前 20 名清一色 Diagonal——**台账测不了自己排名最高的部分**。现按各腿中最早的到期日结算(从 `legs_json` 推导,不读 `expiry` 列),当天到期按内在价值、未到期按**实测** mark 平仓;mark 存于持久无外键表 `ledger_far_leg_marks`,由 `collector/capture_ledger_far_leg_marks.py`(工作日 13:15 PT)写入。两种失败严格区分:根本没尝试取价仍是 `not_evaluable`,取了但缺该腿是 `no_price`。**mark 只取双边报价中值**,不用成交价、不用模型价——用模型价等于让台账拿模型评模型自己。每个 mark **只有一天可观测**,错过后不可回补(更晚的价是另一天的价,用它就是 look-ahead)。
+**候选按策略交错、不按分数全局排序（2026-08-15）**:各策略枚举出的组合数差约 16 倍(Diagonal 6,761 vs Long Put 414),全局排序等于按枚举规模排序——同一分布抽样 16 倍更多,自然更常占据榜首,这是多重比较的假象而非质量证据。`interleaveByStrategy` 正是为此而写、有单测、也在 `buildActionableSetups` 末尾被正确调用,但 `buildCandidateBatch` 随后按分数重排把它抹掉,于是喂给 `/api/v1/scanner/candidates` **和** `candidate_ledger` 的那条路径毫无多样性保证(实测前 20 名清一色 Diagonal、仅两个标的)。那次排序读的还是**原始分**而非 `effectiveScore`,`directionalWeight` 的方向/gamma 加权算完即弃。**纯函数上的单测无法证明特性在生产路径里生效**——仓库第二次踩同一形状(`directionalWeight` 曾因调用方不传 `environment` 长期空转)。
+
+**多到期日结算（2026-08-13）**:日历/对角原先一律标 `not_evaluable`,措辞说的是"结构上不可评",实情是"近腿到期时远腿还活着、需要当天市价平掉,而我们没去取这个价"。实测 08-10 以来 538 笔中 355 笔为多到期日,且最新批次前 20 名清一色 Diagonal——**台账测不了自己排名最高的部分**。同一形状在 2026-07-30 记过一次(当时 64%),当时的修法是"每标的只捕获前 3 名",削的是行数不是构成,比例只降到 60%:**按比例描述的问题,要有一个改变比例的机制**。
+
+现按各腿中最早的到期日结算(从 `legs_json` 推导,不读 `expiry` 列,两者不可能对"哪条是近腿"分歧),当天到期按内在价值、未到期按**实测** mark 平仓。两种失败严格区分:根本没尝试取价仍是 `not_evaluable`,取了但缺该腿是 `no_price/far_leg_mark_missing`。**mark 只取双边报价中值**,不用成交价、不用模型价——用模型价等于让台账拿模型评模型自己。空值检查必须在 `Number()` **之前**:`Number(null)` 是 `0`,有限且非负,会把缺失报价结算成"远腿一文不值",系统性把未取价的 diagonal 全报成亏损。
+
+mark 存于持久无外键表 `ledger_far_leg_marks`,由 `collector/capture_ledger_far_leg_marks.py` 在**工作日 12:45 PT(15:45 ET,盘内)**分两趟写入:先读当日已落库快照(零 provider 调用),再用 `IbOptionChainProvider.fetch_named_contracts` 按**显式合约清单**补缺口(经 `reqContractDetails` 解析、conId 匹配,不拼笛卡尔积)。第二趟须盘内且 `settlement_date == 今天`——用今天行情补过去结算日等于把一天的市价冒充另一天的收盘。**每个 mark 只有一天可观测**,错过不可回补。缺口是深度实值远腿落在 ±5% 窗口外造成的,**不得为此放宽 `OPTION_MAX_STRIKES_PER_SIDE`**(该窗口约束着三分之二库容),定向抓每个结算日只需 4–147 个合约。
+
+**「还没有」不等于「不会有」（2026-08-15）**:`evaluateLedger` 只查 `outcome IS NULL`,所以**写入本身就是终态化**——代码里没有一处写着"终态",这个语义是查询条件和无条件写入合起来产生的。可重试与终态必须按**原因**而非结果区分:日线是迟到的数据(过去某天的收盘是既成事实,等它到位再算不构成 look-ahead),远腿 mark 只能在结算日当天观测。故只有 `underlying_close_missing` 可重试,留 NULL 等下轮、超过 `LEDGER_CLOSE_GRACE_DAYS`(7 天)才终态化(否则退市标的永远重试)。2026-08-14 傍晚 Polygon 只发布了 49/312 个标的的日线,79 行因此被永久定格,其中 64 行的一次性 mark 当天下午刚抓到、一次未被读到——**串行检查里,排在前面的失败会掩盖后面的**。`resolution_reason` 落库,不必再靠反推诊断;`evaluateLedger` 返回 `{resolved, deferred}`,**因为价格源落后而没结算,不得读成因为没有可结算的东西**。
+
+**成效(终态)**:已评分行 15 → **97**(39 win / 58 loss),`no_price` 90 → 8(全部 `far_leg_mark_missing`)。08-14 那批 79 行:多到期日 25 win/31 loss/8 no_price,单到期日 5 win/10 loss。`time_spread` 从 0% 可测变成**最大的已评分族**(56 笔、44.6%),台账第一次真的在测量引擎推荐最多的那个东西。但 97 笔里 56 笔来自同一个到期日、25 笔来自同一天建仓,独立观测数远不到 97,**胜率不得作为结论,打分权重在此之前不得改动**;能做样本外切分的批次在 09-18(123 笔)与 10-16(129 笔)。
 
 **新闻摄取 MVP（R3.2,2026-07-26）**:Analyze「近期消息」区块 + `GET /api/news/:symbol`。数据源只用 IB Gateway(live 实测对比 GDELT 后拍板,GDELT 429 限流紧且标的关联要靠字符串猜测,不准)。**关键教训**:一开始接的是 `reqHistoricalNews`,实测发现它读的是一个没有刷新 SLA 的服务端缓存,同一查询隔几分钟重跑"最新一条"会变旧——改用 `reqMktData`+genericTick 292(`tickNews`,实时推送)才拿到真正新鲜的新闻。采集节奏是每 5 分钟一次的 PM2 定时任务,不是常驻订阅——Mac/IB Gateway 本来就 7×24 开着,两种方案在"要不要开机"上没有区别,MVP 只验证参与度,展示型延迟几分钟无感。`volatilityAttribution` 的"消息面"归因有真实新闻时会引用具体 headline(仍是"仅参考、不构成因果"的措辞),没有则退回原来的隔夜跳空代理。**MVP 暂无文章链接**(`tickNews` 不带 URL,取全文/链接要等以后接 `reqNewsArticle`)。详见 `docs/validation/NEWS_SOURCE_SELECTION_2026-07-26.md`。
 

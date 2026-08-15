@@ -142,7 +142,7 @@ IV Rank 自给自足 Phase 2.5 → 3 → 4 → 5(Mac 可关机)。所有新功�
 - **✅ R1.3 板块轮动视图(对标 RRG)**:`/api/market/sector-rotation` 26 ETF vs SPY 简版 RRG(rs×动量四象限)。**因 SIC sector 65% 空且不含 ETF,改用 ETF 当板块代理**(更诚实、也是 RRG 标准)。散点+联动列表解决点重叠。
 
 ### R2 — 信任与验证层 · ✅ R2.1 框架完成 2026-07-24（结果随到期积累）
-- **✅ R2.1 候选结果台账(后台验证版)**:新建 durable `candidate_ledger`(快照被 prune,活不到到期,必须独立存)+ 纯引擎到期结算逐候选盈亏、按策略族胜率、POP 校准。`/ledger` 页面和公开读取端点已于 2026-07-30 删除；多到期结构仍在后台标记 `not_evaluable`，已 seed 4,735 候选。
+- **✅ R2.1 候选结果台账(后台验证版)**:新建 durable `candidate_ledger`(快照被 prune,活不到到期,必须独立存)+ 纯引擎到期结算逐候选盈亏、按策略族胜率、POP 校准。`/ledger` 页面和公开读取端点已于 2026-07-30 删除；已 seed 4,735 候选。**2026-08-15 更新**：多到期结构不再一律标 `not_evaluable`——远腿在近腿到期当天按实测报价平仓结算（`ledger_far_leg_marks`），`time_spread` 已成为最大的已评分族（56 笔），详见 `docs/validation/LEDGER_MULTI_EXPIRY_SETTLEMENT_2026-08-13.md`。
   **一石二鸟:这正是拟合打分权重需要的标注数据(我们已知的技术债)。**
 - **✅ R2.2 Breadth 模块(2026-07-23 前后端完成)**:% of universe above MA50/200 + 期权原生市场体征
   (% 正/负 Gamma、IV Rank 中位数+p25/p75、PCR 分布)——这是三家都没有的"期权版 breadth"。
