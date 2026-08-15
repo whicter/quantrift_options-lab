@@ -102,24 +102,34 @@ test('long call and long put use ask-side debit and expose finite max loss', () 
   assert.equal(puts[0].breakevens[0], 88.2);
 });
 
-test('undefined-risk short strategies require the explicit advanced gate', () => {
+test('short strategies are enumerated by default, and only the uncapped ones can be opted out', () => {
+  // Rewritten 2026-08-15. This used to assert the opposite -- that {} produced
+  // nothing -- which described the behaviour that kept Short Put, Short Call and
+  // Short Strangle out of every candidate batch and every ledger row, leaving
+  // 10 of 13 strategies measured. The gate is now keyed on the observed risk
+  // shape rather than on the strategy family, so the opt-out no longer takes a
+  // defined-risk structure with it.
   const contracts = [
     contract({ expiry: '2026-08-29', dte: 45, strike: 90, right: 'P', bid: 2.0, ask: 2.1, delta: -0.20 }),
     contract({ expiry: '2026-08-29', dte: 45, strike: 110, right: 'C', bid: 2.0, ask: 2.1, delta: 0.20 }),
   ];
+  const all = ['Short Strangle', 'Short Put', 'Short Call'];
 
-  assert.equal(buildActionableSetups(contracts, { price_close: 100 }, {}, ['Short Strangle']).length, 0);
-  const enabled = buildActionableSetups(
-    contracts,
-    { price_close: 100 },
-    { allowUndefinedRisk: true },
-    ['Short Strangle', 'Short Put', 'Short Call'],
+  const byDefault = buildActionableSetups(contracts, { price_close: 100 }, {}, all);
+  assert.ok(byDefault.some(setup => setup.strategy === 'Short Strangle' && setup.maxLoss === null));
+  assert.ok(byDefault.some(setup => setup.strategy === 'Short Put' && setup.maxLoss === 88));
+  assert.ok(byDefault.some(setup => setup.strategy === 'Short Call' && setup.maxLoss === null));
+  assert.ok(byDefault.every(setup => setup.legs.every(leg => leg.action === 'SELL')));
+
+  const optedOut = buildActionableSetups(
+    contracts, { price_close: 100 }, { allowUndefinedRisk: false }, all,
   );
-
-  assert.ok(enabled.some(setup => setup.strategy === 'Short Strangle' && setup.maxLoss === null));
-  assert.ok(enabled.some(setup => setup.strategy === 'Short Put' && setup.maxLoss === 88));
-  assert.ok(enabled.some(setup => setup.strategy === 'Short Call' && setup.maxLoss === null));
-  assert.ok(enabled.every(setup => setup.legs.every(leg => leg.action === 'SELL')));
+  const remaining = new Set(optedOut.map(setup => setup.strategy));
+  assert.ok(!remaining.has('Short Strangle'), 'uncapped structures respect the opt-out');
+  assert.ok(!remaining.has('Short Call'), 'uncapped structures respect the opt-out');
+  // strike - credit = 90 - 2.0 = 88, computed from real quotes, so this is a
+  // defined loss and must survive an opt-out aimed at unbounded ones.
+  assert.ok(remaining.has('Short Put'), 'a cash-secured put is not undefined risk');
 });
 
 test('iron butterfly uses one ATM body and symmetric real wings', () => {

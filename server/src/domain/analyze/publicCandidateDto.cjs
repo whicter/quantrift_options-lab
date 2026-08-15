@@ -44,6 +44,13 @@ function toPublicAnalyzeCandidate(candidate) {
     credit: finiteOrNull(candidate.credit),
     debit: finiteOrNull(candidate.debit),
     maxLoss: candidate.maxLoss == null ? null : finiteOrNull(candidate.maxLoss),
+    // The one field this boundary widens for rather than narrows. A null
+    // `maxLoss` above renders as an absent number, and "we did not compute it"
+    // and "it is unbounded" are very different claims to leave a reader to infer
+    // from the same blank. Level and reason only -- no thresholds, no scoring.
+    riskDisclosure: candidate.riskDisclosure
+      ? { level: candidate.riskDisclosure.level, reason: candidate.riskDisclosure.reason }
+      : null,
     pop: toPublicPop(candidate.pop),
     payoff: toPublicPayoff(candidate.payoff),
     legs: (candidate.legs || []).map(leg => ({

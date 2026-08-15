@@ -22,7 +22,13 @@ const {
 
 // Bump whenever candidate enumeration, scoring, or dedupe changes so a stored
 // batch can be told apart from one produced by a different algorithm.
-const ALGORITHM_VERSION = 'candidate-v1';
+// v2 (2026-08-15): short premium is enumerated. The batch path never passed
+// allowUndefinedRisk, so Short Put / Short Call / Short Strangle were absent
+// from every batch and every ledger row -- 10 of 13 strategies were measured.
+// Uncapped structures now score 0 on economics rather than the not-computed 5,
+// so pre-v2 scores are not comparable with v2 scores for any structure lacking
+// a returnOnRisk. The ledger keeps algorithm_version per row for exactly this.
+const ALGORITHM_VERSION = 'candidate-v2';
 
 const DEFAULT_SCAN_KEY = process.env.SCAN_KEY || 'watchlist_v1';
 const CANDIDATE_INSERT_CHUNK = 500;

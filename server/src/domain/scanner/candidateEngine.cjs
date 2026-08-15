@@ -41,6 +41,50 @@ const ACTIONABLE_STRATEGIES = [
 // client read the classification instead of restating it.
 const ADVANCED_RISK_STRATEGIES = ['Short Strangle', 'Short Put', 'Short Call'];
 
+// Risk shape as observed, not as the strategy family suggests. These three used
+// to share one `allowUndefinedRisk` switch, which is wrong about Short Put: its
+// loss is bounded at `strike - credit` and computed from real quotes, exactly as
+// defined as a vertical's. Only the naked-call side is genuinely uncapped.
+// Keeping them together meant a cash-secured put was unavailable for the same
+// reason a naked call was.
+const RISK_CLASS_DEFINED = 'defined';
+const RISK_CLASS_CASH_SECURED = 'cash_secured';
+const RISK_CLASS_UNCAPPED = 'uncapped';
+
+const STRATEGY_RISK_CLASS = {
+  'Short Put': RISK_CLASS_CASH_SECURED,
+  'Short Call': RISK_CLASS_UNCAPPED,
+  'Short Strangle': RISK_CLASS_UNCAPPED,
+};
+
+/**
+ * User-facing risk statement, derived from the risk class rather than authored
+ * per strategy, so a structure added later cannot arrive without one.
+ *
+ * This crosses BOTH DTO boundaries. The narrow Analyze boundary otherwise only
+ * ever narrows, but a candidate whose `maxLoss` is null renders as an absent
+ * number with no explanation -- and "unknown" and "unbounded" are very different
+ * claims to leave a reader to guess between.
+ */
+function riskDisclosure(strategy) {
+  const riskClass = STRATEGY_RISK_CLASS[strategy] || RISK_CLASS_DEFINED;
+  if (riskClass === RISK_CLASS_UNCAPPED) {
+    return {
+      level: 'severe',
+      risk_class: riskClass,
+      reason: 'loss_is_unbounded',
+    };
+  }
+  if (riskClass === RISK_CLASS_CASH_SECURED) {
+    return {
+      level: 'elevated',
+      risk_class: riskClass,
+      reason: 'assignment_requires_full_cash_collateral',
+    };
+  }
+  return { level: 'standard', risk_class: riskClass, reason: 'loss_is_capped_by_structure' };
+}
+
 // Directional stance of each strategy, used to weight candidates by the market
 // environment so a bull regime does not surface a Long Put as its top pick.
 // 'bullish'/'bearish' profit when the underlying rises/falls; 'neutral' profits
@@ -259,7 +303,13 @@ function selectionRules(overrides = {}) {
     maxSpreadPct: num(overrides.maxSpreadPct) ?? 25,
     minContractOi: num(overrides.minContractOi) ?? 10,
     minContractVolume: num(overrides.minContractVolume) ?? 0,
-    allowUndefinedRisk: overrides.allowUndefinedRisk === true,
+    // Defaults to true as of 2026-08-15: uncapped structures are enumerated
+    // unless a caller explicitly opts out with `false`. The safety is not this
+    // switch -- it is that an uncapped candidate scores 0 on economics instead
+    // of the not-computed 5, and carries a `severe` risk_disclosure through both
+    // DTO boundaries. A switch that hides them also hid Short Put for months and
+    // left the ledger measuring 10 of 13 strategies.
+    allowUndefinedRisk: overrides.allowUndefinedRisk !== false,
   };
 }
 
@@ -299,9 +349,19 @@ function scoreCandidate(candidate, rules) {
   const spreadFit = Math.max(0, 20 * (1 - candidate.avgSpreadPct / Math.max(rules.maxSpreadPct, 1)));
   const oiFit = Math.min(15, Math.log10(candidate.minOpenInterest + 1) * 4);
   const volumeFit = Math.min(5, Math.log10(candidate.totalVolume + 1) * 1.5);
-  const economicsFit = candidate.returnOnRisk == null
-    ? 5
-    : Math.min(10, Math.max(0, candidate.returnOnRisk) * 35);
+  // An uncapped structure scores 0 here, not the not-computed default. Before
+  // naked calls were enumerated this branch only ever saw genuinely missing
+  // economics, so a neutral 5 was right; now `returnOnRisk` is also null when
+  // there is no denominator because the loss is unbounded, and paying 5 points
+  // for that would have let the riskiest structures outrank a defined one whose
+  // return on risk merely happened to be poor.
+  // Read from the candidate's own `riskClass`, not from a strategy lookup:
+  // `finishCandidate` is what attaches `strategy`, and it runs AFTER scoring, so
+  // a lookup here would silently see undefined and restore the subsidy for every
+  // structure.
+  const economicsFit = candidate.returnOnRisk != null
+    ? Math.min(10, Math.max(0, candidate.returnOnRisk) * 35)
+    : (candidate.riskClass === RISK_CLASS_UNCAPPED ? 0 : 5);
   return Math.max(0, Math.min(100, Math.round(dteFit + deltaFit + spreadFit + oiFit + volumeFit + economicsFit)));
 }
 
@@ -657,7 +717,15 @@ function allStraddleSetups(contracts, spot, rules) {
 function allSingleLegSetups(strategy, contracts, spot, rules) {
   const right = strategy.endsWith('Call') ? 'C' : 'P';
   const isShort = strategy.startsWith('Short');
-  if (isShort && !rules.allowUndefinedRisk) return [];
+  const riskClass = STRATEGY_RISK_CLASS[strategy] || RISK_CLASS_DEFINED;
+  // Short premium is enumerated by default (2026-08-15). Until then the batch
+  // path never passed `allowUndefinedRisk`, so all three short strategies were
+  // absent from every candidate batch and therefore from the ledger -- 10 of 13
+  // strategies were being measured. `allowUndefinedRisk: false` still suppresses
+  // the uncapped ones for a caller that asks, and the cash-secured put is no
+  // longer collateral damage of that switch.
+  if (isShort && riskClass === RISK_CLASS_UNCAPPED
+      && rules.allowUndefinedRisk === false) return [];
 
   return contracts
     .filter(contract => contract.right === right && contractEligible(contract, rules, { longPremium: !isShort }))
@@ -691,6 +759,14 @@ function allSingleLegSetups(strategy, contracts, spot, rules) {
         shortDelta: isShort ? Math.abs(contract.delta) : null,
         longDelta: isShort || contract.delta == null ? null : Math.abs(contract.delta),
         riskType: isShort ? 'advanced' : 'defined',
+        riskClass,
+        riskDisclosure: riskDisclosure(strategy),
+        // Cash-secured shorts tie up the full assignment value, which
+        // returnOnRisk (credit / maxLoss) does not express: a put with an $8,800
+        // collateral requirement and one with a $500 spread width can show the
+        // same ratio. Surfaced so a consumer can rank on capital rather than on
+        // a ratio that hides it.
+        collateral: isShort && right === 'P' ? contract.strike * 100 : null,
         ...candidateQuality([contract]),
         legs: [{ action: isShort ? 'SELL' : 'BUY', ...contract }],
       };
@@ -706,7 +782,7 @@ function allSingleLegSetups(strategy, contracts, spot, rules) {
 }
 
 function allShortStrangleSetups(contracts, spot, rules) {
-  if (!rules.allowUndefinedRisk) return [];
+  if (rules.allowUndefinedRisk === false) return [];
   const candidates = [];
   for (const group of groupedByExpiry(contracts)) {
     const calls = group.filter(contract => contract.right === 'C' && contract.strike > spot && contractEligible(contract, rules));
@@ -721,6 +797,8 @@ function allShortStrangleSetups(contracts, spot, rules) {
           breakevens: [put.strike - credit, call.strike + credit],
           shortDelta: (Math.abs(call.delta) + Math.abs(put.delta)) / 2,
           riskType: 'undefined',
+          riskClass: RISK_CLASS_UNCAPPED,
+          riskDisclosure: riskDisclosure('Short Strangle'),
           ...candidateQuality([put, call]),
           legs: [{ action: 'SELL', ...put }, { action: 'SELL', ...call }],
         };

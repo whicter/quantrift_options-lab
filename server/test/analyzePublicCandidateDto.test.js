@@ -100,6 +100,12 @@ test('public candidate is allowlisted and omits ranking, provenance and payoff m
     credit: null,
     debit: 4,
     maxLoss: 4,
+    // Added 2026-08-15 when short premium began being enumerated. This boundary
+    // otherwise only ever narrows; it widens here because `maxLoss: null` on an
+    // uncapped structure is indistinguishable from a value that was simply not
+    // computed, and those are very different things to leave a reader to infer.
+    // Level and reason only -- no thresholds, no risk class, no scoring.
+    riskDisclosure: null,
     pop: { status: 'available', probability: 0.34 },
     payoff: { status: 'available', reward_risk: 1.5, peak_requires_pin: false },
     legs: [{ action: 'BUY', dte: 45, strike: 100, right: 'C', delta: 0.52 }],
