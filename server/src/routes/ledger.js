@@ -98,6 +98,30 @@ async function loadFarLegMarks(db, settleOn, symbol) {
   return marks;
 }
 
+// How long a row waits for a daily close that has not arrived yet before the
+// gap is accepted as permanent. Polygon publishes the daily aggregate some
+// hours after the close and not always the same evening: on 2026-08-14 the
+// collector's own 21:26 ET run logged `270/319 symbols behind expected
+// 2026-08-14`, and the price cron is weekday-only, so a Friday expiry can wait
+// until Monday for its bar. Calendar days, so a long weekend cannot exhaust it.
+const CLOSE_GRACE_DAYS = Math.max(parseInt(process.env.LEDGER_CLOSE_GRACE_DAYS ?? 7, 10) || 7, 1);
+
+// Reasons that mean "not yet", as opposed to "not ever".
+//
+// A daily close is late-arriving data: the bar for a past session is a fixed
+// historical fact that simply has not been fetched, and settling against it
+// once it lands is not look-ahead. A far-leg mark is the opposite — it can only
+// be observed on the settlement date itself, so once that day is gone no later
+// fetch can produce it and retrying forever would just defer an outcome that is
+// already decided.
+const RETRYABLE_REASONS = new Set(['underlying_close_missing']);
+
+function daysSince(dateValue) {
+  const then = Date.parse(`${toIsoDate(dateValue)}T00:00:00Z`);
+  if (!Number.isFinite(then)) return Infinity;
+  return Math.floor((Date.now() - then) / 86400000);
+}
+
 /**
  * Resolve ledger rows whose (near) expiry has passed: fetch the underlying
  * close on or after that expiry and evaluate the payoff. Best-effort per row.
@@ -107,6 +131,16 @@ async function loadFarLegMarks(db, settleOn, symbol) {
  * whenever a row has more than one expiry, so an uncaptured far leg resolves as
  * `no_price` — an honest data gap that improving coverage fixes — instead of
  * `not_evaluable`, which claimed the structure itself could never be scored.
+ *
+ * **A row is only written once**, so writing an outcome is what makes it final:
+ * the query above selects on `outcome IS NULL`, and a resolved row is never
+ * looked at again. Until 2026-08-15 a not-yet-published daily close was written
+ * straight to `no_price` on that basis, which permanently discarded rows whose
+ * inputs were merely hours away — 79 rows on 2026-08-14 alone, including 64
+ * whose one-shot far-leg marks had been captured correctly that afternoon and
+ * were never read, because the missing-close check runs first. Retryable gaps
+ * are therefore LEFT UNRESOLVED and picked up by a later cycle; only after
+ * CLOSE_GRACE_DAYS is the absence accepted as the answer.
  */
 async function evaluateLedger(db) {
   const { rows } = await db.query(
@@ -116,6 +150,7 @@ async function evaluateLedger(db) {
      LIMIT 2000`,
   );
   let resolved = 0;
+  let deferred = 0;
   const markCache = new Map();
   for (const row of rows) {
     const legs = row.legs_json || [];
@@ -143,15 +178,30 @@ async function evaluateLedger(db) {
       closeAtExpiry,
       { farLegMarks },
     );
+
+    if (RETRYABLE_REASONS.has(result.reason) && daysSince(row.expiry) < CLOSE_GRACE_DAYS) {
+      deferred += 1;
+      continue;
+    }
+
     await db.query(
       `UPDATE candidate_ledger
-         SET outcome = $2, underlying_at_expiry = $3, realized_pnl = $4, return_on_risk = $5, resolved_at = NOW()
+         SET outcome = $2, underlying_at_expiry = $3, realized_pnl = $4, return_on_risk = $5,
+             resolution_reason = $6, resolved_at = NOW()
        WHERE id = $1`,
-      [row.id, result.outcome, closeAtExpiry, result.realized_pnl ?? null, result.return_on_risk ?? null],
+      [
+        row.id, result.outcome, closeAtExpiry,
+        result.realized_pnl ?? null, result.return_on_risk ?? null,
+        // Stored so an unscored row can be diagnosed directly. Recovering the
+        // 2026-08-14 batch meant inferring the cause from
+        // `underlying_at_expiry IS NULL`, which only worked because the two
+        // failure modes happened to differ in that column.
+        result.reason ?? null,
+      ],
     );
     resolved += 1;
   }
-  return resolved;
+  return { resolved, deferred };
 }
 
-module.exports = { captureLedger, evaluateLedger };
+module.exports = { captureLedger, evaluateLedger, CLOSE_GRACE_DAYS };

@@ -1027,6 +1027,14 @@ async function migrate() {
       outcome            TEXT,             -- win | loss | not_evaluable | no_price
       UNIQUE (candidate_key, expiry)
     );
+    -- Why a row ended up unscored (2026-08-15). Recovering the 2026-08-14 batch
+    -- meant inferring the cause from underlying_at_expiry IS NULL, which only
+    -- worked because the two failure modes happened to differ in that column.
+    -- Values come from evaluateOutcome's own reason: underlying_close_missing,
+    -- far_leg_mark_missing, multi_expiry, no_legs, no_entry_cash, bad_leg.
+    ALTER TABLE candidate_ledger
+      ADD COLUMN IF NOT EXISTS resolution_reason TEXT;
+
     CREATE INDEX IF NOT EXISTS candidate_ledger_unresolved
       ON candidate_ledger (expiry) WHERE outcome IS NULL;
     CREATE INDEX IF NOT EXISTS candidate_ledger_resolved_family

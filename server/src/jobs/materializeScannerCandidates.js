@@ -14,7 +14,7 @@
  * CLI: node src/jobs/materializeScannerCandidates.js [scanKey]
  */
 
-const { buildActionableSetups, ACTIONABLE_STRATEGIES } = require('../domain/scanner/candidateEngine.cjs');
+const { buildActionableSetups, interleaveByStrategy, ACTIONABLE_STRATEGIES } = require('../domain/scanner/candidateEngine.cjs');
 const {
   LATEST_QUOTED_CHAIN_CTE,
   QUOTED_CONTRACT_SAMPLES_CTE,
@@ -144,18 +144,42 @@ function buildCandidateBatch({ rows = [], overrides = {} } = {}) {
     if (row && row.symbol) universe.add(row.symbol);
     if (!row || !row.symbol) continue;
     const setups = buildActionableSetups(row.option_contracts, row, overrides, ACTIONABLE_STRATEGIES, { gammaRegime: row.gamma_regime || null });
-    for (const candidate of setups) collected.push({ row, symbol: row.symbol, candidate });
+    for (const candidate of setups) {
+      collected.push({
+        row,
+        symbol: row.symbol,
+        candidate,
+        // Surfaced on the wrapper so interleaveByStrategy can order these
+        // directly. effectiveScore, not score: the directional/gamma weight is
+        // what the engine intends to order by, and the global sort this
+        // replaces read the raw score, silently discarding it.
+        strategy: candidate.strategy,
+        effectiveScore: candidate.effectiveScore ?? candidate.score,
+        returnOnRisk: candidate.returnOnRisk,
+      });
+    }
   }
 
-  collected.sort((a, b) => (
-    b.candidate.score - a.candidate.score
-    || (b.candidate.returnOnRisk ?? 0) - (a.candidate.returnOnRisk ?? 0)
-    || a.symbol.localeCompare(b.symbol)
-  ));
+  // Interleave by strategy instead of pooling and sorting globally.
+  //
+  // buildActionableSetups already interleaves within one symbol, for the reason
+  // set out on interleaveByStrategy: strategies differ 16x in how many
+  // combinations they enumerate, so a global sort ranks by enumeration size and
+  // hands the top slots to the largest family as a multiple-comparisons
+  // artifact. This function then re-sorted the pooled result by raw score and
+  // undid it, which is why the materialized batch -- the path feeding
+  // /api/v1/scanner/candidates AND candidate_ledger -- had no diversity
+  // guarantee at all: measured 2026-08-13, the top 20 of the latest batch were
+  // Diagonal Spreads without exception, across two symbols.
+  //
+  // That is also how the ledger came to be dominated by the one family it could
+  // not settle. The interleave existed and was unit-tested; it was simply
+  // discarded one call up, which a test on the pure function alone cannot catch.
+  const ordered = interleaveByStrategy(collected);
 
   const seen = new Set();
   const candidates = [];
-  for (const item of collected) {
+  for (const item of ordered) {
     const built = candidateRow(item.symbol, item.row, item.candidate);
     if (seen.has(built.candidate_key)) continue;
     seen.add(built.candidate_key);
@@ -306,14 +330,19 @@ async function runMaterialization(pool, { scanKey = DEFAULT_SCAN_KEY, overrides 
     // now-expired entries. Best-effort — the ledger must never fail a batch.
     let ledgerCaptured = 0;
     let ledgerResolved = 0;
+    // Rows still waiting on a daily close that has not been published yet.
+    // Reported separately from `resolved` so a run that settled nothing because
+    // the price feed is behind cannot read as a run that settled nothing
+    // because there was nothing to settle.
+    let ledgerDeferred = 0;
     try {
       const { captureLedger, evaluateLedger } = require('../routes/ledger');
       ledgerCaptured = await captureLedger(pool, batchId);
-      ledgerResolved = await evaluateLedger(pool);
+      ({ resolved: ledgerResolved, deferred: ledgerDeferred } = await evaluateLedger(pool));
     } catch (ledgerErr) {
       console.error('candidate ledger capture/evaluate skipped:', ledgerErr.message);
     }
-    return { batchId, scanKey, algorithmVersion: ALGORITHM_VERSION, universeCount, candidateCount, prunedBatches: pruned, ledgerCaptured, ledgerResolved, status: 'completed' };
+    return { batchId, scanKey, algorithmVersion: ALGORITHM_VERSION, universeCount, candidateCount, prunedBatches: pruned, ledgerCaptured, ledgerResolved, ledgerDeferred, status: 'completed' };
   } catch (err) {
     await pool.query(
       `UPDATE scanner_candidate_batches

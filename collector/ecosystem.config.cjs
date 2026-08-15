@@ -406,10 +406,14 @@ module.exports = {
       // days and a later quote belongs to a different day, so a missed run
       // makes those rows unscoreable permanently, not merely late.
       //
-      // 13:15 PT = 16:15 ET, after the last intraday quote sweep (which ends at
-      // ~15:59 ET) has landed a close-quality market. Reading the day's own
-      // persisted snapshots costs no provider call, so this is cheap enough to
-      // run every weekday even though most days settle nothing.
+      // 12:45 PT = 15:45 ET, INSIDE the session and deliberately not after it.
+      // The first pass reads the day's own persisted snapshots and would prefer
+      // to run as late as possible; the second quotes the gap from IB and needs
+      // a live quote stream, which after 16:00 ET does not exist -- IB then
+      // burns its per-contract timeout and returns nothing. 15:45 is the latest
+      // point where both passes work: the intraday quote sweep has been running
+      // since 10:00 ET, and a mark observed at 15:45 is an honest executable
+      // price on the settlement date, which is all this ever claims.
       ...logs('quantrift-ledger-far-leg-marks'),
 
       name: 'quantrift-ledger-far-leg-marks',
@@ -417,7 +421,12 @@ module.exports = {
       script: 'capture_ledger_far_leg_marks.py',
       interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
       autorestart: false,
-      cron_restart: '15 13 * * 1-5',
+      cron_restart: '45 12 * * 1-5',
+      env: {
+        // Its own client id: 42 option chain, 12 price, 55 news, 44 borrow,
+        // 96 belongs to the other project on this gateway.
+        LEDGER_MARKS_IB_CLIENT_ID: '46',
+      },
     },
   ],
 };

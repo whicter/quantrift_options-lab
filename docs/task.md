@@ -59,8 +59,37 @@
         另加不静默截断的告警：按 250 秒/标的估当日所需时长并具名列全部标的。
       - 实跑验证 09:21 PT：`{'settling': 19, 'settlement_enqueued': 0, ...}`，
         19 个全识别，`0` 是去重守卫正确跳过刚手工入的同批任务
-- [ ] **待验证（今天 16:15 ET）**：13:15 PT 那班的 `priced` 实际数。
-      期望接近 48/48（19 个标的今天全部会被报价，昨日同批合约试算命中 36/48）
+- [x] **13:15 PT 实测：priced=41 / missing=7（85%）**，好于预估的 75%
+- [x] **但 41 个好 mark 当场被另一个 bug 扔掉（2026-08-15 已修）**：
+      `evaluateOutcome` 里收盘价检查排在远腿检查之前，而周五日线只有 49/312 个标的入库
+      （Polygon 当时未发布当日聚合，采集器自己就警告了 `270/319 symbols behind`），
+      79 行全在第一道闸门返回 `underlying_close_missing`；
+      而 `evaluateLedger` 把它**写成终态**（查询条件 `outcome IS NULL`，写入即永不重看）。
+      **把「还没采到」当成「永远采不到」——与本条主题是同一形状的错误，修了一个没看见另一个。**
+      - 修复：按原因区分可重试与终态（收盘价是迟到的数据，远腿 mark 是一次性观测，
+        只有前者进 `RETRYABLE_REASONS`）；可重试的缺口不写行、留 NULL 等下轮，
+        超过 `CLOSE_GRACE_DAYS`（默认 7 日历日）才终态化；
+        新增 `resolution_reason` 列；`evaluateLedger` 返回 `{resolved, deferred}` 并分别上报——
+        **因为价格源落后而没结算，不得读成因为没有可结算的东西**
+      - 复位 90 行（07-31 的 11 + 08-14 的 79）+ 手动补跑 `collect_prices.py`
+- [x] **端到端验收通过**：已评分行 **15 → 30**、`no_price` **90 → 0**、
+      `deferred: 75`（收盘价未齐的正确推迟）。
+      **`time_spread` 首次出现 2 行已评分（1 win / 1 loss）——
+      台账建立以来第一次有多到期日结构算出真实盈亏**，用的正是 08-14 16:15 ET 抓到的 mark
+- [x] **阶段二已完成**：`IbOptionChainProvider.fetch_named_contracts` 按显式合约清单取价
+      （经 `reqContractDetails` 解析、conId 匹配，不拼笛卡尔积；按 `(expiry,right)` 分组，
+      7 个缺口跨 5 标的只需 5 次连接）。采集改为两趟：先读快照、再用 IB 补缺口。
+      第二趟三个门：非 dry-run、`settlement_date == 今天`、盘内——
+      **中间那个是硬约束**，用今天行情补过去结算日等于把一天的市价冒充另一天的收盘。
+      **排程随之从 13:15 PT 改到 12:45 PT**：原时点 = 16:15 ET 已收盘，第二趟永远不会执行
+- [x] **连带修复：交错在物化层被抹掉**。`interleaveByStrategy` 的注释早已写明该问题
+      （含「Diagonal 占 71% top-3-per-symbol 名额，恰好是唯一无法单到期日结算的族」），
+      函数写好、单测覆盖，但 `buildCandidateBatch` 按 `candidate.score` 全局重排整个抹掉。
+      第二个后果此前无人提及：全局排序读**原始分**而非 `effectiveScore`，
+      `directionalWeight` 的方向/gamma 加权**算完就被丢掉**。
+      已改为对合并后候选池调用交错。**纯函数上的单测无法证明它在生产路径里生效——
+      仓库第二次踩同一形状**（`directionalWeight` 曾长期因调用方不传 `environment` 而空转）
+- [ ] 观察下一个结算日（08-28，147 个合约 / 39 个标的）两趟合计的实际覆盖率
 - [ ] **阶段二**：约 25% 的远腿（深度实值、落在 ±5% 窗口外）需 IB 定向报价。
       `IbOptionChainProvider.fetch_option_chain` 只能按 spot 窗口抓，需新增公开方法，
       `reqContractDetails` 逐个解析后再 `reqMktData`（不得拼笛卡尔积——既有规则）。

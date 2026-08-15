@@ -63,17 +63,14 @@ test('candidateKey is stable for the same legs and differs by strike', () => {
   assert.notEqual(a, shifted);
 });
 
-test('buildCandidateBatch ranks globally by score and counts the universe', () => {
+test('buildCandidateBatch interleaves by strategy and counts the universe', () => {
   const { universeCount, candidateCount, candidates } = buildCandidateBatch({
     rows: [callSpreadRow('AAA'), callSpreadRow('BBB')],
   });
   assert.equal(universeCount, 2);
   assert.ok(candidateCount >= 2, 'each symbol yields at least one candidate');
-  // ranks are dense and monotonic by score
+  // ranks are dense
   candidates.forEach((candidate, index) => assert.equal(candidate.rank, index + 1));
-  for (let i = 1; i < candidates.length; i += 1) {
-    assert.ok(candidates[i - 1].score >= candidates[i].score, 'candidates sorted by score desc');
-  }
   const first = candidates[0];
   assert.equal(first.strategy_family, strategyFamily(first.strategy));
   assert.ok(Array.isArray(first.legs_json) && first.legs_json.length >= 1);
@@ -229,4 +226,33 @@ test('runMaterialization marks the batch failed when a candidate insert throws',
   assert.ok(failedUpdate, 'batch marked failed on error');
   assert.equal(failedUpdate.params[0], 9);
   assert.match(failedUpdate.params[1], /boom/);
+});
+
+const { interleaveByStrategy } = require('../src/domain/scanner/candidateEngine.cjs');
+
+test('a large family cannot monopolise the top of the batch', () => {
+  // The defect this pins (2026-08-13): buildActionableSetups interleaves within
+  // a symbol, but buildCandidateBatch re-sorted the pooled result by RAW score
+  // and undid it. The materialized batch feeds /api/v1/scanner/candidates and
+  // candidate_ledger, so the top 20 of the live batch were Diagonal Spreads
+  // without exception -- the one family that is multi-expiry, i.e. the family
+  // the ledger could least validate. A unit test on interleaveByStrategy alone
+  // passed throughout, because the discard happened one call up.
+  const strategies = [];
+  for (let i = 0; i < 40; i += 1) strategies.push({ strategy: 'Big Family', effectiveScore: 100 - i, returnOnRisk: 0.2 });
+  strategies.push({ strategy: 'Small Family', effectiveScore: 60, returnOnRisk: 0.1 });
+  const ordered = interleaveByStrategy(strategies);
+  const smallIndex = ordered.findIndex(c => c.strategy === 'Small Family');
+  assert.ok(smallIndex <= 1, `the smaller family must not be buried behind 40 siblings (got ${smallIndex})`);
+});
+
+test('batch ordering uses effectiveScore, so the gamma/direction weight is not discarded', () => {
+  // The replaced global sort read `candidate.score`. effectiveScore is what
+  // directionalWeight produces and what the engine intends to order by; sorting
+  // on the raw score silently threw the weighting away after computing it.
+  const ordered = interleaveByStrategy([
+    { strategy: 'A', effectiveScore: 50, score: 99, returnOnRisk: 0 },
+    { strategy: 'A', effectiveScore: 90, score: 10, returnOnRisk: 0 },
+  ]);
+  assert.equal(ordered[0].effectiveScore, 90);
 });

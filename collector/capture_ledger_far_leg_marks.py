@@ -16,15 +16,21 @@ Diagonal Spreads without exception. The ledger is the only instrument that can
 say whether the scoring weights work, and 60% of what it tracked -- the
 top-ranked 60% -- was being written off before it was ever measured.
 
-This script is phase one: it reads marks out of chain snapshots ALREADY persisted
-for that trading day. Coverage is therefore whatever the day's collection
-happened to cover; measured against 07-30..08-06 entries, roughly 45% of far legs
-are present, because a diagonal's far leg is deliberately deep ITM
-(stock-replacement construction) and falls outside the +/-5% strike window the
-chain collector keeps. The remaining legs are reported as misses with their
-contract identity, which is the work list for phase two (a targeted IB quote of
-that explicit contract list -- 4 to 147 contracts per settlement date, versus the
-120-240 a single ordinary chain sweep already costs).
+Two passes, cheapest first:
+
+1. Read marks out of chain snapshots ALREADY persisted for that trading day.
+   Zero provider calls. Measured 2026-08-14: 41 of 48 far legs.
+2. Quote whatever is left directly from IB, by explicit contract identity. The
+   gap exists because a diagonal's far leg is deliberately deep ITM
+   (stock-replacement construction) and falls outside the +/-5% strike window
+   the chain collector keeps; all 7 misses that day were far ITM. Widening that
+   window is NOT the alternative -- it bounds `option_contract_snapshots` and
+   `option_oi_delta_snapshots`, two thirds of the database, and the 2026-07-30
+   volume-full outage came from exactly that. A settlement date needs 4 to 147
+   contracts, against the 120-240 one ordinary chain sweep already costs.
+
+Pass 2 is skipped outside the regular session: with no quote stream IB does not
+fail fast, it burns IB_OPTION_STREAM_TIMEOUT per contract and returns nothing.
 
 A mark is taken ONLY from a two-sided bid/ask. `last` is a transacted price and
 the snapshot's own `mark` column can be model-derived; either would make the
@@ -50,9 +56,15 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 from collector_runtime import configure_collector
+from run_refresh_worker import is_regular_us_session
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
+
+# IB client id. 42 is the option chain, 12 price, 55 news, 44 borrow, and 96
+# belongs to the other project sharing this gateway -- a collision makes the
+# gateway drop one of the two connections.
+IB_CLIENT_ID = int(os.getenv('LEDGER_MARKS_IB_CLIENT_ID', '46'))
 
 DB_URL = os.getenv('DATABASE_URL')
 NEW_YORK = ZoneInfo('America/New_York')
@@ -139,6 +151,43 @@ def fetch_mark_from_snapshots(conn, leg: dict, settlement_date: date) -> dict | 
     return {'bid': bid, 'ask': ask, 'mark': (bid + ask) / 2, 'source': source}
 
 
+def quote_from_ib(legs: list[dict]) -> dict[tuple, dict]:
+    """Pass 2: quote the legs the day's snapshots did not cover, from IB directly.
+
+    Grouped by symbol so each one costs a single gateway connection. Failures are
+    isolated per symbol: IB refusing one name must not cost the marks of the
+    others, since every one of them is a one-shot observation.
+
+    Only a two-sided market becomes a mark, exactly as in pass 1. IB's own
+    quality caveat applies -- thin contracts have been measured at 111% spread --
+    but a wide real market is still the best observation available for closing
+    that leg, and the stored bid/ask lets any later analysis filter on it.
+    """
+    from providers.ib_option_chain_provider import IbOptionChainProvider
+
+    by_symbol: dict[str, list[dict]] = {}
+    for leg in legs:
+        by_symbol.setdefault(leg['symbol'], []).append(leg)
+
+    quotes: dict[tuple, dict] = {}
+    for symbol, symbol_legs in sorted(by_symbol.items()):
+        specs = [(l['expiry'], float(l['strike']), l['option_right']) for l in symbol_legs]
+        try:
+            provider = IbOptionChainProvider(client_id=IB_CLIENT_ID)
+            snapshots = provider.fetch_named_contracts(symbol, specs)
+        except Exception as exc:  # noqa: BLE001 -- one symbol must not sink the rest
+            log.warning('%s: IB far-leg quote failed: %s', symbol, exc)
+            continue
+        for snap in snapshots:
+            bid, ask = snap.bid, snap.ask
+            if bid is None or ask is None or bid <= 0 or ask < bid:
+                continue
+            quotes[(symbol, snap.expiry, float(snap.strike), snap.right)] = {
+                'bid': bid, 'ask': ask, 'mark': (bid + ask) / 2, 'source': 'ib_internal',
+            }
+    return quotes
+
+
 def persist(conn, settlement_date: date, records: list[tuple]) -> int:
     if not records:
         return 0
@@ -174,10 +223,37 @@ def run(settlement_date: date | None = None, dry_run: bool = False) -> dict:
             log.info('settlement_date=%s no unresolved multi-expiry rows settle today', settlement_date)
             return {'status': 'empty', 'settlement_date': settlement_date.isoformat(), 'legs': 0}
 
+        # Pass 1: whatever the day's own snapshots already hold, for free.
+        from_snapshots: dict[int, dict] = {}
+        gap: list[dict] = []
+        for index, leg in enumerate(legs):
+            quote = fetch_mark_from_snapshots(conn, leg, settlement_date)
+            if quote:
+                from_snapshots[index] = quote
+            else:
+                gap.append(leg)
+
+        # Pass 2: the remainder, quoted from IB by explicit contract identity.
+        # Only inside the session, and only when today is genuinely the
+        # settlement date -- backfilling a past date would quote a different
+        # day's market and pass it off as that day's close, which is the
+        # look-ahead this whole table exists to prevent.
+        ib_quotes: dict[tuple, dict] = {}
+        if gap and not dry_run and settlement_date == market_date_today() and is_regular_us_session():
+            log.info('pass 2: quoting %d far leg(s) directly from IB', len(gap))
+            ib_quotes = quote_from_ib(gap)
+        elif gap:
+            log.info(
+                'pass 2 skipped for %d far leg(s) (dry_run=%s, is_today=%s, session_open=%s)',
+                len(gap), dry_run, settlement_date == market_date_today(), is_regular_us_session(),
+            )
+
         records: list[tuple] = []
         misses: list[dict] = []
-        for leg in legs:
-            quote = fetch_mark_from_snapshots(conn, leg, settlement_date)
+        for index, leg in enumerate(legs):
+            quote = from_snapshots.get(index) or ib_quotes.get(
+                (leg['symbol'], leg['expiry'], float(leg['strike']), leg['option_right'])
+            )
             if quote:
                 records.append((
                     settlement_date, leg['symbol'], leg['expiry'], leg['strike'], leg['option_right'],
@@ -196,24 +272,27 @@ def run(settlement_date: date | None = None, dry_run: bool = False) -> dict:
         written = 0 if dry_run else persist(conn, settlement_date, records)
         priced = len(legs) - len(misses)
         log.info(
-            'settlement_date=%s far_legs=%d priced=%d missing=%d written=%d%s',
-            settlement_date, len(legs), priced, len(misses), written,
+            'settlement_date=%s far_legs=%d priced=%d (snapshots=%d ib=%d) missing=%d written=%d%s',
+            settlement_date, len(legs), priced, len(from_snapshots), len(ib_quotes), len(misses), written,
             ' (dry-run)' if dry_run else '',
         )
         if misses:
-            # Named, never a bare count: this list is the phase-two IB work list,
-            # and a miss cannot be recovered on any later date.
+            # Named, never a bare count, and never truncated silently: a miss
+            # cannot be recovered on any later date, so the operator needs the
+            # contract identity rather than a number.
+            shown = [f"{m['symbol']} {m['expiry']} {m['strike']}{m['option_right']}" for m in misses[:50]]
+            suffix = f' (+{len(misses) - 50} more)' if len(misses) > 50 else ''
             log.warning(
-                'unpriced far legs (permanently unrecoverable after today): %s',
-                ', '.join(
-                    f"{m['symbol']} {m['expiry']} {m['strike']}{m['option_right']}" for m in misses[:50]
-                ),
+                'unpriced far legs (permanently unrecoverable after today): %s%s',
+                ', '.join(shown), suffix,
             )
         return {
             'status': 'ok',
             'settlement_date': settlement_date.isoformat(),
             'legs': len(legs),
             'priced': priced,
+            'from_snapshots': len(from_snapshots),
+            'from_ib': len(ib_quotes),
             'missing': len(misses),
             'written': written,
         }

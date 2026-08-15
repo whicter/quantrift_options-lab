@@ -140,6 +140,25 @@ test('aggregate: win rate by family + POP calibration, excluding unscored', () =
   assert.equal(b70.actual_win_rate, 100);
 });
 
+test('the two no_price reasons are distinguishable, because only one can be retried', () => {
+  // A daily close is late-arriving data about a past session; a far-leg mark can
+  // only ever be observed on the settlement date. evaluateLedger keys its
+  // retry-vs-finalise decision off this, so the reasons must not collapse.
+  const single = { legs: [{ action: 'BUY', right: 'C', strike: 100, expiry: '2026-08-28' }], entry_cash: -2, max_loss: 2 };
+  assert.equal(evaluateOutcome(single, null).reason, 'underlying_close_missing');
+  const diagonal = {
+    legs: [
+      { action: 'SELL', right: 'C', strike: 65, expiry: '2026-09-11' },
+      { action: 'BUY', right: 'C', strike: 58, expiry: '2026-10-16' },
+    ],
+    entry_cash: -3.77, max_loss: 3.77,
+  };
+  assert.equal(evaluateOutcome(diagonal, 66, { farLegMarks: {} }).reason, 'far_leg_mark_missing');
+  // And a row missing BOTH reports the close first, since that check runs first
+  // — which is exactly how 41 good marks went unread on 2026-08-14.
+  assert.equal(evaluateOutcome(diagonal, null, { farLegMarks: {} }).reason, 'underlying_close_missing');
+});
+
 test('aggregate is empty-safe when nothing is resolved yet', () => {
   const agg = aggregateLedger([]);
   assert.equal(agg.resolved, 0);

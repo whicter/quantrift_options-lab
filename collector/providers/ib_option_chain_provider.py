@@ -234,6 +234,71 @@ class IbOptionChainProvider:
         finally:
             app.disconnect()
 
+    def fetch_named_contracts(
+        self,
+        symbol: str,
+        specs: list[tuple[date, float, str]],
+    ) -> list[OptionContractSnapshot]:
+        """Quote an EXPLICIT list of (expiry, strike, right), not a spot window.
+
+        `fetch_option_chain` selects strikes around the underlying, which is the
+        right shape for positioning and the wrong shape for settling a ledger
+        row: a diagonal's far leg is deliberately deep ITM (stock-replacement
+        construction) and falls outside that window. Measured 2026-08-14, the
+        window covered 41 of 48 far legs and the 7 misses were all far ITM.
+        Widening the window is not the fix -- it bounds two tables holding two
+        thirds of the database -- so the caller passes the handful of contracts
+        it actually needs.
+
+        Each spec is resolved through `reqContractDetails` and matched on the
+        conId IB returns; nothing is constructed from an expiry/strike/right
+        product. A spec IB does not recognise is skipped, not fabricated, so the
+        caller sees a shorter list rather than a placeholder.
+
+        Contracts are grouped by (expiry, right) so one `reqContractDetails`
+        serves every strike sharing them -- 7 misses across 5 symbols cost 5
+        connections and a handful of round trips, not 7 chain sweeps.
+        """
+        symbol = symbol.upper()
+        if not specs:
+            return []
+        app = self._connect()
+        snapshots: list[OptionContractSnapshot] = []
+        try:
+            stock_contract = self._stock_contract(symbol)
+            details = self._resolve_underlying(app, stock_contract, symbol)
+            underlying_con_id = int(details.contract.conId)
+            params = self._fetch_option_params(app, symbol, underlying_con_id)
+            trading_classes = params.get('trading_classes') or []
+            trading_class = symbol if symbol in trading_classes else (trading_classes[0] if trading_classes else symbol)
+
+            wanted: dict[tuple[date, str], set[float]] = {}
+            for expiry, strike, right in specs:
+                wanted.setdefault((expiry, str(right).upper()), set()).add(float(strike))
+
+            for (expiry, right), strikes in sorted(wanted.items()):
+                # Per (expiry, right) isolation: one unrecognised expiry must not
+                # discard the contracts already quoted for the others.
+                try:
+                    available = self._fetch_actual_option_contracts(app, symbol, expiry, right, trading_class)
+                except Exception as exc:  # noqa: BLE001 -- isolated on purpose
+                    log.warning('%s %s %s: contract lookup failed: %s', symbol, expiry, right, exc)
+                    continue
+                by_strike = {float(getattr(c, 'strike', 0) or 0): c for c in available}
+                for strike in sorted(strikes):
+                    contract = by_strike.get(strike)
+                    if contract is None:
+                        log.warning('%s %s %s %s: IB does not list this contract', symbol, expiry, strike, right)
+                        continue
+                    try:
+                        snapshots.append(self._fetch_contract_snapshot(app, contract, symbol))
+                    except Exception as exc:  # noqa: BLE001 -- isolated on purpose
+                        log.warning('%s %s %s %s: quote failed: %s', symbol, expiry, strike, right, exc)
+                    time.sleep(self.contract_delay)
+            return snapshots
+        finally:
+            app.disconnect()
+
     def _connect(self):
         try:
             from ibapi.client import EClient

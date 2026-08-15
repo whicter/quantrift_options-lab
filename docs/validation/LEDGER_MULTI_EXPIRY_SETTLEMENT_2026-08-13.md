@@ -214,6 +214,96 @@ PM2 `quantrift-ledger-far-leg-marks` 已 start + save，cron `15 13 * * 1-5`。
 
 collector 431/431、server 309/309。
 
+## 六之三、上线次日：41 个好 mark 被另一个 bug 扔掉（2026-08-15）
+
+### 6.3.1 现象
+
+13:15 PT 采集班次 **priced=41 / missing=7**（85%）。但 08-14 的 79 行台账**全部**结算成
+`no_price`，零 win/loss。41 个刚取到的 mark 一次都没被读到。
+
+### 6.3.2 根因（先前就存在，被这次改动放大）
+
+`evaluateOutcome` 里标的收盘价的检查**排在远腿检查之前**。而周五的日线只有 49 个标的入库
+（正常约 312）——价格采集器 21:26 ET 自己就警告了 `270/319 symbols behind expected 2026-08-14`，
+Polygon 当时尚未发布当日聚合。于是 79 行全在第一道闸门返回 `underlying_close_missing`。
+
+致命的是 `evaluateLedger` 把这个结果**写成终态**：查询条件是 `outcome IS NULL`，
+写入即意味着永不重看。07-31 那 11 行 `no_price` 是同一个病，只是当时无人追查。
+
+**把「还没采到」当成「永远采不到」**——与本文档主题（把「没人去取价」当成「结构上不可评」）
+是同一个形状的错误。修了一个，没看见旁边站着另一个。
+
+### 6.3.3 修复
+
+- **可重试 vs 终态按原因区分**。`underlying_close_missing` 是迟到的数据：过去某个交易日的
+  日线是既成事实，只是还没抓；等它到位再结算不构成 look-ahead。
+  `far_leg_mark_missing` 相反——只能在结算日当天观测，那天过去就不可能再有，
+  永远重试只是推迟一个已经确定的结论。故只有前者进 `RETRYABLE_REASONS`。
+- **可重试的缺口不写行**，留 `outcome NULL` 等下个周期；超过 `CLOSE_GRACE_DAYS`（默认 7 个日历日，
+  足以跨过长周末 + 周末不跑的价格 cron）才接受这个缺失是答案，否则退市标的会永远重试。
+- 新增 `candidate_ledger.resolution_reason` 列。这次是靠 `underlying_at_expiry IS NULL` 反推的，
+  只因为两种失败恰好在该列上不同——本该直接读出来。
+- `evaluateLedger` 返回 `{resolved, deferred}`，物化结果里分别上报：
+  **因为价格源落后而没结算，不得读成因为没有可结算的东西。**
+
+### 6.3.4 数据复位
+
+90 行（07-31 的 11 + 08-14 的 79，全部 `outcome='no_price' AND underlying_at_expiry IS NULL`）
+复位为未结算。**这不是编造**：mark 已在正确时刻（08-14 16:15 ET）落库，到期日收盘价是既成历史事实，
+采到后重新结算与 look-ahead 无关。拿到收盘价后仍 `no_price` 的行是真结论，一行未动（实际为 0 行）。
+
+随后手动补跑 `collect_prices.py`（Polygon 此时已有 08-14 数据，实测 AAPL 305.93）。
+
+### 6.3.5 端到端验收
+
+```
+evaluateLedger -> { resolved: 0, deferred: 75 }     ← 收盘价未齐的正确推迟，不再写死
+台账已评分行   15 → 30                              ← 07-31 那批从误终态中救回
+no_price 行    90 → 0
+strategy_family = time_spread：2 行已评分（1 win / 1 loss）
+```
+
+**最后一行是这整件工作的证明**：台账建立以来第一次有多到期日结构被算出真实盈亏，
+用的正是 08-14 16:15 ET 抓到的 mark。链路 mark 抓取 → 收盘价补齐 → diagonal 结算 全线打通。
+
+## 六之四、连带修复：交错在物化层被抹掉（2026-08-15）
+
+`interleaveByStrategy` 的注释里**早已写明**这个问题——包括「Diagonal 占据 71% 的
+top-3-per-symbol 名额，而它恰好是唯一多到期日、无法单到期日结算的族，
+于是引擎最推荐的正是它最无法验证的」。函数写好了、单测覆盖了，
+但 `buildCandidateBatch` 随后按 `candidate.score` 全局重排，把它整个抹掉。
+
+两个后果，第二个此前无人提及：
+
+1. 物化批次（喂给 `/api/v1/scanner/candidates` 与 `candidate_ledger` 的那条路径）毫无多样性保证——
+   实测 2026-08-13 最新批次前 20 名清一色 Diagonal，只有两个标的。
+2. 全局排序读的是**原始分** `score` 而非 `effectiveScore`，
+   `directionalWeight` 算出来的方向/gamma 加权**算完就被丢掉**。
+
+改为对合并后的候选池调用 `interleaveByStrategy`，并在 wrapper 上暴露 `effectiveScore`。
+同时删掉那条 `ranks globally by score` 的旧断言——它断言的正是被改掉的行为，
+且只因 fixture 恰好单调而通过，留着是假性安心。
+
+**教训**：纯函数上的单测无法证明该函数在生产路径里生效。
+这是仓库第二次踩同一形状（`directionalWeight` 曾长期因调用方不传 `environment` 而完全空转）。
+
+## 六之五、阶段二：IB 定向报价（2026-08-15）
+
+`IbOptionChainProvider.fetch_named_contracts(symbol, specs)`：按**显式合约清单**取价，
+不是按 spot 窗口。每个 spec 经 `reqContractDetails` 解析并以 IB 返回的 conId 匹配，
+不拼 expiry×strike×right 笛卡尔积（既有规则）；IB 不认的 spec 跳过而非编造。
+按 `(expiry, right)` 分组，一次 `reqContractDetails` 服务共享它们的全部行权价——
+7 个缺口跨 5 个标的只需 5 次连接。逐 `(expiry, right)`、逐合约、逐标的三层隔离。
+
+采集脚本改为两趟：先读当日已落库快照（零 provider 调用），再用 IB 补缺口。
+第二趟三个门：非 dry-run、`settlement_date == 今天`、盘内。
+**中间那个门是硬约束**——用今天的行情去补一个过去结算日，等于把一天的市价冒充另一天的收盘，
+正是本表存在的目的所要防的。
+
+**排程随之改到 12:45 PT（15:45 ET，盘内）**。原来的 13:15 PT = 16:15 ET 已收盘，
+`is_regular_us_session()` 为 False，第二趟永远不会执行——写完才发现的排程冲突。
+15:45 是两趟都能工作的最晚点：快照已积累近 6 小时，IB 报价流仍在。
+
 ## 七、尚未完成
 
 - **未部署**：`node server/src/migrate.js` 建表 + `pm2 start ... --only quantrift-ledger-far-leg-marks` + `pm2 save`。

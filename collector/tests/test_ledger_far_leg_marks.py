@@ -159,5 +159,73 @@ class PersistTest(unittest.TestCase):
         self.assertIn('WHERE ledger_far_leg_marks.mark IS NULL', sql)
 
 
+
+class SecondPassTest(unittest.TestCase):
+    """Pass 2: quoting the gap straight from IB, by explicit contract identity."""
+
+    LEGS = [
+        {'symbol': 'SMCI', 'expiry': date(2026, 9, 11), 'strike': 33, 'option_right': 'C'},
+        {'symbol': 'MARA', 'expiry': date(2026, 9, 11), 'strike': 9.5, 'option_right': 'P'},
+    ]
+
+    def _run(self, *, snapshot_hits, ib_quotes, today, session_open=True, dry_run=False):
+        written = []
+
+        def fake_persist(conn, settlement_date, records):
+            written.extend(records)
+            return len(records)
+
+        with mock.patch.object(capture, 'psycopg2') as pg, \
+             mock.patch.object(capture, 'load_far_legs', return_value=self.LEGS), \
+             mock.patch.object(capture, 'fetch_mark_from_snapshots', side_effect=snapshot_hits), \
+             mock.patch.object(capture, 'quote_from_ib', return_value=ib_quotes) as ib, \
+             mock.patch.object(capture, 'is_regular_us_session', return_value=session_open), \
+             mock.patch.object(capture, 'market_date_today', return_value=today), \
+             mock.patch.object(capture, 'persist', side_effect=fake_persist), \
+             mock.patch.object(capture, 'DB_URL', 'postgres://fake'):
+            pg.connect.return_value = FakeConn()
+            result = capture.run(settlement_date=date(2026, 9, 11), dry_run=dry_run)
+        return result, written, ib
+
+    def test_ib_fills_the_legs_the_days_snapshots_missed(self):
+        # The 7 misses on 2026-08-14 were all deep-ITM far legs outside the
+        # +/-5% chain window -- the case this pass exists for.
+        result, written, ib = self._run(
+            snapshot_hits=[{'bid': 1, 'ask': 1.2, 'mark': 1.1, 'source': 'ib_internal'}, None],
+            ib_quotes={('MARA', date(2026, 9, 11), 9.5, 'P'):
+                       {'bid': 0.4, 'ask': 0.5, 'mark': 0.45, 'source': 'ib_internal'}},
+            today=date(2026, 9, 11),
+        )
+        self.assertEqual((result['priced'], result['missing']), (2, 0))
+        self.assertEqual((result['from_snapshots'], result['from_ib']), (1, 1))
+        # Only the gap is sent to IB, never the legs already covered for free.
+        self.assertEqual([l['symbol'] for l in ib.call_args.args[0]], ['MARA'])
+
+    def test_a_past_settlement_date_is_never_quoted_from_todays_market(self):
+        # Quoting today to settle a past date would pass one day's market off as
+        # another's close -- the look-ahead this table exists to prevent.
+        result, _, ib = self._run(
+            snapshot_hits=[None, None], ib_quotes={}, today=date(2026, 9, 14),
+        )
+        ib.assert_not_called()
+        self.assertEqual(result['missing'], 2)
+
+    def test_no_ib_call_outside_the_regular_session(self):
+        # With no quote stream IB burns its per-contract timeout and returns
+        # nothing, so this would cost minutes to produce zero marks.
+        _, _, ib = self._run(
+            snapshot_hits=[None, None], ib_quotes={},
+            today=date(2026, 9, 11), session_open=False,
+        )
+        ib.assert_not_called()
+
+    def test_dry_run_never_touches_ib(self):
+        _, _, ib = self._run(
+            snapshot_hits=[None, None], ib_quotes={},
+            today=date(2026, 9, 11), dry_run=True,
+        )
+        ib.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

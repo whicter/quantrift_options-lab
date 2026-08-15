@@ -64,3 +64,82 @@ test('captured POP is the probability, never the risk-free rate', async () => {
   assert.match(sql, /signals_json->'pop'->>'probability'/);
   assert.doesNotMatch(sql, /signals_json->'pop'->>'rate'/);
 });
+
+// --- evaluateLedger: retryable gaps must not be written as final outcomes ---
+
+const { evaluateLedger } = require(routePath);
+
+// Minimal db double: one unresolved row, a price lookup that returns nothing,
+// and no far-leg marks. Records every statement so the test can assert on
+// whether an UPDATE was issued at all.
+function ledgerDb({ expiry, legs, close = null, marks = [] }) {
+  const calls = [];
+  return {
+    calls,
+    updates: () => calls.filter(c => /UPDATE candidate_ledger/.test(c.sql)),
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (/FROM candidate_ledger/.test(sql)) {
+        return { rows: [{ id: 1, symbol: 'BAC', expiry, legs_json: legs, entry_cash: -3.77, max_loss: 3.77 }] };
+      }
+      if (/FROM price_history/.test(sql)) return { rows: close == null ? [] : [{ close }] };
+      if (/FROM ledger_far_leg_marks/.test(sql)) return { rows: marks };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+}
+
+const DIAGONAL = [
+  { action: 'SELL', right: 'C', strike: 65, expiry: '2026-09-11' },
+  { action: 'BUY', right: 'C', strike: 58, expiry: '2026-10-16' },
+];
+
+function isoDaysAgo(days) {
+  return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+}
+
+test('a close that has not been published yet is deferred, never written as no_price', async () => {
+  // 2026-08-14: Polygon had not published the daily bar for 270 of 319 symbols
+  // by 21:26 ET, so every row expiring that day was finalised `no_price` and
+  // could never be looked at again -- including 64 whose one-shot far-leg marks
+  // had been captured correctly hours earlier and were never read.
+  const db = ledgerDb({ expiry: isoDaysAgo(1), legs: DIAGONAL, close: null });
+  const result = await evaluateLedger(db);
+  assert.equal(result.resolved, 0);
+  assert.equal(result.deferred, 1);
+  assert.equal(db.updates().length, 0, 'a deferred row must not be written at all');
+});
+
+test('after the grace window the missing close is accepted as the answer', async () => {
+  // Otherwise a delisted symbol retries forever and never reports anything.
+  const db = ledgerDb({ expiry: isoDaysAgo(30), legs: DIAGONAL, close: null });
+  const result = await evaluateLedger(db);
+  assert.equal(result.resolved, 1);
+  assert.equal(result.deferred, 0);
+  const { params } = db.updates()[0];
+  assert.equal(params[1], 'no_price');
+  assert.equal(params[5], 'underlying_close_missing');
+});
+
+test('a missing far-leg mark is final immediately: that observation cannot be retaken', async () => {
+  // The settlement date is gone; no later fetch can produce the mark, so
+  // deferring would only postpone an outcome that is already decided.
+  const db = ledgerDb({ expiry: isoDaysAgo(1), legs: DIAGONAL, close: 66, marks: [] });
+  const result = await evaluateLedger(db);
+  assert.equal(result.resolved, 1);
+  assert.equal(result.deferred, 0);
+  assert.equal(db.updates()[0].params[5], 'far_leg_mark_missing');
+});
+
+test('with the close and the mark both present the diagonal actually scores', async () => {
+  const db = ledgerDb({
+    expiry: isoDaysAgo(1), legs: DIAGONAL, close: 66,
+    marks: [{ expiry: '2026-10-16', strike: 58, option_right: 'C', mark: 8.2 }],
+  });
+  const result = await evaluateLedger(db);
+  assert.equal(result.resolved, 1);
+  const { params } = db.updates()[0];
+  assert.equal(params[1], 'win');
+  assert.equal(params[3], 3.43);
+  assert.equal(params[5], null);
+});
