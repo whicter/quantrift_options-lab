@@ -149,9 +149,24 @@ module.exports = {
       interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
       autorestart: false,
       // Full-market EOD breadth is independent from the option/GEX worker.
-      // Two weekday attempts at 20:05 and 22:05 ET let the later run self-heal
-      // if Polygon has not finalized the grouped daily response at the first.
-      cron_restart: '5 17,19 * * 1-5',
+      // Three weekday attempts, 06:05 / 20:05 / 22:05 ET (PT hours below).
+      //
+      // The two evening runs let the later one self-heal if Polygon has not
+      // finalized the grouped daily response at the first. In practice neither
+      // ever gets the same day: measured 2026-08-14, both the 20:05 and 22:05
+      // runs took a 403 on that session and settled on the prior one, while a
+      // manual probe the next afternoon got it fine. So this table lags the
+      // market by a full session, and a consumer wanting "yesterday's breadth"
+      // during today's session is actually reading the day before that.
+      //
+      // The 06:05 run exists to find out whether Polygon publishes overnight.
+      // expected_market_date already resolves any hour before
+      // MARKET_BREADTH_EOD_SETTLE_HOUR_ET to the previous session, so this fire
+      // asks for D-1 with no code change; if Polygon has it, the row lands
+      // before the 09:30 open, and if not the walk-back idempotently rewrites
+      // D-2 and nothing is harmed. Read `settled on` in the log to tell which:
+      // a morning line with no `skipping` means D-1 was available.
+      cron_restart: '5 3,17,19 * * 1-5',
       env: {
         MARKET_BREADTH_EOD_SETTLE_HOUR_ET: '20',
         MARKET_BREADTH_EXCHANGES: 'XNAS,XNYS,XASE',
