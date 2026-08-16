@@ -53,7 +53,10 @@ class PolygonOptionChainProvider:
         # this bounds one bucket's weeklies rather than the whole window -- the
         # global cap it replaces let a dense near-term bucket exhaust the budget
         # before the far months were ever requested.
-        self.max_contracts_per_bucket = int(os.getenv('OPTION_MAX_CONTRACTS_PER_BUCKET', '250'))
+        # Runaway-page backstop only; `max_expirations_per_bucket` is the real
+        # bound. It must sit well above one expiry's contract count (~500 for SPY
+        # over +/-15%) or it cuts inside an expiry and biases strike coverage.
+        self.max_contracts_per_bucket = int(os.getenv('OPTION_MAX_CONTRACTS_PER_BUCKET', '2000'))
         self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '2'))
         self.page_limit = min(int(os.getenv('POLYGON_PAGE_LIMIT', '250')), 250)
         # Term structure uses a narrow ATM strike window so even a weekly-dense
@@ -235,30 +238,78 @@ class PolygonOptionChainProvider:
                     bucket_windows.append((lo, hi))
 
         raw_results: list[dict] = []
-        # Per-bucket budget rather than one global cap, so a dense near-term
-        # bucket cannot consume the allowance the far months need.
-        per_bucket_cap = max(self.max_contracts_per_bucket, 1)
+        # Paginate each bucket until it has whole expiries, and stop by EXPIRY
+        # COUNT rather than contract count. The bound we actually want is
+        # `max_expirations_per_bucket`; spelling it as a contract cap was a proxy
+        # that fails because contract density varies ~20x across the universe --
+        # one SPY expiry over the +/-15% window is already ~500 contracts, so the
+        # 250 cap was consumed inside the FIRST expiry of every dense bucket.
+        #
+        # That truncation is not evenly distributed. Polygon returns an expiry as
+        # all calls ascending by strike, then all puts ascending, so a cut always
+        # lands inside one right and removes its high strikes: measured
+        # 2026-08-15 on SPY, the 91-120 bucket returned 2026-11-30 with 137 calls
+        # (660-890, complete) but only 19 puts (660-682). `_apply_strike_limit`
+        # then faithfully kept the 6 puts nearest spot -- out of a set that
+        # stopped 94 points below it. Across the chain this left upside strike
+        # coverage at 1.8% against the 3.0% `MIN_WALL_COVERAGE_PCT` floor, so
+        # `confidence_for` downgraded SPY to 'low' and the product showed a
+        # partial-data warning on a chain whose completeness was 100%.
+        #
+        # `max_contracts_per_bucket` is kept only as a runaway-page backstop.
+        expiry_budget = len(expirations) if expirations else self.max_expirations_per_bucket
+        expiry_budget = max(expiry_budget, 1)
+        page_cap = max(self.max_contracts_per_bucket, 1)
         for window_start, window_end in bucket_windows:
             bucket_params = dict(params)
             bucket_params['expiration_date.gte'] = window_start.isoformat()
             bucket_params['expiration_date.lte'] = window_end.isoformat()
             url: str | None = f'{self.base_url}/v3/snapshot/options/{symbol}'
             current_params: dict | None = bucket_params
-            fetched = 0
-            while url and fetched < per_bucket_cap:
+            bucket_rows: list[dict] = []
+            seen_expiries: list[str] = []
+            truncated = False
+            while url:
                 data = self.http.get_json(
                     url,
                     params=current_params,
                     context=f'Polygon option snapshot request for {symbol}',
                 )
                 batch = data.get('results') or []
-                raw_results.extend(batch)
-                fetched += len(batch)
+                bucket_rows.extend(batch)
+                for item in batch:
+                    expiry = ((item.get('details') or {}).get('expiration_date'))
+                    if expiry and expiry not in seen_expiries:
+                        seen_expiries.append(expiry)
+                # Seeing expiry N+1 begin proves the first N are whole.
+                if len(seen_expiries) > expiry_budget:
+                    break
                 next_url = data.get('next_url')
                 url = next_url if next_url else None
+                if url and len(bucket_rows) >= page_cap:
+                    truncated = True
+                    break
                 current_params = None  # next_url already has all params encoded
                 if url and self.request_delay > 0:
                     time.sleep(self.request_delay)
+
+            keep = seen_expiries[:expiry_budget]
+            # Stopping on the page backstop leaves the last kept expiry cut mid
+            # strike range. Drop it -- a one-sided strike set is worse than one
+            # fewer expiry, because it silently biases wall coverage rather than
+            # being visibly absent. Keep it only when it is all this bucket has,
+            # where the coverage metrics will report the narrowness honestly.
+            if truncated and len(keep) > 1:
+                dropped = keep.pop()
+                log.warning(
+                    '%s: bucket %s..%s hit the %d-row page backstop; dropping partial expiry %s',
+                    symbol, window_start, window_end, page_cap, dropped,
+                )
+            keep_set = set(keep)
+            raw_results.extend(
+                row for row in bucket_rows
+                if ((row.get('details') or {}).get('expiration_date')) in keep_set
+            )
 
         raw_results = _deduplicate_raw_contracts(raw_results)
 
@@ -299,13 +350,13 @@ class PolygonOptionChainProvider:
                 self.max_expirations_per_bucket,
             )
 
-        # Trim round-robin across expiries, not with a head slice. Contracts
-        # arrive in expiry order, so `contracts[:max_contracts]` spent the whole
-        # budget on the nearest expiries and dropped every far month -- measured
-        # 2026-08-15: QQQ selected 5 expiries out to 2026-10-16 and the slice cut
-        # it back to the front of the list, which is why widening the bucket
-        # list appeared to do nothing twice over.
-        contracts = _trim_across_expiries(contracts, self.max_contracts)
+        # Trim round-robin across expiries and, within each, nearest-to-spot
+        # first. Contracts arrive ordered by expiry then strike, so a head slice
+        # spent the whole budget on the nearest expiries (measured 2026-08-15:
+        # QQQ selected 5 expiries out to 2026-10-16 and the slice cut it back to
+        # the front of the list) and keeping each expiry's head kept only the
+        # lowest strikes, starving the upside coverage GEX wall detection needs.
+        contracts = _trim_across_expiries(contracts, self.max_contracts, spot)
 
         missing_greeks = sum(1 for c in contracts if c.gamma is None or c.delta is None)
         missing_oi = sum(1 for c in contracts if c.open_interest is None)
@@ -661,18 +712,27 @@ def _parse_dte_buckets(value: str) -> list[tuple[int, int]]:
     return buckets or [(0, 14), (15, 29), (30, 45), (46, 60), (61, 90)]
 
 
-def _trim_across_expiries(contracts: list, limit: int) -> list:
-    """Cut to `limit` by taking a turn from each expiry, nearest strikes first.
+def _trim_across_expiries(contracts: list, limit: int, spot: float | None = None) -> list:
+    """Cut to `limit` fairly across expiries, keeping strikes nearest to spot.
 
-    A head slice is wrong here because contracts arrive ordered by expiry: the
-    nearest one consumes the entire budget and the far months, which the DTE
-    buckets were widened specifically to reach, are dropped whole. Calendars and
-    diagonals need a far leg to exist at all, and no amount of near-term strike
-    density substitutes for it.
+    Two independent biases have to be avoided here, and the first fix introduced
+    the second:
 
-    Within an expiry the order the provider returned is preserved, which is by
-    strike -- so a partial expiry keeps a contiguous strike range rather than a
-    scatter.
+    A head slice over the whole list is wrong because contracts arrive ordered by
+    expiry -- the nearest expiry consumes the entire budget and the far months,
+    which the DTE buckets exist to reach, are dropped whole.
+
+    Taking each expiry's FIRST N is wrong for the same reason one level down:
+    within an expiry the provider orders by strike ascending, so keeping the head
+    keeps the lowest strikes and discards everything above spot. Measured on SPY
+    at 776.34 the chain came back covering 682-790, i.e. 12.2% below spot and
+    1.8% above -- under the 3% wall-coverage floor, so confidence_for downgraded
+    every symbol to 'low' and the product showed a partial-data warning on a
+    chain whose completeness was 100%.
+
+    So each expiry contributes its strikes ordered by distance from spot, which
+    is also what GEX and wall detection actually need: the strikes that matter
+    are the ones near the money, on both sides.
     """
     if limit <= 0 or len(contracts) <= limit:
         return contracts
@@ -680,6 +740,10 @@ def _trim_across_expiries(contracts: list, limit: int) -> list:
     by_expiry: dict = {}
     for contract in contracts:
         by_expiry.setdefault(contract.expiry, []).append(contract)
+
+    if spot and spot > 0:
+        for group in by_expiry.values():
+            group.sort(key=lambda c: abs(float(c.strike) - spot))
 
     kept: list = []
     queues = [iter(group) for _, group in sorted(by_expiry.items())]

@@ -158,6 +158,55 @@ class PolygonOptionProviderTests(unittest.TestCase):
         self.assertIn((0, 14), windows)
         self.assertIn((30, 45), windows)
 
+    def test_a_bucket_cut_mid_expiry_drops_the_partial_expiry(self):
+        """The page backstop must never emit a one-sided strike set.
+
+        Polygon returns an expiry as all calls ascending by strike, then all puts
+        ascending, so a cut inside an expiry removes one right's high strikes
+        entirely. In production the 250-row cap landed inside the FIRST expiry of
+        every dense bucket -- SPY 2026-11-30 came back with 137 complete calls and
+        19 puts stopping 94 points below spot -- which is what pushed upside wall
+        coverage under its floor. One fewer expiry is the honest outcome; a
+        half-fetched one biases coverage silently.
+        """
+        today = date.today()
+        near = today + timedelta(days=2)
+        far = today + timedelta(days=9)
+        session = FakeSession(
+            [
+                {'status': 'OK', 'results': [{'c': 100}]},
+                {
+                    'status': 'OK',
+                    'results': [
+                        option_item(near, 'C', 95), option_item(near, 'P', 105),
+                        # `far` has only begun -- its puts are on the next page.
+                        option_item(far, 'C', 90), option_item(far, 'C', 91),
+                    ],
+                    'next_url': 'https://api.polygon.io/v3/snapshot/options/TEST?cursor=x',
+                },
+            ],
+            full_window=[{'status': 'OK', 'results': []}, {'status': 'OK', 'results': []}],
+        )
+        env = {
+            'POLYGON_API_KEY': 'test-key',
+            'OPTION_DTE_BUCKETS': '0-14',
+            'OPTION_MAX_DTE': '14',
+            'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '2',
+            'OPTION_MAX_CONTRACTS_PER_BUCKET': '4',
+            'POLYGON_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_REQUEST_DELAY': '0',
+            'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_option_provider_test',
+        }
+        with patch.dict(os.environ, env, clear=False), \
+             patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
+            provider = PolygonOptionChainProvider()
+            snapshot = provider.fetch_option_chain('TEST')
+
+        expiries = {c.expiry for c in snapshot.contracts}
+        self.assertEqual(expiries, {near}, 'the partial expiry was kept')
+        rights = {c.right for c in snapshot.contracts}
+        self.assertEqual(rights, {'C', 'P'}, 'surviving expiry must stay two-sided')
+
     def test_term_structure_uses_a_narrow_dedicated_fetch(self):
         # The dedicated ATM fetch uses a narrow strike window and spans every
         # expiry it returns, independent of the bucket-trimmed stored chain.
@@ -577,3 +626,35 @@ class TrimAcrossExpiriesTests(unittest.TestCase):
         today = date.today()
         contracts = self._contracts([today + timedelta(days=2)], 5)
         self.assertIs(_trim_across_expiries(contracts, 100), contracts)
+
+    def test_strikes_nearest_spot_survive_the_cap(self):
+        """A partial expiry must stay centred on spot, not keep its lowest strikes.
+
+        Within an expiry the provider orders by strike ascending, so keeping each
+        expiry's head kept only deep-ITM puts / deep-OTM calls and starved the
+        upside. Measured on SPY at 776.34 the stored chain covered 12.2% below
+        spot and 1.8% above, under the 3.0% wall-coverage floor, so every symbol
+        was downgraded to 'low' confidence on a 100%-complete chain.
+        """
+        from providers.polygon_option_chain_provider import _trim_across_expiries
+        today = date.today()
+        expiries = [today + timedelta(days=d) for d in (2, 35)]
+        # Strikes 100..149 per expiry; spot sits at the top of the range, so a
+        # head slice and a spot-centred slice are maximally different.
+        trimmed = _trim_across_expiries(self._contracts(expiries, 50), 12, spot=145.0)
+
+        self.assertEqual(len(trimmed), 12)
+        for expiry in expiries:
+            strikes = sorted(c.strike for c in trimmed if c.expiry == expiry)
+            # Centred on spot, spanning both sides -- the property wall coverage
+            # depends on. A head slice would have returned 100..105.
+            self.assertEqual(strikes, [142, 143, 144, 145, 146, 147])
+            self.assertGreater(max(strikes), 145.0, 'no strike above spot survived')
+            self.assertLess(min(strikes), 145.0, 'no strike below spot survived')
+
+    def test_without_spot_the_provider_order_is_preserved(self):
+        # Callers that cannot supply a spot must not crash or reorder silently.
+        from providers.polygon_option_chain_provider import _trim_across_expiries
+        today = date.today()
+        trimmed = _trim_across_expiries(self._contracts([today + timedelta(days=2)], 50), 6)
+        self.assertEqual([c.strike for c in trimmed], [100, 101, 102, 103, 104, 105])
