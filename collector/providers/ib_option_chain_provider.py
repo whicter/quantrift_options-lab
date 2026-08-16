@@ -45,6 +45,26 @@ class IbOptionChainProvider:
         self.contract_delay = float(os.getenv('IB_OPTION_CONTRACT_DELAY', '0.05'))
         self.snapshot_grace_seconds = float(os.getenv('IB_OPTION_SNAPSHOT_GRACE_SECONDS', '2'))
         self.option_stream_timeout = float(os.getenv('IB_OPTION_STREAM_TIMEOUT', '5'))
+        # IB allows ~100 concurrent market-data lines per account. This adapter
+        # used exactly one: subscribe a contract, wait up to option_stream_timeout
+        # for it, cancel, repeat -- so a 180-contract chain cost 180 serial round
+        # trips and a measured 164.6s median per symbol. TWS feels instant on the
+        # same account because it subscribes the whole chain at once.
+        #
+        # Batching restores that. `ib_news_provider` already does it for the same
+        # reason and against the same limit; the option path simply never was
+        # written that way.
+        #
+        # 40 leaves headroom under the cap for the news lane, the price fallback
+        # and the intraday-spot call, which share the account's line budget even
+        # though they run on different client ids.
+        self.quote_batch_size = max(int(os.getenv('IB_OPTION_QUOTE_BATCH_SIZE', '40')), 1)
+        # How long to hold one batch open. This is a per-batch budget, not a
+        # per-contract one: within a batch every subscription streams in
+        # parallel, so the wait is bounded by the slowest contract rather than by
+        # their sum. The loop exits as soon as every contract in the batch has a
+        # complete payload, so a liquid chain finishes well inside it.
+        self.batch_wait_seconds = float(os.getenv('IB_OPTION_BATCH_WAIT_SECONDS', '6'))
 
     def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
         app = self._connect()
@@ -150,19 +170,23 @@ class IbOptionChainProvider:
                 # here still destroyed every expiry already collected -- exactly
                 # the failure the per-expiry guard was added to prevent.
                 try:
-                    for contract in selected_contracts:
+                    # Batched, not one contract at a time. Every subscription in
+                    # a batch streams in parallel, so the cost is the slowest
+                    # contract per batch rather than the sum over all of them.
+                    # The budget check stays outside the batch so a batch is
+                    # never subscribed only to be thrown away.
+                    for start in range(0, len(selected_contracts), self.quote_batch_size):
                         if len(contracts) >= self.max_contracts:
                             break
-                        # A dead socket must fail in seconds, not grind through
-                        # every remaining contract at one full stream timeout
-                        # each. ibapi does not raise on disconnect, so this is
-                        # the only place the loop can notice.
                         if not app.isConnected():
                             raise RuntimeError(f'IB connection lost while fetching {symbol} {expiry}')
-                        contracts.append(self._fetch_contract_snapshot(app, contract, symbol))
-                        contracts_by_expiry[expiry] = contracts_by_expiry.get(expiry, 0) + 1
-                        if self.contract_delay > 0:
-                            time.sleep(self.contract_delay)
+                        budget = self.max_contracts - len(contracts)
+                        batch = selected_contracts[start:start + self.quote_batch_size][:budget]
+                        if not batch:
+                            break
+                        fetched = self.fetch_contract_snapshots(app, batch, symbol)
+                        contracts.extend(fetched)
+                        contracts_by_expiry[expiry] = contracts_by_expiry.get(expiry, 0) + len(fetched)
                 except (TimeoutError, RuntimeError, ValueError) as exc:
                     failed_expiries.append({'expiry': str(expiry), 'error': str(exc)})
                     if not app.isConnected():
@@ -507,26 +531,85 @@ class IbOptionChainProvider:
             return None
         return float(bars[-1].close)
 
-    def _fetch_contract_snapshot(self, app, contract, symbol: str) -> OptionContractSnapshot:
+    @staticmethod
+    def _contract_identity(contract, symbol: str):
+        """(con_id, expiry, strike, right), or raise if IB returned nonsense."""
         con_id = int(getattr(contract, 'conId', 0) or 0)
         expiry = _parse_expiration(str(getattr(contract, 'lastTradeDateOrContractMonth', ''))[:8])
         strike = float(getattr(contract, 'strike', 0) or 0)
         right = str(getattr(contract, 'right', '')).upper()
         if con_id <= 0 or expiry is None or strike <= 0 or right not in ('C', 'P'):
             raise ValueError(f'IB returned invalid option contract for {symbol}')
-        req_id = app.next_req_id()
-        app.market_data[req_id] = _MarketData()
-        app.reqMktData(req_id, contract, '100,101,106', False, False, [])
-        data = app.market_data[req_id]
-        deadline = time.monotonic() + self.option_stream_timeout
+        return con_id, expiry, strike, right
+
+    def fetch_contract_snapshots(self, app, contracts, symbol: str) -> list[OptionContractSnapshot]:
+        """Subscribe a batch of contracts at once and collect what arrives.
+
+        The whole batch streams in parallel, so the wall clock is the slowest
+        contract rather than the sum of all of them.
+
+        A contract that never completes within the window still yields a snapshot
+        built from whatever ticks did arrive -- exactly as the serial path did
+        when it hit its own timeout. Partial data is normal on illiquid strikes
+        and the caller's completeness accounting already handles it; dropping
+        those rows here would silently narrow the chain instead.
+        """
+        prepared = []
+        for contract in contracts:
+            con_id, expiry, strike, right = self._contract_identity(contract, symbol)
+            req_id = app.next_req_id()
+            app.market_data[req_id] = _MarketData()
+            prepared.append({
+                'req_id': req_id, 'contract': contract, 'con_id': con_id,
+                'expiry': expiry, 'strike': strike, 'right': right,
+                'data': app.market_data[req_id],
+            })
+
+        snapshots = []
         try:
+            for item in prepared:
+                app.reqMktData(item['req_id'], item['contract'], '100,101,106', False, False, [])
+                # A small stagger, not a wait. ibapi serialises writes on one
+                # socket and IB paces inbound messages; firing 40 subscriptions
+                # with no gap is what earns a pacing violation.
+                if self.contract_delay > 0:
+                    time.sleep(self.contract_delay)
+
+            deadline = time.monotonic() + self.batch_wait_seconds
             while time.monotonic() < deadline:
-                if data.has_analysis_payload(right) or data.has_terminal_error():
+                if all(
+                    item['data'].has_analysis_payload(item['right'])
+                    or item['data'].has_terminal_error()
+                    for item in prepared
+                ):
                     break
+                # A dead socket must not be waited out. ibapi does not raise on
+                # disconnect, so this is the only place the batch can notice.
+                if not app.isConnected():
+                    raise RuntimeError(f'IB connection lost while fetching {symbol}')
                 time.sleep(0.05)
         finally:
-            app.cancelMktData(req_id)
+            # Cancel everything that was subscribed, including on the raise path:
+            # a leaked subscription holds a market-data line for the rest of the
+            # session and the next batch silently gets fewer.
+            for item in prepared:
+                try:
+                    app.cancelMktData(item['req_id'])
+                except Exception:  # noqa: BLE001 - cancellation is best effort
+                    pass
 
+        for item in prepared:
+            snapshots.append(self._build_snapshot(
+                symbol, item['contract'], item['data'],
+                item['con_id'], item['expiry'], item['strike'], item['right'],
+            ))
+        return snapshots
+
+    def _fetch_contract_snapshot(self, app, contract, symbol: str) -> OptionContractSnapshot:
+        """Single-contract fetch, kept for callers that genuinely want one."""
+        return self.fetch_contract_snapshots(app, [contract], symbol)[0]
+
+    def _build_snapshot(self, symbol, contract, data, con_id, expiry, strike, right):
         return OptionContractSnapshot(
             symbol=symbol.upper(),
             expiry=expiry,

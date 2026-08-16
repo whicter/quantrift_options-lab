@@ -66,8 +66,15 @@ CANDIDATE_SQL = """
       AND r.optionable
       AND r.total_oi IS NOT NULL
       AND r.underlying_dollar_volume IS NOT NULL
-    ORDER BY r.underlying_dollar_volume DESC
 """
+# Deliberately no ORDER BY. rank_candidates sorts, because the ranking key is a
+# decision this module owns and a caller reading the SQL should not be able to
+# change it by accident. It was `ORDER BY underlying_dollar_volume DESC` while
+# rank_candidates recorded total_oi as the score and trusted the incoming order:
+# the list was therefore chosen by share turnover and labelled by option open
+# interest. SNDK led the selection on $34B of stock volume against 4,805 option
+# contracts outstanding -- the least relevant available measure picking who gets
+# scarce IB quote time.
 
 
 def is_leveraged(asset_type: str | None, name: str | None) -> bool:
@@ -115,6 +122,12 @@ def rank_candidates(rows: list[tuple], target: int = TARGET) -> tuple[list[dict]
             'asset_type': asset_type,
             'name': name,
         })
+
+    # Sort here rather than relying on the query's ORDER BY. The ranking key is a
+    # decision this module owns and documents immediately above; leaving it in
+    # SQL meant the key and the recorded score could drift apart silently, which
+    # is exactly what happened once already.
+    selected.sort(key=lambda item: item['liquidity_score'], reverse=True)
 
     overflow = max(len(selected) - target, 0)
     if overflow:
@@ -237,7 +250,7 @@ if __name__ == '__main__':
         print(f'considered={len(rows)} selected={len(picked)} rejected={why}')
         for item in picked:
             print(f"  {item['liquidity_rank']:>3}. {item['symbol']:<7}"
-                  f" oi={item['liquidity_score']:>10,}  {item['asset_type'] or '-':<6}"
+                  f" $vol={item['liquidity_score']:>15,}  {item['asset_type'] or '-':<6}"
                   f" {(item['name'] or '')[:48]}")
     else:
         print(run(target=args.target))

@@ -34,7 +34,23 @@ module.exports = {
       env: {
         IB_MARKET_DATA_TYPE: '1',
         IB_OPTION_STREAM_TIMEOUT: '4',
-        OPTION_MAX_CONTRACTS: '120',
+        // DTE reach widened 2026-08-15. The ceiling was never OPTION_MAX_DTE --
+        // it was the bucket list, whose last entry stopped at 90, and since most
+        // symbols carry only one or two monthly expiries in 61-90 the chains
+        // actually topped out at 76 days (measured: the 75-90 bin held 10
+        // contracts across 1 symbol). Raising OPTION_MAX_DTE alone would have
+        // changed nothing; the buckets are what select expiries.
+        OPTION_MAX_DTE: '150',
+        OPTION_DTE_BUCKETS: '0-14,15-29,30-45,46-60,61-90,91-120,121-150',
+        // Two new buckets at 2 expiries each need room, or the far months simply
+        // displace near-dated strikes against a fixed global cap. 120 -> 180
+        // keeps existing near-term density rather than trading it away.
+        //
+        // This used to cost proportionally more IB time, because the quote
+        // adapter subscribed one contract at a time. It now batches, so a chain
+        // costs roughly one wait window per 40 contracts rather than one per
+        // contract, and the extra strikes are close to free.
+        OPTION_MAX_CONTRACTS: '180',
         OPTION_MAX_CONTRACTS_PER_EXPIRATION: '40',
         OPTION_MAX_STRIKES_PER_SIDE: '6',
         COLLECTOR_POLL_SECONDS: '60',
@@ -241,12 +257,23 @@ module.exports = {
       autorestart: false,
       cron_restart: '30 5 * * 0',
       env: {
-        // 50 -> 100 (2026-08-13). Measured IB throughput is a 164.6s median per
-        // symbol serially, so a 390-minute session tops out near 142 in one
-        // sweep; 100 leaves room for timeouts and retries instead of running to
-        // the edge. Going beyond needs the quote lane parallelised across
-        // client ids, not a bigger number here.
-        QUOTE_WATCHLIST_TARGET: '100',
+        // 100 -> 250 (2026-08-15), after the option quote path was batched.
+        //
+        // The previous note said going beyond ~142 needed the quote lane
+        // parallelised across client ids. That was true of the serial adapter
+        // and wrong about the cause: the bottleneck was never the number of
+        // client ids, it was that each one used a single market-data line out of
+        // the ~100 IB allows. Batching subscriptions cut a measured A/B from
+        // 249.5s to 14.4s for the same 40 contracts -- 17x -- so one client id
+        // now covers more of the universe in a session than the old design could
+        // with several.
+        //
+        // At ~65s/symbol a 390-minute session reaches ~361 symbols, above the
+        // 327 currently scan_enabled, and that estimate is the closed-market
+        // worst case where every batch waits out its full window; with quotes
+        // streaming, batches exit early. 250 keeps headroom for retries and for
+        // the universe growing rather than running to the edge of the estimate.
+        QUOTE_WATCHLIST_TARGET: '250',
       },
     },
     {
