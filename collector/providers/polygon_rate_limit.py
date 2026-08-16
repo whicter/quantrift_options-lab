@@ -27,8 +27,31 @@ class PolygonStockRequestPacer:
         scope: str = 'stocks',
         connect=None,
     ) -> None:
+        # Per-scope delay, falling back to the stock value. Scopes were split so
+        # option pagination would stop queueing behind the price sweep, but only
+        # the counters were separated -- the interval still came from
+        # POLYGON_STOCK_REQUEST_DELAY, so options inherited 16s that originated
+        # as a price-collection default and was never measured against the
+        # options endpoints.
+        #
+        # The cost was the dominant term in chain freshness: a chain fetch issues
+        # ~35 requests (DTE-bucket pages, term structure, OI-by-strike), so 16s
+        # each is ~9 minutes of deliberate sleeping inside a measured 601s median
+        # job. That is why most symbols were refreshed once per session and a
+        # quarter of the universe carried overnight data at the close -- the
+        # 15-minute provider delay was never the binding constraint, we were.
+        #
+        # Probed 2026-08-15 against /v3/snapshot/options: 8 consecutive requests
+        # at 1.0s, 0.5s and 0.25s intervals all returned 200. Safe to lower well
+        # below 16s, and `penalize()` backs every worker off globally on a 429,
+        # so there is a real brake if the ceiling is ever reached.
+        scope_env = f'POLYGON_{scope.upper()}_REQUEST_DELAY'
         legacy_delay = os.getenv('POLYGON_PRICE_REQUEST_DELAY', '16')
-        self.delay = float(delay if delay is not None else os.getenv('POLYGON_STOCK_REQUEST_DELAY', legacy_delay))
+        stock_delay = os.getenv('POLYGON_STOCK_REQUEST_DELAY', legacy_delay)
+        self.delay = float(
+            delay if delay is not None
+            else os.getenv(scope_env, stock_delay)
+        )
         self.state_path = Path(
             state_path or os.getenv('POLYGON_STOCK_RATE_LIMIT_FILE', '/tmp/quantrift_polygon_stock_rate_limit')
         )

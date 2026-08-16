@@ -18,11 +18,47 @@ class FakeResponse:
         return self.payload
 
 
+def _spans_full_dte_window(params):
+    """True when a request covers the whole min_dte..max_dte range.
+
+    Bucket requests each cover a slice; the term-structure and OI-by-strike
+    fetches cover the entire window. Comparing the requested span against the
+    provider default (0..90 days) separates them without depending on call order.
+    """
+    if not params:
+        return False
+    lo, hi = params.get('expiration_date.gte'), params.get('expiration_date.lte')
+    if not lo or not hi:
+        return False
+    from datetime import date as _date
+    span = (_date.fromisoformat(hi) - _date.fromisoformat(lo)).days
+    return span >= 80
+
+
 class FakeSession:
-    def __init__(self, responses, intraday=None, raise_on_exhaust=False):
+    """Queue-driven fake, with chain requests routed by their expiry window.
+
+    The main chain is now fetched once per DTE bucket instead of as one
+    paginated sweep, so a fixture that hands out responses purely in call order
+    breaks: the term-structure and OI-by-strike calls start receiving payloads
+    queued for a bucket. Both enrichment fetches ask for the FULL min_dte..max_dte
+    window while every bucket asks for a narrow slice of it, so `full_window`
+    routes them explicitly and the queue stays for chain requests only.
+
+    Tests that do not care keep passing a plain list and are unaffected.
+    """
+
+    def __init__(self, responses, intraday=None, raise_on_exhaust=False, full_window=None,
+                 full_window_error=None):
         self.headers = {}
         self.responses = list(responses)
         self.raise_on_exhaust = raise_on_exhaust
+        # Responses for requests spanning the whole DTE window (term structure,
+        # OI-by-strike), served in order, independent of the chain queue.
+        self.full_window = list(full_window or [])
+        # Raised for any full-window request, to exercise enrichment-failure
+        # fallbacks without depending on the queue running dry at the right call.
+        self.full_window_error = full_window_error
         # fetch_underlying now always probes a delayed intraday minute bar first.
         # Route that call separately (default: empty -> caller falls back to the
         # daily-close hint or /prev) so existing per-endpoint response lists stay
@@ -34,12 +70,14 @@ class FakeSession:
         self.calls.append((url, params))
         if '/range/1/minute/' in url:
             return FakeResponse(self.intraday)
+        if _spans_full_dte_window(params):
+            if self.full_window_error is not None:
+                raise self.full_window_error
+        if self.full_window and _spans_full_dte_window(params):
+            return FakeResponse(self.full_window.pop(0))
         if not self.responses:
             if self.raise_on_exhaust:
                 raise IndexError('FakeSession exhausted')
-            # fetch_option_chain now also runs a dedicated OI-by-strike snapshot
-            # fetch after the term-structure one; tests that do not queue a
-            # response for it get an empty (harmless) result and fall through.
             return FakeResponse({'status': 'OK', 'results': []})
         return FakeResponse(self.responses.pop(0))
 
@@ -62,17 +100,35 @@ def option_item(expiry, right, strike=100):
 
 
 class PolygonOptionProviderTests(unittest.TestCase):
-    def test_missing_30_to_45_dte_is_supplemented_and_preserved(self):
+    def test_each_dte_bucket_is_requested_with_its_own_expiry_window(self):
+        """Replaces the 30-45 supplement, which patched one case of this bug.
+
+        Polygon returns contracts in expiry order, so one count-bounded sweep
+        over the whole window never reaches the far months on a weekly-dense
+        symbol -- measured on QQQ, 750 results across 3 pages covered 4 expiries
+        all inside four days. The old fix re-requested a hard-coded 30-45 window
+        when that band came back empty; every bucket now gets its own query, so
+        the special case is gone and 91-120 or 121-150 work for the same reason
+        30-45 did.
+        """
         today = date.today()
         short_expiry = today + timedelta(days=2)
         atm_expiry = today + timedelta(days=35)
-        session = FakeSession([
-            {'status': 'OK', 'results': [{'c': 100}]},
-            {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
-            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
-            # dedicated ATM term-structure fetch (last call)
-            {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
-        ])
+        session = FakeSession(
+            [
+                {'status': 'OK', 'results': [{'c': 100}]},
+                # 0-14 bucket
+                {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
+                # 15-29 bucket: nothing listed there
+                {'status': 'OK', 'results': []},
+                # 30-45 bucket -- reached by its own request, not by a supplement
+                {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            ],
+            full_window=[
+                {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
+                {'status': 'OK', 'results': []},
+            ],
+        )
         env = {
             'POLYGON_API_KEY': 'test-key',
             'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
@@ -87,10 +143,20 @@ class PolygonOptionProviderTests(unittest.TestCase):
 
         dtes = {(contract.expiry - today).days for contract in snapshot.contracts}
         self.assertEqual(dtes, {2, 35})
-        option_calls = [call for call in session.calls if '/v3/snapshot/options/' in call[0]]
-        # main chain, 30-45 supplement, then term-structure + OI-by-strike fetches
-        self.assertGreaterEqual(len(option_calls), 3)
-        self.assertEqual(option_calls[1][1]['expiration_date.gte'], (today + timedelta(days=30)).isoformat())
+
+        # Every configured bucket is asked for by its own window, and no request
+        # spans the whole range except the enrichment fetches.
+        chain_calls = [
+            c for c in session.calls
+            if '/v3/snapshot/options/' in c[0] and not _spans_full_dte_window(c[1])
+        ]
+        windows = {
+            ((date.fromisoformat(c[1]['expiration_date.gte']) - today).days,
+             (date.fromisoformat(c[1]['expiration_date.lte']) - today).days)
+            for c in chain_calls
+        }
+        self.assertIn((0, 14), windows)
+        self.assertIn((30, 45), windows)
 
     def test_term_structure_uses_a_narrow_dedicated_fetch(self):
         # The dedicated ATM fetch uses a narrow strike window and spans every
@@ -103,7 +169,9 @@ class PolygonOptionProviderTests(unittest.TestCase):
             {'status': 'OK', 'results': [{'c': 100}]},
             {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
             {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
-            # dedicated term-structure fetch returns THREE expiries at the ATM strike
+        ], full_window=[
+            # dedicated term-structure fetch returns THREE expiries at the ATM
+            # strike; routed by its full-window span, not by call position.
             {'status': 'OK', 'results': [
                 option_item(short_expiry, 'C'), option_item(short_expiry, 'P'),
                 option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P'),
@@ -137,11 +205,19 @@ class PolygonOptionProviderTests(unittest.TestCase):
         today = date.today()
         short_expiry = today + timedelta(days=2)
         atm_expiry = today + timedelta(days=35)
-        session = FakeSession([  # no term-structure response queued -> fetch raises
-            {'status': 'OK', 'results': [{'c': 100}]},
-            {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
-            {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
-        ], raise_on_exhaust=True)
+        # Fail the full-window fetch explicitly rather than by exhausting the
+        # queue. Exhaustion used to coincide with the term-structure call, but
+        # bucket requests now consume the queue first, so the raise landed on the
+        # main chain and the test stopped exercising the fallback at all.
+        session = FakeSession(
+            [
+                {'status': 'OK', 'results': [{'c': 100}]},
+                {'status': 'OK', 'results': [option_item(short_expiry, 'C'), option_item(short_expiry, 'P')]},
+                {'status': 'OK', 'results': []},
+                {'status': 'OK', 'results': [option_item(atm_expiry, 'C'), option_item(atm_expiry, 'P')]},
+            ],
+            full_window_error=RuntimeError('term structure fetch failed'),
+        )
         env = {
             'POLYGON_API_KEY': 'test-key',
             'OPTION_MAX_EXPIRATIONS_PER_BUCKET': '1',
@@ -409,14 +485,22 @@ class OiByStrikeSnapshotTests(unittest.TestCase):
         e = today + timedelta(days=35)
         def oi(strike, right, n):
             it = option_item(e, right, strike); it['open_interest'] = n; return it
-        session = FakeSession([
-            {'status': 'OK', 'results': [{'c': 100}]},                       # /prev
-            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},  # main chain
-            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},  # supplement/term
-            {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},  # term-structure
-            # dedicated OI fetch: wide strikes with real OI
-            {'status': 'OK', 'results': [oi(90,'P',400), oi(100,'C',50), oi(100,'P',60), oi(110,'C',300)]},
-        ])
+        session = FakeSession(
+            [
+                {'status': 'OK', 'results': [{'c': 100}]},                       # /prev
+                # per-bucket chain requests; only the 30-45 bucket has contracts
+                {'status': 'OK', 'results': []},
+                {'status': 'OK', 'results': []},
+                {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},
+            ],
+            full_window=[
+                # term structure, then the dedicated OI fetch: wide strikes with
+                # real OI. Both span the whole window, so they are routed by that
+                # rather than by how many bucket requests preceded them.
+                {'status': 'OK', 'results': [option_item(e, 'C'), option_item(e, 'P')]},
+                {'status': 'OK', 'results': [oi(90,'P',400), oi(100,'C',50), oi(100,'P',60), oi(110,'C',300)]},
+            ],
+        )
         provider = self._provider(session)
         snap = provider.fetch_option_chain('TEST', spot_hint=100.0, iv_hint=0.4)
         self.assertIsNotNone(snap.oi_by_strike)
@@ -435,3 +519,61 @@ class OiByStrikeSnapshotTests(unittest.TestCase):
         provider = self._provider(session, OPTION_OI_BY_STRIKE_ENABLED='false')
         snap = provider.fetch_option_chain('TEST', spot_hint=100.0, iv_hint=0.4)
         self.assertEqual(snap.oi_by_strike['points'], [])
+
+
+class TrimAcrossExpiriesTests(unittest.TestCase):
+    """The contract cap must not be spent entirely on the nearest expiry.
+
+    Contracts arrive ordered by expiry, so `contracts[:max_contracts]` kept the
+    front of the list and dropped every far month -- the second of two
+    truncations that each independently made widening OPTION_DTE_BUCKETS look
+    like it did nothing. Calendars and diagonals need a far leg to exist at all,
+    and near-term strike density does not substitute for one.
+    """
+
+    @staticmethod
+    def _contracts(expiries, per_expiry):
+        from providers.polygon_option_chain_provider import _trim_across_expiries  # noqa: F401
+        out = []
+        for expiry in expiries:
+            for strike in range(per_expiry):
+                out.append(OptionContractSnapshot(
+                    symbol='TEST', expiry=expiry, strike=100 + strike, right='C',
+                    bid=None, ask=None, last=None, mark=None, volume=None,
+                    open_interest=None, iv=None, delta=None, gamma=None,
+                    theta=None, vega=None, rho=None,
+                ))
+        return out
+
+    def test_every_expiry_survives_the_cap(self):
+        from providers.polygon_option_chain_provider import _trim_across_expiries
+        today = date.today()
+        expiries = [today + timedelta(days=d) for d in (2, 35, 60, 97, 125)]
+        trimmed = _trim_across_expiries(self._contracts(expiries, 50), 100)
+        self.assertEqual(len(trimmed), 100)
+        self.assertEqual({c.expiry for c in trimmed}, set(expiries))
+
+    def test_the_budget_is_shared_roughly_evenly(self):
+        from providers.polygon_option_chain_provider import _trim_across_expiries
+        today = date.today()
+        expiries = [today + timedelta(days=d) for d in (2, 35, 60, 97)]
+        trimmed = _trim_across_expiries(self._contracts(expiries, 50), 100)
+        counts = {}
+        for c in trimmed:
+            counts[c.expiry] = counts.get(c.expiry, 0) + 1
+        self.assertLessEqual(max(counts.values()) - min(counts.values()), 1)
+
+    def test_an_expiry_with_few_contracts_does_not_block_the_others(self):
+        from providers.polygon_option_chain_provider import _trim_across_expiries
+        today = date.today()
+        near, far = today + timedelta(days=2), today + timedelta(days=97)
+        contracts = self._contracts([near], 2) + self._contracts([far], 50)
+        trimmed = _trim_across_expiries(contracts, 20)
+        self.assertEqual(len(trimmed), 20)
+        self.assertEqual(sum(1 for c in trimmed if c.expiry == near), 2)
+
+    def test_a_chain_under_the_cap_is_returned_untouched(self):
+        from providers.polygon_option_chain_provider import _trim_across_expiries
+        today = date.today()
+        contracts = self._contracts([today + timedelta(days=2)], 5)
+        self.assertIs(_trim_across_expiries(contracts, 100), contracts)

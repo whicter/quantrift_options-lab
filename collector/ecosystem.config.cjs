@@ -100,6 +100,26 @@ module.exports = {
         HEALTH_MIN_COMPLETENESS_PCT: '75',
         HEALTH_ALERT_COOLDOWN_MINUTES: '60',
         POLYGON_STOCK_REQUEST_DELAY: '16',
+        // Options get their own interval (2026-08-15). The scopes were split so
+        // option pagination would stop queueing behind the price sweep, but only
+        // the counters were separated -- the interval still came from
+        // POLYGON_STOCK_REQUEST_DELAY, so options inherited 16s that originated
+        // as a price-collection default and had never been measured against the
+        // options endpoints.
+        //
+        // It was the dominant term in chain staleness. A chain fetch issues ~35
+        // requests, so 16s each is ~9 minutes of deliberate sleeping inside a
+        // measured 601s median job -- which is why 214 of 327 symbols were
+        // refreshed exactly once on 2026-08-14 and a quarter of the universe
+        // still carried overnight data at the close. The provider's 15-minute
+        // delay was never the binding constraint; this was.
+        //
+        // Probed against /v3/snapshot/options: 8 consecutive requests at 1.0s,
+        // 0.5s and 0.25s all returned 200. 1.5s keeps a wide margin under the
+        // slowest probed rate rather than chasing the fastest, and penalize()
+        // backs every worker off globally on a 429 if the ceiling is ever met.
+        // Stocks and breadth are untouched -- their limits were never probed.
+        POLYGON_OPTIONS_REQUEST_DELAY: '1.5',
         DERIVED_VOLATILITY_ENABLED: 'true',
         DERIVED_VOLATILITY_SECONDS: '3600',
       },

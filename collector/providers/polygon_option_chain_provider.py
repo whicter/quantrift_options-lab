@@ -49,6 +49,11 @@ class PolygonOptionChainProvider:
         # upgrade so the underlying reflects an in-session (delayed) price.
         self.intraday_spot_enabled = os.getenv('OPTION_INTRADAY_SPOT_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes')
         self.dte_buckets = _parse_dte_buckets(os.getenv('OPTION_DTE_BUCKETS', '0-14,15-29,30-45,46-60,61-90'))
+        # Pagination budget per DTE bucket. Each bucket is queried separately, so
+        # this bounds one bucket's weeklies rather than the whole window -- the
+        # global cap it replaces let a dense near-term bucket exhaust the budget
+        # before the far months were ever requested.
+        self.max_contracts_per_bucket = int(os.getenv('OPTION_MAX_CONTRACTS_PER_BUCKET', '250'))
         self.max_expirations_per_bucket = int(os.getenv('OPTION_MAX_EXPIRATIONS_PER_BUCKET', '2'))
         self.page_limit = min(int(os.getenv('POLYGON_PAGE_LIMIT', '250')), 250)
         # Term structure uses a narrow ATM strike window so even a weekly-dense
@@ -206,34 +211,54 @@ class PolygonOptionChainProvider:
             'limit': self.page_limit,
         }
 
+        # One request per DTE bucket, not one paginated sweep over the whole
+        # window. Polygon returns contracts in expiry order, so a single sweep
+        # bounded by a contract count never reaches the far months on a
+        # weekly-dense symbol: measured 2026-08-15 on QQQ with a 0-150 day
+        # window, 750 results across 3 pages covered 4 expiries, all inside
+        # 2026-08-17..08-20. Adding 91-120 and 121-150 to the bucket list did
+        # nothing, because bucket selection filters what was already fetched and
+        # those contracts were never in the response.
+        #
+        # This also subsumes the old 30-45 supplement, which patched exactly this
+        # failure for one hard-coded window; every bucket now gets its own query
+        # instead of one bucket getting a special case.
+        bucket_windows: list[tuple[date, date]]
+        if expirations:
+            bucket_windows = [(exp_min, exp_max)]
+        else:
+            bucket_windows = []
+            for lo_days, hi_days in self.dte_buckets:
+                lo = today + timedelta(days=max(lo_days, self.min_dte))
+                hi = today + timedelta(days=min(hi_days, self.max_dte))
+                if lo <= hi:
+                    bucket_windows.append((lo, hi))
+
         raw_results: list[dict] = []
-        url: str | None = f'{self.base_url}/v3/snapshot/options/{symbol}'
-        current_params: dict | None = params
-
-        while url and len(raw_results) < self.max_contracts * 3:
-            data = self.http.get_json(
-                url,
-                params=current_params,
-                context=f'Polygon option snapshot request for {symbol}',
-            )
-            batch = data.get('results') or []
-            raw_results.extend(batch)
-            next_url = data.get('next_url')
-            url = next_url if next_url else None
-            current_params = None  # next_url already has all params encoded
-            if url and self.request_delay > 0:
-                time.sleep(self.request_delay)
-
-        if not expirations and not _raw_has_dte_window(raw_results, today, 30, 45):
-            supplement_params = dict(params)
-            supplement_params['expiration_date.gte'] = (today + timedelta(days=30)).isoformat()
-            supplement_params['expiration_date.lte'] = (today + timedelta(days=45)).isoformat()
-            supplement = self.http.get_json(
-                f'{self.base_url}/v3/snapshot/options/{symbol}',
-                params=supplement_params,
-                context=f'Polygon option snapshot supplement for {symbol}',
-            )
-            raw_results.extend(supplement.get('results') or [])
+        # Per-bucket budget rather than one global cap, so a dense near-term
+        # bucket cannot consume the allowance the far months need.
+        per_bucket_cap = max(self.max_contracts_per_bucket, 1)
+        for window_start, window_end in bucket_windows:
+            bucket_params = dict(params)
+            bucket_params['expiration_date.gte'] = window_start.isoformat()
+            bucket_params['expiration_date.lte'] = window_end.isoformat()
+            url: str | None = f'{self.base_url}/v3/snapshot/options/{symbol}'
+            current_params: dict | None = bucket_params
+            fetched = 0
+            while url and fetched < per_bucket_cap:
+                data = self.http.get_json(
+                    url,
+                    params=current_params,
+                    context=f'Polygon option snapshot request for {symbol}',
+                )
+                batch = data.get('results') or []
+                raw_results.extend(batch)
+                fetched += len(batch)
+                next_url = data.get('next_url')
+                url = next_url if next_url else None
+                current_params = None  # next_url already has all params encoded
+                if url and self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         raw_results = _deduplicate_raw_contracts(raw_results)
 
@@ -274,7 +299,13 @@ class PolygonOptionChainProvider:
                 self.max_expirations_per_bucket,
             )
 
-        contracts = contracts[:self.max_contracts]
+        # Trim round-robin across expiries, not with a head slice. Contracts
+        # arrive in expiry order, so `contracts[:max_contracts]` spent the whole
+        # budget on the nearest expiries and dropped every far month -- measured
+        # 2026-08-15: QQQ selected 5 expiries out to 2026-10-16 and the slice cut
+        # it back to the front of the list, which is why widening the bucket
+        # list appeared to do nothing twice over.
+        contracts = _trim_across_expiries(contracts, self.max_contracts)
 
         missing_greeks = sum(1 for c in contracts if c.gamma is None or c.delta is None)
         missing_oi = sum(1 for c in contracts if c.open_interest is None)
@@ -628,6 +659,41 @@ def _parse_dte_buckets(value: str) -> list[tuple[int, int]]:
         if lower >= 0 and upper >= lower:
             buckets.append((lower, upper))
     return buckets or [(0, 14), (15, 29), (30, 45), (46, 60), (61, 90)]
+
+
+def _trim_across_expiries(contracts: list, limit: int) -> list:
+    """Cut to `limit` by taking a turn from each expiry, nearest strikes first.
+
+    A head slice is wrong here because contracts arrive ordered by expiry: the
+    nearest one consumes the entire budget and the far months, which the DTE
+    buckets were widened specifically to reach, are dropped whole. Calendars and
+    diagonals need a far leg to exist at all, and no amount of near-term strike
+    density substitutes for it.
+
+    Within an expiry the order the provider returned is preserved, which is by
+    strike -- so a partial expiry keeps a contiguous strike range rather than a
+    scatter.
+    """
+    if limit <= 0 or len(contracts) <= limit:
+        return contracts
+
+    by_expiry: dict = {}
+    for contract in contracts:
+        by_expiry.setdefault(contract.expiry, []).append(contract)
+
+    kept: list = []
+    queues = [iter(group) for _, group in sorted(by_expiry.items())]
+    while len(kept) < limit and queues:
+        remaining = []
+        for queue in queues:
+            if len(kept) >= limit:
+                break
+            item = next(queue, None)
+            if item is not None:
+                kept.append(item)
+                remaining.append(queue)
+        queues = remaining
+    return kept
 
 
 def _select_dte_bucket_contracts(

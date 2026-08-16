@@ -1,3 +1,4 @@
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -6,6 +7,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from providers.polygon_rate_limit import PolygonStockRequestPacer  # noqa: E402
 
 
 class PacingScopeIsolationTest(unittest.TestCase):
@@ -70,3 +73,41 @@ class PacingScopeIsolationTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ScopeDelayTests(unittest.TestCase):
+    """Each pacing scope may carry its own interval, not just its own counter.
+
+    Scopes were introduced so option pagination would stop queueing behind the
+    price sweep, but only the counters were separated -- every scope still read
+    POLYGON_STOCK_REQUEST_DELAY. Options therefore inherited 16s, a value that
+    originated as a price-collection default and was never measured against the
+    options endpoints. A chain fetch issues ~35 requests, so that was ~9 minutes
+    of deliberate sleeping inside a 601s median job, and it -- not the provider's
+    15-minute delay -- was what made intraday chains stale.
+    """
+
+    def _delay(self, scope, env):
+        with patch.dict(os.environ, env, clear=False):
+            return PolygonStockRequestPacer(scope=scope).delay
+
+    def test_scope_specific_delay_overrides_the_stock_default(self):
+        env = {'POLYGON_STOCK_REQUEST_DELAY': '16', 'POLYGON_OPTIONS_REQUEST_DELAY': '1.5'}
+        self.assertEqual(self._delay('options', env), 1.5)
+
+    def test_other_scopes_are_untouched_by_an_options_override(self):
+        # Lowering the option interval must not quietly speed up the price sweep
+        # or the breadth collector, whose limits were never probed.
+        env = {'POLYGON_STOCK_REQUEST_DELAY': '16', 'POLYGON_OPTIONS_REQUEST_DELAY': '1.5'}
+        self.assertEqual(self._delay('stocks', env), 16.0)
+        self.assertEqual(self._delay('breadth', env), 16.0)
+
+    def test_absent_override_falls_back_to_the_previous_behaviour(self):
+        env = {'POLYGON_STOCK_REQUEST_DELAY': '16'}
+        for scope in ('stocks', 'options', 'breadth'):
+            with self.subTest(scope=scope):
+                self.assertEqual(self._delay(scope, env), 16.0)
+
+    def test_an_explicit_delay_argument_still_wins(self):
+        with patch.dict(os.environ, {'POLYGON_OPTIONS_REQUEST_DELAY': '1.5'}, clear=False):
+            self.assertEqual(PolygonStockRequestPacer(scope='options', delay=7).delay, 7.0)
