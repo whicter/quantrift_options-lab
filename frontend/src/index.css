@@ -3995,6 +3995,10 @@ select:focus,
 .positioning-table tbody tr:last-child td { border-bottom: none; }
 .positioning-table tbody tr:hover { background: var(--bg-hover, rgba(127,127,127,.06)); }
 
+/* Every numeric cell carries .pos-num, but the class had no rule at all, so the
+   headers (text-align: right) sat over left-aligned figures and every column
+   read as shifted. The markup was right the whole time; the style was missing. */
+.pos-num { text-align: right; }
 .pos-sym a { color: var(--text); font-weight: 600; text-decoration: none; }
 .pos-sym a:hover { text-decoration: underline; }
 .pos-strike { color: var(--accent); }
