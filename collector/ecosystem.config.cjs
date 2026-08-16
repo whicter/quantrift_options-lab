@@ -210,6 +210,15 @@ module.exports = {
         MARKET_BREADTH_MIN_COVERAGE_PCT: '90',
         POLYGON_STOCK_REQUEST_DELAY: '16',
         POLYGON_PRICE_RATE_LIMIT_BACKOFF: '60',
+        // The universe sweep hits /v3/reference/tickers, not grouped daily, and
+        // is paced on its own `reference` scope. Measured 2026-08-15: grouped
+        // daily rejects above ~5 req/min while reference sustained 20+ with no
+        // 429 (ceiling untested, so 3s = 20/min stays at the measured floor
+        // rather than probing past it). Measured over the three MICs: 7 requests
+        // returning 5,319 symbols in 3.1s of network time, so the old shared
+        // 16s spacing made that 112s -- 97% of it deliberate sleeping. Now 21s.
+        POLYGON_REFERENCE_REQUEST_DELAY: '3',
+        POLYGON_REFERENCE_RATE_LIMIT_BACKOFF: '60',
       },
     },
     {

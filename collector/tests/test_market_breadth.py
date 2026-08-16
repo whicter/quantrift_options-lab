@@ -209,6 +209,22 @@ class PolygonMarketBreadthProviderTests(unittest.TestCase):
             {'adjusted': 'true', 'include_otc': 'false'},
         )
 
+    def test_reference_sweep_is_paced_separately_from_grouped_daily(self):
+        """They are different endpoints with different limits.
+
+        Measured 2026-08-15: grouped daily rejects above ~5 req/min, while
+        /v3/reference/tickers sustained 20+ with no 429. Sharing one scope
+        charged the paginating reference sweep the grouped-daily interval --
+        up to 20 pages per exchange across 3 exchanges is 60 requests, so 16s
+        each is ~16 minutes to build a universe the endpoint serves in under
+        one.
+        """
+        provider, _ = self.provider([])
+        self.assertEqual(provider.http.pacer.scope, 'breadth')
+        self.assertEqual(provider.reference_http.pacer.scope, 'reference')
+        # One session, two pacing rows -- connection reuse must survive the split.
+        self.assertIs(provider.reference_http.session, provider.http.session)
+
     def test_common_stock_reference_paginates_and_filters_primary_exchange(self):
         provider, session = self.provider([
             FakeResponse({

@@ -1,5 +1,31 @@
 # Task Tracker
 
+## ✅ 2026-08-15 — reference 端点独立 pacing scope（已上线）
+
+`polygon_market_breadth_provider` 把 grouped daily 和 `/v3/reference/tickers`
+放在同一个 `breadth` scope。两者是不同端点、不同限额：实测 grouped daily 约
+5 req/min 就会被拒，而 reference 持续 20+ 无 429（上限未测到）。
+共用 scope 等于让 reference 扫描按 grouped daily 的 16s 间隔付费。
+
+**实测**（三个 MIC，XNAS/XNYS/XASE）：7 个请求返回 5,319 个标的，
+纯网络耗时 3.1s。旧的 16s 间隔＝112s，其中 97% 是刻意 sleep；
+新的独立 `reference` scope（3s ＝ 20/min，停在实测下限，不去试探上限）＝21s。
+
+改动：`reference_http` 单独一个 `PolygonHttpClient`（复用同一个 session，
+只有 pacing 行不同）；`fetch_common_stocks` 走 `_get_reference_json`；
+ecosystem 的 `quantrift-market-breadth` 增加 `POLYGON_REFERENCE_REQUEST_DELAY=3`。
+
+**PM2 需要 delete + start 才能重新注册 env**（与日志路径同一个坑，
+`pm2_env` 在进程创建时解析）。已执行并 `pm2 save`，实跑一轮验证：
+market_date 2026-08-14、coverage 98.8%、**零 429**。
+
+顺带修正了 `test_pacing_scope_isolation` 的不变量：原来的 `_scope_for` 只记录
+**最后**一个 pacer，所以一个 provider 开两个 scope 时会误报。改为 `_scopes_for`
+记录全部，并明确「两个 provider 共用一个 scope 只有在打**不同**端点时才算冲突」——
+广度采集器的第二个 scope 就是 reference 端点本身，共用是正确的。
+
+---
+
 ## ✅ 2026-08-15 — GEX 覆盖偏斜：分页截断切在到期日内部（真 bug，已修）
 
 Analyze 页对 SPY 显示「部分期权数据可用」。数据质量本身完美

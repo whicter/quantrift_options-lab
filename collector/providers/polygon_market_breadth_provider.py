@@ -32,6 +32,19 @@ class PolygonMarketBreadthProvider:
             required_for='PolygonMarketBreadthProvider',
             pacing_scope='breadth',
         )
+        # The ticker-reference endpoint is paced separately from grouped daily.
+        # They are different endpoints with different limits: grouped daily
+        # measured 5 req/min, /v3/reference/tickers sustained 20+ with no 429
+        # (ceiling untested). Sharing one scope charged the paginating reference
+        # sweep the grouped-daily interval. Measured 2026-08-15 over the three
+        # MICs: 7 requests returning 5,319 symbols, 3.1s of actual network time
+        # -- so 112s at the old 16s spacing was 97% deliberate sleeping, now 21s.
+        # Same session (connection reuse); only the pacing row differs.
+        self.reference_http = PolygonHttpClient(
+            session=self.http.session,
+            required_for='PolygonMarketBreadthProvider',
+            pacing_scope='reference',
+        )
         self.api_key = self.http.api_key
         self.base_url = self.http.base_url
         self.timeout = self.http.timeout
@@ -80,7 +93,7 @@ class PolygonMarketBreadthProvider:
             }
             pages = 0
             while url:
-                payload = self._get_json(url, params=params)
+                payload = self._get_reference_json(url, params=params)
                 pages += 1
                 if pages > 20:
                     raise RuntimeError(f'Polygon ticker pagination exceeded 20 pages for {exchange}')
@@ -92,6 +105,13 @@ class PolygonMarketBreadthProvider:
                 url = payload.get('next_url')
                 params = None
         return references
+
+    def _get_reference_json(self, url: str, params: dict | None = None) -> dict:
+        return self.reference_http.get_json(
+            url,
+            params=params,
+            context='Polygon ticker reference request',
+        )
 
     def _get_json(self, url: str, params: dict | None = None) -> dict:
         return self.http.get_json(

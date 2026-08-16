@@ -23,12 +23,19 @@ class PacingScopeIsolationTest(unittest.TestCase):
     """
 
     @staticmethod
-    def _scope_for(factory):
-        seen = {}
+    def _scopes_for(factory):
+        """Every scope a provider opens, in construction order.
+
+        A provider may legitimately open more than one: the breadth collector
+        reads grouped daily AND /v3/reference/tickers, which are separate
+        endpoints with separate limits (5 vs 20+ req/min, measured 2026-08-15).
+        Recording only the last one hid that.
+        """
+        seen = []
 
         class Recorder:
             def __init__(self, delay=None, state_path=None, scope='stocks', **_kw):
-                seen['scope'] = scope
+                seen.append(scope)
 
             def wait(self):
                 return None
@@ -36,7 +43,13 @@ class PacingScopeIsolationTest(unittest.TestCase):
         with patch.dict('os.environ', {'POLYGON_API_KEY': 'test-key'}, clear=False), \
              patch('providers.polygon_http.PolygonStockRequestPacer', Recorder):
             factory()
-        return seen.get('scope')
+        return seen
+
+    @classmethod
+    def _scope_for(cls, factory):
+        """The provider's primary scope -- the first queue it opens."""
+        scopes = cls._scopes_for(factory)
+        return scopes[0] if scopes else None
 
     def test_option_chain_and_price_use_different_queues(self):
         from providers.polygon_option_chain_provider import PolygonOptionChainProvider
@@ -56,12 +69,28 @@ class PacingScopeIsolationTest(unittest.TestCase):
         self.assertEqual(self._scope_for(PolygonReferenceProvider), 'reference')
         self.assertEqual(self._scope_for(PolygonMarketBreadthProvider), 'breadth')
 
+        # The breadth collector also sweeps /v3/reference/tickers to build its
+        # universe. That is the ticker-reference endpoint, not grouped daily, so
+        # it belongs on the reference queue -- sharing a scope with
+        # PolygonReferenceProvider is correct here precisely because they call
+        # the SAME endpoint. Pacing it as breadth charged a 20+ req/min endpoint
+        # the 5 req/min interval: measured 7 requests over the three MICs, 112s
+        # at 16s apiece against 3.1s of actual network time.
+        self.assertEqual(
+            self._scopes_for(PolygonMarketBreadthProvider), ['breadth', 'reference'],
+        )
+
     def test_every_scope_is_distinct(self):
         from providers.polygon_option_chain_provider import PolygonOptionChainProvider
         from providers.polygon_price_provider import PolygonPriceProvider
         from providers.polygon_reference_provider import PolygonReferenceProvider
         from providers.polygon_market_breadth_provider import PolygonMarketBreadthProvider
 
+        # Primary scopes, i.e. the queue each provider's own bulk endpoint uses.
+        # Secondary scopes are excluded deliberately: two providers sharing a
+        # scope is only a collision when they are hitting DIFFERENT endpoints,
+        # and the breadth collector's second scope is the reference endpoint
+        # itself. Comparing every scope would forbid the correct sharing.
         scopes = [
             self._scope_for(PolygonOptionChainProvider),
             self._scope_for(PolygonPriceProvider),
