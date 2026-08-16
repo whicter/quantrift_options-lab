@@ -4021,3 +4021,34 @@ select:focus,
    the static measures do not. Semantic, not the page accent. */
 .pos-fee-high { color: var(--danger, #d0584a); font-weight: 600; }
 .pos-fee-warm { color: var(--warn, #d0854a); }
+
+/* Classes that carried intent but no rule.
+   Found by comparing every className used in JSX against every selector defined
+   in CSS, after `.pos-num` shipped with no rule and left a whole table's figures
+   left-aligned under right-aligned headers. A unit test cannot catch this: the
+   class is in the DOM either way, so the two sides have to be diffed statically.
+   Verified against computed style in the running app before writing these --
+   .az-data-note elements matched document.body exactly (13px, same colour, no
+   border, no padding), i.e. the class contributed nothing at all. */
+
+/* Risk and model-assumption disclaimers ("估算概率不保证实际胜率…"). These are
+   compliance copy and must read as an aside, not as another sentence of the
+   product's own conclusion, which is how they rendered at body size and colour. */
+.az-data-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* The single call-to-action in a group ("升级 Pro", "登录"). It sat beside
+   secondary buttons like "管理订阅" with no visual difference between them. */
+.primary-btn {
+  padding: 7px 14px;
+  background: var(--blue);
+  color: #fff;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  font-weight: 600;
+}
+.primary-btn:hover { filter: brightness(1.08); }

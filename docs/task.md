@@ -1,5 +1,47 @@
 # Task Tracker
 
+## ✅ 2026-08-15 — 补上「有 class 无规则」的漏网样式，并加 CI 守卫
+
+`.pos-num` 那个 bug（每个数字单元格都带这个 class，但 CSS 里根本没有对应规则，
+表头右对齐、数字左对齐）不是孤例。把 JSX 里用到的全部 className 与 CSS 里定义的
+全部选择器做静态比对，667 个使用 / 803 个定义，**33 个无对应规则**；
+剔除模板字符串拼接产生的前缀（`rrg-tone-${...}` 之类）后，两个是真问题：
+
+| class | 处数 | 影响 |
+|---|---|---|
+| `az-data-note` | 6 | **合规免责声明**（「估算概率不保证实际胜率；未必包含滑点、手续费…」）与正文完全同款 |
+| `primary-btn` | 4 | 「升级 Pro」「登录」等主 CTA 与旁边的次要按钮毫无视觉差别 |
+
+`az-data-note` 是这批里最该修的：在运行中的页面实测，这些元素的计算样式与
+`document.body` **完全一致**（同为 13px、同色、无边框无内距无背景），
+也就是这个 class 一点作用都没有——风险提示读起来就是产品自己结论的又一句话。
+修复后实测 11.5px / `var(--text-muted)`，与正文区分开。
+
+**这类 bug 单元测试结构上抓不到**：class 在不在 DOM 里都一样，不抛错、
+结构断言也不会失败，只有像素不同。所以加了 `src/lib/orphanClasses.test.js`
+做静态双向比对（沿用 `providerDisclosure.test.js` 的静态守卫范式），
+并显式维护两个清单：`BUILT_PREFIXES`（运行时拼接、静态不可见）和
+`INTENTIONALLY_UNSTYLED`（纯结构挂载点，每个都要写明理由）——
+让「不管」成为一个需要写下理由的决定，而不是一次遗漏。
+
+**守卫本身做了反向验证**：注入一个 `deliberately-unstyled-probe` 后测试确实失败
+并точно指出 `pages/Positioning.jsx`。（第一次用 `sed -i ''` 注入时静默没生效，
+差点让我把「守卫通过」当成「守卫有效」——只会通过的守卫等于没有守卫。）
+
+前端 127 测试通过、lint 干净、build + check:dist 干净。
+
+### 顺带发现，未修（已记录为独立任务）
+
+浅色主题下 `getComputedStyle(document.body).color` 取到的是**深色主题**的值
+（rgb(237,243,251)），而 `html`、`#root` 以及现场插入的 `var(--text)` 探针
+都正确返回 rgb(19,32,51)；唯一设置 body 颜色的规则是
+`html, body, #root { color: var(--text) }`，且 `--text` 在 body 上解析为 #132033，
+与计算值自相矛盾。**当前无可见缺陷**（`#root` 包裹全部内容且取值正确，
+body 没有直接文本子节点），属于隐患，需单独查清是构建产物、CSSOM introspection
+差异还是真实层叠问题。
+
+---
+
 ## ✅ 2026-08-15 — reference 端点独立 pacing scope（已上线）
 
 `polygon_market_breadth_provider` 把 grouped daily 和 `/v3/reference/tickers`
