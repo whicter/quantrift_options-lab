@@ -198,3 +198,34 @@ function buildGexNotice(gexData) {
     message: '当前结果可能不完整，请结合页面时间与风险提示使用。',
   };
 }
+
+/** Render one side of the technical level strip.
+ *
+ * An empty list and an unavailable list are different facts and must not render
+ * the same string. The callers only render this while `supportResistance` is
+ * non-null, which the route sets only for `status === 'ready'`, so an empty
+ * array means the pivot scan ran and confirmed no level on that side -- for
+ * resistance that is exactly what trading above every swing high in the window
+ * looks like. Collapsing it to `--` threw that away and read as missing data:
+ * observed on SPY at 776.34, whose 400-bar high (779.37) was one bar old and so
+ * not yet a confirmable pivot (`pivot_window: 2` needs bars on both sides).
+ *
+ * Descriptive only -- it states where price sits relative to observed pivots and
+ * never suggests an action.
+ */
+export function formatLevelList(levels, side) {
+  if (!Array.isArray(levels)) return '--';
+  if (levels.length === 0) {
+    return side === 'resistance'
+      ? '无（现价高于区间内全部摆动高点）'
+      : '无（现价低于区间内全部摆动低点）';
+  }
+  return levels
+    // Guard empty values BEFORE Number(): Number(null) is 0 and finite, so an
+    // isFinite check alone renders a missing level as the real price $0.00.
+    .filter(level => level?.price != null && level.price !== '')
+    .map(level => Number(level.price))
+    .filter(Number.isFinite)
+    .map(price => `$${price.toFixed(2)}`)
+    .join(' / ') || '--';
+}

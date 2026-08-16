@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import InsightCarousel from '../../components/InsightCarousel';
 import { getChartColors } from '../../lib/theme';
+import { formatLevelList } from '../../lib/analyzeData.js';
 
 function ChipRuler({ oiByStrike, putWall, callWall, price }) {
   const canvasRef = useRef(null);
@@ -226,8 +227,8 @@ export default function Tab4Signals({ data }) {
       </div>
       {supportResistance && (
         <div className="az-level-strip">
-          <span>S {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
-          <span>R {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+          <span>S {formatLevelList(supportResistance.support, 'support')}</span>
+          <span>R {formatLevelList(supportResistance.resistance, 'resistance')}</span>
         </div>
       )}
       {Number.isFinite(putWall) && Number.isFinite(callWall) && Number.isFinite(price) && (

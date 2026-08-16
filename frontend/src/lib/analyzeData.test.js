@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyDerivedAnalysis, applyGex, applySummary, isUsableGex } from './analyzeData.js';
+import { applyDerivedAnalysis, applyGex, applySummary, formatLevelList, isUsableGex } from './analyzeData.js';
 
 const mockSeed = {
   symbol: 'PLTR',
@@ -275,4 +275,28 @@ test('applySummary keeps the local conclusion when the server has no positioning
 test('applySummary is a no-op when the summary is absent', () => {
   assert.equal(applySummary(summaryBase, null), summaryBase);
   assert.equal(applySummary(null, {}), null);
+});
+
+test('formatLevelList names an empty side instead of collapsing it to a missing marker', () => {
+  // SPY at 776.34 traded above every confirmable pivot high, so the scan
+  // legitimately returned none. Rendering '--' made a real observation look
+  // like absent data.
+  assert.equal(formatLevelList([], 'resistance'), '无（现价高于区间内全部摆动高点）');
+  assert.equal(formatLevelList([], 'support'), '无（现价低于区间内全部摆动低点）');
+});
+
+test('formatLevelList still reports genuinely unavailable input as missing', () => {
+  assert.equal(formatLevelList(null, 'resistance'), '--');
+  assert.equal(formatLevelList(undefined, 'support'), '--');
+});
+
+test('formatLevelList formats levels in the order given', () => {
+  assert.equal(
+    formatLevelList([{ price: 735.9 }, { price: 676.53 }], 'support'),
+    '$735.90 / $676.53',
+  );
+});
+
+test('formatLevelList drops unusable prices and falls back to the missing marker', () => {
+  assert.equal(formatLevelList([{ price: null }], 'support'), '--');
 });

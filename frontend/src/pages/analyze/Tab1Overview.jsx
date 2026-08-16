@@ -1,6 +1,7 @@
 import InsightCarousel from '../../components/InsightCarousel';
 import { compactMoney } from '../../lib/scannerPresentation';
 import { buildSynthesis } from '../../lib/synthesis';
+import { formatLevelList } from '../../lib/analyzeData.js';
 
 function Badge({ label, value, colorFn }) {
   const cls = colorFn(value);
@@ -228,8 +229,8 @@ export default function Tab1Overview({ data }) {
 
       {supportResistance && (
         <div className="az-level-strip">
-          <span>技术支撑 S: {supportResistance.support.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
-          <span>技术阻力 R: {supportResistance.resistance.map(level => `$${Number(level.price).toFixed(2)}`).join(' / ') || '--'}</span>
+          <span>技术支撑 S: {formatLevelList(supportResistance.support, 'support')}</span>
+          <span>技术阻力 R: {formatLevelList(supportResistance.resistance, 'resistance')}</span>
         </div>
       )}
 
