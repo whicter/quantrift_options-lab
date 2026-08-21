@@ -259,8 +259,43 @@ def recover_stale_running_jobs(conn) -> int:
             ),
         )
         count = cur.rowcount
+
+        # A stale job that has ALSO exhausted its attempts must terminate, not
+        # linger. The requeue above is guarded by `attempts < MAX`, so such a job
+        # matched nothing and stayed `running` forever -- and because active jobs
+        # are deduplicated regardless of age, no replacement could ever be
+        # enqueued for that symbol. Observed 2026-08-20: SMH and PEP had been
+        # `running` for 17.2 and 14.2 days with `last_error` still NULL, and
+        # neither had a single option_chain_snapshot row to show for it.
+        #
+        # Failing it is what releases the dedupe lock. It is also the honest
+        # status: three attempts were spent and none finished.
+        cur.execute(
+            """
+            UPDATE provider_fetch_jobs
+            SET status = 'failed',
+                last_error = 'stale running job exhausted attempts; terminated by recovery',
+                finished_at = NOW()
+            WHERE status = 'running'
+              AND started_at < NOW() - (
+                CASE WHEN job_type = ANY(%s) THEN %s::int ELSE %s::int END * INTERVAL '1 minute'
+              )
+              AND attempts >= %s
+            """,
+            (
+                list(SLOW_JOB_TYPES),
+                SLOW_RUNNING_JOB_TIMEOUT_MINUTES,
+                RUNNING_JOB_TIMEOUT_MINUTES,
+                WORKER_MAX_ATTEMPTS,
+            ),
+        )
+        terminated = cur.rowcount
+        if terminated:
+            log.warning(
+                'terminated %s stale running job(s) that had exhausted attempts', terminated,
+            )
     conn.commit()
-    return count
+    return count + terminated
 
 
 def release_attempt(conn, job_id: int) -> None:

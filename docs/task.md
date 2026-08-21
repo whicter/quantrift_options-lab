@@ -1,5 +1,68 @@
 # Task Tracker
 
+## ✅ 2026-08-20 — 流水线慢的真因：配置写了但从未生效（真 bug，已修）
+
+问：「data pipeline 是不是跑的都很慢」。答：慢的不是代码，是**一行从未在生产生效的配置**。
+
+```
+option_chain_snapshot   p50 1297s (21.6 分) / p95 2433s (40 分)
+option_quote_snapshot   p50   41s
+```
+
+IB 报价那条（8/15 批量化过）健康，Polygon 取链慢了一个数量级。
+
+**根因**：`ecosystem.config.cjs:122` 写着 `POLYGON_OPTIONS_REQUEST_DELAY: '1.5'`，
+但 PM2 里**根本没注册**，于是 options scope 回落到 `POLYGON_STOCK_REQUEST_DELAY=16`。
+`pm2 restart` 是从 PM2 **保存的** app 定义重启，不读 ecosystem 文件。
+
+实测每条链的请求数：SPY 40 次 / 纯网络 10.0s，AAPL 16 次，PLTR 13 次。
+SPY 40 × 16s = 640s 单 worker，3 worker 争用同一限速行 → 正好是 1297s 中位。
+
+**所以 8/15 提交并报告的「601s → 44.1s」提速，在生产一次都没生效过。**
+
+修复后实测 **1297s → 154s 均值（最快 44.6s），8.4 倍**。容量账翻转：
+
+| 370 任务/天 | 修复前 | 修复后 |
+|---|---|---|
+| 所需墙钟（并发 3） | **44.4 小时/天** | **5.3 小时/天** |
+| 相对 24 小时 | 超订 1.85 倍，队列数学上排不空 | 占用 22% |
+
+### 第二个 bug：僵死任务永不终结，标的被永久冻结
+
+`recover_stale_running_jobs` 的重新入队分支带 `AND attempts < WORKER_MAX_ATTEMPTS`，
+**既超时又耗尽重试**的任务两边都不匹配，永远停在 `running`；
+而活跃任务无论多旧都去重，所以也永远不会有替代任务入队。
+
+```
+SMH  running 17.2 天  attempts=3  last_error=NULL
+PEP  running 14.2 天  attempts=3  last_error=NULL
+```
+
+两者最后的期权快照写于 8/2、8/6，7 天保留期后被清空，此后**完全没有数据**。
+修复：超时且耗尽重试的任务终结为 `failed` 并写明原因——失败才是释放去重锁的动作。
+两个分支必须共用同一套按类型的超时，否则合法慢跑的 `option_quote_snapshot`（约 16 分）会被当成挂死杀掉。
+
+**验证**：重启后 PEP 僵死行变 `failed`，卡死超 2 小时的任务归零；
+约 7 分钟后调度器把 SMH、PEP 以 `attempts=0` 重新入队。collector 474 测试通过（新增 4 项）。
+
+### 防复发
+
+新增 `collector/check_pm2_env_drift.cjs`：比对 ecosystem 声明与 PM2 实际注册的 env，
+有漂移退出码 1，只检查 `quantrift*`（本机另约 19 个 PM2 app 属其他仓库）。
+
+这个坑已用三种方式收过费：日志路径、广度的 `POLYGON_REFERENCE_REQUEST_DELAY`、
+这次的 `POLYGON_OPTIONS_REQUEST_DELAY`。**与运行进程不一致的配置文件不是配置，是愿望。**
+
+详见 `docs/validation/PIPELINE_THROUGHPUT_2026-08-20.md`。
+
+### 顺带：广度回填已完成
+
+341 个候选，写入 320，失败 0，耗时 5.3 小时——其中 **112 次 429**，
+每次罚 60s，约占墙钟 35%。grouped daily 在 16s 间隔下持续负载仍被拒，
+真实上限比短时探测的「约 5 req/min」更低，值得单独测。
+
+---
+
 ## 2026-08-15 — 广度序列核对：数据干净，序列有洞，回填运行中
 
 `verify_market_breadth.py` 结果：**已存的每一行都合格**——覆盖率最低 98.4%、
