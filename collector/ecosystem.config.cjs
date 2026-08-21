@@ -119,7 +119,27 @@ module.exports = {
         // slowest probed rate rather than chasing the fastest, and penalize()
         // backs every worker off globally on a 429 if the ceiling is ever met.
         // Stocks and breadth are untouched -- their limits were never probed.
-        POLYGON_OPTIONS_REQUEST_DELAY: '1.5',
+        // 1.5 -> 0.3 (2026-08-21). The pacer, not the provider, is the entire
+        // cost of a chain fetch: measured 50 HTTP requests per chain against
+        // ~10s of actual network time, so at 1.5s spacing 97% of the job was
+        // sleeping on our own limiter. The shared row was running at 124% of
+        // wall clock with next_allowed_at 52s ahead of now -- saturated, with
+        // workers queued behind it.
+        //
+        // Concurrency cannot fix this: provider_rate_limits is global, so N
+        // workers split one budget rather than multiplying it (measured: 1 job
+        // in flight = 44s, 3 = 229s, 9 = 303s, identical total throughput).
+        // Only the interval moves throughput.
+        //
+        // Tried 0.3s (200 req/min) first and it drew 4 x 429 in 20 minutes, so
+        // the options endpoint does have a ceiling -- the earlier "no limit"
+        // reading came from short bursts, which is not a rate-limit probe. Each
+        // 429 costs a 60s global penalty, so past the ceiling the extra rate
+        // buys less than the backoff takes away. 0.5s = 120 req/min sits under
+        // the point where that started. Measured throughput at 0.3s was ~172
+        // chains/hour against 60 before the change; 0.5s keeps most of that
+        // without paying penalties for it.
+        POLYGON_OPTIONS_REQUEST_DELAY: '0.5',
         DERIVED_VOLATILITY_ENABLED: 'true',
         DERIVED_VOLATILITY_SECONDS: '3600',
       },
@@ -139,6 +159,16 @@ module.exports = {
       env: {
         COLLECTOR_RUNTIME: 'mac-ib-quote-worker',
         QUOTE_WORKER_POLL_SECONDS: '5',
+        // IB allows ~100 concurrent market-data lines per account, and the
+        // adapter subscribes a whole batch then waits ONE window for ticks, so
+        // batch size divides the number of waits. At 40, a 180-contract chain is
+        // 5 waits x 6s = 30s of the measured 41s. At 100 it is 2 waits = 12s.
+        // The wait is a timeout, not a round trip -- it is what we pay whether
+        // or not quotes arrive, so fewer, larger batches is strictly better up
+        // to the line limit. Kept under 100 so a concurrent manual query does
+        // not push the account over.
+        IB_OPTION_QUOTE_BATCH_SIZE: '90',
+        IB_OPTION_BATCH_WAIT_SECONDS: '6',
         QUOTE_WORKER_BATCH_SIZE: '1',
         QUOTE_WORKER_CONCURRENCY: '1',
         QUOTE_ENRICHMENT_PRIORITY: '90',
