@@ -1048,7 +1048,12 @@ def run_symbol_metrics_snapshot(conn, job: dict[str, Any]) -> dict[str, Any]:
     reserve_budget(conn, provider_name, job['job_type'])
 
     try:
-        session_token = collect.get_session_token()
+        # authorization_header, not get_session_token: the latter is the retired
+        # session flow, which under OAuth would walk into the credential breaker
+        # and fail every metrics job while the OAuth path beside it works fine.
+        # fetch_metrics re-resolves the header itself; this call exists to fail
+        # fast, and to keep the SystemExit translation below reachable.
+        session_token = collect.authorization_header()
     except SystemExit as exc:
         raise RuntimeError('tastytrade metrics auth unavailable: session renewal requires manual login') from exc
     metrics = collect.fetch_metrics(session_token, [symbol])

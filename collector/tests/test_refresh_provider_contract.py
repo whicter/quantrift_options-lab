@@ -124,7 +124,7 @@ class RefreshProviderContractTest(unittest.TestCase):
         import run_refresh_worker
 
         conn = self._metrics_conn(derived_ready=True, recently_collected=True)
-        with patch.object(run_refresh_worker.collect, 'get_session_token') as get_token, \
+        with patch.object(run_refresh_worker.collect, 'authorization_header') as get_token, \
              patch.object(run_refresh_worker, 'reserve_budget') as reserve:
             summary = run_refresh_worker.run_symbol_metrics_snapshot(
                 conn, {'symbol': 'AAPL', 'provider': 'tastytrade'},
@@ -148,7 +148,7 @@ class RefreshProviderContractTest(unittest.TestCase):
         import run_refresh_worker
 
         conn = self._metrics_conn(derived_ready=True, recently_collected=False)
-        with patch.object(run_refresh_worker.collect, 'get_session_token') as get_token, \
+        with patch.object(run_refresh_worker.collect, 'authorization_header') as get_token, \
              patch.object(run_refresh_worker, 'reserve_budget'), \
              patch.object(run_refresh_worker.collect, 'fetch_metrics') as fetch, \
              patch.object(run_refresh_worker.collect, 'parse_row') as parse, \

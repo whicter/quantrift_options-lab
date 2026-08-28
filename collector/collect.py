@@ -21,7 +21,7 @@ import requests
 import psycopg2
 from psycopg2.extras import execute_values
 
-from auth import get_session_token
+from auth import authorization_header, get_session_token
 from collector_runtime import configure_collector
 from common import WATCHLIST_PATH, load_watchlist
 
@@ -93,13 +93,19 @@ def fetch_metrics(session_token: str, symbols: list[str]) -> dict:
     """
     Fetch /market-metrics for up to TT_BATCH symbols.
     Returns dict keyed by symbol.
+
+    `session_token` is now ignored and kept only so existing callers and tests
+    keep their signature. The header is resolved per batch instead, because an
+    OAuth access token is valid for 15 minutes while a full watchlist run takes
+    longer: hoisting the token above the batch loop -- correct for the 24-hour
+    session tokens this replaced -- would 401 partway through the sweep.
     """
     params = ','.join(symbols)
     resp = requests.get(
         f'{TT_BASE}/market-metrics',
         headers={
             'Accept': 'application/json',
-            'Authorization': session_token,
+            'Authorization': authorization_header(),
             'User-Agent': TT_USER_AGENT,
         },
         params={'symbols': params},
@@ -223,7 +229,9 @@ def run():
              len(watchlist), TT_READY_REFRESH_DAYS)
 
     # Auth only after readiness filtering, so a fully derived universe makes no TT request.
-    session_token = get_session_token()
+    # Resolved once here purely to fail fast before the batch loop starts; each
+    # batch re-resolves its own header inside fetch_metrics.
+    session_token = authorization_header()
 
     total_written = 0
     errors = []

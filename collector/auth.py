@@ -10,6 +10,7 @@ Manual first login / re-login: run `python auth.py --login` and follow prompts.
 
 import os
 import sys
+import time
 import argparse
 import hashlib
 import requests
@@ -23,6 +24,10 @@ TT_BASE   = os.getenv('TT_BASE_URL', 'https://api.tastyworks.com').rstrip('/')
 TT_USER_AGENT = os.getenv('TT_USER_AGENT', 'quantrift-options-lab/0.1')
 ENV_FILE  = os.path.join(os.path.dirname(__file__), '.env')
 _SESSION_TOKEN_CACHE = None
+_ACCESS_TOKEN_CACHE = {'token': None, 'expires_at': 0.0}
+# Refresh this many seconds early: the token can lapse between our check and
+# the server reading the request, and a 15-minute lifetime leaves no slack.
+ACCESS_TOKEN_REFRESH_MARGIN_SECONDS = int(os.getenv('TT_ACCESS_TOKEN_MARGIN_SECONDS', '60'))
 AUTH_STATE_PROVIDER = 'tastytrade'
 
 
@@ -79,6 +84,86 @@ def send_alert_email(subject, body):
 
     channels = send_operator_alert(subject, body, severity='critical')
     print(f'[AUTH] Alert delivered via: {", ".join(channels)}')
+
+
+def _oauth_configured():
+    return bool(os.getenv('TT_OAUTH_CLIENT_SECRET', '').strip()
+                and os.getenv('TT_OAUTH_REFRESH_TOKEN', '').strip())
+
+
+def _fetch_oauth_access_token():
+    """Exchange the long-lived refresh token for a 15-minute access token.
+
+    Only three parameters, per the provider's OAuth guide: grant_type,
+    refresh_token, client_secret. No client_id -- sending one is harmless but it
+    is not part of the contract, and the earlier version of this file grew a
+    reputation for carrying fields nobody had checked.
+
+    Unlike the remember-token it replaces, the refresh token does NOT rotate.
+    The whole class of failures that produced the 2026-08-26 outage -- a
+    single-use credential whose successor was lost between the API call and the
+    database write -- cannot occur here, which is why this path needs neither
+    the write-ahead persist nor the env-seed recovery.
+    """
+    secret = os.getenv('TT_OAUTH_CLIENT_SECRET', '').strip()
+    refresh = os.getenv('TT_OAUTH_REFRESH_TOKEN', '').strip()
+    resp = requests.post(
+        f'{TT_BASE}/oauth/token',
+        headers=_headers(),
+        json={
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh,
+            'client_secret': secret,
+        },
+        timeout=15,
+    )
+    if resp.status_code == 200:
+        body = resp.json()
+        token = body.get('access_token')
+        if not token:
+            raise ValueError(f'OAuth token response carried no access_token: {resp.text[:200]}')
+        return token, int(body.get('expires_in') or 900)
+
+    message = f'OAuth token request failed: {resp.status_code} {resp.text[:300]}'
+    # invalid_grant means the refresh token was revoked or the grant deleted --
+    # a human must issue a new grant, so it is not worth retrying. Everything
+    # else (5xx, throttling) may well be transient.
+    if resp.status_code in (400, 401) and 'invalid_grant' in resp.text:
+        raise RememberTokenRejected(message)
+    raise ValueError(message)
+
+
+def get_access_token():
+    """A currently-valid OAuth2 access token, refreshed as it ages out.
+
+    Access tokens live 15 minutes, where the session tokens they replace lived
+    24 hours. `run_collector_daemon.py` runs for weeks, so the old
+    cache-once-per-process approach would authenticate correctly for a quarter
+    of an hour and then 401 forever. The margin exists because the token can
+    expire between the check and the server receiving the request.
+    """
+    now = time.monotonic()
+    if _ACCESS_TOKEN_CACHE['token'] and now < _ACCESS_TOKEN_CACHE['expires_at']:
+        return _ACCESS_TOKEN_CACHE['token']
+    token, ttl = _fetch_oauth_access_token()
+    _ACCESS_TOKEN_CACHE['token'] = token
+    _ACCESS_TOKEN_CACHE['expires_at'] = now + max(ttl - ACCESS_TOKEN_REFRESH_MARGIN_SECONDS, 30)
+    print(f'[AUTH] OAuth access token acquired; valid {ttl}s.')
+    return token
+
+
+def authorization_header():
+    """The exact `Authorization` value for a Tastytrade API call.
+
+    Every caller must go through this rather than formatting the header itself.
+    The two schemes differ in more than the token: OAuth sends
+    `Bearer <token>` while the legacy session token was sent bare, so a caller
+    that pastes the raw value into the header works under one scheme and 401s
+    under the other -- silently, and only once the token it already had expires.
+    """
+    if _oauth_configured():
+        return f'Bearer {get_access_token()}'
+    return get_session_token()
 
 
 def renew_session(remember_token):

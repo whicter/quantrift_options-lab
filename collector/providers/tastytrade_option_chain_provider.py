@@ -11,6 +11,17 @@ from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapsho
 from .tastytrade_dxlink import DxlinkQuoteToken, collect_dxlink_events
 
 
+def _oauth_in_use() -> bool:
+    """Whether the OAuth credentials are configured.
+
+    Read from the environment rather than imported from `auth` at module load:
+    `.env` is loaded by the process entrypoint, so a module-level import here
+    would capture the value before it exists.
+    """
+    return bool(os.getenv('TT_OAUTH_CLIENT_SECRET', '').strip()
+                and os.getenv('TT_OAUTH_REFRESH_TOKEN', '').strip())
+
+
 class TastytradeOptionChainProvider:
     """Internal tastytrade adapter for option-chain metadata.
 
@@ -350,6 +361,17 @@ class TastytradeOptionChainProvider:
         return response.json()
 
     def _headers(self) -> dict[str, str]:
+        # Under OAuth the header must be re-resolved per request: access tokens
+        # last 15 minutes and this provider lives inside a daemon that runs for
+        # weeks. `auth.authorization_header` caches and refreshes on expiry, so
+        # this is a dict lookup in the common case, not a network call.
+        if _oauth_in_use():
+            from auth import authorization_header
+            return {
+                'Accept': 'application/json',
+                'Authorization': authorization_header(),
+                'User-Agent': self.user_agent,
+            }
         token = self.session_token or self._login()
         return {
             'Accept': 'application/json',

@@ -1,7 +1,11 @@
 # Tastytrade 认证锁死与告警静默
 
 日期：2026-08-27
-状态：**已修代码，等待人工重新登录；断路器已打开**
+状态：**已解决 2026-08-28 —— 迁移到 OAuth2。见文末「续」。**
+
+> 前半篇的诊断只对了一部分,保留原文不改,因为它记录了一条真实的推理弯路:
+> 「一次性轮换的 token 丢了」有证据支持,但不是根因。根因是供应商下线了整条
+> 传统认证路径 —— 重新登录永远不会成功。
 
 ## 一句话
 
@@ -95,3 +99,94 @@ token 已经作废,新 token 只存在于响应体里。这之后写库若失败
   目前也没有观察到同类失败,**未做**。
 - Telegram 是目前唯一配置的出口。SMTP 的四个空变量保留原样(未删),
   配上就会自动多一条通道。
+
+---
+
+# 续:真实原因与 OAuth2 迁移(2026-08-28)
+
+**上面第二、三节的诊断只对了一部分。** 补一次凭证不是修复,老的认证方式整个被下线了。
+
+## 一个不用凭证的判别实验
+
+```
+不存在的账号 + 瞎编的密码  →  401 invalid_credentials
+本账号     + 正确的密码    →  400 missing_request_token
+```
+
+不存在的账号走的是**先查凭证再拒绝**的经典路径;本账号过了凭证这一关,卡在后面。
+**这证明密码是对的**,问题在凭证之后的环节。同时也排除了 IP 封禁(封禁不会回正常 401)。
+
+供应商 OAuth 文档的原话闭合了这条链:
+
+> all tastytrade API users must use Oauth2 access tokens when interacting with the tastytrade API
+
+老的 session token 被他们描述成 "long-lived, unscoped session tokens (24 hours)",
+15 分钟的 OAuth access token 就是拿来取代它的。账号被切到新策略的那一刻,
+已有的 remember-token 被吊销(8/26 的 401),密码登录也多出了一个为**交互式人工登录**
+设计的 request-token 环节 —— 一个每天 13:30 无人值守的 cron 永远满足不了它。
+
+所以 8/27 那份文档里「等 15 分钟再重登」的建议是错的:重登多少次都不会成功。
+断路器在这里意外地做对了事,它挡住的正是一条不可能成功的重试。
+
+## 迁移内容
+
+| 位置 | 改动 |
+| --- | --- |
+| `auth.py` | `get_access_token()` 走 `POST /oauth/token`,`grant_type=refresh_token` + `refresh_token` + `client_secret` 三个参数(文档明确,**不含 client_id**) |
+| `auth.py` | `authorization_header()` —— **唯一**允许拼这个头的地方 |
+| `collect.py` | 头改为**每批重新解析**,不再在批次循环外取一次 |
+| `run_refresh_worker.py` | 同上。**这个调用点第一轮被漏掉了** |
+| `providers/tastytrade_option_chain_provider.py` | OAuth 时短路,不进 `_login()` |
+| `collector/.env` | 新增 `TT_OAUTH_CLIENT_SECRET` / `TT_OAUTH_REFRESH_TOKEN`;**删除 `TT_PASSWORD`** |
+
+### 三个新方案自带的坑
+
+**① access token 只有 15 分钟,旧 session token 有 24 小时。**
+`run_collector_daemon.py` 跑几周,原来「进程启动取一次、缓存到死」的写法在新方案下
+会在 15 分钟后对每个周期 401。现在按到期时间续,提前 60 秒。
+
+**② `Bearer` 前缀。** 两个 scheme 不能互换,而且写错不会立刻炸 —— 要等手上那个
+token 过期才暴露。所以拼头的逻辑收进一个函数,并有守卫。
+
+**③ 漏掉的调用点。** `run_refresh_worker.py:1051` 直接调 `collect.get_session_token()`,
+改前两处时漏了。它会走进断路器,让每个 metrics 任务失败,而旁边的 OAuth 路径工作正常
+—— 表现得像供应商故障而不是我们的 bug。行为测试抓不到:那一行只有拿到真实 job row
+和数据库才可达。因此加了**静态扫描**守卫(限定 `collect.py` 和 `run_refresh_worker.py`;
+provider 的 `_login()` 本身就是 legacy 路径,改用行为测试证明 OAuth 分支会短路)。
+
+## 验证
+
+```
+access token          200,valid 900s
+/market-metrics       200,SPY / MDB / SNOW / ESTC 均返回
+collect.py            289 行写入,5 个失败(BRK.B/FX/RE/SMS/TTM,与 8/25 同一批,非新增)
+iv_history max(date)  2026-08-28
+有未来财报日的标的    20 → 35
+daemon 端到端         job 66282 (symbol_metrics_snapshot / ACAC) succeeded,写入当日行
+测试                  503 通过;每条守卫都在未修复代码上验过会失败
+```
+
+财报日历恢复后的近期:
+
+```
+2026-09-01  DELL, MDB, PANW
+2026-09-02  AVGO, SNOW, TGS
+2026-09-03  LULU, PL
+2026-09-08  GME, ORCL
+```
+
+## 断路器保持打开,这是故意的
+
+`provider_auth_state.locked_out_at` 仍然是打开状态,reason 已改写为
+「legacy 认证已被供应商下线,由 OAuth2 取代」。OAuth 路径不经过它,不受影响;
+而任何回落到 legacy 的代码都应该立刻失败,因为那条路已经不存在了。
+
+## 留下的账
+
+- `manual_login()` / `--login` 向导现在是死代码,**未删除** —— 删它要连带动一批测试,
+  且留着它不会被自动执行(断路器挡在前面)。下次碰 `auth.py` 时一并清掉。
+- refresh token 按文档「永不过期」。若被吊销,`invalid_grant` 会被识别为不可重试,
+  需要人在 my.tastytrade.com 重新 Create Grant。
+- OAuth 应用位置(2026-08 的 UI):**my.tastytrade.com → Manage → My Profile → API
+  → OAuth Applications 标签页 → 应用行右侧的 `···` → Create Grant**。
+  文档里写的是 "Manage" 按钮,实际 UI 已换成三点菜单。
