@@ -95,7 +95,17 @@ module.exports = {
         COLLECTOR_HEALTH_CHECK_ENABLED: 'true',
         COLLECTOR_HEALTH_CHECK_SECONDS: '300',
         HEALTH_MIN_COVERAGE_PCT: '95',
-        HEALTH_MAX_FAILED_24H: '0',
+        // Was '0', which fires on any single terminal failure. Measured over 30
+        // days: 12 of 30 days carried at least one, so it alerted on 40% of days
+        // (mean 4.9, median 0, p95 22). It did not just annoy -- it hid the real
+        // event. On 2026-08-28 the IB quote lane died at 14:38Z, and the 14:41Z
+        // alert already read failed_count_24h=59, but the eight preceding alerts
+        // carried the identical issue code at values of 5 or 6, so the step from
+        // 6 to 59 was invisible. A rule that fires constantly cannot mark the
+        // moment something breaks. 25 suppresses every day in that window except
+        // the incident itself (next highest 22, also an IB outage), and at the
+        // current ~4,900 jobs/day it is about a 0.5% failure rate.
+        HEALTH_MAX_FAILED_24H: '25',
         HEALTH_MAX_SNAPSHOT_AGE_MINUTES: '180',
         HEALTH_MIN_COMPLETENESS_PCT: '75',
         HEALTH_ALERT_COOLDOWN_MINUTES: '60',

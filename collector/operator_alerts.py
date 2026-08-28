@@ -84,6 +84,80 @@ def send_telegram(subject: str, body: str) -> tuple[str, str | None]:
         return 'failed', detail
 
 
+def format_health_report(report: dict, fingerprint: str | None = None) -> str:
+    """Turn a collector health report into something readable on a phone.
+
+    The previous alert body was `json.dumps(report, indent=2)`. On a phone that
+    is half a screen of fingerprint, expected_count and a nested issues array,
+    and the reader still has to work out what it means. An operator alert has
+    one job: say what is wrong and how bad, in the first line.
+
+    Written in Chinese because the operator who reads these does. Keep the code
+    comments English to match the rest of the collector.
+
+    Returns text only -- what to do with it is the caller's decision, so this
+    stays a pure function that a log line and a push can share.
+    """
+    lines = []
+    status = report.get('status', 'unknown')
+    covered = report.get('covered_count')
+    expected = report.get('expected_count')
+    pct = report.get('coverage_pct')
+    if covered is not None and expected is not None:
+        lines.append(f'采集器 {status} —— 覆盖 {covered}/{expected}'
+                     + (f'({pct}%)' if pct is not None else ''))
+    else:
+        lines.append(f'采集器 {status}')
+
+    counts = [
+        ('缺失', report.get('missing_count')),
+        ('过期', report.get('stale_count')),
+        ('不完整', report.get('incomplete_count')),
+    ]
+    shown = [f'{label} {value}' for label, value in counts if value]
+    if shown:
+        lines.append('，'.join(shown))
+
+    for issue in report.get('issues') or []:
+        lines.append('• ' + _describe_issue(issue))
+
+    when = report.get('generated_at')
+    if when:
+        lines.append('')
+        lines.append(str(when)[:16].replace('T', ' ') + ' UTC')
+    if fingerprint:
+        # Enough to correlate with the log line, without pasting 64 hex characters
+        # into a push notification.
+        lines.append(f'fingerprint {fingerprint[:8]}')
+    return '\n'.join(lines)
+
+
+def _describe_issue(issue: dict) -> str:
+    code = issue.get('code', '')
+    value = issue.get('value')
+    threshold = issue.get('threshold')
+    symbols = issue.get('symbols') or []
+    # Naming at most a handful: a push listing 300 tickers is the JSON problem
+    # again in a different costume.
+    named = '、'.join(symbols[:5]) + ('…' if len(symbols) > 5 else '')
+
+    if code == 'coverage_below_threshold':
+        text = f'覆盖率 {value}% 低于 {threshold}%'
+        return f'{text}，缺 {len(symbols)} 个：{named}' if symbols else text
+    if code == 'failed_jobs_above_threshold':
+        return f'24 小时内 {value} 个任务失败（阈值 {threshold}）'
+    if code == 'snapshot_age_above_threshold':
+        text = f'{len(symbols)} 个标的快照超过 {threshold} 分钟未更新'
+        return f'{text}：{named}' if symbols else text
+    if code == 'completeness_below_threshold':
+        text = f'{value} 个标的链完整度低于 {threshold}%'
+        return f'{text}：{named}' if symbols else text
+    # An unknown code must still be legible rather than silently dropped -- a new
+    # issue type appearing as a blank bullet is worse than an ugly one.
+    detail = f'{code}: value={value} threshold={threshold}'
+    return f'{detail}（{named}）' if symbols else detail
+
+
 def send_operator_alert(subject: str, body: str, severity: str = 'warning') -> list[str]:
     channels: list[str] = []
     status, _ = send_telegram(subject, body)
