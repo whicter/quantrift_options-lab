@@ -1141,6 +1141,51 @@ async function migrate() {
     ALTER TABLE provider_auth_state
       ADD COLUMN IF NOT EXISTS locked_out_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS locked_out_reason TEXT;
+
+    -- Which option contracts IB actually lists (2026-08-28). Cache, not a
+    -- source of truth: every row here was returned by reqContractDetails and is
+    -- re-fetched the next trading day.
+    --
+    -- Measured on 439 quote jobs over 2026-08-25..27, regressing job duration on
+    -- shape (R2 = 0.95 over the 206 jobs whose chain came back with complete OI):
+    --
+    --   seconds = -3.5 + 7.94 * expiries + 8.21 * batches
+    --
+    -- A typical symbol is 3 expiries and 3 batches of 40 contracts, so ~24s of a
+    -- ~46s job is discovery: six reqContractDetails round trips (call and put
+    -- per expiry) that return a median 258 contracts to keep 100. The listed
+    -- strike ladder for an expiry does not change on the timescale that costs
+    -- buys anything -- strikes are added when spot moves far enough to need
+    -- them, not continuously -- so paying for it once per symbol per day and
+    -- reading conIds back from here is the same data for none of the wait.
+    --
+    -- Keyed on the full contract rather than (symbol, expiry, right) because the
+    -- ladder is read back per strike and a partial ladder must be detectable:
+    -- `refreshed_on` plus the stored min/max let the provider notice that spot
+    -- has moved outside what was cached and go back to IB instead of quoting a
+    -- window it cannot cover.
+    --
+    -- No foreign key to symbol_universe. A universe prune must not delete the
+    -- contract listings, and this table is disposable in the other direction
+    -- too: truncating it costs one slow sweep, never a data loss.
+    CREATE TABLE IF NOT EXISTS option_contract_registry (
+      symbol         TEXT        NOT NULL,
+      expiry         DATE        NOT NULL,
+      option_right   TEXT        NOT NULL CHECK (option_right IN ('C', 'P')),
+      strike         NUMERIC(18,4) NOT NULL,
+      con_id         BIGINT      NOT NULL,
+      trading_class  TEXT,
+      exchange       TEXT,
+      multiplier     TEXT,
+      currency       TEXT,
+      refreshed_on   DATE        NOT NULL,
+      refreshed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (symbol, expiry, option_right, strike)
+    );
+    -- The hot read is "the whole ladder for one (symbol, expiry, right), and is
+    -- it from today". refreshed_on leads nothing on its own, so it rides here.
+    CREATE INDEX IF NOT EXISTS option_contract_registry_ladder
+      ON option_contract_registry (symbol, expiry, option_right, refreshed_on);
   `);
 
   console.log('Migrations complete.');
