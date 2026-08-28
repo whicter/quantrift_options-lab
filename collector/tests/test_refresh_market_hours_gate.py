@@ -1,6 +1,6 @@
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -25,7 +25,7 @@ class WindowBoundaryTests(unittest.TestCase):
     Measured 2026-08-28 over 48 hours: chain refreshes were FLAT across all 24
     hours -- 2812 inside 09:00-15:59 ET against 6875 outside, so 71% of the
     pipeline's entire workload ran while greeks, IV and open interest could not
-    change. 93% of stored snapshots carried a byte-identical strike->OI map.
+    change.
 
     That was not merely wasteful. The pipeline was saturated: 73.4h of serial
     work per day, 24.5h of wall clock at concurrency 3, inside a 24-hour day.
@@ -123,6 +123,59 @@ class SchedulerGateTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'reached the database'):
                 sched.run()
 
+
+class PerTierCadenceTests(unittest.TestCase):
+    """Tiers must set cadence, not only queue order.
+
+    The ladder existed but decided nothing. Every symbol shared one 60-minute
+    staleness bar, so the whole universe became eligible inside the hour and the
+    queue served all of it; priority only chose who went first inside a batch.
+    Measured 2026-08-28 across 330 symbols: 13-23 refreshes a day for SPY and
+    for the coldest ETF alike, mean 14.4. A ladder whose rungs all arrive at the
+    same time is decoration.
+    """
+
+    def _pick(self, tier_max_age, ages_minutes):
+        now = datetime(2026, 8, 28, 14, 0, tzinfo=timezone.utc)
+        symbols = list(ages_minutes)
+        snapshots = {
+            sym: now - timedelta(minutes=age)
+            for sym, age in ages_minutes.items()
+        }
+        tiers = {
+            'SPY': sched.PRIORITY_CORE,
+            'COLD': sched.PRIORITY_UNIVERSE_SCAN,
+        }
+        return sched.select_candidates(
+            symbols=symbols, latest_snapshots=snapshots, recent_jobs=set(),
+            now=now, max_age_minutes=60, limit=10,
+            tiers=tiers, tier_max_age=tier_max_age,
+        )
+
+    def test_a_core_symbol_refreshes_while_a_scan_symbol_waits(self):
+        # 40 minutes old: past core's 15-minute bar, far inside the scan tier's.
+        picked = self._pick(sched.TIER_MAX_AGE_MINUTES, {'SPY': 40, 'COLD': 40})
+        self.assertEqual(picked, ['SPY'])
+
+    def test_a_scan_symbol_still_refreshes_once_it_passes_its_own_bar(self):
+        picked = self._pick(sched.TIER_MAX_AGE_MINUTES, {'SPY': 200, 'COLD': 200})
+        self.assertEqual(sorted(picked), ['COLD', 'SPY'])
+
+    def test_without_tier_ages_every_symbol_shares_one_bar(self):
+        # The pre-gate behaviour, and the semantic the settlement and pre-open
+        # passes still need: one refresh for everyone, no fast lane.
+        picked = self._pick(None, {'SPY': 90, 'COLD': 90})
+        self.assertEqual(sorted(picked), ['COLD', 'SPY'])
+
+    def test_the_core_tier_is_strictly_faster_than_the_scan_tier(self):
+        # Guards the ordering of the constants themselves; swapping two numbers
+        # in the table would otherwise silently starve the symbols people watch.
+        self.assertLess(sched.TIER_MAX_AGE_MINUTES[sched.PRIORITY_CORE],
+                        sched.TIER_MAX_AGE_MINUTES[sched.PRIORITY_RECENT_ACTIVE])
+        self.assertLess(sched.TIER_MAX_AGE_MINUTES[sched.PRIORITY_RECENT_ACTIVE],
+                        sched.TIER_MAX_AGE_MINUTES[sched.PRIORITY_UNIVERSE_SCAN])
+        self.assertLess(sched.TIER_MAX_AGE_MINUTES[sched.PRIORITY_UNIVERSE_SCAN],
+                        sched.TIER_MAX_AGE_MINUTES[sched.PRIORITY_COLD_BACKFILL])
 
 if __name__ == '__main__':
     unittest.main()

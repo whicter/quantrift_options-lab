@@ -56,6 +56,22 @@ TIER_NAMES = {
     PRIORITY_COLD_BACKFILL: 'cold_backfill',
 }
 
+# How stale each tier may get. Tiers previously set ORDER ONLY: every symbol
+# shared one 60-minute bar, so the queue served all 330 within the hour and the
+# priority ladder decided nothing but who went first inside a batch. Measured
+# 2026-08-28, the result was uniform -- 13 to 23 refreshes a day for SPY and for
+# the coldest ETF alike.
+#
+# Splitting the bar is what makes the ladder real. The session has room for
+# ~1267 refreshes (6.5h x 3 workers at 55.4s); these values ask for ~977, which
+# leaves headroom for on-demand jobs rather than budgeting to the last slot.
+TIER_MAX_AGE_MINUTES = {
+    PRIORITY_CORE: max(int(os.getenv('OPTION_REFRESH_MAX_AGE_CORE', '15')), 1),
+    PRIORITY_RECENT_ACTIVE: max(int(os.getenv('OPTION_REFRESH_MAX_AGE_ACTIVE', '30')), 1),
+    PRIORITY_UNIVERSE_SCAN: max(int(os.getenv('OPTION_REFRESH_MAX_AGE_SCAN', '150')), 1),
+    PRIORITY_COLD_BACKFILL: max(int(os.getenv('OPTION_REFRESH_MAX_AGE_COLD', '360')), 1),
+}
+
 MARKET_TIMEZONE = ZoneInfo('America/New_York')
 _REGULAR_OPEN = dt_time(9, 30)
 _REGULAR_CLOSE = dt_time(16, 0)
@@ -74,10 +90,9 @@ MARKET_HOURS_GATE_ENABLED = os.getenv(
 def refresh_window(now_et: datetime | None = None) -> tuple[str, int | None]:
     """Which refresh regime the clock is in, and the staleness bar for it.
 
-    Measured 2026-08-28: refresh volume was FLAT across all 24 hours, so 71% of
-    every chain fetch happened while the market was shut. Greeks, IV and open
-    interest cannot change then -- 93% of stored snapshots carried a byte-identical
-    strike->OI map -- so that 71% was the pipeline re-reading its own output.
+    Measured 2026-08-28 over 48 hours: refresh volume was FLAT across all 24
+    clock hours -- 2812 inside 09:00-15:59 ET against 6875 outside -- so 71% of
+    every chain fetch ran while greeks, IV and open interest cannot change.
     It mattered because the pipeline was saturated: 73.4h of serial work per day,
     24.5h of wall time at concurrency 3, against a 24-hour day.
 
@@ -137,14 +152,30 @@ def select_candidates(
     max_age_minutes: int,
     limit: int,
     tiers: dict[str, int] | None = None,
+    tier_max_age: dict[int, int] | None = None,
 ) -> list[str]:
     """Pick which symbols to refresh, highest priority and oldest data first.
 
     With no tiers supplied every symbol ranks equally and ordering reduces to
     missing-first then oldest-first.
+
+    `tier_max_age` makes the tier decide CADENCE as well as order. Without it a
+    single bar applies to everyone, the whole universe becomes eligible inside
+    one interval, and the priority ladder only shuffles a queue that serves
+    everybody anyway -- which is why the measured refresh counts were flat
+    across the universe. It is deliberately left None for the settlement and
+    pre-open passes, where a uniform bar is the correct semantic: one pass for
+    every symbol, not a fast lane.
     """
     tiers = tiers or {}
-    cutoff = now - timedelta(minutes=max_age_minutes)
+    default_cutoff = now - timedelta(minutes=max_age_minutes)
+
+    def cutoff_for(symbol: str) -> datetime:
+        if not tier_max_age:
+            return default_cutoff
+        minutes = tier_max_age.get(tiers.get(symbol, 0), max_age_minutes)
+        return now - timedelta(minutes=minutes)
+
     eligible = [
         symbol
         for symbol in symbols
@@ -152,7 +183,7 @@ def select_candidates(
         and (
             symbol not in latest_snapshots
             or latest_snapshots[symbol] is None
-            or latest_snapshots[symbol] < cutoff
+            or latest_snapshots[symbol] < cutoff_for(symbol)
         )
     ]
     return sorted(
@@ -399,6 +430,9 @@ def run() -> dict[str, Any]:
             max_age_minutes,
             capacity,
             tiers,
+            # Per-tier cadence only in the regular session. The settlement and
+            # pre-open passes want one refresh for every symbol, not a fast lane.
+            tier_max_age=TIER_MAX_AGE_MINUTES if window == 'regular' else None,
         )
         inserted = enqueue_candidates(conn, candidates, tiers)
     finally:
