@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import psycopg2
@@ -54,6 +55,60 @@ TIER_NAMES = {
     PRIORITY_UNIVERSE_SCAN: 'universe_scan',
     PRIORITY_COLD_BACKFILL: 'cold_backfill',
 }
+
+MARKET_TIMEZONE = ZoneInfo('America/New_York')
+_REGULAR_OPEN = dt_time(9, 30)
+_REGULAR_CLOSE = dt_time(16, 0)
+# After the close, one pass captures the settled chain. Before the open, one
+# pass captures the open interest OCC publishes overnight -- the only field that
+# actually changes while the market is shut.
+_SETTLEMENT_OPEN = dt_time(16, 15)
+_SETTLEMENT_CLOSE = dt_time(17, 15)
+_PREOPEN_OPEN = dt_time(8, 0)
+_PREOPEN_CLOSE = dt_time(9, 15)
+
+MARKET_HOURS_GATE_ENABLED = os.getenv(
+    'OPTION_REFRESH_MARKET_HOURS_GATE', 'true').strip().lower() in ('1', 'true', 'yes')
+
+
+def refresh_window(now_et: datetime | None = None) -> tuple[str, int | None]:
+    """Which refresh regime the clock is in, and the staleness bar for it.
+
+    Measured 2026-08-28: refresh volume was FLAT across all 24 hours, so 71% of
+    every chain fetch happened while the market was shut. Greeks, IV and open
+    interest cannot change then -- 93% of stored snapshots carried a byte-identical
+    strike->OI map -- so that 71% was the pipeline re-reading its own output.
+    It mattered because the pipeline was saturated: 73.4h of serial work per day,
+    24.5h of wall time at concurrency 3, against a 24-hour day.
+
+    Returns (window, max_age_minutes). Outside the regular session the bar is
+    measured from the window's anchor rather than a fixed age, which yields
+    exactly one refresh per symbol per window: a symbol already refreshed after
+    the close is not stale relative to the close.
+
+    Holidays are deliberately not modelled, matching `is_regular_us_session`.
+    A holiday costs one day of regular-session cadence against data that did not
+    move -- roughly nine days a year, next to the 71% this removes.
+    """
+    now_et = now_et or datetime.now(timezone.utc).astimezone(MARKET_TIMEZONE)
+    if now_et.weekday() >= 5:
+        return 'idle', None
+    clock = now_et.timetz().replace(tzinfo=None)
+
+    if _REGULAR_OPEN <= clock < _REGULAR_CLOSE:
+        return 'regular', MAX_AGE_MINUTES
+
+    def _minutes_since(anchor: dt_time) -> int:
+        anchored = now_et.replace(hour=anchor.hour, minute=anchor.minute,
+                                  second=0, microsecond=0)
+        return max(int((now_et - anchored).total_seconds() // 60), 1)
+
+    if _SETTLEMENT_OPEN <= clock < _SETTLEMENT_CLOSE:
+        return 'settlement', _minutes_since(_REGULAR_CLOSE)
+    if _PREOPEN_OPEN <= clock < _PREOPEN_CLOSE:
+        return 'preopen', _minutes_since(_PREOPEN_OPEN)
+    return 'idle', None
+
 
 def assign_tiers(symbols: list[str], scan_enabled: set[str], recent_active: set[str]) -> dict[str, int]:
     """Assign each symbol its refresh priority tier.
@@ -304,6 +359,18 @@ def run() -> dict[str, Any]:
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
 
+    window, max_age_minutes = refresh_window()
+    if MARKET_HOURS_GATE_ENABLED and window == 'idle':
+        # Deliberately before connecting: there is nothing to decide. On-demand
+        # jobs are enqueued by the API on its own path, so idling the background
+        # sweep never makes a user wait.
+        log.info('Option refresh scheduler idle (market closed, outside the '
+                 'settlement and pre-open windows)')
+        return {'selected': [], 'inserted': 0, 'provider': REFRESH_PROVIDER,
+                'window': window, 'queue_depth': None, 'capacity': 0}
+    if not MARKET_HOURS_GATE_ENABLED:
+        window, max_age_minutes = 'regular', MAX_AGE_MINUTES
+
     conn = psycopg2.connect(DB_URL)
     try:
         symbols, scan_enabled = load_universe(conn)
@@ -329,7 +396,7 @@ def run() -> dict[str, Any]:
             latest_snapshots,
             recent_jobs,
             datetime.now(timezone.utc),
-            MAX_AGE_MINUTES,
+            max_age_minutes,
             capacity,
             tiers,
         )
@@ -346,9 +413,11 @@ def run() -> dict[str, Any]:
         'remaining_budget': remaining_budget,
         'universe_count': len(symbols),
     }
+    result['window'] = window
     log.info(
-        'Option refresh scheduler selected=%s inserted=%s provider=%s queue_depth=%s capacity=%s universe=%s',
-        candidates, inserted, REFRESH_PROVIDER, queue_depth, capacity, len(symbols),
+        'Option refresh scheduler window=%s selected=%s inserted=%s provider=%s '
+        'queue_depth=%s capacity=%s universe=%s',
+        window, candidates, inserted, REFRESH_PROVIDER, queue_depth, capacity, len(symbols),
     )
     return result
 
