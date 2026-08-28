@@ -1161,7 +1161,7 @@ async function migrate() {
     --
     -- Keyed on the full contract rather than (symbol, expiry, right) because the
     -- ladder is read back per strike and a partial ladder must be detectable:
-    -- `refreshed_on` plus the stored min/max let the provider notice that spot
+    -- refreshed_on plus the stored min/max let the provider notice that spot
     -- has moved outside what was cached and go back to IB instead of quoting a
     -- window it cannot cover.
     --
