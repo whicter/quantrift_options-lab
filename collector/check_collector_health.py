@@ -13,7 +13,7 @@ from psycopg2.extras import Json
 
 from collector_runtime import configure_logging, load_collector_env
 from common import load_watchlist
-from operator_alerts import send_operator_alert
+from operator_alerts import format_health_report, send_operator_alert
 
 
 load_collector_env(__file__)
@@ -217,12 +217,33 @@ def run() -> dict[str, Any]:
 
     if notify:
         issue_codes = ', '.join(issue['code'] for issue in report['issues'])
-        send_operator_alert(
-            '[Quantrift] Collector health degraded',
-            json.dumps({'fingerprint': fingerprint, **report}, indent=2, ensure_ascii=True),
-            severity='critical' if report['failed_count_24h'] > 0 else 'warning',
+        # 2026-08-28：日志留全量 JSON，推送只发人话。
+        #
+        # 原来两边都是 json.dumps(indent=2)：手机上收到的是半屏 fingerprint /
+        # expected_count / 嵌套 issues 数组，要人自己解析才知道出了什么事。
+        #
+        # 一个中间版本的改法是干脆不推了，理由是「覆盖率 95.65%、两条薄链」属于
+        # 趋势观察而非待处置事件，而 threshold=0 让它天天刷屏。前半句站得住，
+        # 后半句已经从根上修掉了（HEALTH_MAX_FAILED_24H 0 → 25）。
+        #
+        # 但当天的真实事故说明不能不推：IB 报价 lane 连续 110 分钟零成功。
+        # 它其实**推送过两次**（collector_health_alerts id 5735，10:41 与 11:43 ET），
+        # 失效的不是投递，是内容——消息说的是 `failed_jobs_above_threshold: 59`，
+        # 而不是「IB 报价 lane 已经 110 分钟没有一次成功」。
+        #
+        # 所以：**「记录下来」和「把人叫醒」确实是两件事，但答案是两件都做。**
+        # 日志拿全量事实供查询，推送拿一句人读得懂的话。
+        log.warning(
+            'collector health degraded (%s): %s',
+            issue_codes,
+            json.dumps({'fingerprint': fingerprint, **report},
+                       ensure_ascii=True, sort_keys=True),
         )
-        log.warning('collector health alert sent: %s', issue_codes)
+        send_operator_alert(
+            f'采集器 {report["status"]}',
+            format_health_report(report, fingerprint),
+            severity='critical' if report['failed_count_24h'] > thresholds.max_failed_24h else 'warning',
+        )
     else:
         log.info('collector health status=%s notify=%s', report['status'], notify)
     return report
