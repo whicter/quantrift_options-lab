@@ -50,8 +50,46 @@ def send_web_push(subscription: dict, payload: dict) -> tuple[str, str | None]:
         return 'failed', str(exc)
 
 
+def send_telegram(subject: str, body: str) -> tuple[str, str | None]:
+    """Deliver to the Telegram chat the other QuantRift projects already watch.
+
+    Chosen over SMTP because the SMTP variables here have been present but empty
+    since the file was written: `send_operator_alert` therefore returned
+    channels=['log'] every time, and a real outage -- Tastytrade auth dying on
+    2026-08-26 -- sat unnoticed for two days in `logs/collect.log`. An alert
+    path whose only sink is a log file is not an alert path.
+
+    Plain text, not Markdown or HTML: a provider error body can contain
+    underscores and asterisks, and Telegram rejects the whole message when the
+    entities do not parse. An alert that fails to send because the failure it
+    describes had an underscore in it is the worst possible failure mode.
+    """
+    token = os.getenv('TG_TOKEN', '').strip()
+    chat_id = os.getenv('TG_CHAT_ID', '').strip()
+    if not token or not chat_id:
+        return 'blocked', 'Telegram is not configured'
+    try:
+        response = requests.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            data={'chat_id': chat_id, 'text': f'[Options Lab] {subject}\n\n{body}'[:4096]},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return 'sent', None
+    except requests.RequestException as exc:
+        # Never log `token`; the URL carries it, so log the exception's own text
+        # only after stripping anything that looks like the bot path.
+        detail = str(exc).replace(token, '<redacted>') if token else str(exc)
+        log.error('telegram delivery failed: %s', detail)
+        return 'failed', detail
+
+
 def send_operator_alert(subject: str, body: str, severity: str = 'warning') -> list[str]:
     channels: list[str] = []
+    status, _ = send_telegram(subject, body)
+    if status == 'sent':
+        channels.append('telegram')
+
     webhook_url = os.getenv('ALERT_WEBHOOK_URL', '').strip()
     if webhook_url:
         try:

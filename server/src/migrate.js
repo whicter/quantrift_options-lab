@@ -1128,6 +1128,19 @@ async function migrate() {
     -- The sweep's hot read is "give me the effective list in priority order".
     CREATE INDEX IF NOT EXISTS quote_watchlist_effective
       ON quote_watchlist (excluded, pinned DESC, liquidity_rank ASC);
+
+    -- Circuit breaker for spent provider credentials (2026-08-27). Tastytrade
+    -- retires a remember-token on every exchange, so once the stored one is
+    -- rejected no amount of retrying helps -- but the collector re-sent it on
+    -- every cron run and daemon cycle regardless. Those accumulate as failed
+    -- login attempts against a live brokerage account, and on 2026-08-27 the
+    -- provider answered "temporarily locked for 15 minutes due to excessive
+    -- failed attempts". Stale data is recoverable; a locked account during
+    -- market hours is not. This column lets the collector stop asking until a
+    -- human has actually re-authenticated.
+    ALTER TABLE provider_auth_state
+      ADD COLUMN IF NOT EXISTS locked_out_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS locked_out_reason TEXT;
   `);
 
   console.log('Migrations complete.');
