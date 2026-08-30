@@ -1,5 +1,69 @@
 # Task Tracker
 
+## ✅ 2026-08-29 — 合约梯子按日缓存；顺带撤回一个自己做错的拆解
+
+问「还能怎么提速」。答案分两半，其中一半是先把上一个答案收回来。
+
+**先撤回**：我先前报的「发现约 24s / 报价约 25s」（拟合 `-3.5 + 7.94×到期数 + 8.21×批次数`，
+R²=0.95）**不成立**。批次数用 `ceil(合约数/40)` 算，40 是代码默认值，
+生产跑的是 `IB_OPTION_QUOTE_BATCH_SIZE=90` 配 `max_contracts_per_expiration=80`——
+**每个到期日恰好一批**，批次数就等于到期数，两个自变量是同一个。
+R² 高不等于归因对。
+
+修正后（538 个成功任务，08-24..28）：
+
+```
+秒 = 2.82 + 6.53 × 到期数 + 0.273 × 保留合约数      R² = 0.874
+```
+
+中位标的 3 到期 / 103 合约 ≈ 50s，与实测 p50 吻合。每合约系数 0.273s，
+而 `IB_OPTION_CONTRACT_DELAY` 只解释 0.05s——大头随「碰了多少合约」走，不随往返次数走。
+
+**观测数据拆不开发现和报价**（到期数 / 梯子大小 / 保留数同向变动），所以改成加计时器：
+`discovery_timings`（每个到期×C/P，标 `source: ib|cache`）和 `batch_timings`
+（`quote_ready_seconds` vs `oi_ready_seconds`）都进 `raw_metadata`，跑一个盘中时段直接读出来。
+
+**直接测到的**（AAPL 80 档梯子，08-28 盘中）：
+
+```
+reqContractDetails  2.12s        registry 读取  0.132s
+用重建 conId 报价    5/5 在 2.896s 内拿到 bid/ask + greeks
+```
+
+每标的 6 次这种调用。新表 `option_contract_registry` 按交易日缓存，
+**只在不可能改变选择结果时命中**（梯子横跨窗口，或两侧都凑满 `max_per_side`）；
+梯子在现价移动那侧不够就 miss 回 IB。全程 best-effort，退化成改动前的行为。
+每天第一轮必然全 miss，这是设计。
+
+**没动任何阈值或间隔。**
+
+顺带修掉 **错误 326 被 `_connect` 吞掉**——client id 重复时 IB 明说了原因，代码丢掉，
+只抛 `IB connection timed out`。08-28 因此花 110 分钟定位（id 42 连不上，44/47/91 各 0.00s）。
+现在带上 client id 和 IB 原话。注意 **326 不是那天故障的全部**：换干净 id 后
+`reqSecDefOptParams` 仍 20s 超时（AAPL 和 SPY），只修 client id 会死在下一个调用。
+
+- [ ] 周一(08-31)盘中读 `discovery_timings` / `batch_timings`，定「OI 移出完成判据值多少秒」
+- [ ] worker 必须重启才生效（常驻进程，`restarts=0` 自 08-21）
+
+详见 `docs/validation/QUOTE_LANE_LATENCY_2026-08-29.md`。
+
+---
+
+## ✅ 2026-08-29 — migrate.js 在 master 上根本跑不起来（真 bug，已修）
+
+`f8a9392` 起 `server/src/migrate.js` 无法解析。整个 migration 体是一个模板字符串，
+SQL 注释里一个反引号把它闭合了：
+
+```
+node --check → SyntaxError: missing ) after argument list   ← 指向第 11 行，离真因约 1150 行
+```
+
+f8a9392 / 3fd2ee9 / 63dd64e / 502fe6c 四个 commit 全部无法运行任何 migration。
+未 push，线上 schema 完好（两边都是直接执行 DDL）。修复 `98c53c9`。
+同一文件同类问题的第二次——**那段注释里不能出现反引号**。
+
+---
+
 ## ✅ 2026-08-21 — 取链提速 5.4 倍：限速间隔是唯一杠杆
 
 配置生效后仍慢（约 300s/条）。实测：每条链 **50 个 HTTP 请求，纯网络仅 10s**，

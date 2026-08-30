@@ -161,6 +161,19 @@ The table is a research starting point, not a recommendation or a claim of expec
 - IBKR Web API (OAuth): better for production, requires application approval
 - TWS API: socket-based, Python library `ib_insync` is the best wrapper
 - Paper trading available on separate port (7497 vs 7496 for live)
+- **一个 client id 被占,IB 不会拒绝,它就是不回 `nextValidId`。** 表现为握手超时,
+  和网关宕机、网络不通完全同形。真正的信息在 `error()` 回调的 **error 326**
+  (`reqId = -1`)——`Unable to connect as the client id is already in use`。
+  代码必须在超时路径上把 `error_msg` 读出来,否则这条唯一有效的线索就被丢掉。
+  2026-08-28 因此花了 110 分钟:id 42 连不上,44 / 47 / 91 各 0.00s 连上。
+  **诊断手法**:逐个 client id 试连,一次就能把「网关坏了」和「这个 id 被占了」分开。
+- **一个健康的连接不代表所有请求都健康。** 同一次 2026-08-28 故障里,换干净 id 之后
+  `reqContractDetails` 正常返回、行情 tick 正常,而 `reqSecDefOptParams` 20s 超时
+  (AAPL 和 SPY 都是)。IB 的不同请求走不同后端,**逐请求验证,不要从一个成功推所有成功**。
+- **OI(tick 100/101)比报价慢得多,而且是日频数字,盘中不变。** 把 OI 放进批次的
+  「完成」判据,等于让整批 40+ 张合约为一个当天不会再变的数字占满等待窗口——而超时
+  时快照照样落库。有/无 OI 缺失的快照分组回归只差 1.5s/批,说明不是个别合约掉队,
+  是这个 tick 本身就晚。
 
 ## Current Scanner / Analyze Logic (Phase 3D-3)
 
