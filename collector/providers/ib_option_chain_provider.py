@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from .base import OptionChainSnapshot, OptionContractSnapshot, UnderlyingSnapshot
+from .option_contract_registry import OptionContractRegistry
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class IbOptionChainProvider:
         port: int | None = None,
         client_id: int | None = None,
         timeout: float | None = None,
+        contract_registry: OptionContractRegistry | None = None,
     ) -> None:
         self.host = host or os.getenv('IB_HOST', '127.0.0.1')
         self.port = int(port or os.getenv('IB_PORT', '4001'))
@@ -65,6 +67,24 @@ class IbOptionChainProvider:
         # their sum. The loop exits as soon as every contract in the batch has a
         # complete payload, so a liquid chain finishes well inside it.
         self.batch_wait_seconds = float(os.getenv('IB_OPTION_BATCH_WAIT_SECONDS', '6'))
+        # Discovery is the other half of the job, and unlike quoting it is
+        # re-asking for an answer that did not change. Measured over 439 quote
+        # jobs (2026-08-25..27), duration decomposes as
+        # `-3.5 + 7.94*expiries + 8.21*batches` seconds at R2=0.95, so the six
+        # reqContractDetails round trips a 3-expiry symbol makes are ~24s of a
+        # ~46s job -- more than the quoting they exist to set up. The registry
+        # pays that once per symbol per trading day. It is best effort in both
+        # directions: no database, no table, or a ladder that could have changed
+        # all fall back to asking IB.
+        self.contract_registry = contract_registry or OptionContractRegistry()
+        # Per-batch timings for the most recent fetch_option_chain, surfaced in
+        # raw_metadata. Appended by fetch_contract_snapshots, cleared per symbol.
+        self.last_batch_timings: list[dict[str, Any]] = []
+        # Discovery is timed for the same reason quoting is: expiry count,
+        # ladder size and kept-contract count all move together across symbols,
+        # so no regression on observational data can separate the two halves.
+        # Only a clock on each half can.
+        self.last_discovery_timings: list[dict[str, Any]] = []
 
     def fetch_underlying(self, symbol: str) -> UnderlyingSnapshot:
         app = self._connect()
@@ -134,6 +154,9 @@ class IbOptionChainProvider:
                 'max_expirations_per_bucket': self.max_expirations_per_bucket,
             }
 
+            self.contract_registry.reset_counters()
+            self.last_batch_timings = []
+            self.last_discovery_timings = []
             contracts = []
             contracts_by_expiry: dict[date, int] = {}
             discovered_contract_count = 0
@@ -151,7 +174,10 @@ class IbOptionChainProvider:
                 try:
                     for right in ('C', 'P'):
                         actual_contracts.extend(
-                            self._fetch_actual_option_contracts(app, symbol, expiry, right, trading_class)
+                            self._list_option_contracts(
+                                app, symbol, expiry, right, trading_class,
+                                underlying.price, window_pct, strike_limit,
+                            )
                         )
                 except (TimeoutError, RuntimeError) as exc:
                     failed_expiries.append({'expiry': str(expiry), 'error': str(exc)})
@@ -225,6 +251,13 @@ class IbOptionChainProvider:
                 # from a complete one by any consumer reading the snapshot.
                 'requested_expiration_count': len(selected_expirations),
                 'failed_expirations': failed_expiries,
+                # Reported, not assumed: the ladder cache only helps when it is
+                # actually hit, and the miss reasons say why when it is not.
+                'contract_cache_hits': self.contract_registry.hits,
+                'contract_cache_misses': self.contract_registry.misses,
+                'contract_cache_miss_reasons': sorted(set(self.contract_registry.stale_reasons)),
+                'batch_timings': self.last_batch_timings,
+                'discovery_timings': self.last_discovery_timings,
             })
             if failed_expiries:
                 log.warning(
@@ -413,8 +446,21 @@ class IbOptionChainProvider:
         thread = threading.Thread(target=app.run, daemon=True)
         thread.start()
         if not app.ready.wait(provider.timeout):
+            # IB already said why, and this used to throw it away. A duplicate
+            # client id is answered with error 326 "client id is already in use"
+            # on reqId -1, which `error()` records in error_msg -- but the only
+            # thing the caller saw was a bare timeout, because nothing read it
+            # back. That is how a wedged client id was logged as a network
+            # problem four times in thirty days, most recently 2026-08-28, when
+            # the quote lane spent 110 minutes retrying id 42 while ids 44, 47
+            # and 91 connected in 0.00s. The id is in the message for the same
+            # reason: the failure is per-id, so a message that omits it cannot
+            # be acted on without re-deriving it by hand.
+            detail = app.error_msg
             app.disconnect()
-            raise TimeoutError(f'IB connection timed out: {provider.host}:{provider.port}')
+            raise TimeoutError(_connect_timeout_message(
+                provider.host, provider.port, provider.client_id, detail,
+            ))
         app.reqMarketDataType(provider.market_data_type)
         return app
 
@@ -428,6 +474,64 @@ class IbOptionChainProvider:
         if not details:
             raise RuntimeError(f'IB contract details empty for {symbol}')
         return details[0]
+
+    def _list_option_contracts(
+        self,
+        app,
+        symbol: str,
+        expiry: date,
+        right: str,
+        trading_class: str,
+        spot: float,
+        window_pct: float,
+        max_per_side: int,
+    ) -> list[Any]:
+        """The listed ladder for one (expiry, right), from cache when it is safe.
+
+        `_fetch_actual_option_contracts` is the authority and is still what fills
+        the cache; this only decides whether asking it again can change the
+        answer. On a hit the returned objects carry the conId IB gave us, which
+        is what `reqMktData` and `_contract_identity` both actually consume.
+        """
+        started = time.monotonic()
+        cached = self.contract_registry.lookup(
+            symbol, expiry, right, spot, window_pct, max_per_side,
+        )
+        if cached:
+            self.last_discovery_timings.append({
+                'expiry': expiry.isoformat(), 'right': right, 'source': 'cache',
+                'contracts': len(cached), 'seconds': round(time.monotonic() - started, 3),
+            })
+            return [self._contract_from_registry(symbol, row) for row in cached]
+        contracts = self._fetch_actual_option_contracts(app, symbol, expiry, right, trading_class)
+        self.last_discovery_timings.append({
+            'expiry': expiry.isoformat(), 'right': right, 'source': 'ib',
+            'contracts': len(contracts), 'seconds': round(time.monotonic() - started, 3),
+        })
+        # Store the whole ladder, not the window that gets quoted: a stored
+        # subset reads back as a short ladder and forces the refetch this is
+        # here to avoid.
+        self.contract_registry.store(symbol, expiry, right, contracts)
+        return contracts
+
+    def _contract_from_registry(self, symbol: str, row: dict[str, Any]):
+        from ibapi.contract import Contract
+
+        contract = Contract()
+        contract.conId = int(row['con_id'])
+        contract.symbol = _ib_contract_symbol(symbol)
+        contract.secType = 'OPT'
+        contract.exchange = row.get('exchange') or (
+            INDEX_EXCHANGE if _is_index_symbol(symbol) else 'SMART'
+        )
+        contract.currency = row.get('currency') or 'USD'
+        contract.lastTradeDateOrContractMonth = row['expiry'].strftime('%Y%m%d')
+        contract.right = row['right']
+        contract.strike = float(row['strike'])
+        contract.multiplier = row.get('multiplier') or '100'
+        if row.get('trading_class'):
+            contract.tradingClass = row['trading_class']
+        return contract
 
     def _fetch_actual_option_contracts(
         self,
@@ -566,7 +670,10 @@ class IbOptionChainProvider:
             })
 
         snapshots = []
+        timing: dict[str, Any] = {'contracts': len(prepared)}
+        self.last_batch_timings.append(timing)
         try:
+            subscribe_started = time.monotonic()
             for item in prepared:
                 app.reqMktData(item['req_id'], item['contract'], '100,101,106', False, False, [])
                 # A small stagger, not a wait. ibapi serialises writes on one
@@ -574,20 +681,40 @@ class IbOptionChainProvider:
                 # with no gap is what earns a pacing violation.
                 if self.contract_delay > 0:
                     time.sleep(self.contract_delay)
+            wait_started = time.monotonic()
+            timing['subscribe_seconds'] = round(wait_started - subscribe_started, 3)
 
-            deadline = time.monotonic() + self.batch_wait_seconds
+            # Two completion marks, not one. `has_analysis_payload` also requires
+            # open interest, and open interest is a daily figure delivered on
+            # IB's slow tick cadence, so the batch can be holding the window open
+            # for a number that cannot change during the session while the
+            # bid/ask it was opened for arrived seconds earlier. Recording both
+            # is what makes the difference between them a measurement rather than
+            # an argument: `quote_ready_seconds` is what the wait would cost if
+            # the predicate dropped open interest, `oi_ready_seconds` is what it
+            # costs today. Timing only -- neither mark changes what is collected.
+            deadline = wait_started + self.batch_wait_seconds
             while time.monotonic() < deadline:
+                now = time.monotonic()
+                if 'quote_ready_seconds' not in timing and all(
+                    item['data'].has_quote_payload()
+                    or item['data'].has_terminal_error()
+                    for item in prepared
+                ):
+                    timing['quote_ready_seconds'] = round(now - wait_started, 3)
                 if all(
                     item['data'].has_analysis_payload(item['right'])
                     or item['data'].has_terminal_error()
                     for item in prepared
                 ):
+                    timing['oi_ready_seconds'] = round(now - wait_started, 3)
                     break
                 # A dead socket must not be waited out. ibapi does not raise on
                 # disconnect, so this is the only place the batch can notice.
                 if not app.isConnected():
                     raise RuntimeError(f'IB connection lost while fetching {symbol}')
                 time.sleep(0.05)
+            timing['wait_seconds'] = round(time.monotonic() - wait_started, 3)
         finally:
             # Cancel everything that was subscribed, including on the raise path:
             # a leaked subscription holds a market-data line for the rest of the
@@ -837,6 +964,19 @@ class _MarketData:
             for error in self.raw.get('errors', [])
         )
 
+    def has_quote_payload(self) -> bool:
+        """Everything the quote lane exists to produce: a price and its greeks.
+
+        Deliberately excludes open interest, which `has_analysis_payload` adds.
+        Held apart so the cost of waiting for open interest can be measured
+        instead of estimated -- see the two marks in `fetch_contract_snapshots`.
+        """
+        return (
+            (self.bid is not None or self.ask is not None)
+            and self.delta is not None
+            and self.gamma is not None
+        )
+
     def has_analysis_payload(self, right: str) -> bool:
         open_interest = self.call_open_interest if right == 'C' else self.put_open_interest
         return (
@@ -845,6 +985,15 @@ class _MarketData:
             and self.gamma is not None
             and open_interest is not None
         )
+
+
+def _connect_timeout_message(host: str, port: int, client_id: int, detail: str | None) -> str:
+    """What to say when the API handshake never completes.
+
+    Split out from `_connect` so the wording is testable without a socket.
+    """
+    message = f'IB connection timed out: {host}:{port} client_id={client_id}'
+    return f'{message} ({detail})' if detail else message
 
 
 def _parse_expiration(value: str) -> date | None:
