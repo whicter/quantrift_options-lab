@@ -139,6 +139,11 @@ class IbOptionChainProvider:
             trading_classes = params.get('trading_classes') or []
             trading_class = symbol if symbol in trading_classes else (trading_classes[0] if trading_classes else symbol)
             selected_expirations = self._select_expirations(params['expirations'], expirations)
+            # reqSecDefOptParams already told us which strikes IB lists right
+            # now. Passing it down is what lets a cached ladder outlive the day
+            # it was fetched: it is the only signal that catches a corporate
+            # action, which replaces the ladder rather than extending it.
+            listed_strikes = set(params['strikes'])
             window_pct = strike_window_pct if strike_window_pct is not None else self.strike_window_pct
             strike_limit = max_strikes_per_side if max_strikes_per_side is not None else self.max_strikes_per_side
 
@@ -177,6 +182,7 @@ class IbOptionChainProvider:
                             self._list_option_contracts(
                                 app, symbol, expiry, right, trading_class,
                                 underlying.price, window_pct, strike_limit,
+                                valid_strikes=listed_strikes,
                             )
                         )
                 except (TimeoutError, RuntimeError) as exc:
@@ -485,6 +491,7 @@ class IbOptionChainProvider:
         spot: float,
         window_pct: float,
         max_per_side: int,
+        valid_strikes: set[float] | None = None,
     ) -> list[Any]:
         """The listed ladder for one (expiry, right), from cache when it is safe.
 
@@ -496,6 +503,7 @@ class IbOptionChainProvider:
         started = time.monotonic()
         cached = self.contract_registry.lookup(
             symbol, expiry, right, spot, window_pct, max_per_side,
+            valid_strikes=valid_strikes,
         )
         if cached:
             self.last_discovery_timings.append({

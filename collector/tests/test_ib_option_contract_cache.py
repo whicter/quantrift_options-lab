@@ -25,7 +25,9 @@ class RecordingRegistry:
         self.misses = 0
         self.stale_reasons = []
 
-    def lookup(self, symbol, expiry, right, spot, window_pct, max_per_side, as_of=None):
+    def lookup(self, symbol, expiry, right, spot, window_pct, max_per_side,
+               as_of=None, valid_strikes=None):
+        self.seen_valid_strikes = valid_strikes
         if self.ladder is None:
             self.misses += 1
             return None

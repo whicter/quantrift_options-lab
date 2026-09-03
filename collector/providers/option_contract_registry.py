@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Callable
 
 log = logging.getLogger(__name__)
@@ -60,6 +60,10 @@ class OptionContractRegistry:
                 '0', 'false', 'no', 'off',
             )
         self.enabled = bool(enabled)
+        # Backstop, not a tuning knob. Correctness comes from the strike-set and
+        # geometry checks in lookup(); this only bounds how long a ladder that
+        # somehow slipped both could stay in play.
+        self.max_age_days = max(int(os.getenv('IB_OPTION_CONTRACT_CACHE_MAX_AGE_DAYS', '30')), 0)
         # Counted per fetch so the saving is measurable from raw_metadata rather
         # than argued from the design.
         self.hits = 0
@@ -82,6 +86,7 @@ class OptionContractRegistry:
         window_pct: float,
         max_per_side: int,
         as_of: date | None = None,
+        valid_strikes: set[float] | None = None,
     ) -> list[dict[str, Any]] | None:
         if not self.enabled:
             return None
@@ -90,13 +95,43 @@ class OptionContractRegistry:
             self.misses += 1
             self.stale_reasons.append('no_rows')
             return None
-        reason = self._insufficient_reason(rows, spot, window_pct, max_per_side)
+        reason = (
+            self._strike_set_changed(rows, valid_strikes)
+            or self._insufficient_reason(rows, spot, window_pct, max_per_side)
+        )
         if reason:
             self.misses += 1
             self.stale_reasons.append(reason)
             return None
         self.hits += 1
         return rows
+
+    @staticmethod
+    def _strike_set_changed(rows: list[dict[str, Any]], valid_strikes: set[float] | None) -> str | None:
+        """Reject a ladder IB no longer agrees with.
+
+        Every fetch already calls reqSecDefOptParams, which returns the strike
+        set IB lists for the symbol right now, so cross-checking costs nothing.
+        This is what makes a ladder safe to keep past the day it was fetched: a
+        split or other corporate action does not add strikes at the edge, where
+        `_insufficient_reason` would catch it -- it replaces the ladder wholesale
+        while the old conIds stay resolvable as adjusted contracts with a
+        non-standard deliverable. That is the one drift the geometry rule cannot
+        see, and the one that would quote the wrong thing rather than nothing.
+
+        Absent a live strike set the check is skipped rather than assumed: the
+        caller not supplying one must not silently become a stricter cache.
+        """
+        if not valid_strikes:
+            return None
+        # A tolerance, because strikes cross a float boundary between IB's wire
+        # format and NUMERIC(18,4).
+        listed = sorted(valid_strikes)
+        for row in rows:
+            strike = row['strike']
+            if not any(abs(strike - candidate) < 1e-4 for candidate in listed):
+                return 'strike_set_changed'
+        return None
 
     def _read_ladder(self, symbol: str, expiry: date, right: str, as_of: date) -> list[dict[str, Any]]:
         conn = None
@@ -105,15 +140,35 @@ class OptionContractRegistry:
             if conn is None:
                 return []
             with conn, conn.cursor() as cur:
+                # Newest ladder within the backstop window, not one specific day.
+                #
+                # Scoping this to `refreshed_on = today` made the cache
+                # structurally unable to hit: measured 2026-08-31, all 141
+                # quoted symbols were visited exactly once each, so every read
+                # preceded that symbol's only write of the day. 724 lookups, 1
+                # hit, every miss `no_rows` -- while the table filled correctly
+                # with 45,721 rows. The daily scope was belt on top of braces,
+                # and it was the belt that cost 22.1s per symbol.
+                #
+                # What actually guards correctness is the pair of checks in
+                # lookup(): the live strike set from reqSecDefOptParams, and the
+                # geometry rule. The age bound is only a backstop on how far a
+                # bad ladder could propagate, so it is generous by design rather
+                # than tuned -- options here expire inside ~90 days anyway.
                 cur.execute(
                     """
                     SELECT con_id, strike, trading_class, exchange, multiplier, currency
                     FROM option_contract_registry
                     WHERE symbol = %s AND expiry = %s AND option_right = %s
-                      AND refreshed_on = %s
+                      AND refreshed_on >= %s
+                      AND refreshed_on = (
+                        SELECT MAX(refreshed_on) FROM option_contract_registry
+                        WHERE symbol = %s AND expiry = %s AND option_right = %s
+                      )
                     ORDER BY strike
                     """,
-                    (symbol, expiry, right, as_of),
+                    (symbol, expiry, right, as_of - timedelta(days=self.max_age_days),
+                     symbol, expiry, right),
                 )
                 return [
                     {

@@ -1,6 +1,6 @@
 import os
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from providers.option_contract_registry import OptionContractRegistry
@@ -105,17 +105,65 @@ class LadderSufficiencyTests(unittest.TestCase):
         )
         self.assertEqual(reg.stale_reasons, ['no_rows'])
 
-    def test_the_read_is_scoped_to_one_trading_day(self):
-        """A ladder is only trusted for the day it was fetched.
+    def test_the_read_takes_the_newest_ladder_inside_the_age_backstop(self):
+        """Not "today", which made the cache structurally unable to hit.
 
-        Without the date bound the cache would answer with last month's listing,
-        which is the one case where strikes really have been added.
+        Measured 2026-08-31: all 141 quoted symbols were visited exactly once
+        each, so a read scoped to today always preceded that symbol's only write
+        of the day -- 724 lookups, 1 hit, every miss `no_rows`, while the table
+        filled correctly with 45,721 rows.
         """
         reg, conn = registry(ladder_rows([90.0, 100.0, 110.0]))
-        reg.lookup('AAPL', date(2026, 9, 18), 'C', 100.0, 15, 1, as_of=date(2026, 8, 28))
+        reg.lookup('AAPL', date(2026, 9, 18), 'C', 100.0, 15, 1, as_of=date(2026, 8, 31))
         sql, params = conn.log[0]
-        self.assertIn('refreshed_on = %s', sql)
-        self.assertEqual(params[-1], date(2026, 8, 28))
+        self.assertIn('refreshed_on >= %s', sql)
+        self.assertIn('MAX(refreshed_on)', sql)
+        self.assertEqual(params[3], date(2026, 8, 31) - timedelta(days=reg.max_age_days))
+
+
+class StrikeSetTests(unittest.TestCase):
+    """The check that lets a ladder outlive the day it was fetched."""
+
+    def test_a_ladder_ib_no_longer_lists_is_rejected(self):
+        """The drift the geometry rule cannot see.
+
+        A split does not add strikes at the edge -- it replaces the ladder, and
+        the old conIds stay resolvable as adjusted contracts with a non-standard
+        deliverable. Quoting those returns plausible numbers for the wrong
+        instrument, which is worse than returning nothing.
+        """
+        reg, _ = registry(ladder_rows([90.0, 100.0, 110.0]))
+        rows = reg.lookup('AAPL', date(2026, 9, 18), 'C', 100.0, 15, 1,
+                          valid_strikes={30.0, 33.33, 36.67})
+        self.assertIsNone(rows)
+        self.assertEqual(reg.stale_reasons, ['strike_set_changed'])
+
+    def test_a_ladder_ib_still_lists_survives(self):
+        reg, _ = registry(ladder_rows([90.0, 100.0, 110.0]))
+        rows = reg.lookup('AAPL', date(2026, 9, 18), 'C', 100.0, 15, 1,
+                          valid_strikes={90.0, 100.0, 110.0, 120.0})
+        self.assertIsNotNone(rows)
+        self.assertEqual(reg.hits, 1)
+
+    def test_float_rounding_through_numeric_does_not_read_as_a_changed_set(self):
+        """NUMERIC(18,4) and IB's wire float do not round-trip exactly.
+
+        An exact set-membership test would call every ladder stale and turn the
+        cache off without saying so.
+        """
+        strikes = [float(s) for s in range(160, 221, 5)]   # spans 188 +- 15%
+        reg, _ = registry(ladder_rows(strikes))
+        rows = reg.lookup('AAPL', date(2026, 9, 18), 'C', 188.0, 15, 1,
+                          valid_strikes={s + 1e-8 for s in strikes})
+        self.assertIsNotNone(rows)
+        self.assertEqual(reg.hits, 1)
+
+    def test_no_live_strike_set_skips_the_check_rather_than_failing_closed(self):
+        """A caller that cannot supply one must not silently get a stricter cache."""
+        reg, _ = registry(ladder_rows([90.0, 100.0, 110.0]))
+        self.assertIsNotNone(
+            reg.lookup('AAPL', date(2026, 9, 18), 'C', 100.0, 15, 1, valid_strikes=None)
+        )
 
 
 class DegradationTests(unittest.TestCase):
