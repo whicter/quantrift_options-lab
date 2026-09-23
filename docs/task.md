@@ -37,7 +37,19 @@ GET /v2/aggs/grouped/.../2026-09-16   → 200 OK, 12562 tickers
 - `sync_universe.py` 的 upsert 不再无条件 `active = TRUE`——代码库里没有任何地方
   自动置 FALSE，而种子集合恰恰保留着被退役 ticker 的历史行，于是每跑一次就撤销一次退役。
 
-**待确认（参数，未执行）**：
+**✅ 2026-09-23 已全部执行**（`pm2 delete` + `pm2 start ecosystem.config.cjs --only` + `pm2 save`，
+分三组做，全程未触及同机 12 个非 quantrift 常驻进程；dump 49 个 app 完整保留）：
+- cron `35 13,18 * * 1-5` → `35 3,13 * * 1-5`
+- `REFRESH_WORKER_BATCH_SIZE` 10 → 30、`OPTION_REFRESH_QUEUE_TARGET` 与
+  `OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE` 20 → 60（进程内已确认生效：`BATCH=30 QTARGET=60`）
+- `symbol_universe` 退役 8 个 ticker（active 332 → 324，另开连接复核已持久化）
+- 重新注册顺带补上了当天漏掉的采集：`grouped daily 2026-09-22: 315/316 symbols`，
+  09-22 的 315 条日线已入库，缺口消失
+
+batch=30 的实际吞吐要等明天开盘才能量——重启时已是 19:50 ET，
+`refresh_window` 正确返回 idle，期权链刷新按设计停摆。
+
+**原始提案（保留备查）**：
 - cron `35 13,18 * * 1-5` → `35 3,13 * * 1-5`（18:35 PT 挪到 03:35 PT = 06:35 ET）。
   grouped 之后仍然需要：两轮现在都在 gate 之前，都只能拿到 D-1。选 06:35 ET 的依据是
   **breadth 那条线一个月前就跑过这个实验**——`ecosystem.config.cjs` 的注释写着 06:05 ET
@@ -61,11 +73,16 @@ GET /v2/aggs/grouped/.../2026-09-16   → 200 OK, 12562 tickers
   （`written_same_day=0 / written_later=315`），52/263 的字母表分裂消失；grouped 5 个 session
   约 2 分钟；`1/316 still need a full history fetch`；`price freshness` 从 270/322 降到
   **1/316**（仅 NOEM，真实但当日无成交）；`0 symbols failed`，假红消失；整轮 2h55m → 1h37m。
-- [ ] cron / batch 参数确认后 `pm2 delete` + `pm2 start ecosystem.config.cjs --only` + `pm2 save`
-- [ ] **PM2 cron 自 09-23 07:41 守护进程重启后，"每天下午一次"的 cron 全部不再触发**
-  （prices 13:35 / short-interest 13:20 / squeeze-watch 13:40 均停在 09-22，而 news `*/5`
-  等高频 cron 正常）。直接后果：09-22 的日线整天缺失。重新注册时按 `pm2 delete` +
-  `pm2 start ecosystem.config.cjs --only <name>` + `pm2 save`，与上面的参数改动一并做。
+- [x] cron / batch 参数已落地并 `pm2 save`（见上）
+- [x] **PM2 cron 曾整体失效**：守护进程 2026-09-23 07:41 重启后，14 个 quantrift cron app 里
+  只有 `news`（`*/5`）还在触发，其余 13 个全停在 07:20 PT 之前——连每小时跑的 `log-rotate`
+  都停了。直接后果是当天的价格采集根本没启动，09-22 的日线整天缺失（不是 grouped 的问题）。
+  已按 delete + start + save 全部重新注册并修复。
+  **教训**：`pm2 save` 之后仍可能在守护进程重启时丢掉 cron 注册，所以"进程还在列表里"
+  不等于"它还会被触发"。判定要看**最后一次实际日志写入时刻**对不对得上它的 cron 表达式，
+  而不是看 `pm2 list` 的状态列。
+- [ ] 下一个交易日盘中确认 batch=30 的实测吞吐（预期 69 → ~153 job/小时，
+  中位链龄回到 180 分钟目标之内）
 - [ ] 待定：BATL/CBUS/LINK/MINE/NOEM/SGP 六个真实但无挂牌期权的标的仍每轮吃一次产出为 0 的链抓取
 
 详见 `docs/validation/DAILY_PRICE_LAG_AND_THROUGHPUT_2026-09-17.md`。

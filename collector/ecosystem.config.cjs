@@ -73,16 +73,29 @@ module.exports = {
         OPTION_REFRESH_SCHEDULE_SECONDS: '300',
         // Queue depth, not per-cycle count, is what the scheduler targets. The
         // worker's own REFRESH_WORKER_BATCH_SIZE still bounds execution rate.
-        OPTION_REFRESH_QUEUE_TARGET: '20',
-        OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE: '20',
-        // Raised 2 -> 10 now that E7 (shared provider rate limiter) is the hard
-        // 429 gate, so batch size is no longer a rate-limit risk (task.md:238).
-        // Measured cost is ~2.83s/symbol (6 Polygon calls: 1 underlying prev +
-        // 5 DTE buckets), so batch=10 is ~28s/cycle, leaving ~32s of the 60s
-        // poll for compute_gex/materialize/DB/variance. Cuts a full cold-fill of
-        // ~81 symbols from ~41min to ~9min. Do NOT raise concurrency via multiple
-        // worker processes (E8) until its single-process assumptions are resolved.
-        REFRESH_WORKER_BATCH_SIZE: '10',
+        // Both raised 20 -> 60 with the batch below: a batch of 30 cannot be fed
+        // by a queue that tops out at 20.
+        OPTION_REFRESH_QUEUE_TARGET: '60',
+        OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE: '60',
+        // Raised 10 -> 30 (2026-09-23). Batch size here is NOT "how many symbols
+        // to fetch at once" -- it is the denominator of a fixed cost. Every batch
+        // ends with one full-universe derivation (materialize_oi_delta +
+        // materialize_scan + scanner candidates), and that cost does not change
+        // with how many jobs preceded it. Measured over eight consecutive cycles:
+        // 10 chain jobs took 112s, the derivation over 323 symbols took 368s --
+        // 76% of a 483s cycle -- and the lane sat idle 75% of the time (busy
+        // 6191s vs idle 18789s) polling an empty queue. So 74.5 jobs/hour was
+        // never a worker-capacity or provider-rate limit.
+        // Expected at 30: 3x112 + 368 = ~704s per cycle = ~153 jobs/hour, a full
+        // sweep of 316 symbols in ~2.1h -- back inside both
+        // OPTION_REFRESH_MAX_AGE_SCAN (150 min) and the freshness.js 180-minute
+        // target, with no threshold moved. Request rate is unchanged (pacing is
+        // global), execution concurrency is unchanged (still 3 below), and
+        // derivation frequency actually FALLS from ~7.5/h to ~4.5/h.
+        // Still do NOT raise concurrency via multiple worker processes (E8)
+        // until its single-process assumptions are resolved.
+        // Details: docs/validation/DAILY_PRICE_LAG_AND_THROUGHPUT_2026-09-17.md
+        REFRESH_WORKER_BATCH_SIZE: '30',
         // Bounded in-process concurrency; provider pacing remains global and
         // PendingDerivations/materialization stays single-threaded.
         REFRESH_WORKER_CONCURRENCY: '3',
@@ -194,12 +207,26 @@ module.exports = {
       script: 'collect_prices.py',
       interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
       autorestart: false,
-      // Two weekday runs: 13:35 PT (~35 min after the 16:00 ET close, may miss a
-      // still-pending EOD bar) and 18:35 PT (= 21:35 ET, past the EOD settle) so
-      // a late-finalized daily bar is picked up the same day rather than waiting
-      // for the next weekday. Each run refetches 400 days and upserts, so the
-      // second run also self-heals any gap the first left.
-      cron_restart: '35 13,18 * * 1-5',
+      // Two weekday runs: 03:35 PT (= 06:35 ET) and 13:35 PT (= 16:35 ET).
+      //
+      // The evening slot was 18:35 PT on the claim that 21:35 ET was "past the
+      // EOD settle". It is not. The plan refuses the current session outright --
+      // 403 NOT_AUTHORIZED, "Attempted to request today's data before end of
+      // day" -- and that gate was measured opening at ~00:00 ET, the NEXT
+      // calendar day. So both old slots asked for a session nobody could have,
+      // and session D's close only reached the DB during D+1's afternoon run,
+      // i.e. after D+1's own session had already traded on a stale close.
+      //
+      // 06:35 ET is not a guess: the market-breadth lane has been asking the
+      // same grouped endpoint at 06:05 ET every weekday and getting D-1 every
+      // time (09-10..09-17, universe 5151-5206). The run finishes ~08:02 ET,
+      // before the 09:30 open, so D's close is in place for D+1's session.
+      // Monday 03:35 PT picks up the previous Friday; no session is skipped.
+      //
+      // The daily fill is one grouped request per session (~2 min for five),
+      // so neither run depends on where a symbol sits in the sweep any more;
+      // the per-symbol pass is 30m bars plus history backfill only.
+      cron_restart: '35 3,13 * * 1-5',
       env: {
         PRICE_PROVIDER: 'polygon',
         SYMBOLS: 'watchlist',
