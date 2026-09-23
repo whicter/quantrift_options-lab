@@ -445,6 +445,7 @@ positions       (user_id, symbol, legs JSONB, opened_at)
 - 最多 400 个日线 bar 写入 `price_history`；近 35 个自然日 30M bar 写入 `price_history_30m`，作为趋势图、HV、RVol、weekly recap、breakout 的基础输入。
 - `price_history` schema 已进入 `server/src/migrate.js`，并已于 2026-07-14 在 Railway PostgreSQL 创建。
 - `collector/collect_prices.py` 默认 `PRICE_PROVIDER=polygon`，两个 timeframe 在同一 symbol transaction 中 upsert；IB/Stooq 仅显式 fallback。
+- 日线的增量填充走 grouped daily（一次请求返回全市场当日 OHLCV），不再按标的逐个取。原因不是快而是**不可切分**：Polygon 对当日 session 回 `403 NOT_AUTHORIZED`（"before end of day"，实测 gate 在 ~00:00 ET 打开），而逐标的扫描要跑近 3 小时、正好横跨这个时刻，于是同一轮里 A–T 拿不到当日 bar、U–Z 拿得到——universe 被字母表切成两半。grouped 之下一个 session 要么全落地要么全不落地。per-symbol 的 400 天取数降级为回补路径（无历史 / 有洞 / 拆股量级跳变）。详见 `docs/validation/DAILY_PRICE_LAG_AND_THROUGHPUT_2026-09-17.md`。
 - `GET /api/prices/:symbol?limit=60&interval=day|30m` 返回对应 timeframe。
 - 2026-07-14 最小闭环已验证：AAPL 通过 `ib_internal` 写入 60 条 `price_history`，本地 API 可读取。
 - 2026-07-14 完整 watchlist 已验证：67/67 symbols 成功，写入 4020 rows，0 failed；`/api/status/data` 本地返回 `price_history.covered_count=67`、`missing_count=0`、`stale_count=0`。
@@ -1291,6 +1292,8 @@ Runtime evidence：
 ### Persistent Scanner Universe and Unknown Symbols
 
 The scanner is no longer bounded by the visible 67-symbol watchlist. `symbol_universe` persists all known symbols and on-demand registrations. `sync_universe.py` imports the legacy watchlist plus symbols already known to price, IV and option tables; `materialize_scan.py` reads active/scannable registry rows.
+
+`sync_universe.py` registers new symbols but never re-activates existing ones. Its upsert used to set `active = TRUE` on conflict, and because nothing in the codebase clears `active` automatically — it is only ever cleared by a deliberate retirement — while the seed set is drawn from the very history tables that still hold rows for retired tickers, every run silently undid every retirement. Retiring a ticker means editing both `watchlist.txt` and `symbol_universe`, and verifying against two Polygon endpoints (a reference 404 *and* absence from grouped daily), never a single job error.
 
 `GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. The refresh worker polls every 60 seconds; the user-facing pending state says that data is being prepared and normally completes in `~1-3min`, without exposing internal coverage field names. While queued, Analyze checks status every five seconds and automatically reruns analysis when a product becomes available. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
 

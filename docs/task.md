@@ -1,5 +1,77 @@
 # Task Tracker
 
+## 🔄 2026-09-17 — 日线落后一个 session；吞吐的 76% 花在固定成本上
+
+问"数据获取和更新及时吗"。期权链和报价是及时的，日线不是——而且不及时的那条
+被 5 天的 stale 阈值盖住，监控一直显示 fresh。
+
+盘中实测：最新 scanner 快照 264/330 行的 `price_date` 是 **2026-09-15**，当天是 09-17。
+拿到 09-16 的只有 52 个标的，首字母全部落在 **U–Z**。
+
+`collect_prices` 按字母序跑 2h55m，18:35 PT 那一轮横跨 00:00 ET；
+09-16 那批 bar 第一条写入落在 `00:00:21 ET`，切点之前一根没有、之后全有。
+十个交易日完全同形（每天 52 个当天写入 / 263 个次日才写入）。
+
+假设写在 `ecosystem.config.cjs` 的注释里（"18:35 PT = 21:35 ET, past the EOD settle"）
+和 `PRICE_EOD_SETTLE_HOUR_ET = 20`。**provider 自己否掉了它**：
+
+```
+GET /v2/aggs/grouped/.../2026-09-17   （17:07 ET，收盘后 67 分钟）
+→ 403 NOT_AUTHORIZED
+   "Attempted to request today's data before end of day."
+GET /v2/aggs/grouped/.../2026-09-16   → 200 OK, 12562 tickers
+```
+
+不是发布慢，是套餐条款；end-of-day 实测落在 ~00:00 ET，即下一个 ET 日历日。
+
+**已改（代码）**：
+- `polygon_price_provider.fetch_grouped_daily()` — 一次请求拿全市场当日 OHLCV。
+  关键不是快，是**不可切分**：一个 session 要么对所有标的落地、要么一个都没有。
+- `collect_prices.run()` 两段化：grouped 填最近 5 个可取 session；per-symbol 仍抓 30m，
+  400 天 daily 只给 `symbols_needing_history()` 选中的标的（无历史 / 有洞 / 拆股量级跳变）。
+- `PRICE_EOD_SETTLE_HOUR_ET` 20 → 24（小时只有 0..23，24 即"永不在自己日期上可取"）。
+- 两个编码了旧假设的单测已改写；新增 grouped 填充与回补选择的单测。565 collector 测试通过。
+
+**已改（数据/脚本）**：
+- `watchlist.txt` 删 6 个 404 ticker（322 → 316）。
+- `sync_universe.py` 的 upsert 不再无条件 `active = TRUE`——代码库里没有任何地方
+  自动置 FALSE，而种子集合恰恰保留着被退役 ticker 的历史行，于是每跑一次就撤销一次退役。
+
+**待确认（参数，未执行）**：
+- cron `35 13,18 * * 1-5` → `35 3,13 * * 1-5`（18:35 PT 挪到 03:35 PT = 06:35 ET）。
+  grouped 之后仍然需要：两轮现在都在 gate 之前，都只能拿到 D-1。选 06:35 ET 的依据是
+  **breadth 那条线一个月前就跑过这个实验**——`ecosystem.config.cjs` 的注释写着 06:05 ET
+  那班"exists to find out whether Polygon publishes overnight"，而日志显示它**每天都拿到 D-1**
+  （09-10..09-17 连续，universe 5151–5206），同一个 grouped 端点。结果一直没人读。
+- `REFRESH_WORKER_BATCH_SIZE` 10 → 30、`OPTION_REFRESH_QUEUE_TARGET` 20 → 60、
+  `OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE` 20 → 60。
+- `symbol_universe` 退役 8 个 ticker 的 UPDATE（被 auto mode 分类器拦下，需批准）。
+
+**吞吐的瓶颈不是 worker 容量**。连续 8 个周期：10 个 job 花 112s，
+之后的全 universe 派生花 **368s**，占周期 76% 且**与 batch 大小无关**；
+按 batch 边界统计，通道 75% 的时间空转（忙 6191s / 空 18789s）。
+把同一次派生摊到 30 个 job 上 → 预期 153 job/小时（现 69），
+扫完一轮 2.1 小时，落回既定的 150 分钟节奏和 180 分钟 freshness 目标之内，**不需要动阈值**。
+
+中途一个被误读的结果记在验证档里：按 `started_at` 算并发得到 max=10，
+与 `REFRESH_WORKER_CONCURRENCY=3` 矛盾——因为 `fetch_jobs` 在 claim 时给整批统一打
+`started_at`，该测量无效，真实并发仍是 3。
+
+- [x] **生产验证通过（09-23 回看 6 天）**：09-17 起写入变成干净的 all-or-nothing
+  （`written_same_day=0 / written_later=315`），52/263 的字母表分裂消失；grouped 5 个 session
+  约 2 分钟；`1/316 still need a full history fetch`；`price freshness` 从 270/322 降到
+  **1/316**（仅 NOEM，真实但当日无成交）；`0 symbols failed`，假红消失；整轮 2h55m → 1h37m。
+- [ ] cron / batch 参数确认后 `pm2 delete` + `pm2 start ecosystem.config.cjs --only` + `pm2 save`
+- [ ] **PM2 cron 自 09-23 07:41 守护进程重启后，"每天下午一次"的 cron 全部不再触发**
+  （prices 13:35 / short-interest 13:20 / squeeze-watch 13:40 均停在 09-22，而 news `*/5`
+  等高频 cron 正常）。直接后果：09-22 的日线整天缺失。重新注册时按 `pm2 delete` +
+  `pm2 start ecosystem.config.cjs --only <name>` + `pm2 save`，与上面的参数改动一并做。
+- [ ] 待定：BATL/CBUS/LINK/MINE/NOEM/SGP 六个真实但无挂牌期权的标的仍每轮吃一次产出为 0 的链抓取
+
+详见 `docs/validation/DAILY_PRICE_LAG_AND_THROUGHPUT_2026-09-17.md`。
+
+---
+
 ## ✅ 2026-09-02 — 缓存作用域定错，两个交易日 1453 次查询命中 1 次
 
 上周埋的计时点第一时间就打脸了两处，其中一处是我自己设计的缓存**结构性无法命中**。

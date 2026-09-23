@@ -60,6 +60,52 @@ class PolygonPriceProvider:
         )
         return payload.get('results') or []
 
+    def fetch_grouped_daily(self, market_date: date) -> dict[str, PriceBar]:
+        """Every US ticker's daily bar for one session, in a single request.
+
+        The per-symbol aggregates path costs one request per symbol, and at the
+        configured stock pacing a ~320-symbol sweep runs for hours. That is not
+        just slow, it is *skewed*: the plan refuses the current session until it
+        closes the day out (`403 NOT_AUTHORIZED`, "Attempted to request today's
+        data before end of day"), and the sweep straddles the moment that gate
+        opens -- so the symbols reached before it silently carried no bar while
+        the ones reached after it did, splitting the universe by nothing more
+        than alphabetical position. One grouped request cannot split that way:
+        every symbol in the response is answered by the same call, so the
+        session either landed for all of them or for none.
+
+        Keyed by Polygon ticker, which is what the response carries; callers
+        translate their own symbols with `polygon_ticker()` and persist under
+        the name they already store. `source` stays the provider's own, so
+        grouped and per-symbol rows form one series that the freshness guard --
+        which filters on source -- continues to see whole.
+        """
+        url = (
+            f'{self.base_url}/v2/aggs/grouped/locale/us/market/stocks/'
+            f'{market_date.isoformat()}'
+        )
+        payload = self.http.get_json(
+            url,
+            params={'adjusted': 'true', 'include_otc': 'false'},
+            context=f'Polygon grouped daily request for {market_date.isoformat()}',
+        )
+        bars: dict[str, PriceBar] = {}
+        for item in payload.get('results') or []:
+            ticker = str(item.get('T') or '').strip().upper()
+            if not ticker or item.get('c') is None:
+                continue
+            bars[ticker] = PriceBar(
+                symbol=ticker,
+                date=market_date,
+                open=_float_or_none(item.get('o')),
+                high=_float_or_none(item.get('h')),
+                low=_float_or_none(item.get('l')),
+                close=float(item['c']),
+                volume=_int_or_none(item.get('v')),
+                source=self.source,
+            )
+        return bars
+
     def _daily_bar(self, symbol: str, item: dict) -> PriceBar:
         bar_datetime = datetime.fromtimestamp(int(item['t']) / 1000, tz=timezone.utc)
         return PriceBar(

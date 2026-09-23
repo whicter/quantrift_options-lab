@@ -33,6 +33,16 @@ def known_symbols(conn) -> list[str]:
 
 
 def upsert_symbols(conn, symbols: list[str], source: str = 'known_data') -> int:
+    """Register newly seen symbols; never resurrect a retired one.
+
+    This used to set `active = TRUE` on conflict. Nothing in the codebase ever
+    clears `active` automatically -- it is only ever cleared by a deliberate
+    retirement -- and the seed set is drawn from `iv_history`/`price_history`/
+    `option_chain_snapshots`, which keep rows for exactly the tickers that were
+    retired for producing nothing. So every run undid every retirement, and the
+    symbol came back with no record of why. New symbols still arrive active: the
+    column defaults to TRUE, so the INSERT alone is enough.
+    """
     if not symbols:
         return 0
     values = [(symbol, source, 'seed') for symbol in symbols]
@@ -43,7 +53,6 @@ def upsert_symbols(conn, symbols: list[str], source: str = 'known_data') -> int:
             INSERT INTO symbol_universe (symbol, source, added_via)
             VALUES %s
             ON CONFLICT (symbol) DO UPDATE SET
-              active = TRUE,
               updated_at = NOW()
             """,
             values,

@@ -82,6 +82,40 @@ class PolygonPriceProviderTests(unittest.TestCase):
         self.assertEqual(polygon_ticker(' brk.b '), 'BRK.B')
         self.assertEqual(polygon_ticker('BRK/B'), 'BRK.B')
 
+    def test_grouped_daily_returns_one_bar_per_ticker_for_the_requested_session(self):
+        provider, session = self.provider([{
+            'status': 'OK',
+            'results': [
+                {'T': 'AAPL', 'o': 100, 'h': 105, 'l': 99, 'c': 104, 'v': 1234.7},
+                {'T': 'BRK.B', 'o': 500, 'h': 510, 'l': 498, 'c': 508, 'v': 42},
+            ],
+        }])
+
+        bars = provider.fetch_grouped_daily(date(2026, 7, 14))
+
+        url, params, _ = session.calls[0]
+        self.assertTrue(url.endswith('/v2/aggs/grouped/locale/us/market/stocks/2026-07-14'))
+        self.assertEqual(params['adjusted'], 'true')
+        self.assertEqual(set(bars), {'AAPL', 'BRK.B'})
+        # The session is the caller's, not decoded from a per-bar timestamp:
+        # grouped carries one session and every row belongs to it.
+        self.assertEqual(bars['AAPL'].date, date(2026, 7, 14))
+        self.assertEqual(bars['AAPL'].close, 104)
+        self.assertEqual(bars['AAPL'].volume, 1234)
+        self.assertEqual(bars['BRK.B'].source, provider.source)
+
+    def test_grouped_daily_drops_rows_with_no_close(self):
+        provider, _ = self.provider([{
+            'status': 'OK',
+            'results': [
+                {'T': 'AAPL', 'o': 100, 'h': 105, 'l': 99, 'c': 104, 'v': 1},
+                {'T': 'HALTED', 'o': None, 'h': None, 'l': None, 'c': None, 'v': 0},
+                {'T': '', 'c': 5},
+            ],
+        }])
+
+        self.assertEqual(set(provider.fetch_grouped_daily(date(2026, 7, 14))), {'AAPL'})
+
     def test_429_is_retried_with_retry_after(self):
         session = FakeSession([])
         session.payloads = [
