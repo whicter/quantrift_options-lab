@@ -94,3 +94,53 @@ class CollectorHealthTest(unittest.TestCase):
             check_collector_health.alert_fingerprint(first),
             check_collector_health.alert_fingerprint(second),
         )
+
+
+class AlertDedupeAndSessionTest(unittest.TestCase):
+    """2026-09-23：过期名单一变指纹就变，冷却失效，一天推 50–100 条。"""
+
+    def test_fingerprint_ignores_which_symbols(self):
+        a = {'issues': [{'code': 'snapshot_age_above_threshold', 'symbols': ['A', 'B']}]}
+        b = {'issues': [{'code': 'snapshot_age_above_threshold', 'symbols': ['A', 'B', 'C', 'D']}]}
+        self.assertEqual(check_collector_health.alert_fingerprint(a),
+                         check_collector_health.alert_fingerprint(b))
+
+    def test_fingerprint_changes_when_issue_type_changes(self):
+        a = {'issues': [{'code': 'snapshot_age_above_threshold', 'symbols': ['A']}]}
+        b = {'issues': [{'code': 'snapshot_age_above_threshold', 'symbols': ['A']},
+                        {'code': 'failed_jobs_above_threshold', 'symbols': []}]}
+        self.assertNotEqual(check_collector_health.alert_fingerprint(a),
+                            check_collector_health.alert_fingerprint(b))
+
+    def _et(self, *args):
+        from zoneinfo import ZoneInfo
+        return datetime(*args, tzinfo=ZoneInfo('America/New_York')).astimezone(timezone.utc)
+
+    def test_reference_is_now_in_session(self):
+        now = self._et(2026, 9, 23, 11, 0)
+        self.assertEqual(check_collector_health.staleness_reference(now), now)
+
+    def test_reference_is_today_close_after_close(self):
+        self.assertEqual(check_collector_health.staleness_reference(self._et(2026, 9, 23, 18, 7)),
+                         self._et(2026, 9, 23, 16, 0))
+
+    def test_reference_before_open_is_previous_close(self):
+        self.assertEqual(check_collector_health.staleness_reference(self._et(2026, 9, 24, 8, 0)),
+                         self._et(2026, 9, 23, 16, 0))
+
+    def test_reference_on_weekend_is_friday_close(self):
+        self.assertEqual(check_collector_health.staleness_reference(self._et(2026, 9, 27, 12, 0)),
+                         self._et(2026, 9, 25, 16, 0))
+        self.assertEqual(check_collector_health.staleness_reference(self._et(2026, 9, 28, 7, 0)),
+                         self._et(2026, 9, 25, 16, 0))
+
+    def test_after_close_staleness_does_not_grow(self):
+        th = check_collector_health.HealthThresholds(max_snapshot_age_minutes=180)
+        row = {'snapshot_ts': self._et(2026, 9, 23, 14, 30), 'completeness_pct': 99,
+               'contract_count': 40, 'provider_status': 'ok'}
+        for hh in (17, 20, 23):
+            r = check_collector_health.evaluate_health(['X'], {'X': row}, 0, self._et(2026, 9, 23, hh, 0), th)
+            self.assertEqual(r['stale_count'], 0, hh)
+        old = dict(row, snapshot_ts=self._et(2026, 9, 23, 12, 0))   # 盘中真没刷到的仍然报
+        r = check_collector_health.evaluate_health(['X'], {'X': old}, 0, self._et(2026, 9, 23, 20, 0), th)
+        self.assertEqual(r['stale_count'], 1)

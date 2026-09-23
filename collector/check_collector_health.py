@@ -5,8 +5,9 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg2
 from psycopg2.extras import Json
@@ -20,6 +21,33 @@ load_collector_env(__file__)
 log = logging.getLogger(__name__)
 
 DB_URL = os.getenv('DATABASE_URL')
+
+MARKET_TIMEZONE = ZoneInfo('America/New_York')
+_SESSION_OPEN = time(9, 30)
+_SESSION_CLOSE = time(16, 0)
+
+
+def staleness_reference(now: datetime) -> datetime:
+    """快照「过期」的计时终点：盘中 = 现在；盘外 = 最近一次常规时段收盘（16:00 ET）。
+
+    2026-09-23：期权报价收盘后不再变化，而原来一律用 now 计龄，于是 16:00 之后
+    每过一分钟就有更多标的"超过 180 分钟未更新"，告警整晚越滚越大。
+    盘外用上一次收盘计龄，过期的含义回到"收盘前那段时间里没刷到"。
+    节假日不建模（按工作日处理，最坏是节假日当天多算一段，和原来一样）。
+    """
+    now_et = _as_utc(now).astimezone(MARKET_TIMEZONE)
+    day = now_et
+    if day.weekday() < 5 and _SESSION_OPEN <= day.time() < _SESSION_CLOSE:
+        return _as_utc(now)
+    if day.weekday() < 5 and day.time() >= _SESSION_CLOSE:
+        close_day = day.date()
+    else:
+        d = day.date() - timedelta(days=1)
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+        close_day = d
+    close = datetime.combine(close_day, _SESSION_CLOSE, tzinfo=MARKET_TIMEZONE)
+    return close.astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -50,6 +78,7 @@ def evaluate_health(
 ) -> dict[str, Any]:
     usable = []
     stale = []
+    reference = staleness_reference(now)
     incomplete = []
     missing = []
     for symbol in symbols:
@@ -59,7 +88,7 @@ def evaluate_health(
             continue
         usable.append(symbol)
         snapshot_ts = row.get('snapshot_ts')
-        if snapshot_ts is None or now - _as_utc(snapshot_ts) > timedelta(minutes=thresholds.max_snapshot_age_minutes):
+        if snapshot_ts is None or reference - _as_utc(snapshot_ts) > timedelta(minutes=thresholds.max_snapshot_age_minutes):
             stale.append(symbol)
         completeness = _to_float(row.get('completeness_pct'))
         if completeness is None or completeness < thresholds.min_completeness_pct:
@@ -112,11 +141,15 @@ def evaluate_health(
 
 
 def alert_fingerprint(report: dict[str, Any]) -> str:
-    state = [
-        {'code': issue['code'], 'symbols': sorted(issue.get('symbols') or [])}
-        for issue in report['issues']
-    ]
-    encoded = json.dumps(state, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    """告警去重键：**只看问题类型**，不看具体是哪些标的（2026-09-23）。
+
+    原来把每类问题的完整标的名单也算进指纹。采集器是轮转刷新的，每 5 分钟
+    过期名单都会变一点 ⇒ 指纹每次都是新的 ⇒ 60 分钟冷却从未生效，
+    同一个"部分标的过期"的状况一天推送 50–100 条（09-14 至 09-23 实测）。
+    名单仍完整写进 payload 与推送正文；变的只是"算不算同一件事"。
+    """
+    state = sorted(issue['code'] for issue in report['issues'])
+    encoded = json.dumps(state, separators=(',', ':')).encode('utf-8')
     return hashlib.sha256(encoded).hexdigest()
 
 
