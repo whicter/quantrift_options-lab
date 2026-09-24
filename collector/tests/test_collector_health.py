@@ -63,6 +63,31 @@ class CollectorHealthTest(unittest.TestCase):
             },
         )
 
+    def _universe(self, total, thin):
+        symbols = [f'S{i:03d}' for i in range(total)]
+        rows = {s: self.row(completeness=70 if i < thin else 98) for i, s in enumerate(symbols)}
+        return symbols, rows
+
+    def test_a_couple_of_chronically_thin_chains_are_reported_but_not_escalated(self):
+        # The 2026-09-24 shape: FBND and SRVR, 2 of 330, never reach 75%.
+        symbols, rows = self._universe(330, 2)
+        report = check_collector_health.evaluate_health(symbols, rows, 0, self.now, self.thresholds)
+
+        self.assertEqual(report['status'], 'ok')
+        self.assertEqual(report['issues'], [])
+        # Still visible -- demoted from an alert, not hidden.
+        self.assertEqual(report['incomplete_count'], 2)
+        self.assertEqual(report['incomplete_symbols'], ['S000', 'S001'])
+
+    def test_a_broad_completeness_drop_still_alerts(self):
+        symbols, rows = self._universe(330, 20)   # ~6% of the universe
+        report = check_collector_health.evaluate_health(symbols, rows, 0, self.now, self.thresholds)
+
+        self.assertEqual(report['status'], 'degraded')
+        issue = next(i for i in report['issues'] if i['code'] == 'completeness_below_threshold')
+        self.assertEqual(issue['value'], 20)
+        self.assertEqual(issue['pct'], round(20 / 330 * 100, 2))
+
     def test_empty_or_metadata_only_snapshot_is_not_covered(self):
         report = check_collector_health.evaluate_health(
             ['AAPL'],

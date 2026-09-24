@@ -56,6 +56,9 @@ class HealthThresholds:
     max_failed_24h: int = 0
     max_snapshot_age_minutes: int = 180
     min_completeness_pct: float = 75.0
+    # Share of usable symbols allowed below min_completeness_pct before it is an
+    # issue. See the completeness block in evaluate_health for why this exists.
+    max_incomplete_pct: float = 2.0
     alert_cooldown_minutes: int = 60
 
 
@@ -65,6 +68,7 @@ def thresholds_from_env() -> HealthThresholds:
         max_failed_24h=int(os.getenv('HEALTH_MAX_FAILED_24H', '0')),
         max_snapshot_age_minutes=int(os.getenv('HEALTH_MAX_SNAPSHOT_AGE_MINUTES', '180')),
         min_completeness_pct=float(os.getenv('HEALTH_MIN_COMPLETENESS_PCT', '75')),
+        max_incomplete_pct=float(os.getenv('HEALTH_MAX_INCOMPLETE_PCT', '2')),
         alert_cooldown_minutes=int(os.getenv('HEALTH_ALERT_COOLDOWN_MINUTES', '60')),
     )
 
@@ -118,11 +122,19 @@ def evaluate_health(
             'threshold': thresholds.max_snapshot_age_minutes,
             'symbols': stale,
         })
-    if incomplete:
+    # 完整度按**比例**触发，不再"有一个就报"（2026-09-24）。
+    # FBND（平均 70.8%）和 SRVR（73.1%）是期权本来就薄的两个 ETF，每一次快照都
+    # 低于 75%，永远达不到。按"任意一个"触发，这条告警会每小时准时响、永不消失，
+    # 恰恰把真正的故障淹没掉。真出问题时是一批标的一起掉（全 universe 平均 98.3%），
+    # 比例规则照样会报。名单与计数仍完整写进报告，只是不再单独升级成告警。
+    incomplete_pct = 0.0 if not usable else len(incomplete) / len(usable) * 100
+    if incomplete and incomplete_pct > thresholds.max_incomplete_pct:
         issues.append({
             'code': 'completeness_below_threshold',
             'value': len(incomplete),
+            'pct': round(incomplete_pct, 2),
             'threshold': thresholds.min_completeness_pct,
+            'max_incomplete_pct': thresholds.max_incomplete_pct,
             'symbols': incomplete,
         })
 
@@ -135,6 +147,7 @@ def evaluate_health(
         'missing_count': len(missing),
         'stale_count': len(stale),
         'incomplete_count': len(incomplete),
+        'incomplete_symbols': incomplete,
         'failed_count_24h': failed_count_24h,
         'issues': issues,
     }

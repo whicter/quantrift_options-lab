@@ -121,6 +121,12 @@ module.exports = {
         HEALTH_MAX_FAILED_24H: '25',
         HEALTH_MAX_SNAPSHOT_AGE_MINUTES: '180',
         HEALTH_MIN_COMPLETENESS_PCT: '75',
+        // Completeness alerts on the SHARE of usable symbols below 75%, not on
+        // any single one. FBND and SRVR sit at ~71-73% on every snapshot and
+        // never will reach 75%, so "any one" meant an hourly alert forever;
+        // 2 of 330 is 0.6%. A real failure drops dozens at once (universe mean
+        // is 98.3%) and still crosses this. The names stay in the report.
+        HEALTH_MAX_INCOMPLETE_PCT: '2',
         HEALTH_ALERT_COOLDOWN_MINUTES: '60',
         POLYGON_STOCK_REQUEST_DELAY: '16',
         // Options get their own interval (2026-08-15). The scopes were split so
