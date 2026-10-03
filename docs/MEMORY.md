@@ -68,6 +68,14 @@
 - `collector/materialize_oi_delta.py` — OI delta / unusual activity materializer
 - `collector/run_refresh_worker.py` — refresh queue worker
 - `collector/run_quote_worker_daemon.py` — isolated IB quote queue worker
+- `collector/collect_prices.py` — 日线走 grouped daily（一次请求全市场），
+  per-symbol 只抓 30m 与需要回补历史的标的
+- `collector/check_collector_health.py` — 四条规则全部按占比触发；
+  `operator_alerts.py::format_health_report` 负责把触发原因与上下文分开
+- `collector/sync_universe.py` — 只注册新标的，**不** re-activate 已退役的
+- `collector/providers/polygon_option_chain_provider.py` — 窗口为空时无过滤重试一次，
+  写 `strike_window_missed` / `no_listed_contracts` 两个标志
+- `collector/ecosystem.config.cjs` — PM2 唯一事实来源；改 env 必须 delete+start+save
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
@@ -76,8 +84,26 @@
 
 ## 待完成（优先级排序）
 1. Production auth/subscription/paywall（需要产品方案与身份/支付凭据）
-2. Remaining V1 polish
-3. External/manual blockers
+2. 原始期权链归档到外接盘（`option_chain_snapshots` + `option_contract_snapshots`
+   7 天一清，约 20 MB/天 gzip，是唯一花钱也买不回来的数据；每拖一天永久丢一天）
+3. PM2 触发漂移检查（比对各 cron app 的表达式与最后一次日志写入时刻 + 按脚本路径数实例数，
+   异常走现有 operator alert）。两次事故都是人工撞见的，没有任何告警
+4. Remaining V1 polish
+5. External/manual blockers
+
+## 近期运维教训（2026-09 ~ 10）
+- **PM2 守护进程重启会同时丢掉 cron 注册和进程句柄**。app 可以在 `pm2 list` 里状态正常、
+  `cron_restart` 字段也在，却永远不再被触发；被丢掉的进程变成 PPID=1 的孤儿，
+  `pm2 delete` 碰不到，重新注册会**在旁边又起一份**。判定 cron 健康只看
+  **最后一次实际日志写入时刻 vs cron 表达式**；重新注册后必须 `ps` 按脚本路径数实例。
+- **`scan_enabled=FALSE` 不停止采集**，调度器读 `WHERE active = TRUE`；要停必须 `active=FALSE`。
+- **`sync_universe.py` 不再 re-activate**：它的种子集合取自保留着退役标的历史行的三张表，
+  原来的无条件 `active=TRUE` 每跑一次就撤销一次退役。
+- **告警规则一律按占比触发**，并且只报操作者能行动的事。两周内同一个毛病吵了四次，
+  原因都是"触发指标 ≠ 操作者被叫醒要回答的问题"。
+- **日线走 grouped daily**：Polygon 在 session 自己的 ET 日期内一律拒绝当日数据
+  （`403 ... before end of day`，gate 约 00:00 ET 打开）；逐标的扫描跑近 3 小时会横跨这个
+  时刻，把 universe 按字母表切成两半。
 
 Universe/on-demand is complete: `symbol_universe` replaced the watchlist-only scanner boundary; `/api/analyze/:symbol` registers unknown tickers, reports independent price/metrics/options/GEX coverage, and queues only missing products. Scanner materialization reads the registry. COST runtime expanded the registry from 77 to 78 and produced Polygon price, 54 contracts and fresh GEX; its TT metrics manual-login failure is exposed as a blocker without a retry loop. Market cap/sector/optionable filters are wired but their registry values remain unpopulated.
 

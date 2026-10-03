@@ -1689,6 +1689,32 @@ run_collector_daemon.py (300s)
 
 Alerting is observational：它不暂停 collector、不改变 provider fallback、不改变 scanner 或交易行为。`COLLECTOR_HEALTH_CHECK_ENABLED=false` 可立即停用；表是附加状态，可安全保留。
 
+**四条规则的触发口径（2026-10-02 全量重审，`docs/validation/HEALTH_ALERT_ROOT_CAUSE_2026-10-02.md`）**
+
+这套告警在两周内因为**同一个毛病**吵了四次：触发指标不等于操作者被叫醒要回答的问题。
+最后一轮不再按症状修，而是把每条规则按同一句话重新推导：
+**收到这条我该去做什么？做不了的，就不该响。** 四条的现行口径：
+
+| 规则 | 触发条件 | 为什么是这个条件 |
+|---|---|---|
+| `coverage_below_threshold` | 覆盖率 < `HEALTH_MIN_COVERAGE_PCT`(95)，分母**排除**证实无挂牌期权的标的 | 6 个 watchlist 标的根本没有期权，留在分母里会把天花板锁死在 97.47%——那是在测 watchlist 的构成，不是采集器 |
+| `snapshot_age_above_threshold` | 过期标的**占比** > `HEALTH_MAX_STALE_PCT`(20) | 全量扫一轮约 2.1 小时、阈值 180 分钟，轮转中总有几个刚过线，那是正常工作的样子 |
+| `completeness_below_threshold` | 不完整**占比** > `HEALTH_MAX_INCOMPLETE_PCT`(2) | FBND/SRVR 常年 71–73%，永远达不到 75%；按"任意一个"会每小时响且永不消失 |
+| `failed_jobs_above_threshold` | **按 `job_type` 分别**计数 > `HEALTH_MAX_FAILED_24H`(25) **且** 最近 `HEALTH_FAILURE_RECENCY_MINUTES`(60) 分钟内仍有失败 | 池化会让一条通道的常态噪声吃掉另一条的预算；24 小时计数有 24 小时的尾巴，一次突发会在自愈后继续响满一天 |
+
+两条贯穿性约束：
+
+- **豁免必须基于证明。** 覆盖率只排除 `raw_metadata.no_listed_contracts=true` 的标的——
+  该标志由 provider 在"无过滤重试也为空"时写入，是观测到的事实。
+  "库里没有这一行"仍然算 missing，那是真的采集故障。该标志不能回填，只能等刷新。
+- **指纹 = 问题的种类**，`sha256(sorted (code, job_type))`。标的名单不参与
+  （会让每轮都是新指纹，冷却失效）；`job_type` 参与（否则第二条通道出事会被
+  并进已有事件，永不通知）。
+
+告警正文把**触发原因**和**未触发的上下文**显式分开——
+2026-10-02 那条正文以"缺失 8、不完整 2"开头而真正触发的是失败数，
+导致每个读者（包括规则作者）都先去查那 8 个无关标的。
+
 ---
 
 ## 25. 数据源覆盖与 Polygon 迁移分析
@@ -2088,6 +2114,33 @@ OI rows are aggregated across all nonexpired expiries by strike into `call_oi`, 
 The request path reads persisted snapshots only and performs no provider call. PLTR runtime smoke against Railway returned 7 expiries, 84 contracts, 11 strike points and total OI 307,713 from `polygon_licensed`.
 
 ### 40.1 Wide OI-by-strike + full-chain Max Pain (2026-07-23)
+
+**比例窗口 vs 绝对行权价间距（2026-10-02，`docs/validation/HEALTH_ALERT_ROOT_CAUSE_2026-10-02.md`）**
+
+主链抓取用 `OPTION_STRIKE_WINDOW_PCT=15` 框 `spot × (1 ± 15%)`，而交易所的行权价间距
+是按**绝对美元**定的。两种度量混用的后果：窗口宽度 `0.30 × spot` 在低价标的上可能
+**小于**行权价间距，于是整个窗口掉进两档之间，一个合约都框不住。
+
+实测：API 现价 $4.14，挂牌 24 个合约、行权价 2.5 / 5 / 7.5，窗口 `[3.519, 4.761]`
+**不含任何行权价** → 每次抓取都返回空链，永远。ZH 形状完全相同。
+判据：`0.30 × spot ≥ 行权价间距`，$2.50 间距要求 spot ≥ $8.33。
+
+这和第 282 节记的 `oi_by_strike` 宽度问题是**同一个"比例 vs 绝对"错配的两端**：
+那条讲高价标的被 ±5% 窗口挤掉 OTM 区域，这条讲低价标的被 ±15% 窗口整个漏掉。
+
+最隐蔽处在于**失败态与合法态同形**：「窗口框空」和「这个标的根本没有挂牌期权」
+都表现为 `contract_count=0`，而后者在 watchlist 里有 6 个真实例子。
+
+修法：窗口化抓取**整体为空**时，按标的重试一次，去掉 strike 过滤、保留到期区间、
+只取一页。下游 `_apply_strike_limit` 本来就裁到现价附近，所以这条路径不可能撑大
+正常的链——窗口里有合约的标的根本走不到这里。结果写入两个标志：
+
+- `raw_metadata.strike_window_missed` —— 重试找到了合约，说明是窗口几何问题
+- `raw_metadata.no_listed_contracts` —— 重试也为空，**证明**该标的无挂牌合约
+
+后者是健康检查覆盖率豁免的唯一依据（见第 24 节）。**先让两种状态可区分，豁免才有依据。**
+
+---
 
 The narrow Greeks chain (`OPTION_MAX_STRIKES_PER_SIDE=6`, tuned for GEX cost) made the OI chart sparse (TSLA stored only 9 strikes) and Max Pain a near-money estimate. The fix separates two orthogonal decisions — **window width** (adaptive to the symbol's implied move) and **what to fetch** (a dedicated OI-only wide fetch, kept apart from the Greeks chain GEX needs, so GEX cost stays flat).
 

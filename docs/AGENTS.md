@@ -1,5 +1,12 @@
 # Options Lab — Codex Instructions
 
+> **`docs/CLAUDE.md` is canonical for the architecture invariants.** This file is a
+> parallel copy and it drifts: as of 2026-10-02 it carried 62 rules against CLAUDE.md's
+> 109, two months behind. The operational invariants most likely to cause production
+> damage are mirrored in "Operational invariants" below, but before changing data flow,
+> the collector runtime, or anything under `collector/`, read `docs/CLAUDE.md` —
+> do not assume this file is complete.
+
 ## Project Overview
 Interactive options strategy education tool, to be part of a future paid website.
 Target: self-use + subscribers. Bilingual (English strategy names, Chinese descriptions).
@@ -23,6 +30,17 @@ collector/                 ← Python collectors, GEX compute, refresh worker
 ## Documentation Completion Rule
 - Every completed task must update every affected source-of-truth document before it is reported complete: at minimum `docs/task.md`, plus the relevant sections of `docs/ARCHITECTURE.md`, `docs/wiki.md`, `docs/learning.md`, and a reproducible record under `docs/validation/` when runtime or data behavior changed.
 - The task checkbox may be marked complete only after implementation, appropriate tests/runtime evidence, documentation updates, an intentional commit, and push. Disclose genuine external/data-source exceptions rather than marking them as complete.
+
+## Operational invariants (mirrored from `docs/CLAUDE.md`, 2026-10-02)
+- **PM2 is the only scheduler.** `pm2 restart` does NOT read `ecosystem.config.cjs`; only `pm2 delete` + `pm2 start ecosystem.config.cjs --only <name>` + `pm2 save` re-registers an app. Never add a crontab entry for anything PM2 already runs.
+- **A PM2 daemon restart loses both cron registrations and running process handles.** Apps can sit in `pm2 list` with `cron_restart` intact and never fire again — judge a cron app by whether its last actual log write matches its cron expression. Processes it lost become orphans (PPID=1) that `pm2 delete` cannot reach, so re-registering starts a *second* copy; after any re-registration count instances by script path with `ps`, not by trusting PM2. This machine runs ~50 apps and only the `quantrift-*` ones belong to this repo.
+- **Single writer.** One primary refresh worker only. Global derivations and stale-job recovery are not singleton-safe; never add PM2 replicas.
+- **Provider pacing is shared through PostgreSQL**, not a local lock. A 429 must call `penalize()`; never `time.sleep` locally. Re-raise `RateLimitDeferred` rather than degrading it.
+- **Credentials live only in `collector/.env` or a deployment secret store** — never in PM2 config, docs, tests or Git.
+- **Retiring a symbol needs both `watchlist.txt` and `symbol_universe`**, verified against two Polygon endpoints. `scan_enabled=FALSE` alone does NOT stop collection — the scheduler reads `WHERE active = TRUE`; only `active=FALSE` stops it.
+- **Health alerts escalate on shares, never on a single symbol**, and only on conditions an operator can act on. Write down what the reader should do on receiving an alert, then derive the trigger from it; if the answer is "nothing", it must not fire.
+- Use the Edit tool to modify files — never Python/Bash rewriting.
+- Parameter changes (thresholds, intervals, cron) require the owner's confirmation before being applied.
 
 ## Current Architecture
 - See `docs/ARCHITECTURE.md` first.

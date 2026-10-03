@@ -428,7 +428,10 @@ public.market_breadth_daily
   - Python/env：repo 内 `collector/venv311` 与 `collector/.env`。
   - 旧 LaunchAgent 与 `~/.quantrift_options_collector` 已移除；不存在“先同步代码再运行”的步骤。
   - 电源恢复：2026-07-16 `pmset -g custom` 返回 AC Power `autorestart 1`，Mac Studio 已配置为市电恢复后自动开机；LaunchAgent `pm2.congrenhan` 的 `RunAtLoad=true` 执行 `pm2 resurrect`。2026-07-30 已验证 saved list 包含七个 Quantrift collector apps；本次新增 quote worker 后必须 `startOrReload` 并 `pm2 save`，使第八个 app 进入 saved list。UPS 采购和实际断电/复电演练尚未完成；演练须检查 PM2 process list、collector health、queued jobs 与最新 snapshots。
-  - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 startOrReload collector/ecosystem.config.cjs --update-env && pm2 save`
+  - Start：`cd /Users/congrenhan/Documents/quantrift_options-lab && pm2 start collector/ecosystem.config.cjs && pm2 save`
+  - **改了 `ecosystem.config.cjs` 的 env 或 cron 之后，`startOrReload` / `restart` 都不够**：PM2 从它**保存过**的 app 定义重启，文件里的新值不会生效且无任何提示。必须 `pm2 delete <name>` + `pm2 start collector/ecosystem.config.cjs --only <name>` + `pm2 save`，分组做。
+  - **重新注册之后用 `ps` 按脚本路径核对实例数**。守护进程重启遗留的孤儿（PPID=1）不在 PM2 进程表里，`pm2 delete` 碰不到，重新注册会在旁边又起一份——2026-09-23 因此出现两个 collector、两个 quote worker 并存约 5 小时。
+  - 删除范围只限 `quantrift-*`：这台机器约 50 个 app，其中 12–13 个属于 ib-bot / stock-alert 等其它仓库。
   - Inspect：`pm2 status quantrift-options-collector quantrift-options-quote-worker quantrift-options-prices quantrift-market-breadth`
   - Logs：`pm2 logs quantrift-options-collector --lines 50 --nostream`
   - 2026-07-15 runtime verification：collector online and materializing 67 scanner rows；price one-shot completed `4020 rows written, 0 failed` and is stopped between scheduled runs；`pm2 save` succeeded。
@@ -1369,7 +1372,8 @@ Operational rules:
 - Scanner results should be precomputed and cached; avoid full-market scans in request path.
 - Secrets：`POLYGON_API_KEY` 等 provider credentials 只放在 Mac Studio `collector/.env` 或部署平台 secret store；禁止写入 `ecosystem.config.cjs`、文档或 Git。修改 secret 后使用 PM2 reload/update-env 并验证 provider health，不打印 secret 值。
 - Pre-deploy regression：`cd collector && venv311/bin/python -m unittest discover -s tests -p 'test_*.py'`，然后 `cd ../server && npm test`；后者验证 `/api/gex` fresh/missing/stale 不同步调用 provider。
-- Collector health env：`COLLECTOR_HEALTH_CHECK_ENABLED=true`、`COLLECTOR_HEALTH_CHECK_SECONDS=300`、`HEALTH_MIN_COVERAGE_PCT=95`、`HEALTH_MAX_FAILED_24H=0`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES=180`、`HEALTH_MIN_COMPLETENESS_PCT=75`、`HEALTH_ALERT_COOLDOWN_MINUTES=60`。
+- Collector health env（2026-10-02 现行）：`COLLECTOR_HEALTH_CHECK_ENABLED=true`、`COLLECTOR_HEALTH_CHECK_SECONDS=300`、`HEALTH_MIN_COVERAGE_PCT=95`、`HEALTH_MAX_FAILED_24H=25`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES=180`、`HEALTH_MIN_COMPLETENESS_PCT=75`、`HEALTH_ALERT_COOLDOWN_MINUTES=60`、`HEALTH_MAX_INCOMPLETE_PCT=2`、`HEALTH_MAX_STALE_PCT=20`、`HEALTH_FAILURE_RECENCY_MINUTES=60`。
+  后三个是**占比/时效闸门**，不是额外的严格度：过期与不完整按**占比**升级（常年薄的标的和轮转中刚过线的标的都是系统正常工作的样子），失败数按 `job_type` 分别计数且要求最近 60 分钟内仍有失败（24 小时计数有 24 小时的尾巴，一次突发自愈后会继续响满一天）。`HEALTH_MAX_FAILED_24H` 曾是 `0`，实测 30 天里 12 天至少有一次终端失败，即 40% 的天数都会告警。
 - Operator channel：配置 `ALERT_WEBHOOK_URL` 或完整 SMTP (`SMTP_HOST/PORT/USER/PASS` + `ALERT_EMAIL`)；均缺失时只写 PM2 warning log。用 `SELECT status, last_seen_at, last_notified_at FROM collector_health_alerts` 验证 dedupe/resolution。
 - 2026-07-15 runtime：health checker 已由 `quantrift-options-collector` 每 300 秒执行，Railway 已记录 active alert；随后执行 `pm2 save`，当前进程与 health env 已写入 `/Users/congrenhan/.pm2/dump.pm2`。
 - Scanner UI must convert cached rows plus actual quoted contracts into complete actionable candidates. `不限` applies no hidden preset and enumerates the current 1-90 DTE ingestion window; named presets explicitly narrow it. Do not expose snapshot DTE ranges or fixed placeholder POP as recommendations.

@@ -1175,6 +1175,16 @@ Phase 3C implementation status：
   同名目录下 9 个文件只到了 4 个，而那 4 个字节级一致。
   使用 `ibapi` 的采集器必须把 `ibapi*` logger 降到 WARNING，否则协议帧会以 INFO 淹没日志
   （`quantrift-news-error.log` 曾因此十天长到 683 MB）。详见 `docs/ARCHITECTURE.md` §49。
+- **PM2 守护进程重启会同时丢掉 cron 注册和运行中的进程句柄（2026-09-23）**：
+  守护进程 07:41 重启后，14 个 quantrift cron app 里只有 `news`(`*/5`) 还在触发，
+  其余 13 个——包括每小时的 `log-rotate`——再没被触发过，而 `pm2 list` 里它们**状态正常、
+  `cron_restart` 字段也在**。当天的价格采集因此根本没启动，一整天的日线缺失。
+  **"进程在列表里"不等于"它还会被触发"**：判定 cron app 是否健康，唯一可靠的信号是
+  **最后一次实际日志写入时刻对不对得上它的 cron 表达式**。
+  同一次重启还把三个常驻进程变成了孤儿（PPID=1、不在 PM2 进程表里），
+  `pm2 delete` 碰不到它们，于是重新注册**在旁边又起了一份**——两个 collector、
+  两个 quote worker 跑了约 5 小时，正是单写者禁令要防的情况。
+  **重新注册之后必须用 `ps` 按脚本路径数实例数**，不能只看 PM2 说了什么。
 - Power recovery：2026-07-16 `pmset -g custom` 确认 AC Power `autorestart 1`；LaunchAgent `pm2.congrenhan` 以 `RunAtLoad=true` 调用 `pm2 resurrect`。2026-07-30 已验证 saved list 含七个 Quantrift collector apps；本次新增 quote worker 后需 `startOrReload` 与 `pm2 save`，使第八个 app 进入 saved list。UPS 与一次受控断电/复电演练仍是未完成的物理运维项；演练要确认 PM2、IB Gateway、collector health、队列与 snapshots 全部恢复。
 
 ### 新增 API 端点规划（server/）
@@ -1293,6 +1303,16 @@ Runtime evidence：
 
 The scanner is no longer bounded by the visible 67-symbol watchlist. `symbol_universe` persists all known symbols and on-demand registrations. `sync_universe.py` imports the legacy watchlist plus symbols already known to price, IV and option tables; `materialize_scan.py` reads active/scannable registry rows.
 
+退役记录：`BRK`/`KPK`/`LSL`/`LTV`/`TITI`（2026-07-30，Polygon reference 404）、
+`ACAC`/`FX`/`OS`/`RE`/`SMS`/`SPC`/`TPS`/`TTM`（2026-09-23，同样 404 且库内零价格零合约）、
+`VIX`（2026-10-02，指数无 prev agg，历史失败 451 次对成功 10 次、现存快照 0 行；
+它因为"从未产出快照 ⇒ 排序等同从未采集"每个冷却窗口都重新夺位，
+每天稳定吃掉 14–15 次失败预算）。
+
+注意 `active` 与 `scan_enabled` 不同：调度器 `load_universe` 读 `WHERE active = TRUE`，
+而 `scan_enabled=FALSE` 只是把标的降到 `cold_backfill` 层、**仍会被调度**。
+要真正停止采集必须置 `active = FALSE`。
+
 `sync_universe.py` registers new symbols but never re-activates existing ones. Its upsert used to set `active = TRUE` on conflict, and because nothing in the codebase clears `active` automatically — it is only ever cleared by a deliberate retirement — while the seed set is drawn from the very history tables that still hold rows for retired tickers, every run silently undid every retirement. Retiring a ticker means editing both `watchlist.txt` and `symbol_universe`, and verifying against two Polygon endpoints (a reference 404 *and* absence from grouped daily), never a single job error.
 
 `GET /api/analyze/:symbol` is the one-symbol orchestration endpoint. It returns independent coverage for price, metrics, options and GEX and enqueues only missing products. The frontend can therefore show partial real analysis while another field is queued or blocked. The refresh worker polls every 60 seconds; the user-facing pending state says that data is being prepared and normally completes in `~1-3min`, without exposing internal coverage field names. While queued, Analyze checks status every five seconds and automatically reruns analysis when a product becomes available. A recent non-retryable failure suppresses repeated enqueue until its recovery window passes.
@@ -1366,6 +1386,39 @@ Scanner 的主数据来自 `scanner_results_snapshots`，但 query 还会 join �
 The Scan page can persist the current minimum IV Rank, Gamma regime and unusual-only state as an email or browser-push rule. Browser push uses `public/sw.js`; the client obtains only the VAPID public key. The private key remains with the collector delivery process.
 
 Each latest materialized row is tested against active rules. A unique delivery outbox row is inserted before sending, so process restart cannot resend the same symbol from the same scanner batch. Delivery states are `pending`, `sent`, `blocked`, `failed`; missing channel configuration is blocked. Unsubscribe uses a random token rather than an email address or push endpoint.
+
+### Collector Health Alerts
+
+`check_collector_health.py` 由 collector 守护进程每 `COLLECTOR_HEALTH_CHECK_SECONDS`(300)
+秒跑一次，对比 `watchlist.txt`（**注意不是 `symbol_universe`**）与最新 option chain 快照，
+把结论写进 `collector_health_alerts`，按 `HEALTH_ALERT_COOLDOWN_MINUTES`(60) 冷却推送。
+
+四条规则（2026-10-02 全量重审）全部按同一句话推导：
+**收到这条我该去做什么？做不了的就不该响。**
+
+| 规则 | 触发条件 | 环境变量 |
+|---|---|---|
+| 覆盖率 | < 95%，分母**排除**证实无挂牌期权的标的 | `HEALTH_MIN_COVERAGE_PCT` |
+| 过期 | 过期**占比** > 20% | `HEALTH_MAX_STALE_PCT` |
+| 不完整 | 不完整**占比** > 2% | `HEALTH_MAX_INCOMPLETE_PCT` |
+| 任务失败 | **按 `job_type` 分别** > 25 **且**最近 60 分钟内仍有失败 | `HEALTH_MAX_FAILED_24H` / `HEALTH_FAILURE_RECENCY_MINUTES` |
+
+都用**占比**而不是"任意一个"，因为常年薄的标的（FBND/SRVR 71–73% 完整度）和
+轮转中刚过线的标的（2.1 小时扫一轮对 180 分钟阈值）都是系统**正常工作**的样子。
+
+覆盖率的豁免**必须基于证明**：只排除 `raw_metadata.no_listed_contracts=true` 的标的，
+该标志由 provider 在"去掉 strike 过滤重试也为空"时写入。
+"库里没有这一行"仍算 missing。该标志不能回填，只能等标的刷新。
+
+失败数的两个条件各答一半问题：24 小时计数给**量级**，最近 60 分钟给**是否仍在发生**。
+只用前者会让一次突发在自愈后继续响满 24 小时。
+
+指纹 = `sha256(sorted (code, job_type))`。标的名单**不**参与（否则轮转让每轮都是新指纹、
+冷却失效，实测一天推 50–100 条）；`job_type` 参与（否则第二条通道出事会被并进已有事件）。
+
+告警正文把**触发原因**与**未触发的上下文**显式分开：前者在上并标「触发原因」，
+后者在下并标「其余为上下文，未触发告警」。
+详见 `docs/validation/HEALTH_ALERT_ROOT_CAUSE_2026-10-02.md`。
 
 ### Collector Heartbeat
 
