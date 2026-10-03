@@ -60,6 +60,9 @@ class HealthThresholds:
     # issue. See the completeness block in evaluate_health for why this exists.
     max_incomplete_pct: float = 2.0
     alert_cooldown_minutes: int = 60
+    # A lane must ALSO have failed inside this window to count as broken now.
+    # See the failure block in evaluate_health.
+    failure_recency_minutes: int = 60
 
 
 def thresholds_from_env() -> HealthThresholds:
@@ -70,6 +73,7 @@ def thresholds_from_env() -> HealthThresholds:
         min_completeness_pct=float(os.getenv('HEALTH_MIN_COMPLETENESS_PCT', '75')),
         max_incomplete_pct=float(os.getenv('HEALTH_MAX_INCOMPLETE_PCT', '2')),
         alert_cooldown_minutes=int(os.getenv('HEALTH_ALERT_COOLDOWN_MINUTES', '60')),
+        failure_recency_minutes=int(os.getenv('HEALTH_FAILURE_RECENCY_MINUTES', '60')),
     )
 
 
@@ -79,11 +83,16 @@ def evaluate_health(
     failed_by_type_24h: dict[str, int] | int,
     now: datetime,
     thresholds: HealthThresholds,
+    recent_failed_by_type: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     # An int still works and is read as one unnamed lane, so a caller that has
     # only a total is not silently reported as zero failures.
     if isinstance(failed_by_type_24h, int):
         failed_by_type_24h = {'all': failed_by_type_24h} if failed_by_type_24h else {}
+    # Absent recency data, every failure counts as current -- a caller that
+    # cannot say when they happened must not have them silently suppressed.
+    if recent_failed_by_type is None:
+        recent_failed_by_type = dict(failed_by_type_24h)
     usable = []
     stale = []
     reference = staleness_reference(now)
@@ -112,13 +121,24 @@ def evaluate_health(
             'threshold': thresholds.min_coverage_pct,
             'symbols': missing,
         })
+    # A 24-hour count has a 24-hour tail: one burst pushes it over the bar and
+    # it STAYS over for a full day, so the alert keeps firing long after the
+    # incident healed. Observed 2026-10-02: a 70-minute IB outage ended at
+    # 15:10 UTC and the hourly push was still going at 02:51 UTC with zero
+    # failures in the previous six hours. The 24h count is the right magnitude
+    # but the wrong trigger; it answers "did something fail today", while the
+    # operator is being woken for "is something failing now". Both conditions
+    # must hold. A healed burst then clears on its own, which also empties
+    # `issues` and lets record_report resolve the row.
     failed_count_24h = sum(failed_by_type_24h.values())
     for job_type, count in sorted(failed_by_type_24h.items()):
-        if count > thresholds.max_failed_24h:
+        recent = recent_failed_by_type.get(job_type, 0)
+        if count > thresholds.max_failed_24h and recent > 0:
             issues.append({
                 'code': 'failed_jobs_above_threshold',
                 'job_type': job_type,
                 'value': count,
+                'recent': recent,
                 'threshold': thresholds.max_failed_24h,
                 'symbols': [],
             })
@@ -157,6 +177,7 @@ def evaluate_health(
         'incomplete_symbols': incomplete,
         'failed_count_24h': failed_count_24h,
         'failed_by_type_24h': dict(sorted(failed_by_type_24h.items())),
+        'failed_recent_by_type': dict(sorted(recent_failed_by_type.items())),
         'issues': issues,
     }
 
@@ -184,7 +205,9 @@ def should_notify(last_notified: datetime | None, now: datetime, cooldown_minute
     return last_notified is None or now - _as_utc(last_notified) >= timedelta(minutes=cooldown_minutes)
 
 
-def load_health_state(conn, symbols: list[str]) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+def load_health_state(
+    conn, symbols: list[str], recency_minutes: int = 60
+) -> tuple[dict[str, dict[str, Any]], dict[str, int], dict[str, int]]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -205,15 +228,22 @@ def load_health_state(conn, symbols: list[str]) -> tuple[dict[str, dict[str, Any
         # failed once.
         cur.execute(
             """
-            SELECT job_type, COUNT(*)::int
+            SELECT job_type,
+                   COUNT(*)::int,
+                   COUNT(*) FILTER (
+                     WHERE created_at >= NOW() - (%s::int * INTERVAL '1 minute')
+                   )::int
             FROM provider_fetch_jobs
             WHERE status = 'failed'
               AND created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY job_type
-            """
+            """,
+            (recency_minutes,),
         )
-        failed_by_type = {row[0]: int(row[1]) for row in cur.fetchall()}
-    return latest, failed_by_type
+        rows = cur.fetchall()
+        failed_by_type = {row[0]: int(row[1]) for row in rows}
+        recent_by_type = {row[0]: int(row[2]) for row in rows}
+    return latest, failed_by_type, recent_by_type
 
 
 def record_report(conn, report: dict[str, Any], thresholds: HealthThresholds, now: datetime) -> tuple[str | None, bool]:
@@ -274,8 +304,13 @@ def run() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     conn = psycopg2.connect(DB_URL)
     try:
-        latest, failed_by_type = load_health_state(conn, symbols)
-        report = evaluate_health(symbols, latest, failed_by_type, now, thresholds)
+        latest, failed_by_type, recent_by_type = load_health_state(
+            conn, symbols, thresholds.failure_recency_minutes
+        )
+        report = evaluate_health(
+            symbols, latest, failed_by_type, now, thresholds,
+            recent_failed_by_type=recent_by_type,
+        )
         fingerprint, notify = record_report(conn, report, thresholds, now)
     finally:
         conn.close()

@@ -121,6 +121,44 @@ class CollectorHealthTest(unittest.TestCase):
         self.assertEqual(report['failed_count_24h'], 30)
         self.assertEqual(report['issues'][0]['code'], 'failed_jobs_above_threshold')
 
+    def test_a_healed_burst_stops_alerting_even_though_the_24h_count_stands(self):
+        # 2026-10-02: a 70-minute IB outage ended at 15:10 UTC; the hourly push
+        # was still going at 02:51 UTC with nothing failing for six hours,
+        # because a 24-hour count stays breached for 24 hours.
+        report = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()},
+            {'option_quote_snapshot': 27},
+            self.now, self._with_failure_budget(25),
+            recent_failed_by_type={'option_quote_snapshot': 0},
+        )
+
+        self.assertEqual(report['status'], 'ok')
+        self.assertEqual(report['issues'], [])
+        # The magnitude is still reported; only the escalation is withdrawn.
+        self.assertEqual(report['failed_count_24h'], 27)
+
+    def test_an_ongoing_outage_still_alerts(self):
+        report = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()},
+            {'option_quote_snapshot': 27},
+            self.now, self._with_failure_budget(25),
+            recent_failed_by_type={'option_quote_snapshot': 4},
+        )
+
+        issue = next(i for i in report['issues'] if i['code'] == 'failed_jobs_above_threshold')
+        self.assertEqual(issue['value'], 27)
+        self.assertEqual(issue['recent'], 4)
+
+    def test_recent_failures_under_the_threshold_do_not_alert_on_their_own(self):
+        # Recency is an extra condition, never a substitute for the threshold.
+        report = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()},
+            {'option_quote_snapshot': 3},
+            self.now, self._with_failure_budget(25),
+            recent_failed_by_type={'option_quote_snapshot': 3},
+        )
+        self.assertEqual(report['issues'], [])
+
     def _universe(self, total, thin):
         symbols = [f'S{i:03d}' for i in range(total)]
         rows = {s: self.row(completeness=70 if i < thin else 98) for i, s in enumerate(symbols)}

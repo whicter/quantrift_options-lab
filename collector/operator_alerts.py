@@ -149,7 +149,11 @@ def _describe_issue(issue: dict) -> str:
         # failed" could be either provider, and the operator's next step differs.
         lane = issue.get('job_type')
         scope = f'{lane} ' if lane and lane != 'all' else ''
-        return f'24 小时内 {scope}{value} 个任务失败（阈值 {threshold}）'
+        text = f'24 小时内 {scope}{value} 个任务失败（阈值 {threshold}）'
+        # Say how many are still arriving. Without it the reader cannot tell a
+        # live outage from a burst that healed hours ago.
+        recent = issue.get('recent')
+        return f'{text}，最近 1 小时 {recent} 个' if recent is not None else text
     if code == 'snapshot_age_above_threshold':
         text = f'{len(symbols)} 个标的快照超过 {threshold} 分钟未更新'
         return f'{text}：{named}' if symbols else text
