@@ -94,3 +94,48 @@ class HealthReportFormattingTest(unittest.TestCase):
         text = operator_alerts.format_health_report(self.REPORT)
         self.assertIn('缺失 14', text)
         self.assertNotIn('过期 0', text)
+
+
+class AlertBodyOrdersReasonsBeforeContextTest(unittest.TestCase):
+    """2026-10-02: the body led with counts that had triggered nothing.
+
+    "覆盖 308/316；缺失 8、不完整 2；24 小时内 42 个任务失败" -- only the last
+    clause was an issue. Every reader investigated the eight symbols instead,
+    because an alert's numbers are all read as evidence.
+    """
+
+    REPORT = {
+        'status': 'degraded',
+        'generated_at': '2026-10-02T04:23:57+00:00',
+        'expected_count': 310, 'covered_count': 308, 'coverage_pct': 99.35,
+        'missing_count': 2, 'stale_count': 0, 'incomplete_count': 2,
+        'unlisted_count': 6,
+        'failed_count_24h': 42,
+        'issues': [
+            {'code': 'failed_jobs_above_threshold', 'job_type': 'option_quote_snapshot',
+             'value': 27, 'recent': 4, 'threshold': 25, 'symbols': []},
+        ],
+    }
+
+    def test_the_trigger_is_stated_before_any_other_count(self):
+        lines = operator_alerts.format_health_report(self.REPORT).splitlines()
+        reason_at = next(i for i, l in enumerate(lines) if l.startswith('•'))
+        context_at = next(i for i, l in enumerate(lines) if '缺失' in l)
+        self.assertLess(reason_at, context_at, 'context printed above the reason')
+
+    def test_non_triggering_counts_are_labelled_as_context(self):
+        body = operator_alerts.format_health_report(self.REPORT)
+        self.assertIn('触发原因', body)
+        self.assertIn('未触发告警', body)
+
+    def test_the_lane_and_its_recent_rate_both_appear(self):
+        body = operator_alerts.format_health_report(self.REPORT)
+        self.assertIn('option_quote_snapshot', body)
+        self.assertIn('最近 1 小时 4 个', body)
+
+    def test_with_no_issues_the_counts_are_not_mislabelled(self):
+        clean = dict(self.REPORT, issues=[], status='ok')
+        body = operator_alerts.format_health_report(clean)
+        self.assertNotIn('触发原因', body)
+        self.assertNotIn('未触发告警', body)
+        self.assertIn('缺失 2', body)

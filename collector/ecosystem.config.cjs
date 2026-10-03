@@ -127,6 +127,14 @@ module.exports = {
         // 2 of 330 is 0.6%. A real failure drops dozens at once (universe mean
         // is 98.3%) and still crosses this. The names stay in the report.
         HEALTH_MAX_INCOMPLETE_PCT: '2',
+        // Staleness escalates on the share past the bar, not on any one symbol.
+        // A full sweep is ~2.1h against a 180-minute threshold, so a handful of
+        // symbols are always just over it while rotation does its job.
+        HEALTH_MAX_STALE_PCT: '20',
+        // A lane must have failed inside this window to count as broken NOW.
+        // A 24-hour count has a 24-hour tail: the 2026-10-02 IB outage ended at
+        // 15:10 UTC and was still paging at 02:51 with nothing failing.
+        HEALTH_FAILURE_RECENCY_MINUTES: '60',
         HEALTH_ALERT_COOLDOWN_MINUTES: '60',
         POLYGON_STOCK_REQUEST_DELAY: '16',
         // Options get their own interval (2026-08-15). The scopes were split so

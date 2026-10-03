@@ -59,6 +59,9 @@ class HealthThresholds:
     # Share of usable symbols allowed below min_completeness_pct before it is an
     # issue. See the completeness block in evaluate_health for why this exists.
     max_incomplete_pct: float = 2.0
+    # Share of usable symbols allowed past max_snapshot_age_minutes. See the
+    # staleness block in evaluate_health.
+    max_stale_pct: float = 20.0
     alert_cooldown_minutes: int = 60
     # A lane must ALSO have failed inside this window to count as broken now.
     # See the failure block in evaluate_health.
@@ -72,6 +75,7 @@ def thresholds_from_env() -> HealthThresholds:
         max_snapshot_age_minutes=int(os.getenv('HEALTH_MAX_SNAPSHOT_AGE_MINUTES', '180')),
         min_completeness_pct=float(os.getenv('HEALTH_MIN_COMPLETENESS_PCT', '75')),
         max_incomplete_pct=float(os.getenv('HEALTH_MAX_INCOMPLETE_PCT', '2')),
+        max_stale_pct=float(os.getenv('HEALTH_MAX_STALE_PCT', '20')),
         alert_cooldown_minutes=int(os.getenv('HEALTH_ALERT_COOLDOWN_MINUTES', '60')),
         failure_recency_minutes=int(os.getenv('HEALTH_FAILURE_RECENCY_MINUTES', '60')),
     )
@@ -98,8 +102,19 @@ def evaluate_health(
     reference = staleness_reference(now)
     incomplete = []
     missing = []
+    # Symbols the provider has PROVEN list no option contracts. They are not a
+    # collector fault and no action can ever restore them, so they leave the
+    # coverage ratio entirely instead of pinning its ceiling below the alert
+    # threshold forever. Six watchlist names are in this state; with them in the
+    # denominator the best achievable coverage was 97.47% against a 95% bar,
+    # which means the rule was measuring the watchlist's composition, not the
+    # collector. Still counted and reported, so a sudden jump stays visible.
+    unlisted = []
     for symbol in symbols:
         row = latest_by_symbol.get(symbol)
+        if row and row.get('no_listed_contracts'):
+            unlisted.append(symbol)
+            continue
         if not row or int(row.get('contract_count') or 0) <= 0 or row.get('provider_status') in ('empty', 'metadata_only'):
             missing.append(symbol)
             continue
@@ -111,8 +126,9 @@ def evaluate_health(
         if completeness is None or completeness < thresholds.min_completeness_pct:
             incomplete.append(symbol)
 
-    expected_count = len(symbols)
-    coverage_pct = 100.0 if expected_count == 0 else len(usable) / expected_count * 100
+    # Expected = symbols that could have a chain at all.
+    expected_count = len(symbols) - len(unlisted)
+    coverage_pct = 100.0 if expected_count <= 0 else len(usable) / expected_count * 100
     issues = []
     if coverage_pct < thresholds.min_coverage_pct:
         issues.append({
@@ -142,11 +158,20 @@ def evaluate_health(
                 'threshold': thresholds.max_failed_24h,
                 'symbols': [],
             })
-    if stale:
+    # Staleness escalates on the SHARE of symbols past the bar, for the same
+    # reason completeness does. A full sweep takes ~2.1h against a 180-minute
+    # threshold, so during rotation individual symbols routinely cross it and
+    # come back -- "any one symbol is stale" is the normal state of a rotating
+    # collector, not a fault. A real stall takes the whole universe past the bar
+    # together and still crosses this.
+    stale_pct = 0.0 if not usable else len(stale) / len(usable) * 100
+    if stale and stale_pct > thresholds.max_stale_pct:
         issues.append({
             'code': 'snapshot_age_above_threshold',
             'value': len(stale),
+            'pct': round(stale_pct, 2),
             'threshold': thresholds.max_snapshot_age_minutes,
+            'max_stale_pct': thresholds.max_stale_pct,
             'symbols': stale,
         })
     # 完整度按**比例**触发，不再"有一个就报"（2026-09-24）。
@@ -172,6 +197,8 @@ def evaluate_health(
         'covered_count': len(usable),
         'coverage_pct': round(coverage_pct, 2),
         'missing_count': len(missing),
+        'unlisted_count': len(unlisted),
+        'unlisted_symbols': unlisted,
         'stale_count': len(stale),
         'incomplete_count': len(incomplete),
         'incomplete_symbols': incomplete,
@@ -213,7 +240,9 @@ def load_health_state(
             """
             SELECT DISTINCT ON (symbol)
               symbol, snapshot_ts, provider_status, contract_count, completeness_pct,
-              missing_greeks_ratio, missing_oi_ratio, source
+              missing_greeks_ratio, missing_oi_ratio, source,
+              COALESCE((raw_metadata->>'no_listed_contracts')::boolean, FALSE)
+                AS no_listed_contracts
             FROM option_chain_snapshots
             WHERE symbol = ANY(%s)
             ORDER BY symbol, snapshot_ts DESC

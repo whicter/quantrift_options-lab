@@ -330,8 +330,15 @@ class PolygonOptionChainProvider:
         # recorded either way: it is what separates "window missed" from
         # "nothing listed".
         strike_window_missed = False
+        # Tri-state, and the third state is the valuable one: once the
+        # unfiltered retry has run and come back empty, we have *proof* the
+        # symbol lists no contracts at all, rather than a suspicion. Downstream
+        # health scoring uses it to keep permanently unlistable names out of a
+        # coverage ratio they can only ever drag down.
+        no_listed_contracts = False
         if not raw_results:
             unfiltered = self._fetch_ignoring_strike_window(symbol, exp_min, exp_max)
+            no_listed_contracts = not unfiltered
             if unfiltered:
                 strike_window_missed = True
                 raw_results = unfiltered
@@ -407,6 +414,9 @@ class PolygonOptionChainProvider:
                 # True means the chain came from the no-strike-filter retry, so
                 # a reader can tell a geometry miss from an unlisted symbol.
                 'strike_window_missed': strike_window_missed,
+                # Proven absent, not merely not-found: the retry asked without
+                # any strike filter and the symbol still listed nothing.
+                'no_listed_contracts': no_listed_contracts,
                 'raw_result_count': len(raw_results),
                 'contract_count': len(contracts),
                 'missing_greeks_count': missing_greeks,

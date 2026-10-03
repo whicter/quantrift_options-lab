@@ -159,6 +159,57 @@ class CollectorHealthTest(unittest.TestCase):
         )
         self.assertEqual(report['issues'], [])
 
+    def test_symbols_proven_to_list_no_options_leave_the_coverage_ratio(self):
+        # Six watchlist names list no contracts at all. Counted in the
+        # denominator they pinned the best achievable coverage at 97.47%
+        # against a 95% bar -- the rule was measuring watchlist composition.
+        unlisted = dict(self.row(contract_count=0, provider_status='empty'))
+        unlisted['no_listed_contracts'] = True
+        report = check_collector_health.evaluate_health(
+            ['AAPL', 'SPY', 'NOOPT'],
+            {'AAPL': self.row(), 'SPY': self.row(), 'NOOPT': unlisted},
+            {}, self.now, self.thresholds,
+        )
+
+        self.assertEqual(report['coverage_pct'], 100)
+        self.assertEqual(report['expected_count'], 2)
+        self.assertEqual(report['missing_count'], 0)
+        # Reported, not hidden: a jump here is still visible.
+        self.assertEqual(report['unlisted_count'], 1)
+        self.assertEqual(report['unlisted_symbols'], ['NOOPT'])
+        self.assertEqual(report['issues'], [])
+
+    def test_a_symbol_that_is_merely_absent_still_counts_as_missing(self):
+        # Only PROVEN absence is excused. "We have no row" is a collector fault.
+        report = check_collector_health.evaluate_health(
+            ['AAPL', 'GONE'], {'AAPL': self.row()}, {}, self.now, self.thresholds,
+        )
+        self.assertEqual(report['missing_count'], 1)
+        self.assertEqual(report['unlisted_count'], 0)
+
+    def test_rotation_staleness_does_not_escalate(self):
+        # A ~2.1h sweep against a 180-minute bar means a few symbols are always
+        # just past it. That is a rotating collector working, not a fault.
+        symbols = [f'S{i:03d}' for i in range(100)]
+        rows = {s: self.row(age_minutes=181 if i < 5 else 10) for i, s in enumerate(symbols)}
+        report = check_collector_health.evaluate_health(
+            symbols, rows, {}, self.now, self.thresholds,
+        )
+
+        self.assertEqual(report['stale_count'], 5)
+        self.assertEqual(report['issues'], [])
+
+    def test_a_universe_wide_stall_still_escalates(self):
+        symbols = [f'S{i:03d}' for i in range(100)]
+        rows = {s: self.row(age_minutes=181 if i < 60 else 10) for i, s in enumerate(symbols)}
+        report = check_collector_health.evaluate_health(
+            symbols, rows, {}, self.now, self.thresholds,
+        )
+
+        issue = next(i for i in report['issues'] if i['code'] == 'snapshot_age_above_threshold')
+        self.assertEqual(issue['value'], 60)
+        self.assertEqual(issue['pct'], 60.0)
+
     def _universe(self, total, thin):
         symbols = [f'S{i:03d}' for i in range(total)]
         rows = {s: self.row(completeness=70 if i < thin else 98) for i, s in enumerate(symbols)}

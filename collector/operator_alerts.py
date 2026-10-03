@@ -109,17 +109,28 @@ def format_health_report(report: dict, fingerprint: str | None = None) -> str:
     else:
         lines.append(f'采集器 {status}')
 
+    # Reasons first, and labelled as reasons. Every number in an alert gets read
+    # as evidence: on 2026-10-02 the body led with "8 missing, 2 incomplete"
+    # while the only thing that actually tripped it was the failure count, and
+    # every reader -- including the one who wrote the rule -- went and
+    # investigated the eight symbols. Counts that did not trigger anything are
+    # still worth carrying, but they belong below the reasons and marked as
+    # context, never above them.
+    issues = report.get('issues') or []
+    if issues:
+        lines.append('触发原因：')
+        for issue in issues:
+            lines.append('• ' + _describe_issue(issue))
+
     counts = [
         ('缺失', report.get('missing_count')),
         ('过期', report.get('stale_count')),
         ('不完整', report.get('incomplete_count')),
+        ('无挂牌期权', report.get('unlisted_count')),
     ]
     shown = [f'{label} {value}' for label, value in counts if value]
     if shown:
-        lines.append('，'.join(shown))
-
-    for issue in report.get('issues') or []:
-        lines.append('• ' + _describe_issue(issue))
+        lines.append(('其余为上下文，未触发告警：' if issues else '') + '，'.join(shown))
 
     when = report.get('generated_at')
     if when:
