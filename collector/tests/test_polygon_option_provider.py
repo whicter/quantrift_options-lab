@@ -658,3 +658,73 @@ class TrimAcrossExpiriesTests(unittest.TestCase):
         today = date.today()
         trimmed = _trim_across_expiries(self._contracts([today + timedelta(days=2)], 50), 6)
         self.assertEqual([c.strike for c in trimmed], [100, 101, 102, 103, 104, 105])
+
+
+class StrikeWindowMissTests(unittest.TestCase):
+    """A proportional window can fall entirely between two listed strikes.
+
+    Observed 2026-10-02: API traded at $4.14 with strikes listed at 2.5/5/7.5,
+    so the +/-15% window [3.519, 4.761] held no strike and every fetch returned
+    an empty chain -- indistinguishable from the six watchlist names that
+    genuinely have no options at all.
+    """
+
+    ENV = {
+        'POLYGON_API_KEY': 'test-key',
+        'POLYGON_REQUEST_DELAY': '0',
+        'POLYGON_STOCK_REQUEST_DELAY': '0',
+        'POLYGON_STOCK_RATE_LIMIT_FILE': '/tmp/quantrift_polygon_strike_window_test',
+    }
+
+    def _fetch(self, session):
+        with patch.dict(os.environ, self.ENV, clear=False), \
+             patch('providers.polygon_option_chain_provider.requests.Session', return_value=session):
+            return PolygonOptionChainProvider().fetch_option_chain('TEST')
+
+    def test_an_empty_window_is_refetched_without_the_strike_filter(self):
+        today = date.today()
+        expiry = today + timedelta(days=14)
+        listed = [option_item(expiry, 'C', strike=5.0), option_item(expiry, 'P', strike=5.0)]
+        # Every bucket comes back empty: no listed strike sits inside the window.
+        session = FakeSession(
+            [{'status': 'OK', 'results': [{'c': 4.14}]}] + [{'status': 'OK', 'results': []}] * 8,
+            full_window=[{'status': 'OK', 'results': listed}],
+        )
+
+        snapshot = self._fetch(session)
+
+        self.assertTrue(snapshot.raw_metadata['strike_window_missed'])
+        self.assertEqual({c.strike for c in snapshot.contracts}, {5.0})
+        # The retry drops the strike bounds and keeps the expiry range.
+        retries = [
+            c for c in session.calls
+            if '/v3/snapshot/options/' in c[0] and c[1] and 'strike_price.gte' not in c[1]
+        ]
+        self.assertTrue(retries, 'expected one request with no strike filter')
+
+    def test_a_symbol_with_no_listed_options_stays_empty(self):
+        # The control: LINK really has zero contracts, and must not be dressed
+        # up as a window miss.
+        session = FakeSession([{'status': 'OK', 'results': [{'c': 4.14}]}] + [{'status': 'OK', 'results': []}] * 8)
+
+        snapshot = self._fetch(session)
+
+        self.assertFalse(snapshot.raw_metadata['strike_window_missed'])
+        self.assertEqual(snapshot.contracts, [])
+
+    def test_a_normal_chain_never_triggers_the_retry(self):
+        today = date.today()
+        expiry = today + timedelta(days=2)
+        session = FakeSession([
+            {'status': 'OK', 'results': [{'c': 100}]},
+            {'status': 'OK', 'results': [option_item(expiry, 'C'), option_item(expiry, 'P')]},
+        ])
+
+        snapshot = self._fetch(session)
+
+        self.assertFalse(snapshot.raw_metadata['strike_window_missed'])
+        unfiltered = [
+            c for c in session.calls
+            if '/v3/snapshot/options/' in c[0] and c[1] and 'strike_price.gte' not in c[1]
+        ]
+        self.assertEqual(unfiltered, [], 'retry fired on a chain that was not empty')

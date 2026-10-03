@@ -311,6 +311,36 @@ class PolygonOptionChainProvider:
                 if ((row.get('details') or {}).get('expiration_date')) in keep_set
             )
 
+        # A proportional strike window can land entirely BETWEEN two listed
+        # strikes, and then every request returns nothing, forever (2026-10-02).
+        # Strike spacing is set by the exchange in absolute dollars; our window
+        # is a percentage of spot, so below a certain price the window is
+        # narrower than the gap between adjacent strikes. Measured: API at
+        # $4.14 lists 24 contracts at strikes 2.5/5/7.5, while the +/-15% window
+        # is [3.519, 4.761] -- no strike inside it. ZH had the identical shape.
+        # Both looked exactly like "this symbol has no options", which is also a
+        # real state (six watchlist names genuinely have none), so the two were
+        # indistinguishable in every report.
+        #
+        # Retry once per symbol, only when the windowed fetch found nothing at
+        # all, dropping the strike filter but keeping the expiry range and a
+        # single page. The downstream `_apply_strike_limit` already trims to the
+        # strikes nearest spot, so this cannot widen a normal chain -- a symbol
+        # with contracts in the window never reaches here. The outcome is
+        # recorded either way: it is what separates "window missed" from
+        # "nothing listed".
+        strike_window_missed = False
+        if not raw_results:
+            unfiltered = self._fetch_ignoring_strike_window(symbol, exp_min, exp_max)
+            if unfiltered:
+                strike_window_missed = True
+                raw_results = unfiltered
+                log.warning(
+                    '%s: strike window [%s, %s] around spot %s contained no listed '
+                    'strike; refetched %d contracts without it',
+                    symbol, strike_low, strike_high, spot, len(unfiltered),
+                )
+
         raw_results = _deduplicate_raw_contracts(raw_results)
 
         # Filter to requested specific expirations if provided
@@ -374,6 +404,9 @@ class PolygonOptionChainProvider:
                 'exp_max': exp_max.isoformat(),
                 'strike_low': strike_low,
                 'strike_high': strike_high,
+                # True means the chain came from the no-strike-filter retry, so
+                # a reader can tell a geometry miss from an unlisted symbol.
+                'strike_window_missed': strike_window_missed,
                 'raw_result_count': len(raw_results),
                 'contract_count': len(contracts),
                 'missing_greeks_count': missing_greeks,
@@ -494,6 +527,31 @@ class PolygonOptionChainProvider:
         except Exception as exc:  # noqa: BLE001 - enrichment must never break the snapshot
             log.warning('%s: OI-by-strike fetch failed (%s)', symbol, exc)
             return {'points': [], 'max_pain': None, 'window_pct': None}
+
+    def _fetch_ignoring_strike_window(
+        self, symbol: str, exp_min: date, exp_max: date
+    ) -> list[dict]:
+        """One unfiltered page for a symbol whose strike window came back empty.
+
+        Deliberately a single page: this runs only for symbols thin enough to
+        have no strike in a +/-15% band, where the whole listed chain is a few
+        dozen contracts. Any failure returns [] so the caller keeps reporting an
+        empty chain rather than losing the snapshot to a retry.
+        """
+        try:
+            data = self.http.get_json(
+                f'{self.base_url}/v3/snapshot/options/{symbol}',
+                params={
+                    'expiration_date.gte': exp_min.isoformat(),
+                    'expiration_date.lte': exp_max.isoformat(),
+                    'limit': self.page_limit,
+                },
+                context=f'Polygon option snapshot retry without strike window for {symbol}',
+            )
+        except Exception as exc:  # noqa: BLE001 - diagnosed below, never fatal
+            log.warning('%s: strike-window retry failed: %s', symbol, exc)
+            return []
+        return data.get('results') or []
 
     def _parse_contract(self, symbol: str, item: dict) -> OptionContractSnapshot | None:
         details = item.get('details') or {}

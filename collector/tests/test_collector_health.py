@@ -63,6 +63,64 @@ class CollectorHealthTest(unittest.TestCase):
             },
         )
 
+    def _with_failure_budget(self, n):
+        return check_collector_health.HealthThresholds(
+            min_coverage_pct=90, max_failed_24h=n, max_snapshot_age_minutes=180,
+            min_completeness_pct=75, alert_cooldown_minutes=60,
+        )
+
+    def test_failures_are_counted_per_lane_not_pooled(self):
+        # 20 + 20 pooled would be 40 against a threshold of 25, but neither lane
+        # has actually broken. The 2026-10-02 alert was this shape in reverse:
+        # a standing 15 of VIX chain noise left only 10 of headroom for IB.
+        report = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()},
+            {'option_chain_snapshot': 20, 'option_quote_snapshot': 20},
+            self.now, self._with_failure_budget(25),
+        )
+
+        self.assertEqual(report['status'], 'ok')
+        self.assertEqual(report['failed_count_24h'], 40)
+        self.assertEqual(report['failed_by_type_24h'],
+                         {'option_chain_snapshot': 20, 'option_quote_snapshot': 20})
+
+    def test_the_breaching_lane_is_named_in_the_issue(self):
+        report = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()},
+            {'option_chain_snapshot': 2, 'option_quote_snapshot': 30},
+            self.now, self._with_failure_budget(25),
+        )
+
+        issues = [i for i in report['issues'] if i['code'] == 'failed_jobs_above_threshold']
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]['job_type'], 'option_quote_snapshot')
+        self.assertEqual(issues[0]['value'], 30)
+
+    def test_a_second_lane_breaking_is_a_new_fingerprint(self):
+        one = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()}, {'option_chain_snapshot': 30},
+            self.now, self._with_failure_budget(25),
+        )
+        both = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()},
+            {'option_chain_snapshot': 30, 'option_quote_snapshot': 30},
+            self.now, self._with_failure_budget(25),
+        )
+
+        # Otherwise the second outage is folded into the open incident and the
+        # operator is never told.
+        self.assertNotEqual(
+            check_collector_health.alert_fingerprint(one),
+            check_collector_health.alert_fingerprint(both),
+        )
+
+    def test_an_int_total_is_still_accepted(self):
+        report = check_collector_health.evaluate_health(
+            ['AAPL'], {'AAPL': self.row()}, 30, self.now, self._with_failure_budget(25),
+        )
+        self.assertEqual(report['failed_count_24h'], 30)
+        self.assertEqual(report['issues'][0]['code'], 'failed_jobs_above_threshold')
+
     def _universe(self, total, thin):
         symbols = [f'S{i:03d}' for i in range(total)]
         rows = {s: self.row(completeness=70 if i < thin else 98) for i, s in enumerate(symbols)}

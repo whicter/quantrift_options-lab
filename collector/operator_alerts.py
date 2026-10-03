@@ -145,7 +145,11 @@ def _describe_issue(issue: dict) -> str:
         text = f'覆盖率 {value}% 低于 {threshold}%'
         return f'{text}，缺 {len(symbols)} 个：{named}' if symbols else text
     if code == 'failed_jobs_above_threshold':
-        return f'24 小时内 {value} 个任务失败（阈值 {threshold}）'
+        # Naming the lane is the whole point of counting per job_type: "42 jobs
+        # failed" could be either provider, and the operator's next step differs.
+        lane = issue.get('job_type')
+        scope = f'{lane} ' if lane and lane != 'all' else ''
+        return f'24 小时内 {scope}{value} 个任务失败（阈值 {threshold}）'
     if code == 'snapshot_age_above_threshold':
         text = f'{len(symbols)} 个标的快照超过 {threshold} 分钟未更新'
         return f'{text}：{named}' if symbols else text

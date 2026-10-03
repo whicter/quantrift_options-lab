@@ -76,10 +76,14 @@ def thresholds_from_env() -> HealthThresholds:
 def evaluate_health(
     symbols: list[str],
     latest_by_symbol: dict[str, dict[str, Any]],
-    failed_count_24h: int,
+    failed_by_type_24h: dict[str, int] | int,
     now: datetime,
     thresholds: HealthThresholds,
 ) -> dict[str, Any]:
+    # An int still works and is read as one unnamed lane, so a caller that has
+    # only a total is not silently reported as zero failures.
+    if isinstance(failed_by_type_24h, int):
+        failed_by_type_24h = {'all': failed_by_type_24h} if failed_by_type_24h else {}
     usable = []
     stale = []
     reference = staleness_reference(now)
@@ -108,13 +112,16 @@ def evaluate_health(
             'threshold': thresholds.min_coverage_pct,
             'symbols': missing,
         })
-    if failed_count_24h > thresholds.max_failed_24h:
-        issues.append({
-            'code': 'failed_jobs_above_threshold',
-            'value': failed_count_24h,
-            'threshold': thresholds.max_failed_24h,
-            'symbols': [],
-        })
+    failed_count_24h = sum(failed_by_type_24h.values())
+    for job_type, count in sorted(failed_by_type_24h.items()):
+        if count > thresholds.max_failed_24h:
+            issues.append({
+                'code': 'failed_jobs_above_threshold',
+                'job_type': job_type,
+                'value': count,
+                'threshold': thresholds.max_failed_24h,
+                'symbols': [],
+            })
     if stale:
         issues.append({
             'code': 'snapshot_age_above_threshold',
@@ -149,6 +156,7 @@ def evaluate_health(
         'incomplete_count': len(incomplete),
         'incomplete_symbols': incomplete,
         'failed_count_24h': failed_count_24h,
+        'failed_by_type_24h': dict(sorted(failed_by_type_24h.items())),
         'issues': issues,
     }
 
@@ -160,8 +168,14 @@ def alert_fingerprint(report: dict[str, Any]) -> str:
     过期名单都会变一点 ⇒ 指纹每次都是新的 ⇒ 60 分钟冷却从未生效，
     同一个"部分标的过期"的状况一天推送 50–100 条（09-14 至 09-23 实测）。
     名单仍完整写进 payload 与推送正文；变的只是"算不算同一件事"。
+
+    `job_type` 参与指纹（2026-10-02）：它说明**坏的是哪条通道**，而且取值有界、
+    稳定，不像标的名单那样每轮都变。没有它，chain 道已在告警时 quote 道再出事
+    会被并进同一个未解决事件，操作者永远收不到通知。
     """
-    state = sorted(issue['code'] for issue in report['issues'])
+    state = sorted(
+        (issue['code'], issue.get('job_type') or '') for issue in report['issues']
+    )
     encoded = json.dumps(state, separators=(',', ':')).encode('utf-8')
     return hashlib.sha256(encoded).hexdigest()
 
@@ -170,7 +184,7 @@ def should_notify(last_notified: datetime | None, now: datetime, cooldown_minute
     return last_notified is None or now - _as_utc(last_notified) >= timedelta(minutes=cooldown_minutes)
 
 
-def load_health_state(conn, symbols: list[str]) -> tuple[dict[str, dict[str, Any]], int]:
+def load_health_state(conn, symbols: list[str]) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -185,16 +199,21 @@ def load_health_state(conn, symbols: list[str]) -> tuple[dict[str, dict[str, Any
         )
         columns = [desc[0] for desc in cur.description]
         latest = {row[0]: dict(zip(columns, row)) for row in cur.fetchall()}
+        # Per lane, not one pooled number. Pooling made a Polygon chain outage
+        # and an IB quote-gateway blip arithmetically identical, and let one
+        # lane's standing noise eat the whole budget before the other lane had
+        # failed once.
         cur.execute(
             """
-            SELECT COUNT(*)::int
+            SELECT job_type, COUNT(*)::int
             FROM provider_fetch_jobs
             WHERE status = 'failed'
               AND created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY job_type
             """
         )
-        failed_count = int(cur.fetchone()[0])
-    return latest, failed_count
+        failed_by_type = {row[0]: int(row[1]) for row in cur.fetchall()}
+    return latest, failed_by_type
 
 
 def record_report(conn, report: dict[str, Any], thresholds: HealthThresholds, now: datetime) -> tuple[str | None, bool]:
@@ -255,8 +274,8 @@ def run() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     conn = psycopg2.connect(DB_URL)
     try:
-        latest, failed_count = load_health_state(conn, symbols)
-        report = evaluate_health(symbols, latest, failed_count, now, thresholds)
+        latest, failed_by_type = load_health_state(conn, symbols)
+        report = evaluate_health(symbols, latest, failed_by_type, now, thresholds)
         fingerprint, notify = record_report(conn, report, thresholds, now)
     finally:
         conn.close()
@@ -288,7 +307,12 @@ def run() -> dict[str, Any]:
         send_operator_alert(
             f'采集器 {report["status"]}',
             format_health_report(report, fingerprint),
-            severity='critical' if report['failed_count_24h'] > thresholds.max_failed_24h else 'warning',
+            # Severity follows the issues actually raised. Comparing the POOLED
+            # total against a per-lane threshold would call it critical whenever
+            # two quiet lanes summed past the bar without either breaching it.
+            severity='critical' if any(
+                i['code'] == 'failed_jobs_above_threshold' for i in report['issues']
+            ) else 'warning',
         )
     else:
         log.info('collector health status=%s notify=%s', report['status'], notify)
