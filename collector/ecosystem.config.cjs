@@ -98,7 +98,29 @@ module.exports = {
         REFRESH_WORKER_BATCH_SIZE: '30',
         // Bounded in-process concurrency; provider pacing remains global and
         // PendingDerivations/materialization stays single-threaded.
-        REFRESH_WORKER_CONCURRENCY: '3',
+        //
+        // Raised 3 -> 6 (2026-10-04). Once batch=30 amortized the per-batch
+        // full-universe derivation, the lane became concurrency bound and
+        // nothing else: measured over Friday's full session, 1,399 jobs in 8.93
+        // hours is 157/hour, against 3 workers / 71.1s median = 152/hour. The
+        // arithmetic leaves no room for another explanation.
+        //
+        // The 71s is not payload -- MGA with 48 contracts took 199s while SPY
+        // with 156 took 190s -- it is ~12 sequential round trips per symbol (7
+        // DTE buckets, underlying, term structure, paginated OI-by-strike).
+        // More workers overlap those round trips; they cannot outrun the pacer,
+        // which is global, so this can only move the lane toward the pacing
+        // ceiling and never past it.
+        //
+        // Headroom checked before raising: ~16.8k requests over 8.93h is
+        // 0.52 req/s against the 2 req/s that POLYGON_OPTIONS_REQUEST_DELAY=0.5
+        // allows, and Friday logged zero 429s. At 6 workers the expected draw is
+        // ~1 req/s, still half the limit. Expect ~300 jobs/hour and a ~1h sweep.
+        //
+        // In-process only. Multiple worker PROCESSES remain forbidden: global
+        // derivations and stale-job recovery are not singleton-safe. The code
+        // caps this at 8.
+        REFRESH_WORKER_CONCURRENCY: '6',
         // Polygon paid plans (incl. the $29 Options subscription) allow unlimited
         // API calls, so this is only a runaway-loop backstop, not a cost throttle.
         // The default 1000 was starving mid-day refreshes: ~81 symbols refreshed

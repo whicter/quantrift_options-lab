@@ -132,26 +132,43 @@ for (const app of quantriftApps) {
   const lastFire = lastFireBefore(app.cron_restart, now);
   if (!lastFire || now - lastFire < START_GRACE_MS) continue;
 
-  const candidates = [app.error_file, app.out_file, app.pm_err_log_path, app.pm_out_log_path]
+  const running = live.find(x => x.name === app.name);
+  if (!running) continue;            // already reported as unregistered above
+
+  // Still executing: it fired, it simply has not finished. This is not a corner
+  // case -- quantrift-universe-metadata runs for ~87 minutes and writes its only
+  // log line at the end, which produced this check's first false alarm on
+  // 2026-10-04. An alert people learn to dismiss is worse than no alert.
+  if (running.pm2_env.status === 'online') continue;
+
+  // pm2_env.pm_uptime is the last time PM2 actually launched the app, kept for
+  // stopped apps too, and it matches each cron expression to the second. That
+  // makes it a far more direct answer to "did it fire" than a log timestamp,
+  // which really answers "did it produce output" -- a different question whose
+  // answer depends on how each script buffers.
+  const lastLaunch = running.pm2_env.pm_uptime || 0;
+
+  const candidates = [app.error_file, app.out_file,
+                      running.pm2_env.pm_err_log_path, running.pm2_env.pm_out_log_path]
     .filter(Boolean);
-  let newest = 0;
+  let newestLog = 0;
   for (const file of candidates) {
     try {
-      newest = Math.max(newest, fs.statSync(file).mtimeMs);
-    } catch { /* a log that does not exist yet is covered by newest === 0 */ }
+      newestLog = Math.max(newestLog, fs.statSync(file).mtimeMs);
+    } catch { /* absent log stays 0 and simply does not vouch for a launch */ }
   }
-  if (!candidates.length) continue;
-  if (newest === 0) {
+
+  // Two independent signals, and drift is reported only when they agree. Either
+  // alone has a failure mode: pm_uptime could be refreshed by a daemon
+  // resurrect without the app ever running, and a log mtime lags any script
+  // that writes only on completion. Agreement costs a little sensitivity and
+  // buys an alert that is worth reading.
+  if (lastLaunch < lastFire.getTime() && newestLog < lastFire.getTime()) {
     triggerDrift += 1;
-    console.log(`[trigger] ${app.name}: no log file yet; cron "${app.cron_restart}" should have fired ${lastFire.toLocaleString()}`);
-    continue;
-  }
-  if (newest < lastFire.getTime()) {
-    triggerDrift += 1;
-    const ageH = ((now - newest) / 3600000).toFixed(1);
+    const launched = lastLaunch ? new Date(lastLaunch).toLocaleString() : 'never';
     console.log(
       `[trigger] ${app.name}: cron "${app.cron_restart}" should have fired ${lastFire.toLocaleString()}, ` +
-      `but its newest log write is ${ageH}h old -- registered but not firing`
+      `but PM2 last launched it ${launched} and no log was written since -- registered but not firing`
     );
   }
 }
