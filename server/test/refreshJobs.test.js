@@ -37,3 +37,51 @@ test('active refresh jobs are deduplicated regardless of age', () => {
   assert.match(source, /status IN \('queued', 'running'\)/);
   assert.match(source, /OR created_at >= NOW\(\)/);
 });
+
+// The market-hours gate on the STALE paths. Option-chain freshness is clock
+// based, so a Friday snapshot is stale all weekend and refetching it can only
+// return what we already have. Observed 2026-10-04: 26 weekend jobs queued by
+// page views, all of them re-fetching an unchanged chain.
+const { enqueueRefreshJob } = require('../src/lib/refreshJobs');
+
+const DURING_SESSION = new Date('2026-10-02T17:30:00Z');   // 13:30 ET Friday
+const AFTER_CLOSE = new Date('2026-10-03T02:00:00Z');      // 22:00 ET Friday
+const WEEKEND = new Date('2026-10-04T17:30:00Z');          // Sunday
+
+test('a stale-path refresh is deferred when the market is shut', async () => {
+  for (const when of [AFTER_CLOSE, WEEKEND]) {
+    const status = await enqueueRefreshJob({
+      symbol: 'AAPL',
+      jobType: 'option_chain_snapshot',
+      requestParams: { reason: 'stale_chain_snapshot' },
+      onlyDuringMarketHours: true,
+      now: when,
+    });
+    assert.equal(status, 'deferred_market_closed', `expected deferral at ${when.toISOString()}`);
+  }
+});
+
+test('the gate is opt-in, so missing-path refreshes still run out of hours', async () => {
+  // A symbol with no chain at all still benefits from its last known state, so
+  // these paths deliberately do not pass the flag. Without a database this
+  // reaches the query and fails closed rather than returning a deferral, which
+  // is enough to prove the gate did not short-circuit it.
+  const status = await enqueueRefreshJob({
+    symbol: 'AAPL',
+    jobType: 'option_chain_snapshot',
+    requestParams: { reason: 'missing_chain_snapshot' },
+    now: WEEKEND,
+  });
+  assert.notEqual(status, 'deferred_market_closed');
+});
+
+test('during the session the gate does not interfere', async () => {
+  const status = await enqueueRefreshJob({
+    symbol: 'AAPL',
+    jobType: 'option_chain_snapshot',
+    requestParams: { reason: 'stale_chain_snapshot' },
+    onlyDuringMarketHours: true,
+    now: DURING_SESSION,
+  });
+  assert.notEqual(status, 'deferred_market_closed');
+});

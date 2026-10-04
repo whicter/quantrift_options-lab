@@ -1,4 +1,10 @@
-# Options Lab — Claude Instructions
+# Options Lab — Agent Instructions
+
+> `docs/AGENTS.md` is a symlink to this file. It used to be a hand-maintained
+> parallel copy and had drifted to 62 rules against 109 — two months behind —
+> so an agent reading it was working from a different set of invariants than one
+> reading this. Nothing here is specific to a particular assistant: these are
+> facts about the codebase. Edit this file; both names see it.
 
 ## Project Overview
 Interactive options strategy education tool, to be part of a future paid website.
@@ -28,7 +34,7 @@ collector/              ← Collectors, GEX compute, scanner materializer, refre
 ```
 
 ## Current Architecture
-- **Documentation completion is mandatory**: before reporting any task done, update `docs/task.md` and every affected section of `docs/ARCHITECTURE.md`, `docs/wiki.md`, and `docs/learning.md`; add a reproducible `docs/validation/` record for runtime/data changes. Only then commit and push. Do not wait for a reminder.
+- **Documentation completion is mandatory**: before reporting any task done, update `docs/task.md` and every affected section of `docs/ARCHITECTURE.md`, `docs/wiki.md`, and `docs/learning.md`; add a reproducible `docs/validation/` record for runtime/data changes. Only then commit and push. Do not wait for a reminder. A task checkbox may be ticked only after implementation, appropriate tests or runtime evidence, the documentation updates, an intentional commit, and a push — disclose a genuine external or data-source blocker rather than marking the item complete around it.
 - Read `docs/ARCHITECTURE.md` before changing data flow.
 - Phase 3C is complete.
 - Browser requests go to Railway API, then PostgreSQL snapshots/cache.

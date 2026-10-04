@@ -76,6 +76,7 @@ router.get('/:symbol', async (req, res) => {
           symbol,
           jobType: 'option_chain_snapshot',
           requestParams: { reason: 'stale_unusual_snapshot', snapshot_ts: latestTs },
+          onlyDuringMarketHours: true,
         })
       : 'none';
 

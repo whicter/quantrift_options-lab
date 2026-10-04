@@ -1,5 +1,6 @@
 const pool = require('../db');
 const { normalizeSymbol, isValidSymbol } = require('./symbols');
+const { isRegularMarketSession } = require('./marketTime');
 
 const DEFAULT_OPTIONS_REFRESH_PROVIDER = process.env.OPTIONS_REFRESH_PROVIDER || 'polygon_licensed';
 const SUPPORTED_OPTIONS_REFRESH_PROVIDERS = new Set(['ib_internal', 'tt_internal', 'polygon_licensed']);
@@ -16,15 +17,35 @@ function normalizeRefreshSymbol(symbol, jobType) {
   return isValidSymbol(normalized, { maxLength: 10, requireLeadingLetter: true }) ? normalized : null;
 }
 
+/**
+ * Enqueue a provider refresh, optionally only while the market is open.
+ *
+ * `onlyDuringMarketHours` exists for the STALE paths. Option-chain freshness is
+ * clock-based, so a Friday snapshot is stale all weekend and stays stale no
+ * matter how often it is refetched -- the underlying has not traded. Every
+ * out-of-hours page view was therefore queueing a fetch that could only return
+ * what we already had. The background scheduler has always known this
+ * (`refresh_window()` goes idle when the market is shut) and
+ * `analyze.js` already defers quotes the same way; only these on-demand chain
+ * paths disagreed.
+ *
+ * Reporting is unaffected on purpose: a two-day-old chain IS stale and must keep
+ * saying so. What changes is only whether we do pointless work about it. The
+ * MISSING paths are deliberately not gated -- a symbol with no chain at all
+ * still benefits from fetching its last known state outside hours.
+ */
 async function enqueueRefreshJob({
   symbol,
   jobType,
   provider = DEFAULT_OPTIONS_REFRESH_PROVIDER,
   requestParams = {},
   minIntervalSeconds = parseInt(process.env.REFRESH_MIN_INTERVAL_SECONDS ?? 60, 10),
+  onlyDuringMarketHours = false,
+  now = undefined,
 }) {
   const normalizedSymbol = normalizeRefreshSymbol(symbol, jobType);
   if (!normalizedSymbol || !jobType) return 'none';
+  if (onlyDuringMarketHours && !isRegularMarketSession(now)) return 'deferred_market_closed';
 
   try {
     const { rows } = await pool.query(

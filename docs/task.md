@@ -46,6 +46,63 @@ NBBO，带报价的行来自 IB 的实时订阅，只在当时存在过。而它
       CLAUDE.md 允许提高**进程内**并发，禁止的是多 worker 进程——派生仍是单线程、每批一次，不受影响。
 - [ ] 周一确认 API/ZH 的窗口回退、`unlisted 0→6`、`missing 8→0`
 
+**第 2 项：PM2 漂移检查接进告警（已上线）**
+
+`check_pm2_env_drift.cjs` 从 2026-08-20 起就存在，**却从没告过警，因为没人跑它**。
+此后两次 PM2 事故都是人工撞见的：触发漂移（13/14 个 cron app 静默停跳，丢了一个交易日的日线）
+和孤儿进程（`pm2 delete` 够不着，重新注册造出双写者，两个 collector 跑了约 5 小时）。
+**两者从 PM2 内部看都完全正常**，所以别的东西看不见它们。
+
+扩展同一个脚本覆盖三类漂移，新增：
+- **触发漂移**：按 cron 表达式算出"最近一次本应触发的时刻"，和该 app 日志的最后写入时间比。
+  自写的 cron 匹配器支持 `*` `*/n` `a,b` `a-b`，四种生产表达式已逐一核对（含跨周末回溯到周五）。
+- **实例漂移**：按脚本路径数进程；`PPID=1` 的孤儿**无论几个都报**，因为孤儿永远不对。
+
+新增 `check_pm2_drift_alert.py` + PM2 app `quantrift-pm2-drift`（每小时 :50），
+把结果接进现有 operator alert。检查本身跑不起来也会告警——**那不是"没有漂移"，是"没有检查"**。
+
+验证方式是注入时钟（`PM2_DRIFT_NOW`，仅测试用）把时间推后 3 天，
+11 个 cron app 全部被正确判为未触发——**9-23 那次事故它会全抓到**。
+一个从没见过它报警的检测器和一个不能报警的检测器无法区分。
+
+**第 3 项：盘后不再为 stale 链排刷新（已上线）**
+
+期权链的 freshness 是按时钟龄判的，所以周五的快照整个周末都 stale，
+而且**再刷也不会变新**——标的没有交易。实测周末 26 个 job 全是这样来的。
+后台调度器一直知道这件事（`refresh_window()` 收盘即 idle），`analyze.js` 对报价也早有
+`deferred_market_closed` 先例，**只有这三条按需路径不知道**。
+
+在 `enqueueRefreshJob` 加 `onlyDuringMarketHours`，用在
+`stale_chain_snapshot` / `stale_gex_snapshot` / `stale_unusual_snapshot` 三处。
+**显示的 freshness 一个字不改**——两天前的链确实是 stale，必须照说；
+变的只是我们要不要为此做无用功。**missing 路径故意不加闸门**：
+完全没有链的标的，盘后取到它最后的状态仍然有价值。
+
+**第 4 项：消除 AGENTS.md 的重复维护（已完成）**
+
+它是 CLAUDE.md 的手工平行副本，已漂到 **62 条对 109 条**、落后两个月——
+读 AGENTS.md 的 agent 和读 CLAUDE.md 的在按**不同的不变量**工作。
+内容核对下来 AGENTS ⊂ CLAUDE，唯一更明确的一句（任务勾选标准）已并入 CLAUDE.md。
+
+`docs/AGENTS.md` 改为指向 `CLAUDE.md` 的**符号链接**：一个文件，零漂移。
+标题改成工具中立的 "Agent Instructions"——里面全是关于代码库的事实，不是关于某个助手的。
+两个文件都不在仓库根目录，本来就要被显式指过去，所以链接不改变任何人的用法。
+要恢复成独立文件：`rm docs/AGENTS.md && git checkout <旧commit> -- docs/AGENTS.md`。
+
+**第 5 项：feature/quantrift-core（外部条件未变，不能合）**
+
+前置条件逐一复查，**一个都没满足**：`quantrift_core` 仍无 `v0.1.0` tag；
+cutover 顺序里排在前面的三个仓库仍未合（分别领先 5 / 3 / 4 commit）；
+分支仍未改 `requirements.txt`；主仓 venv 仍无 `quantrift` 包——合了下一班 `derive_volatility` 就炸。
+
+但做了一件不依赖外部条件的事：**复验那个「q=0 逐比特一致」的结论今天是否还成立**。
+`quantrift_core/quantrift/options` 自 8-21 建分支以来未改动过（git log 为空），
+4,000 个随机点重测 → **不一致 0 个**，两边都无解 221 个。
+**分支技术上仍然成立，卡住它的纯粹是打包和顺序。**
+
+解锁序列（都不在本仓库）：core 打 `v0.1.0` tag → 分支补 `requirements.txt` 的
+`quantrift-core[...] @ git+ssh://...@v0.1.0` → 主仓 venv 正式安装 → 等前三个仓库先合。
+
 ---
 
 ## ✅ 2026-10-02 — 一条告警裹着三件不相干的事，其中一件是真 bug

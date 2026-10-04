@@ -526,6 +526,29 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-pm2-drift'),
+
+      name: 'quantrift-pm2-drift',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'check_pm2_drift_alert.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      // Hourly at :50, clear of the :20 log rotation.
+      //
+      // check_pm2_env_drift.cjs has existed since 2026-08-20 and had never
+      // alerted anyone, because nothing ran it. Both PM2 incidents since were
+      // found by hand, days late: cron registrations lost on a daemon restart
+      // (13 of 14 apps silently stopped firing, a session of daily bars gone)
+      // and orphaned processes that pm2 delete could not reach, so
+      // re-registering produced two writers against one database. Both look
+      // entirely correct from inside PM2, which is why nothing else sees them.
+      //
+      // Hourly is chosen off the damage rate, not the failure rate: the cost of
+      // these is proportional to how long they run unnoticed.
+      cron_restart: '50 * * * *',
+      env: {},
+    },
+    {
       ...logs('quantrift-universe-metadata'),
 
       name: 'quantrift-universe-metadata',

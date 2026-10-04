@@ -121,6 +121,7 @@ async function sendChainSnapshot(req, res, options = {}) {
           symbol,
           jobType: 'option_chain_snapshot',
           requestParams: { reason: 'stale_chain_snapshot', snapshot_ts: snapshot.snapshot_ts },
+          onlyDuringMarketHours: true,
         })
       : 'none';
 
@@ -185,6 +186,7 @@ async function sendGexSnapshot(req, res) {
           symbol,
           jobType: 'option_chain_snapshot',
           requestParams: { reason: 'stale_gex_snapshot', snapshot_ts: snapshot.snapshot_ts },
+          onlyDuringMarketHours: true,
         })
       : 'none';
 
