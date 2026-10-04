@@ -498,6 +498,34 @@ module.exports = {
       },
     },
     {
+      ...logs('quantrift-chain-archive'),
+
+      name: 'quantrift-chain-archive',
+      cwd: '/Users/congrenhan/Documents/quantrift_options-lab/collector',
+      script: 'archive_option_chains.py',
+      interpreter: '/Users/congrenhan/Documents/quantrift_options-lab/collector/venv311/bin/python',
+      autorestart: false,
+      // Daily at 01:45 PT, including weekends so Friday's session is captured on
+      // Saturday rather than waiting for Monday. By 04:45 ET the previous ET day
+      // is complete, which is what the script requires before it will write a
+      // session.
+      //
+      // Unlike backup_facts this is NOT recoverable if it is missed for long:
+      // the source rows are deleted by the hourly prune after
+      // OPTION_CHAIN_RETENTION_DAYS (7), and the contract-level chain cannot be
+      // refetched at any price -- Polygon sells no historical NBBO on our tier
+      // and the quote-bearing rows came from a live IB subscription. Daily runs
+      // leave ~7 days of slack; the script backfills every unarchived session
+      // still in the window and names the ones that left it unarchived.
+      // Measured 2026-10-04: ~21 MB/session gzipped (1,600 chains / 128k
+      // contract rows / 113 MB raw), so ~5 GB a year against 3.5 TiB free.
+      cron_restart: '45 1 * * *',
+      env: {
+        CHAIN_ARCHIVE_DIR: `${DATA_ROOT}/chain-archive`,
+        CHAIN_ARCHIVE_LOOKBACK_DAYS: '10',
+      },
+    },
+    {
       ...logs('quantrift-universe-metadata'),
 
       name: 'quantrift-universe-metadata',
