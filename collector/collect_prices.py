@@ -59,14 +59,49 @@ PRICE_GROUPED_DAILY_SESSIONS = max(int(os.getenv('PRICE_GROUPED_DAILY_SESSIONS',
 PRICE_SPLIT_RATIO_THRESHOLD = float(os.getenv('PRICE_SPLIT_RATIO_THRESHOLD', '0.25'))
 
 
-def load_symbols():
-    """Load collection symbols from SYMBOLS override or collector/watchlist.txt."""
+def universe_symbols(conn) -> list[str]:
+    """Active registry symbols, which is what actually gets scanned.
+
+    `watchlist.txt` is only the seed; `symbol_universe` is the registry the
+    scanner and the refresh scheduler read, and it grows whenever a user
+    analyzes an unknown ticker. Collecting prices from the file alone left
+    anything registered on demand with no price series at all -- measured
+    2026-10-07, seven active symbols were in that state and four of them
+    (AEHR, GLD, IWM, XOM) had never had a single bar, so every price-derived
+    field for them -- trend, moving averages, RVol, HV -- was simply absent
+    while they were being scanned for options the whole time.
+
+    Costs nothing on the daily side: the grouped request returns the entire US
+    market regardless and we only filter it. The per-symbol 30-minute pass grows
+    by the size of the gap, which is seven symbols today.
+    """
+    with conn.cursor() as cur:
+        cur.execute('SELECT symbol FROM symbol_universe WHERE active ORDER BY symbol')
+        return [row[0] for row in cur.fetchall()]
+
+
+def load_symbols(conn=None):
+    """Collection symbols: SYMBOLS override, else the registry union the seed file.
+
+    The union is deliberate. The registry is authoritative for what is scanned,
+    but the seed file is what an operator edits, and a symbol added there is not
+    live until `sync_universe.py` is run by hand -- so taking the registry alone
+    would silently ignore a fresh entry until someone remembered that step.
+    """
     raw_symbols = os.getenv('SYMBOLS')
-    if raw_symbols:
-        if raw_symbols.strip().lower() in {'watchlist', 'all'}:
-            return load_watchlist()
+    if raw_symbols and raw_symbols.strip().lower() not in {'watchlist', 'all'}:
         return parse_symbols(raw_symbols)
-    return load_watchlist()
+
+    seed = load_watchlist()
+    if conn is None:
+        return seed
+    try:
+        registry = universe_symbols(conn)
+    except Exception as exc:  # noqa: BLE001 - the seed alone is a valid run
+        conn.rollback()
+        log.warning('symbol_universe unavailable (%s); collecting the watchlist seed only', exc)
+        return seed
+    return sorted(set(seed) | set(registry))
 
 
 def make_provider():
@@ -302,9 +337,9 @@ def run():
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
 
-    watchlist = load_symbols()
     provider = make_provider()
     conn = psycopg2.connect(DB_URL)
+    watchlist = load_symbols(conn)
     log.info(f'Loaded {len(watchlist)} symbols; provider={provider.source}')
 
     total_daily_written = 0

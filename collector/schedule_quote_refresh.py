@@ -104,6 +104,59 @@ def stale_symbols(conn, symbols: list[str], max_age_minutes: int = MAX_AGE_MINUT
     return stale
 
 
+BLOCK_WINDOW_HOURS = max(int(os.getenv('QUOTE_FAILURE_BLOCK_WINDOW_HOURS', '6')), 1)
+BLOCK_MIN_FAILURES = max(int(os.getenv('QUOTE_FAILURE_BLOCK_MIN_FAILURES', '3')), 1)
+
+BLOCKED_SYMBOLS_SQL = """
+    SELECT f.symbol
+    FROM provider_fetch_jobs f
+    WHERE f.job_type = 'option_quote_snapshot'
+      AND f.status = 'failed'
+      AND f.created_at >= NOW() - (%s::int * INTERVAL '1 hour')
+      AND f.created_at > COALESCE((
+            SELECT MAX(s.created_at)
+            FROM provider_fetch_jobs s
+            WHERE s.symbol = f.symbol
+              AND s.job_type = 'option_quote_snapshot'
+              AND s.status = 'succeeded'
+          ), '-infinity'::timestamptz)
+    GROUP BY f.symbol
+    HAVING COUNT(*) >= %s
+"""
+
+
+def blocked_symbols(conn, window_hours: int = BLOCK_WINDOW_HOURS,
+                    min_failures: int = BLOCK_MIN_FAILURES) -> set[str]:
+    """Symbols the sweep should stop re-queueing because they only ever fail.
+
+    A symbol that has never produced a quote sorts FIRST in `QUOTE_AGE_SQL`
+    (`NULLS FIRST`), so one that can no longer be fetched wins a slot on every
+    single sweep and fails again -- the chain scheduler documented this exact
+    trap for never-collected symbols, and the quote lane had no equivalent
+    guard. Observed 2026-10-07: WBD stopped trading after a corporate action,
+    IB dropped its contract, and `IB contract details empty for WBD` failed six
+    times an hour, every hour, for 31 of the lane's 32 daily failures. The quote
+    worker is concurrency 1 and a job costs ~47s, so each retry is time the
+    scarcest lane in the pipeline does not spend on a symbol that could succeed.
+    This is the third appearance of the shape -- VIX on the chain lane, the
+    strike-window misses, now this.
+
+    The count is of failures SINCE THE LAST SUCCESS, not failures in a window
+    with no success in it. The first version used the latter and would not have
+    caught WBD at all: it succeeded once on its first attempt of the window and
+    then failed thirty-one consecutive times, which "no successes in the last
+    six hours" reads as healthy. What matters is whether the symbol has worked
+    since it started failing, and only consecutive failures answer that.
+
+    An intermittently flaky symbol therefore keeps being retried -- any success
+    resets the count. The window bounds how far back the evidence reaches, so a
+    name that recovers returns on its own and nobody maintains a list.
+    """
+    with conn.cursor() as cur:
+        cur.execute(BLOCKED_SYMBOLS_SQL, (window_hours, min_failures))
+        return {row[0] for row in cur.fetchall()}
+
+
 def queue_depth(conn) -> int:
     with conn.cursor() as cur:
         cur.execute(QUEUE_DEPTH_SQL)
@@ -296,6 +349,22 @@ def run(
         depth = queue_depth(conn)
         capacity = max(queue_target - depth, 0)
         candidates = stale_symbols(conn, watchlist, max_age_minutes=max_age_minutes)
+
+        # Set aside names that only ever fail, after staleness ranking so the
+        # count below reports what was genuinely stale. Named in the log rather
+        # than dropped quietly: a symbol disappearing from the lane is exactly
+        # the kind of thing that should not be discoverable only by reading SQL.
+        blocked = blocked_symbols(conn)
+        suppressed = [c['symbol'] for c in candidates if c['symbol'] in blocked]
+        if suppressed:
+            candidates = [c for c in candidates if c['symbol'] not in blocked]
+            log.warning(
+                'quote sweep skipping %d symbol(s) with %d+ failures and no success in %dh: %s. '
+                'They return on their own once a fetch succeeds; a permanent one '
+                '(delisted, corporate action) should be retired in symbol_universe.',
+                len(suppressed), BLOCK_MIN_FAILURES, BLOCK_WINDOW_HOURS, ', '.join(suppressed),
+            )
+
         enqueued = enqueue(conn, candidates, capacity) if capacity else 0
     finally:
         conn.close()
@@ -306,6 +375,7 @@ def run(
         'watchlist': len(watchlist),
         'stale': len(candidates),
         'never_quoted': never_quoted,
+        'suppressed': suppressed,
         'queue_depth': depth,
         'capacity': capacity,
         'enqueued': enqueued,

@@ -225,3 +225,63 @@ class RankingKeyTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FailureSuppressionTests(unittest.TestCase):
+    """A symbol that only fails must stop winning a slot every sweep.
+
+    2026-10-07: WBD stopped trading after a corporate action, IB dropped its
+    contract, and because a never-quoted symbol sorts FIRST in QUOTE_AGE_SQL it
+    was re-queued every ten minutes. 31 of the lane's 32 daily failures were
+    that one symbol, on a worker with concurrency 1 and ~47s per job.
+    """
+
+    class _Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            self.conn.sql, self.conn.params = sql, params
+
+        def fetchall(self):
+            return [(s,) for s in self.conn.blocked]
+
+    class _Conn:
+        def __init__(self, blocked):
+            self.blocked = blocked
+            self.sql = self.params = None
+
+        def cursor(self):
+            return FailureSuppressionTests._Cursor(self)
+
+    def test_the_window_and_threshold_are_passed_through(self):
+        conn = self._Conn([])
+        schedule_quote_refresh.blocked_symbols(conn, window_hours=6, min_failures=3)
+        self.assertEqual(conn.params, (6, 3))
+
+    def test_it_counts_failures_since_the_last_success(self):
+        # The first version asked for "no successes in the window" and would
+        # have passed WBD straight through: it succeeded once at the start of
+        # the window, then failed 31 consecutive times. Only failures strictly
+        # after the last success answer "has this worked since it broke".
+        conn = self._Conn(['WBD'])
+        schedule_quote_refresh.blocked_symbols(conn)
+        self.assertIn('MAX(s.created_at)', conn.sql)
+        self.assertIn("s.status = 'succeeded'", conn.sql)
+        self.assertIn('f.created_at >', conn.sql)
+        self.assertNotIn("COUNT(*) FILTER (WHERE status = 'succeeded') = 0", conn.sql)
+
+    def test_blocked_symbols_are_returned_as_a_set(self):
+        self.assertEqual(
+            schedule_quote_refresh.blocked_symbols(self._Conn(['WBD', 'XYZ'])),
+            {'WBD', 'XYZ'},
+        )
+
+    def test_nothing_blocked_is_an_empty_set_not_none(self):
+        self.assertEqual(schedule_quote_refresh.blocked_symbols(self._Conn([])), set())

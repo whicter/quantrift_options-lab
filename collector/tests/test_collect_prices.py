@@ -1,3 +1,4 @@
+import os
 import unittest
 from datetime import date, datetime, timezone
 from unittest.mock import patch
@@ -268,3 +269,61 @@ class CheckPriceFreshnessTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SymbolSourceTests(unittest.TestCase):
+    """The registry is what gets scanned; the seed file is only what is edited.
+
+    2026-10-07: seven active registry symbols were absent from watchlist.txt and
+    so had no price collection at all. Four of them -- AEHR, GLD, IWM, XOM --
+    had never had a single bar, while being scanned for options the whole time.
+    """
+
+    class _Cursor:
+        def __init__(self, rows, fail=False):
+            self._rows, self._fail = rows, fail
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            if self._fail:
+                raise RuntimeError('relation "symbol_universe" does not exist')
+
+        def fetchall(self):
+            return self._rows
+
+    class _Conn:
+        def __init__(self, rows, fail=False):
+            self._rows, self._fail = rows, fail
+            self.rolled_back = False
+
+        def cursor(self):
+            return SymbolSourceTests._Cursor(self._rows, self._fail)
+
+        def rollback(self):
+            self.rolled_back = True
+
+    def test_the_registry_and_the_seed_are_unioned(self):
+        with patch('collect_prices.load_watchlist', return_value=['AAPL', 'SPY']), \
+             patch.dict('os.environ', {}, clear=False):
+            os.environ.pop('SYMBOLS', None)
+            symbols = collect_prices.load_symbols(self._Conn([('COST',), ('GLD',), ('AAPL',)]))
+        # Registry-only names arrive; a seed name missing from the registry is
+        # kept, because an edit to watchlist.txt is inert until sync_universe runs.
+        self.assertEqual(symbols, ['AAPL', 'COST', 'GLD', 'SPY'])
+
+    def test_an_unavailable_registry_falls_back_to_the_seed(self):
+        conn = self._Conn([], fail=True)
+        with patch('collect_prices.load_watchlist', return_value=['AAPL']):
+            os.environ.pop('SYMBOLS', None)
+            self.assertEqual(collect_prices.load_symbols(conn), ['AAPL'])
+        self.assertTrue(conn.rolled_back, 'a failed query must not poison the transaction')
+
+    def test_an_explicit_symbols_override_still_wins(self):
+        with patch.dict('os.environ', {'SYMBOLS': 'TSLA,NVDA'}, clear=False):
+            self.assertEqual(
+                collect_prices.load_symbols(self._Conn([('COST',)])), ['TSLA', 'NVDA'])
