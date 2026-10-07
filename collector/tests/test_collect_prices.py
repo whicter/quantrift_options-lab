@@ -327,3 +327,53 @@ class SymbolSourceTests(unittest.TestCase):
         with patch.dict('os.environ', {'SYMBOLS': 'TSLA,NVDA'}, clear=False):
             self.assertEqual(
                 collect_prices.load_symbols(self._Conn([('COST',)])), ['TSLA', 'NVDA'])
+
+
+class NewSymbolBackfillTests(unittest.TestCase):
+    """The grouped fill masks "this symbol has no history" if asked afterwards.
+
+    2026-10-07: the registry union first brought in AEHR, GLD, IWM and XOM, and
+    each ended the run with exactly 5 bars -- the grouped window and nothing
+    else -- because by the time the backfill decision was made they had rows and
+    no gap. ma200 needs 200.
+    """
+
+    class _Cursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            self.sql = sql
+
+        def fetchall(self):
+            return self._rows
+
+    class _Conn:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def cursor(self):
+            return NewSymbolBackfillTests._Cursor(self._rows)
+
+    def test_a_symbol_with_no_rows_is_flagged(self):
+        conn = self._Conn([('AAPL',)])
+        self.assertEqual(
+            collect_prices.symbols_without_history(conn, ['AAPL', 'GLD', 'XOM'], 'polygon_licensed'),
+            {'GLD', 'XOM'},
+        )
+
+    def test_a_symbol_with_rows_is_not_flagged(self):
+        conn = self._Conn([('AAPL',), ('GLD',)])
+        self.assertEqual(
+            collect_prices.symbols_without_history(conn, ['AAPL', 'GLD'], 'polygon_licensed'),
+            set(),
+        )
+
+    def test_an_empty_symbol_list_touches_no_database(self):
+        self.assertEqual(collect_prices.symbols_without_history(None, [], 'polygon_licensed'), set())

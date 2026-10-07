@@ -8,6 +8,7 @@ Provider is selected by PRICE_PROVIDER:
   - stooq: explicit dev/backfill provider
 """
 
+import argparse
 import logging
 import os
 from dataclasses import replace
@@ -243,6 +244,33 @@ def fill_daily_from_grouped(conn, provider, symbols, sessions) -> tuple[int, set
     return written, covered
 
 
+def symbols_without_history(conn, symbols, source) -> set[str]:
+    """Symbols with no stored bar at all, asked BEFORE the grouped fill runs.
+
+    Order matters and cost me four symbols. `symbols_needing_history` judges
+    "no rows" and "a gap older than the window", but the grouped fill has by
+    then already written the window -- so a brand-new symbol looks like one
+    with rows and no gap, and skips the 400-day backfill it actually needs.
+    Observed 2026-10-07 when the registry union first brought in AEHR, GLD, IWM
+    and XOM: each ended with exactly 5 bars, enough for nothing (ma200 needs
+    200), while COST/MUU/TSLL -- which had stale history and so showed a real
+    gap -- correctly got 405.
+
+    The discontinuity check still has to run after the fill, because it compares
+    the newly written bar against the stored close before it. Only this half
+    moves.
+    """
+    if not symbols:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT DISTINCT symbol FROM price_history WHERE source = %s AND symbol = ANY(%s)',
+            (source, list(symbols)),
+        )
+        have = {row[0] for row in cur.fetchall()}
+    return {s for s in symbols if s not in have}
+
+
 def symbols_needing_history(conn, symbols, source, earliest_session: date | None) -> list[str]:
     """Symbols whose stored history the grouped fill cannot have made correct.
 
@@ -332,7 +360,7 @@ def check_price_freshness(conn, symbols, source, now_et: datetime | None = None)
     return behind
 
 
-def run():
+def run(force_history: bool = False):
     log.info('=== Price Collector starting ===')
     if not DB_URL:
         raise ValueError('DATABASE_URL is required')
@@ -352,6 +380,15 @@ def run():
     grouped_ok = PRICE_GROUPED_DAILY_ENABLED and callable(
         getattr(provider, 'fetch_grouped_daily', None)
     )
+    # Captured before the fill: afterwards every symbol has the window's bars
+    # and a new one is indistinguishable from a complete one.
+    never_collected = symbols_without_history(conn, watchlist, provider.source) if grouped_ok else set()
+    if force_history:
+        # Operator override. The selection rules read "has rows, no gap" and
+        # cannot tell 5 bars from 400, so a symbol whose history is present but
+        # useless is invisible to them and needs saying out loud.
+        never_collected = set(watchlist)
+        log.info('--force-history: fetching the full window for all %d symbols', len(watchlist))
     if grouped_ok:
         sessions = recent_settled_sessions(
             datetime.now(timezone.utc).astimezone(MARKET_TIMEZONE),
@@ -368,7 +405,7 @@ def run():
             try:
                 backfill = set(symbols_needing_history(
                     conn, watchlist, provider.source, min(covered)
-                ))
+                )) | never_collected
             except Exception as exc:
                 # Narrowing is an optimisation. If we cannot decide who still
                 # needs history, fetch it for everyone rather than skip anyone.
@@ -426,5 +463,18 @@ def run():
         raise RuntimeError(f'price collection failed for {len(failed)} symbols: {failed}')
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description='Collect daily and 30-minute price bars')
+    parser.add_argument(
+        '--force-history', action='store_true',
+        help='fetch the full PRICE_HISTORY_LIMIT window for every requested symbol, '
+             'bypassing the backfill-selection rules. For repairing a symbol whose '
+             'history is present but too short to be useful -- the selection rules '
+             'only see "has rows, no gap" and cannot distinguish 5 bars from 400.',
+    )
+    args = parser.parse_args()
+    run(force_history=args.force_history)
+
+
 if __name__ == '__main__':
-    run()
+    main()
