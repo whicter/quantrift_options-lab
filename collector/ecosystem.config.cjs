@@ -69,6 +69,25 @@ module.exports = {
         OPTION_REFRESH_PROVIDER: 'polygon_licensed',
         OPTION_FALLBACK_PROVIDERS: 'ib_internal',
         OPTION_REFRESH_MAX_AGE_MINUTES: '60',
+        // universe_scan tier cadence, 150 (code default) -> 75 (2026-10-08).
+        //
+        // This, not concurrency, is what bounds chain freshness. Raising
+        // REFRESH_WORKER_CONCURRENCY 3 -> 6 left throughput unchanged at
+        // 155 jobs/hour, because the lane sat idle 77% of the time with 3.42
+        // jobs in flight on average: the scheduler only releases a symbol once
+        // its chain is older than this, so 322 symbols / 2.5h was the supply,
+        // and no number of workers can consume work that has not been queued.
+        // The earlier "3 workers / 71s = 152/hour matches the observed 157"
+        // was a coincidence of supply and capacity, not proof of either.
+        //
+        // At 75: demand 322 / 1.25h = ~258/hour against ~304/hour of capacity
+        // (6 workers / 71s), and ~0.86 req/s against the 2 req/s the options
+        // pacer allows. Expect median chain age ~77 -> ~35-40 min. Do not go
+        // much below ~64 without first cutting requests per symbol (7 DTE
+        // buckets): demand would then exceed capacity and the queue grows.
+        // Floor regardless of cadence: Polygon options on this tier are
+        // 15-minute delayed.
+        OPTION_REFRESH_MAX_AGE_SCAN: '75',
         OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES: '30',
         OPTION_REFRESH_SCHEDULE_SECONDS: '300',
         // Queue depth, not per-cycle count, is what the scheduler targets. The
