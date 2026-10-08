@@ -22,7 +22,7 @@ import os
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from providers.ib_news_provider import IBNewsProvider
 
 configure_collector(__file__, datefmt=None)
@@ -94,4 +94,5 @@ def run() -> dict:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('news')
     run()

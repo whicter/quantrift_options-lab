@@ -121,3 +121,45 @@ class GrowthAlertTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GrowthRateIntervalTests(unittest.TestCase):
+    """A rate needs an interval long enough to mean something.
+
+    2026-10-07: PM2 fired log-rotate twice at 17:20:00. The second run divided
+    its sibling's few kilobytes of output by an elapsed time of roughly zero and
+    reported 170.8MB/h, against files of 450KB and 167KB with the whole log
+    directory at 60.6MB.
+    """
+
+    BASE = datetime(2026, 10, 7, 17, 20, 0)
+
+    def _state(self, run_at, size):
+        return {'run_at': run_at.isoformat(), 'sizes': {'a.log': size}}
+
+    def test_a_same_second_rerun_reports_nothing(self):
+        state = self._state(self.BASE, 1_000_000)
+        later = self.BASE + timedelta(seconds=0.4)
+        # 60KB over 0.4s extrapolates to ~540MB/h without the guard.
+        self.assertEqual(
+            rotate_logs.growth_alerts(state, later, {'a.log': 1_060_000}), [])
+
+    def test_a_real_hourly_interval_still_reports(self):
+        state = self._state(self.BASE, 1_000_000)
+        later = self.BASE + timedelta(hours=1)
+        alerts = rotate_logs.growth_alerts(
+            state, later, {'a.log': 1_000_000 + 50 * 1024 * 1024})
+        self.assertEqual(len(alerts), 1)
+        self.assertIn('a.log', alerts[0])
+
+    def test_growth_below_the_threshold_is_still_quiet(self):
+        state = self._state(self.BASE, 1_000_000)
+        later = self.BASE + timedelta(hours=1)
+        self.assertEqual(
+            rotate_logs.growth_alerts(state, later, {'a.log': 1_100_000}), [])
+
+    def test_a_clock_moving_backwards_is_still_rejected(self):
+        state = self._state(self.BASE, 1_000_000)
+        earlier = self.BASE - timedelta(minutes=30)
+        self.assertEqual(
+            rotate_logs.growth_alerts(state, earlier, {'a.log': 9_000_000}), [])

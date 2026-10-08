@@ -37,7 +37,7 @@ from typing import Any
 import psycopg2
 from psycopg2.extras import Json
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from run_refresh_worker import is_regular_us_session
 from select_quote_watchlist import effective_watchlist
 
@@ -392,6 +392,7 @@ def run(
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('quote-refresh')
     parser = argparse.ArgumentParser(description='Enqueue option quote refreshes for the watchlist')
     parser.add_argument('--max-age-minutes', type=int, default=MAX_AGE_MINUTES)
     parser.add_argument('--queue-target', type=int, default=QUEUE_TARGET)

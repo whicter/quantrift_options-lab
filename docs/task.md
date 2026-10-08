@@ -1,5 +1,39 @@
 # Task Tracker
 
+## ✅ 2026-10-07（二）— 修了三个症状之后，才去修那一个原因
+
+告警 `quantrift-news: 2 copies running`。日志显示每轮 100 秒完成、`*/5` 间隔 300 秒，
+**不存在真重叠**；news 写入按 `(symbol, article_id)` 幂等，0 条重复。又是 PM2 同分钟双触发。
+
+这是同一根因第三次发作，而我前两次都在修症状：
+
+| 发作 | 症状 | 当时的修法 |
+|---|---|---|
+| 10-05 | 重复入队：8 个 job / 4 个标的（quote worker 并发 1） | 诊断出 check-then-insert 竞态，提了唯一索引方案**但没做** |
+| 10-07 | log-rotate 把兄弟进程的几十 KB 除以 ~0 秒，报 170.8MB/h | 加 `MIN_ELAPSED_HOURS`（10 分钟）下限 |
+| 10-07 | news 白白重抓全 universe | —— |
+
+**真正要的性质是「一个脚本同时只跑一份」。** 两份是独立进程，进程内守卫看不见它们，
+SQL 里的 check-then-act 必然竞态。数据库是两份副本唯一共享的东西，所以互斥只能放那里。
+
+新增 `collector_runtime.acquire_single_instance_lock()` / `exit_if_already_running()`：
+`pg_try_advisory_lock(hashtext(name))`，非阻塞，输的一方**退出码 0**（重复启动主动不干活
+是正确结果，报成失败会训练人忽略这个 app 的退出码）；没有 DATABASE_URL 时照常运行
+（拒绝干活比偶尔干两遍更糟）。仓库里 `auth.py` 早有 `pg_advisory_xact_lock` 先例。
+
+已接到 `schedule_quote_refresh` / `rotate_logs` / `collect_news` 三个脚本。
+实测:互斥、随会话释放、按名字隔离均正确。622 测试通过。
+
+**仍未做**：`provider_fetch_jobs` 的部分唯一索引。advisory lock 挡住了「同一脚本两份」，
+但服务端 `enqueueRefreshJob` 和采集器 worker 是**不同进程**，它们之间的竞态还在。
+索引键用 `(symbol, job_type)` 还是 `(symbol, job_type, provider)` 待定——两边口径本来就不一致。
+
+**顺带完成**：AEHR / GLD / IWM / XOM 各补齐 400 根日线（回溯 2025-03-05），
+**322 个活跃标的现在全部有价格历史**。剩余 8 个不足 200 根的都是 2026 年新上市标的，
+数据完整、非缺口。
+
+---
+
 ## ✅ 2026-10-07 — 一个退市标的把报价通道刷了一整天
 
 告警：`option_quote_snapshot 32 个任务失败（阈值 25），最近 1 小时 6 个`，fingerprint `31947be3`。

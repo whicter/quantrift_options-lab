@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -56,6 +56,9 @@ KEEP = max(int(os.getenv('LOG_ROTATE_KEEP', '7')), 1)
 # so ordinary operation never trips it: the collector's own error log ran ~8MB/day
 # before any of this, and the runaway that motivated the check ran ~68MB/day.
 ALERT_BYTES_PER_HOUR = int(os.getenv('LOG_ROTATE_ALERT_BYTES_PER_HOUR', str(20 * 1024 * 1024)))
+# Shortest interval a growth RATE may be computed over. The app runs hourly, so
+# a gap this small means two runs landed together, not that anything grew fast.
+MIN_ELAPSED_HOURS = float(os.getenv('LOG_ROTATE_MIN_ELAPSED_HOURS', str(10 / 60)))
 STATE_FILE = LOG_DIR / '.rotate_state.json'
 
 
@@ -90,7 +93,20 @@ def growth_alerts(state: dict[str, Any], now: datetime, sizes: dict[str, int]) -
         elapsed_h = (now - datetime.fromisoformat(last_run)).total_seconds() / 3600
     except ValueError:
         return alerts
-    if elapsed_h <= 0:
+    # A rate needs an interval long enough to mean something. `<= 0` only
+    # rejected a clock going backwards; it let through the case that actually
+    # happens, which is two runs in the same second. PM2 double-fires a cron app
+    # a few percent of the time (measured 2026-10-05 on quantrift-quote-refresh,
+    # 0-3 of 36 daily launches), and on 2026-10-07 two log-rotate runs landed at
+    # 17:20:00. The second divided its sibling's few kilobytes of log output by
+    # an elapsed time of roughly zero and reported 170.8MB/h against files that
+    # are 450KB and 167KB, with the whole log directory at 60.6MB. Division by a
+    # near-zero interval does not measure growth, it manufactures it.
+    if elapsed_h < MIN_ELAPSED_HOURS:
+        log.info(
+            'growth check skipped: only %.1fs since the last run, too short to rate',
+            elapsed_h * 3600,
+        )
         return alerts
     for name, size in sizes.items():
         before = previous.get(name)
@@ -201,6 +217,7 @@ def run(max_bytes: int = MAX_BYTES, keep: int = KEEP, dry_run: bool = False) -> 
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('log-rotate')
     parser = argparse.ArgumentParser(description='Rotate this project\'s PM2 logs')
     parser.add_argument('--max-bytes', type=int, default=MAX_BYTES)
     parser.add_argument('--keep', type=int, default=KEEP)
