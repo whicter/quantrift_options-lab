@@ -484,43 +484,66 @@ class IbIntradaySpotTests(unittest.TestCase):
         self.assertFalse(w.is_regular_us_session(datetime(2026, 7, 22, 9, 0, tzinfo=et)))    # pre-market
         self.assertFalse(w.is_regular_us_session(datetime(2026, 7, 18, 11, 0, tzinfo=et)))   # Saturday
 
-    def test_fetch_ib_intraday_spot_returns_price_source_asof(self):
+    def test_prefetch_uses_one_connection_on_its_own_client_id(self):
+        # The per-job version opened a connection per chain refresh on client
+        # id 42 -- the quote worker's id. IB allows one connection per id and
+        # raises 326 on a duplicate, which has happened on this gateway.
         import run_refresh_worker as w
-
-        class _Underlying:
-            price = 374.43
-            timestamp = datetime(2026, 7, 20, 14, 22, tzinfo=timezone.utc)
+        seen = {}
 
         class _Provider:
-            def fetch_underlying(self, symbol):
-                return _Underlying()
+            def __init__(self, client_id=None):
+                seen['client_id'] = client_id
+                seen['instances'] = seen.get('instances', 0) + 1
+
+            def fetch_underlyings(self, symbols):
+                seen['symbols'] = list(symbols)
+                return {'TSLA': 374.43, 'AAPL': 228.1}
+
+            def fetch_underlying(self, symbol):  # must not be used any more
+                raise AssertionError('per-symbol connection opened')
 
         with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _Provider):
-            spot = w.fetch_ib_intraday_spot('TSLA')
-        self.assertEqual(spot['price'], 374.43)
-        self.assertEqual(spot['source'], 'ib_internal')
-        self.assertEqual(spot['as_of'], '2026-07-20T14:22:00+00:00')
+            spots = w.prefetch_ib_intraday_spots(['TSLA', 'AAPL', 'NVDA'])
 
-    def test_fetch_ib_intraday_spot_is_best_effort_on_failure(self):
+        self.assertEqual(seen['instances'], 1, 'expected exactly one connection for the batch')
+        self.assertEqual(seen['client_id'], w.IB_SPOT_CLIENT_ID)
+        self.assertNotEqual(w.IB_SPOT_CLIENT_ID, 42, 'must not share the quote worker id')
+        self.assertEqual(spots['TSLA']['price'], 374.43)
+        self.assertEqual(spots['TSLA']['source'], 'ib_internal')
+        self.assertIn('as_of', spots['TSLA'])
+        # A symbol IB could not price is absent, so its job falls back.
+        self.assertNotIn('NVDA', spots)
+
+    def test_prefetch_is_best_effort_on_failure(self):
         import run_refresh_worker as w
 
         class _Boom:
-            def fetch_underlying(self, symbol):
+            def __init__(self, client_id=None):
+                pass
+
+            def fetch_underlyings(self, symbols):
                 raise RuntimeError('IB gateway down')
 
         with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _Boom):
-            self.assertIsNone(w.fetch_ib_intraday_spot('TSLA'))
+            self.assertEqual(w.prefetch_ib_intraday_spots(['TSLA']), {})
 
-    def test_fetch_ib_intraday_spot_rejects_nonpositive_price(self):
+    def test_a_job_reads_the_batch_cache_and_never_connects(self):
         import run_refresh_worker as w
 
-        class _Provider:
-            def fetch_underlying(self, symbol):
-                from types import SimpleNamespace
-                return SimpleNamespace(price=0.0, timestamp=None)
+        class _MustNotConnect:
+            def __init__(self, *a, **k):
+                raise AssertionError('a job opened its own IB connection')
 
-        with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _Provider):
-            self.assertIsNone(w.fetch_ib_intraday_spot('TSLA'))
+        with patch('providers.ib_option_chain_provider.IbOptionChainProvider', _MustNotConnect):
+            w._BATCH_SPOTS.clear()
+            w._BATCH_SPOTS['TSLA'] = {'price': 374.43, 'source': 'ib_internal', 'as_of': 'x'}
+            try:
+                self.assertEqual(w.fetch_ib_intraday_spot('tsla')['price'], 374.43)
+                # Not prefetched -> None (prior close), never a fallback connection.
+                self.assertIsNone(w.fetch_ib_intraday_spot('AAPL'))
+            finally:
+                w._BATCH_SPOTS.clear()
 
     def test_ib_intraday_spot_is_disabled_by_default(self):
         import run_refresh_worker as w

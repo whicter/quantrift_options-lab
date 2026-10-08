@@ -88,6 +88,19 @@ module.exports = {
         // Floor regardless of cadence: Polygon options on this tier are
         // 15-minute delayed.
         OPTION_REFRESH_MAX_AGE_SCAN: '75',
+        // In-session underlying spot from IB instead of the prior close
+        // (2026-10-08). Enabled only after the fetch was rebuilt: the original
+        // opened one IB connection per chain job on client id 42, which is the
+        // quote worker's id -- at 6 workers and ~258 jobs/hour that would have
+        // raised IB error 326 against the scarcest lane. It now fetches a whole
+        // batch over ONE connection on its own id. Live-tested on the real
+        // gateway before enabling: 7/8 symbols in 1.3s, no 326, connection
+        // count unchanged afterwards. Only active during the regular session.
+        OPTION_IB_INTRADAY_SPOT_ENABLED: 'true',
+        // Surveyed across every repo on this machine: this one uses 42
+        // (options/quotes), 44 (borrow) and 46 (far-leg marks); 43 is unused
+        // anywhere. Never set this to 42.
+        IB_SPOT_CLIENT_ID: '43',
         OPTION_REFRESH_SYMBOL_COOLDOWN_MINUTES: '30',
         OPTION_REFRESH_SCHEDULE_SECONDS: '300',
         // Queue depth, not per-cycle count, is what the scheduler targets. The
@@ -458,9 +471,27 @@ module.exports = {
       autorestart: false,
       cron_restart: '*/10 7-12 * * 1-5',
       env: {
-        QUOTE_REFRESH_QUEUE_TARGET: '4',
+        // 4 -> 15 and 360 -> 120 (2026-10-08). Same disease as the chain lane:
+        // the worker was not the constraint, the supply was. Over the
+        // 2026-10-08 session the quote worker sat idle 83.9% of the time,
+        // completing 22.2 jobs/hour against ~128/hour of capacity (28s median
+        // job, concurrency 1). A queue topped up to 4 every ten minutes caps
+        // throughput at ~24/hour -- matching 22.2 almost exactly -- and a
+        // 360-minute staleness bar then let the lane go quiet after each pass.
+        // Median executable-quote age was 257 minutes.
+        //
+        // At 15: up to ~90/hour, ~70% of worker capacity, leaving room for the
+        // priority-90 on-demand and settlement jobs (settlement bypasses this
+        // target entirely). At 120: steady demand ~201/2h = ~100/hour, so the
+        // queue target binds first. Expect median quote age ~257 -> ~65 min.
+        //
+        // Deliberately unchanged: concurrency (1) and client id (42). Throughput
+        // rises only by removing idle time between serial jobs, so IB sees no
+        // new concurrent connections and no new client-id contention -- the
+        // per-job message rate is identical, there is just less waiting.
+        QUOTE_REFRESH_QUEUE_TARGET: '15',
         QUOTE_REFRESH_PRIORITY: '30',
-        QUOTE_REFRESH_MAX_AGE_MINUTES: '360',
+        QUOTE_REFRESH_MAX_AGE_MINUTES: '120',
       },
     },
     {

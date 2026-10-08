@@ -114,6 +114,45 @@ class IbOptionChainProvider:
         finally:
             app.disconnect()
 
+    def fetch_underlyings(self, symbols: list[str], timeout: float | None = None) -> dict[str, float]:
+        """Last prices for many symbols over ONE connection. Missing symbols are omitted.
+
+        `fetch_underlying` connects, asks for one snapshot and disconnects, so
+        calling it per chain job meant one IB connection per job -- up to ~258
+        an hour at the current refresh cadence, every one on client id 42, the
+        same id the quote worker uses. IB allows a single connection per client
+        id, and error 326 on a duplicate has happened on this gateway before
+        (docs/task.md). This asks for every snapshot on a single connection
+        and waits for them together, so a batch costs one connect.
+
+        Best-effort by construction: a symbol whose snapshot does not arrive in
+        time, or arrives without a usable price, is simply absent from the
+        result, and the caller falls back to the prior close.
+        """
+        if not symbols:
+            return {}
+        wait = self.timeout if timeout is None else timeout
+        app = self._connect()
+        try:
+            pending: dict[int, str] = {}
+            for symbol in symbols:
+                req_id = app.next_req_id()
+                app.market_data[req_id] = _MarketData()
+                app.reqMktData(req_id, self._stock_contract(symbol), '', True, False, [])
+                pending[req_id] = symbol.upper()
+
+            prices: dict[str, float] = {}
+            for req_id, symbol in pending.items():
+                if not app.wait_for_snapshot(req_id, wait):
+                    continue
+                data = app.market_data[req_id]
+                price = data.last or data.close or _mid(data.bid, data.ask)
+                if price is not None and float(price) > 0:
+                    prices[symbol] = float(price)
+            return prices
+        finally:
+            app.disconnect()
+
     def fetch_option_chain(
         self,
         symbol: str,

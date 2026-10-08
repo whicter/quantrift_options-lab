@@ -541,29 +541,60 @@ def is_regular_us_session(now_et: datetime | None = None) -> bool:
     return _SESSION_OPEN <= now_et.timetz().replace(tzinfo=None) < _SESSION_CLOSE
 
 
-def fetch_ib_intraday_spot(symbol: str) -> dict[str, Any] | None:
-    """Best-effort in-session underlying spot from IB Gateway (P2.1).
+IB_SPOT_CLIENT_ID = int(os.getenv('IB_SPOT_CLIENT_ID', '43'))
 
-    Reuses the existing IB option-chain provider's `fetch_underlying` (already
-    the fallback path's underlying source). Returns {price, source, as_of} or
-    None on any failure -- it must never break the Polygon refresh, so IB being
-    down/late/entitlement-limited simply falls back to the prior close.
+# Spots fetched once for the whole batch, read by each job. Written before the
+# thread pool starts and cleared after it finishes, so jobs only ever read it.
+_BATCH_SPOTS: dict[str, dict[str, Any]] = {}
+
+
+def prefetch_ib_intraday_spots(symbols: list[str]) -> dict[str, dict[str, Any]]:
+    """In-session spots for a whole batch over ONE IB connection (P2.1).
+
+    The first version fetched per job: `IbOptionChainProvider().fetch_underlying`
+    inside every chain refresh, each a fresh connection on the provider's
+    default client id 42. That was tolerable when written, at concurrency 3 and
+    a 150-minute cadence. By 2026-10-08 the collector ran 6 concurrent workers
+    and ~258 chain jobs an hour, and 42 is also the QUOTE WORKER's id -- IB
+    allows one connection per client id, and a duplicate raises error 326,
+    which has happened on this gateway before (docs/task.md). Turning the flag
+    on would have pitted half a dozen collector threads against the scarcest
+    lane in the pipeline for a single number.
+
+    Now one connection per batch, on its own client id. 43 was chosen by
+    surveying every repository on this machine: this repo uses 42 (options),
+    44 (borrow) and 46 (far-leg marks), and 43 appears nowhere. It never
+    contends with the quote worker, and the hourly connection count falls from
+    up to ~258 to roughly the number of batches.
+
+    Best-effort: any failure returns {} and every job falls back to the prior
+    close, exactly as before.
     """
+    if not symbols:
+        return {}
     try:
         from providers.ib_option_chain_provider import IbOptionChainProvider
-        underlying = IbOptionChainProvider().fetch_underlying(symbol)
-        price = getattr(underlying, 'price', None)
-        if price is None or float(price) <= 0:
-            return None
-        as_of = getattr(underlying, 'timestamp', None)
-        return {
-            'price': float(price),
-            'source': 'ib_internal',
-            'as_of': as_of.isoformat() if hasattr(as_of, 'isoformat') else None,
-        }
+        prices = IbOptionChainProvider(client_id=IB_SPOT_CLIENT_ID).fetch_underlyings(symbols)
     except Exception as exc:  # best-effort: never break the Polygon path
-        log.warning('IB intraday spot unavailable for %s: %s', symbol, exc)
-        return None
+        log.warning('IB intraday spot prefetch failed for %d symbols: %s', len(symbols), exc)
+        return {}
+    as_of = datetime.now(timezone.utc).isoformat()
+    log.info('IB intraday spot: %d/%d symbols on client id %d',
+             len(prices), len(symbols), IB_SPOT_CLIENT_ID)
+    return {
+        symbol: {'price': price, 'source': 'ib_internal', 'as_of': as_of}
+        for symbol, price in prices.items()
+    }
+
+
+def fetch_ib_intraday_spot(symbol: str) -> dict[str, Any] | None:
+    """The batch-prefetched spot for `symbol`, or None to fall back.
+
+    Deliberately does NOT open its own connection when the symbol is missing.
+    A per-job fetch is exactly the client-id contention this replaced; a symbol
+    the batch could not price simply uses the prior close.
+    """
+    return _BATCH_SPOTS.get(symbol.upper())
 
 
 def latest_db_iv(conn, symbol: str) -> float | None:
@@ -1220,8 +1251,19 @@ def run(
         lane_concurrency = concurrency or (
             QUOTE_WORKER_CONCURRENCY if queue_lane == 'quotes' else WORKER_CONCURRENCY
         )
-        with ThreadPoolExecutor(max_workers=min(lane_concurrency, len(jobs))) as executor:
-            list(executor.map(process_job, jobs))
+        _BATCH_SPOTS.clear()
+        if (queue_lane == 'primary' and OPTION_IB_INTRADAY_SPOT_ENABLED
+                and is_regular_us_session()):
+            chain_symbols = sorted({
+                str(job['symbol']).upper() for job in jobs
+                if job.get('job_type') == 'option_chain_snapshot'
+            })
+            _BATCH_SPOTS.update(prefetch_ib_intraday_spots(chain_symbols))
+        try:
+            with ThreadPoolExecutor(max_workers=min(lane_concurrency, len(jobs))) as executor:
+                list(executor.map(process_job, jobs))
+        finally:
+            _BATCH_SPOTS.clear()
         derivation_summary = run_pending_derivations(conn, pending)
         log.info('Batch derivations: %s', derivation_summary)
     finally:
