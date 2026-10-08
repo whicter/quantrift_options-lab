@@ -27,7 +27,7 @@ from typing import Any
 import psycopg2
 from psycopg2.extras import Json
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -233,6 +233,7 @@ def run(target: int = TARGET) -> dict[str, Any]:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('quote-watchlist')
     parser = argparse.ArgumentParser(description='Select the option quote watchlist')
     parser.add_argument('--target', type=int, default=TARGET)
     parser.add_argument('--dry-run', action='store_true', help='rank and report without writing')

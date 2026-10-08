@@ -739,6 +739,23 @@ async function migrate() {
       ON provider_fetch_jobs (status, created_at DESC);
     CREATE INDEX IF NOT EXISTS provider_fetch_jobs_claimable
       ON provider_fetch_jobs (status, next_attempt_at) WHERE status = 'queued';
+    -- At most one ACTIVE job per symbol and type. Every enqueue path already
+    -- intended this and expressed it as "INSERT ... WHERE NOT EXISTS (an active
+    -- job)", which is not atomic: under READ COMMITTED two concurrent
+    -- enqueuers both see no active job and both insert. Measured over 30 days
+    -- to 2026-10-05, 81 chain and 58 quote duplicates arrived that way, and
+    -- each duplicate quote job costs a ~47s slot on a worker with concurrency
+    -- 1. The invariant belongs in the schema, where concurrency cannot argue
+    -- with it; the pre-checks stay as a cheap early-out.
+    --
+    -- Keyed WITHOUT provider on purpose. The server deduplicated on
+    -- (symbol, job_type, provider) and the collector on (symbol, job_type),
+    -- so the two disagreed. "An active job means this work is already
+    -- scheduled" is the property wanted, and including provider would permit a
+    -- Polygon job and an IB job for the same symbol to run at once -- the exact
+    -- pair the chain/quote lane separation exists to prevent.
+    CREATE UNIQUE INDEX IF NOT EXISTS provider_fetch_jobs_one_active_per_symbol
+      ON provider_fetch_jobs (symbol, job_type) WHERE status IN ('queued', 'running');
 
     CREATE TABLE IF NOT EXISTS provider_request_usage (
       id              BIGSERIAL PRIMARY KEY,

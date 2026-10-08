@@ -29,7 +29,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from collector_runtime import configure_logging, load_collector_env
+from collector_runtime import configure_logging, load_collector_env, exit_if_already_running
 from operator_alerts import send_operator_alert
 
 load_collector_env(__file__)
@@ -91,4 +91,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('pm2-drift')
     main()

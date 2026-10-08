@@ -46,7 +46,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg2
-from collector_runtime import configure_logging, load_collector_env
+from collector_runtime import configure_logging, load_collector_env, exit_if_already_running
 
 load_collector_env(__file__)
 
@@ -282,4 +282,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('chain-archive')
     main()

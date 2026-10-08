@@ -35,7 +35,7 @@ from typing import Any
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -285,6 +285,7 @@ def run(market_date: date | None = None, dry_run: bool = False) -> dict[str, Any
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('squeeze-watch')
     parser = argparse.ArgumentParser(description='Capture observable squeeze-relevant chain state')
     parser.add_argument('--date', default=None, help='market date YYYY-MM-DD (default: today ET)')
     parser.add_argument('--dry-run', action='store_true')

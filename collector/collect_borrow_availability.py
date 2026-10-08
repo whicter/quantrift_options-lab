@@ -32,7 +32,7 @@ from typing import Any
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from providers.ib_borrow_provider import IbBorrowProvider
 from providers import ib_borrow_fee_provider
 
@@ -173,6 +173,7 @@ def run(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> dict[str, Any]:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('borrow-availability')
     parser = argparse.ArgumentParser(description='Capture IB shortable-share availability')
     parser.add_argument('--limit', type=int, default=DEFAULT_LIMIT)
     parser.add_argument('--dry-run', action='store_true')

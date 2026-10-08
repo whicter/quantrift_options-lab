@@ -55,7 +55,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from run_refresh_worker import is_regular_us_session
 
 configure_collector(__file__)
@@ -310,4 +310,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('ledger-far-leg-marks')
     main()

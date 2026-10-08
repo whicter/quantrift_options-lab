@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 from requests.exceptions import HTTPError
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from providers.polygon_market_breadth_provider import (
     CommonStockReference,
     GroupedDailyBar,
@@ -315,6 +315,7 @@ def parse_args():
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('market-breadth')
     args = parse_args()
     requested_date = date.fromisoformat(args.date) if args.date else None
     print(run(target_date=requested_date))

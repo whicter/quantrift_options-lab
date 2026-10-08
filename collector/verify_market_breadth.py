@@ -27,7 +27,7 @@ from typing import Any
 
 import psycopg2
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -167,6 +167,7 @@ def run() -> dict[str, Any]:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('breadth-verify')
     parser = argparse.ArgumentParser(description='Verify the market_breadth_daily series')
     parser.add_argument('--json', action='store_true', help='emit the result as JSON')
     args = parser.parse_args()

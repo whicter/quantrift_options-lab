@@ -24,7 +24,19 @@ SQL 里的 check-then-act 必然竞态。数据库是两份副本唯一共享的
 已接到 `schedule_quote_refresh` / `rotate_logs` / `collect_news` 三个脚本。
 实测:互斥、随会话释放、按名字隔离均正确。622 测试通过。
 
-**仍未做**：`provider_fetch_jobs` 的部分唯一索引。advisory lock 挡住了「同一脚本两份」，
+**✅ 已做（2026-10-08）**：`provider_fetch_jobs` 的部分唯一索引
+`provider_fetch_jobs_one_active_per_symbol ON (symbol, job_type) WHERE status IN ('queued','running')`，
+已写进 `migrate.js` 并在生产执行。键**不含 provider**：服务端按三元组去重、采集器按二元组，
+两边本来就不一致；「有一个活跃 job 就代表这份工作已排上」才是真正的不变量，
+含 provider 会放过「Polygon 一条 + IB 一条同时跑」——正是 chain/quote 通道隔离要防的那一对。
+裸 INSERT 实测：跨 provider 抛 UniqueViolation，且只约束活跃行（标记 succeeded 后可再排）。
+
+**✅ 单实例锁扩到全部 16 个 cron app（2026-10-08）**：上一轮我手挑了三个脚本加锁，
+第四次发作就落在**没挑中的那个**——`quantrift-pm2-drift`，漂移检查器报了它自己。
+现已改为从 `ecosystem.config.cjs` 读出所有带 `cron_restart` 的 app 逐个加，
+名单由配置决定而非记忆决定。
+
+**原「仍未做」记录**：`provider_fetch_jobs` 的部分唯一索引。advisory lock 挡住了「同一脚本两份」，
 但服务端 `enqueueRefreshJob` 和采集器 worker 是**不同进程**，它们之间的竞态还在。
 索引键用 `(symbol, job_type)` 还是 `(symbol, job_type, provider)` 待定——两边口径本来就不一致。
 

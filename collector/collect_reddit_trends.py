@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from providers.reddit_trends_provider import RedditPost, RedditTrendsProvider
 
 
@@ -125,4 +125,5 @@ def run() -> dict:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('reddit-trends')
     run()

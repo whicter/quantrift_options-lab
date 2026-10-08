@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import psycopg2
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 from providers.polygon_reference_provider import PolygonReferenceProvider, TickerReference
 
 
@@ -152,4 +152,5 @@ def run(provider=None) -> dict:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('universe-metadata')
     print(run())

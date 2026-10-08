@@ -38,7 +38,7 @@ from datetime import date, timedelta
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector
+from collector_runtime import configure_collector, exit_if_already_running
 
 configure_collector(__file__)
 log = logging.getLogger(__name__)
@@ -248,6 +248,7 @@ def run(skip_interest: bool = False, skip_volume: bool = False) -> dict[str, Any
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('short-interest')
     parser = argparse.ArgumentParser(description='Collect FINRA short interest/volume via Polygon')
     parser.add_argument('--skip-interest', action='store_true')
     parser.add_argument('--skip-volume', action='store_true')

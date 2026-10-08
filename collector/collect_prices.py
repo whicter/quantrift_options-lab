@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 from psycopg2.extras import execute_values
 
-from collector_runtime import configure_collector, parse_symbols
+from collector_runtime import configure_collector, parse_symbols, exit_if_already_running
 from common import load_watchlist
 from providers.ib_price_provider import IBPriceProvider
 from providers.polygon_price_provider import PolygonPriceProvider, polygon_ticker
@@ -477,4 +477,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('options-prices')
     main()

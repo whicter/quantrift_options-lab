@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg2
-from collector_runtime import configure_logging, load_collector_env
+from collector_runtime import configure_logging, load_collector_env, exit_if_already_running
 
 load_collector_env(__file__)
 
@@ -218,6 +218,7 @@ def run(out_root: str | None = None) -> dict:
 
 
 if __name__ == '__main__':
+    _lock = exit_if_already_running('backup-facts')
     configure_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', default=None)
