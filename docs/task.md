@@ -1,5 +1,42 @@
 # Task Tracker
 
+## 🔄 2026-10-09 — DXLink 接入：数据源验证通过，分片已修，待建常驻采集
+
+**结论先行**：Tastytrade DXLink 一条推送连接同时给出 greeks / IV / OI / bid-ask，
+覆盖我们现在用 Polygon + IB 两个源拼出来的全部字段。账户和客户端代码都已在手，$0。
+
+**实测（2026-10-09，收盘后）**
+```
+922 个合约（SPY/AAPL/TSLA/NVDA/QQQ 五条链）
+→ 790 个（86%）拿到全套 Quote + Greeks + Summary，零错误
+示例 .SPY261113P719
+  Greeks  volatility 0.1883  delta -0.0989  gamma 0.00381  theta -0.1108  vega 0.4227
+  Summary openInterest 18
+  Quote   bid 2.19  ask 2.21  bidSize 55  askSize 218
+```
+
+**已修**：`collect_dxlink_events` 一次性发全部订阅，2,766 条直接撞上 DXLink 的
+64KB 帧上限，表现为**零数据 + channel 0 一条 INVALID_MESSAGE**——极易误判成"没有权限"。
+已按 `DXLINK_SUBSCRIPTION_CHUNK`(120) 分片，5 个测试覆盖分片、完整性、帧大小、空输入。
+
+**账户状态**：生产环境（`api.tastyworks.com`，非沙盒），两个 Individual 保证金账户
+2026-06-20 已开通，但 `/api-quote-tokens` 返回 `level: demo` + `/delayed` 端点，
+`/market-data/by-type` 返回 **403**。文档说该端点"仅限已入金账户"，所以**卡在入金**，不是开户。
+复验判据：入金后重调 `/api-quote-tokens`，看 `level` 是否变 `api`、URL 的 `/delayed` 是否消失。
+
+**仍未知（今晚测不出）**：盘中真实消息速率。收盘后只有初始快照，没有持续更新。
+全 universe 是 322 标的 × 约 120 合约 ≈ 3.8 万个合约，**能不能全量订阅取决于盘中速率**，
+这决定常驻采集是覆盖全量还是只覆盖热子集。
+
+- [ ] 下一交易日盘中实测：订阅上限、消息速率、单连接可承载的合约数
+- [ ] 据此设计常驻 DXLink 采集进程（内存维护最新状态，定期物化成 option_chain_snapshots，
+      保持现有快照模型不变，消费端一行不改）
+- [ ] 入金后复验 `level` 是否转 `api`
+- [ ] 商业化前的授权问题：`tt_internal` 按 CLAUDE.md 定位是内部/过渡源；
+      Massive 当前 $29 档同样标 Individual use——这个问题今天就存在，不是换源造成的
+
+---
+
 ## 🔄 2026-10-08 — 时效性：节奏是真杠杆，30 分钟线卡在套餐上
 
 **② 期权链调度节奏 150 → 75 分钟（已上线）**。上一轮把并发从 3 提到 6，吞吐纹丝不动（155 job/小时），

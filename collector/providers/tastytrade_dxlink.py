@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
 
 import websocket
 
+
+# Subscription entries per FEED_SUBSCRIPTION frame. DXLink's frame ceiling is
+# 65536 bytes; at ~55 bytes an entry, 120 leaves roughly a 10x margin.
+SUBSCRIPTION_CHUNK = int(os.getenv('DXLINK_SUBSCRIPTION_CHUNK', '120'))
 
 DEFAULT_EVENT_TYPES = [
     'Quote',
@@ -58,7 +63,20 @@ def collect_dxlink_events(
         _send(ws, {'type': 'CHANNEL_REQUEST', 'channel': 1, 'service': 'FEED', 'parameters': {'contract': 'AUTO'}})
         messages.extend(_drain_until(ws, timeout_seconds, lambda msg: msg.get('type') in ('CHANNEL_OPENED', 'CHANNEL_ACK') and msg.get('channel') == 1))
         _send(ws, {'type': 'FEED_SETUP', 'channel': 1, 'acceptAggregationPeriod': 1, 'acceptDataFormat': 'COMPACT', 'acceptEventFields': _event_fields(event_set)})
-        _send(ws, {'type': 'FEED_SUBSCRIPTION', 'channel': 1, 'add': [{'type': event_type, 'symbol': symbol} for symbol in clean_symbols for event_type in event_set]})
+        # Chunked: DXLink closes the channel with
+        # "Max frame length of 65536 has been exceeded" if the whole
+        # subscription goes in one frame. Measured 2026-10-09 -- five symbols'
+        # chains are 922 contracts, and at three event types that is 2,766
+        # entries, far past the limit. Sending it whole produced no data at all
+        # and only an INVALID_MESSAGE on channel 0, which is easy to misread as
+        # "no entitlement" rather than "frame too big".
+        entries = [
+            {'type': event_type, 'symbol': symbol}
+            for symbol in clean_symbols for event_type in event_set
+        ]
+        for start in range(0, len(entries), SUBSCRIPTION_CHUNK):
+            _send(ws, {'type': 'FEED_SUBSCRIPTION', 'channel': 1,
+                       'add': entries[start:start + SUBSCRIPTION_CHUNK]})
 
         deadline = time.monotonic() + timeout_seconds
         runtime_fields = _event_fields(event_set)
