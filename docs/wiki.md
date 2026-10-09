@@ -1387,6 +1387,36 @@ The Scan page can persist the current minimum IV Rank, Gamma regime and unusual-
 
 Each latest materialized row is tested against active rules. A unique delivery outbox row is inserted before sending, so process restart cannot resend the same symbol from the same scanner batch. Delivery states are `pending`, `sent`, `blocked`, `failed`; missing channel configuration is blocked. Unsubscribe uses a random token rather than an email address or push endpoint.
 
+### Cron 单实例锁
+
+全部 16 个 cron app 在入口调用 `collector_runtime.exit_if_already_running(<name>)`，
+取 `pg_try_advisory_lock(hashtext(name))`。非阻塞——输的一方立刻退出，**退出码 0**
+（重复启动主动不干活是正确结果，报成失败会训练人忽略该 app 的退出码）。
+没有 `DATABASE_URL` 时照常运行：拒绝干活比偶尔干两遍更糟。
+
+存在的理由：PM2 会以约 2–5% 的概率在同一秒把一个 cron app 起两份。两份是独立进程，
+进程内守卫看不见它们。名单从 `ecosystem.config.cjs` 枚举而非手挑——
+第四次发作正好落在手挑时漏掉的那个 app（`quantrift-pm2-drift`，漂移检查器报了自己）。
+
+新增 cron app 时无需记得加锁，但要确认它的入口走了 `if __name__ == '__main__':` 分支。
+
+### 标的退役清单(三处都要改)
+
+```
+symbol_universe          active=FALSE, scan_enabled=FALSE
+quote_watchlist          excluded=TRUE
+watchlist.txt            删除该行
+```
+
+只改前两处不够:健康检查的覆盖率分母读的是 `watchlist.txt`,
+留在里面会让该标的在链被 prune 之后**永远计为 missing**。
+`scan_enabled=FALSE` 也不停止采集——调度器读 `WHERE active = TRUE`,
+`scan_enabled` 只决定落在哪个优先级层。
+
+判据:Polygon reference 404 **且**不在 grouped daily 当日成交清单里。
+reference 对公司行动滞后(WBD 停止交易两天后仍报 `active=True`),
+**grouped daily 的缺席是直接的交易事实,更可信**。
+
 ### Collector Health Alerts
 
 `check_collector_health.py` 由 collector 守护进程每 `COLLECTOR_HEALTH_CHECK_SECONDS`(300)

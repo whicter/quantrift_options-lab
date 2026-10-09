@@ -1676,6 +1676,71 @@ Provider credential invariant：API key 只存在于 `collector/.env` 或部署�
 
 Cross-boundary verification invariant：`server/src/lib/refreshJobs.js` 的 default/supported provider 必须与 `collector/run_refresh_worker.py` 一致。Phase 3D-6 tests 覆盖 GEX sign/walls/flip/PCR/confidence，以及 `/api/gex` fresh/missing/stale snapshot-first 行为。
 
+**采集器运行时的三条互斥/幂等机制（2026-10-07..08）**
+
+```text
+1. 单实例锁      collector_runtime.exit_if_already_running(name)
+                 pg_try_advisory_lock(hashtext(name))，非阻塞，输者退出码 0
+                 已应用于全部 16 个 cron app（从 ecosystem.config.cjs 枚举，非手挑）
+
+2. 活跃 job 唯一  provider_fetch_jobs_one_active_per_symbol
+                 UNIQUE (symbol, job_type) WHERE status IN ('queued','running')
+                 不含 provider：服务端原按三元组、采集器按二元组，两边本不一致
+
+3. IB 现价批取    prefetch_ib_intraday_spots()，每批一条连接
+                 IB_SPOT_CLIENT_ID=43（42=期权/报价，44=borrow，46=far-leg marks）
+```
+
+为什么是三条而不是一条:PM2 会以约 2–5% 的概率在**同一秒**把一个 cron app 起两份
+（2026-10-05 实测 quote-refresh 每天 36 次触发里 0–3 次）。两份是**独立进程**，
+所以进程内守卫看不见、SQL 里的 check-then-act 必然竞态。机制 1 挡住「同脚本两份」，
+机制 2 挡住「不同进程之间的重复入队」（服务端 `enqueueRefreshJob` 与采集器 worker
+是不同进程，锁管不到），机制 3 挡住「并发 job 争用同一个 IB client id」。
+
+在修到这一层之前，这个根因已经造成过三个各自独立的症状：重复入队（8 job / 4 标的）、
+日志轮转把兄弟进程的字节除以 ~0 秒算出 170.8MB/h、news 重抓全 universe。
+**症状出现第二次时就该停下来修原因。**
+
+**刷新通道的瓶颈是供给，不是容量（2026-10-08）**
+
+两条通道都呈现同一形态：worker 大部分时间空闲，吞吐由调度器的放行节奏决定。
+
+```
+期权链   并发 3→6 后吞吐不变（155 job/小时），通道 77% 空闲，平均 3.42 个在飞
+         → 改 OPTION_REFRESH_MAX_AGE_SCAN 150→75
+报价     worker 83.9% 空闲，22.2 job/小时对容量 ~128
+         → 改 QUOTE_REFRESH_QUEUE_TARGET 4→15、MAX_AGE_MINUTES 360→120
+         → 并发与 client id 不动，IB 无新增并发连接
+```
+
+判别方法：**先量空闲率**。单看「并发 × 1/单job耗时 ≈ 实测吞吐」会把供给受限误判成容量受限
+——两者在那组数据上给出相同预测。
+
+**原始期权链归档（2026-10-04，`collector/archive_option_chains.py`）**
+
+`option_chain_snapshots` + `option_contract_snapshots` 在 `OPTION_CHAIN_RETENTION_DAYS`(7)
+后被 prune。这对服务是对的（产品只读最新一行），对研究是致命的：
+**合约级的链是所有派生产品的输入**，而它买不回来——本档位 Polygon 不卖历史 NBBO，
+带报价的行来自 IB 的实时订阅，只在当时存在过。`gex_history` 当初为同一理由拆出 prune，
+但它救的是标量和逐行权价 GEX，**不是计算它们的那条链**。
+
+形态与 `backup_facts.py` 不同:源是 7 天滑动窗口,所以归档**按交易日分区、只追加**——
+一个会话写一次永不重写,每次运行回补窗口内所有未归档会话,并点名已滑出窗口的。
+约 21 MB/会话,PM2 `quantrift-chain-archive` 每天 01:45 PT(含周末)。
+
+三条硬规则:只归档严格早于今天(纽约)的会话;每个文件**写完读回校验**行数与 sha256
+(只数缓冲区只能证明"打算写什么");`/Volumes` 下的路径在卷未挂载时**硬失败**
+——macOS 会在启动盘建同名目录、真卷再挂上来遮蔽,归档会"看起来在工作"却写进没人会读的地方。
+
+**数据源评估（2026-10-09，`docs/validation/DXLINK_SOURCE_EVALUATION_2026-10-09.md`）**
+
+Tastytrade DXLink 一条推送连接同时提供 `Greeks`(IV + 希腊字母) / `Summary`(OI) /
+`Quote`(bid-ask)，即现在由 Polygon 链（约 70 秒）+ IB 报价（约 47 秒）两个源拼出的全集。
+实测 922 合约覆盖 790（86%）零错误。Polygon 的 websocket 在本档位只推聚合
+（`AM.*`/`A.*`），**不含 greeks/IV/OI/报价**，因此不解决链的时效。
+DXLink 订阅须分片（64KB 帧上限），账户实时档需入金（现为 `level: demo` + `/delayed`）。
+盘中消息速率未测，它决定单连接能否承载全量 ~3.8 万合约。
+
 Collector health path：
 
 ```text

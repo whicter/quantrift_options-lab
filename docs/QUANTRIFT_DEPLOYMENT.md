@@ -1373,6 +1373,24 @@ Operational rules:
 - Secrets：`POLYGON_API_KEY` 等 provider credentials 只放在 Mac Studio `collector/.env` 或部署平台 secret store；禁止写入 `ecosystem.config.cjs`、文档或 Git。修改 secret 后使用 PM2 reload/update-env 并验证 provider health，不打印 secret 值。
 - Pre-deploy regression：`cd collector && venv311/bin/python -m unittest discover -s tests -p 'test_*.py'`，然后 `cd ../server && npm test`；后者验证 `/api/gex` fresh/missing/stale 不同步调用 provider。
 - Collector health env（2026-10-02 现行）：`COLLECTOR_HEALTH_CHECK_ENABLED=true`、`COLLECTOR_HEALTH_CHECK_SECONDS=300`、`HEALTH_MIN_COVERAGE_PCT=95`、`HEALTH_MAX_FAILED_24H=25`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES=180`、`HEALTH_MIN_COMPLETENESS_PCT=75`、`HEALTH_ALERT_COOLDOWN_MINUTES=60`、`HEALTH_MAX_INCOMPLETE_PCT=2`、`HEALTH_MAX_STALE_PCT=20`、`HEALTH_FAILURE_RECENCY_MINUTES=60`。
+- Collector 刷新与数据源 env（2026-10-08 现行，均在 `quantrift-options-collector`）：
+  `OPTION_REFRESH_MAX_AGE_SCAN=75`（universe_scan 层节奏，150→75；再降到 ~64 以下需先减每标的请求数）、
+  `REFRESH_WORKER_BATCH_SIZE=30`、`REFRESH_WORKER_CONCURRENCY=6`、
+  `OPTION_REFRESH_QUEUE_TARGET=60`、`OPTION_REFRESH_MAX_ENQUEUE_PER_CYCLE=60`、
+  `OPTION_IB_INTRADAY_SPOT_ENABLED=true`、`IB_SPOT_CLIENT_ID=43`。
+  **`IB_SPOT_CLIENT_ID` 绝不可设为 42** —— 那是 `IbOptionChainProvider` 的默认值、也是报价 worker 的 id，
+  IB 一个 client id 只允许一条连接，重复会报错误 326。本机已占用：42（期权/报价）、44（borrow）、46（far-leg marks）。
+- 报价通道 env（`quantrift-quote-refresh`）：`QUOTE_REFRESH_QUEUE_TARGET=15`、
+  `QUOTE_REFRESH_MAX_AGE_MINUTES=120`、`QUOTE_REFRESH_PRIORITY=30`。
+  并发仍是 1、client id 仍是 42 —— 提速只来自减少串行 job 间的空等，不新增 IB 并发连接。
+  另有失败抑制 `QUOTE_FAILURE_BLOCK_MIN_FAILURES=3`、`QUOTE_FAILURE_BLOCK_WINDOW_HOURS=6`（代码默认）。
+- 期权链归档 env（`quantrift-chain-archive`，每天 01:45 PT）：
+  `CHAIN_ARCHIVE_DIR=${DATA_ROOT}/chain-archive`、`CHAIN_ARCHIVE_LOOKBACK_DAYS=10`。
+  约 21 MB/会话；源表 7 天后被 prune，**漏跑超过 7 天的会话永久丢失**，脚本会点名报出。
+- 日志轮转 env：`LOG_ROTATE_MIN_ELAPSED_HOURS`（默认 10 分钟）——低于此间隔不计算增长速率，
+  否则同秒双触发会把兄弟进程的几十 KB 除以 ~0 秒算出几百 MB/h。
+- DXLink（评估中，尚未进入生产路径）：`DXLINK_SUBSCRIPTION_CHUNK=120`。
+  订阅帧有 64KB 上限，超限表现为**零数据 + channel 0 一条 INVALID_MESSAGE**，极易误判为无权限。
   后三个是**占比/时效闸门**，不是额外的严格度：过期与不完整按**占比**升级（常年薄的标的和轮转中刚过线的标的都是系统正常工作的样子），失败数按 `job_type` 分别计数且要求最近 60 分钟内仍有失败（24 小时计数有 24 小时的尾巴，一次突发自愈后会继续响满一天）。`HEALTH_MAX_FAILED_24H` 曾是 `0`，实测 30 天里 12 天至少有一次终端失败，即 40% 的天数都会告警。
 - Operator channel：配置 `ALERT_WEBHOOK_URL` 或完整 SMTP (`SMTP_HOST/PORT/USER/PASS` + `ALERT_EMAIL`)；均缺失时只写 PM2 warning log。用 `SELECT status, last_seen_at, last_notified_at FROM collector_health_alerts` 验证 dedupe/resolution。
 - 2026-07-15 runtime：health checker 已由 `quantrift-options-collector` 每 300 秒执行，Railway 已记录 active alert；随后执行 `pm2 save`，当前进程与 health env 已写入 `/Users/congrenhan/.pm2/dump.pm2`。

@@ -76,6 +76,11 @@
 - `collector/providers/polygon_option_chain_provider.py` — 窗口为空时无过滤重试一次，
   写 `strike_window_missed` / `no_listed_contracts` 两个标志
 - `collector/ecosystem.config.cjs` — PM2 唯一事实来源；改 env 必须 delete+start+save
+- `collector/collector_runtime.py` — `exit_if_already_running()` 单实例锁，全部 16 个 cron app 在用
+- `collector/archive_option_chains.py` — 原始期权链按交易日归档(只追加,外置卷未挂载硬失败)
+- `collector/check_pm2_env_drift.cjs` — env / 触发 / 实例 三类漂移,由
+  `check_pm2_drift_alert.py` 每小时跑并接 operator alert
+- `collector/providers/tastytrade_dxlink.py` — DXLink 推送客户端(订阅须分片,64KB 帧上限)
 
 ## Tastytrade API
 - 账户: whicter.han@gmail.com
@@ -101,6 +106,11 @@
   原来的无条件 `active=TRUE` 每跑一次就撤销一次退役。
 - **告警规则一律按占比触发**，并且只报操作者能行动的事。两周内同一个毛病吵了四次，
   原因都是"触发指标 ≠ 操作者被叫醒要回答的问题"。
+- **刷新通道是供给受限不是容量受限**:加 worker 没用,要改调度节奏;判别方法是**先量空闲率**。
+- **PM2 会同秒双触发 cron app**(约 2–5%),两份是独立进程 → 进程内守卫无效、SQL 的
+  check-then-act 必然竞态。已用 advisory lock + 部分唯一索引两层堵死。
+- **`IB_SPOT_CLIENT_ID` 不可设为 42**(报价 worker 在用),IB 一个 id 只允许一条连接。
+- **标的退役三处都要改**:`symbol_universe` + `quote_watchlist.excluded` + `watchlist.txt`。
 - **日线走 grouped daily**：Polygon 在 session 自己的 ET 日期内一律拒绝当日数据
   （`403 ... before end of day`，gate 约 00:00 ET 打开）；逐标的扫描跑近 3 小时会横跨这个
   时刻，把 universe 按字母表切成两半。
