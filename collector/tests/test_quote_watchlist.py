@@ -107,6 +107,12 @@ class SchedulerTests(unittest.TestCase):
         self.assertIn("MIN((l->>'expiry')::date)", sql)
         self.assertIn('c.bid IS NOT NULL', sql)
 
+    def test_settlement_query_excludes_retired_symbols(self):
+        # A retired symbol can still have an unresolved ledger row. It must not
+        # bypass quote failure suppression through the settlement priority lane.
+        self.assertIn('JOIN symbol_universe u', schedule_quote_refresh.SETTLEMENT_SYMBOLS_SQL)
+        self.assertIn('u.active = TRUE', schedule_quote_refresh.SETTLEMENT_SYMBOLS_SQL)
+
     def test_settlement_ignores_the_queue_depth_target(self):
         # The depth target keeps a repeating sweep from outrunning a serial
         # worker; a deferred settlement symbol has no next cycle to be picked up

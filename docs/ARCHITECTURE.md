@@ -1955,6 +1955,13 @@ quantrift-options-quote-worker (常驻)   |
 报价预算调整也不会改变扫描覆盖。`origin`/`pinned`/`excluded` 编码 auto-plus-override 契约：
 选取器自由改写 `auto` 行、从不触碰 `manual` 行、无视排名保留 `pinned`、永不重新加入 `excluded`。
 
+**Settlement 优先路径也必须尊重 universe 退役状态（2026-10-09）。**
+`settlement_symbols()` 可以绕过 `quote_watchlist` 和普通 sweep 的队列深度，因为多到期日候选
+在近腿到期日后没有下一轮可等待；但它现在只返回 `symbol_universe.active=TRUE` 的标的。
+否则一个已退役标的仍留有未结算 `candidate_ledger` 行时，会绕过 `blocked_symbols()`，被每个
+cron 周期重新排入 `option_quote_snapshot`，持续消耗唯一的串行 IB quote lane。`active=FALSE`
+是退役的事实边界；候选台账保留用于审计，但不能继续驱动 provider 请求。
+
 **三条不可回退的约束**（各自对应一次实测事故）：
 
 1. **陈旧度只按带过可成交报价的快照计算**。Polygon 定位刷新写入的新行毫无 bid/ask，

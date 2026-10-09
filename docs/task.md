@@ -1,5 +1,24 @@
 # Task Tracker
 
+## ✅ 2026-10-09 — 报价告警复盘：退役标的绕过 settlement 抑制
+
+生产告警 `fingerprint=31947be3`（覆盖 310/310，24 小时内
+`option_quote_snapshot` 失败 26 次，最近 1 小时 6 次）经只读查询确认：26 次全部是
+WBD，错误均为 `IB contract details empty for WBD`，每次 `attempts=3`。WBD 在
+`symbol_universe` 已是 `active=false, scan_enabled=false`，但仍有未结算的多到期日
+`candidate_ledger` 行。
+
+根因不是普通 quote sweep 的失败抑制失效，而是 `schedule_quote_refresh` 先处理
+`settlement_symbols()`；该路径为了保护到期日结算，故意绕过 watchlist、队列深度和失败抑制。
+退役 WBD 因此每 10 分钟被 `reason=ledger_settlement` 重新排队。
+
+**✅ 修复**：settlement 候选现在必须存在于 `symbol_universe` 且 `active=TRUE`。仍然允许
+不在 `quote_watchlist` 但有效的标的优先结算，同时阻止退役标的绕过失败抑制。新增回归测试，验证
+inactive symbol 不会进入 settlement SQL。生产部署后不再产生新 WBD 任务；旧的 26 条失败记录
+会随 24 小时窗口自然滑出，不做破坏性删除。
+
+验证记录：`docs/validation/QUOTE_SETTLEMENT_RETIRED_SYMBOL_2026-10-09.md`。
+
 ## 🔄 2026-10-09 — DXLink 接入：数据源验证通过，分片已修，待建常驻采集
 
 **结论先行**：Tastytrade DXLink 一条推送连接同时给出 greeks / IV / OI / bid-ask，

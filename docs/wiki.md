@@ -1408,6 +1408,11 @@ quote_watchlist          excluded=TRUE
 watchlist.txt            删除该行
 ```
 
+报价结算还有一个独立护栏：`candidate_ledger` 中仍未结算的多到期日候选不能让已退役标的
+重新进入 IB quote lane。`schedule_quote_refresh.settlement_symbols()` 可优先处理有效但不在
+`quote_watchlist` 的标的，但必须连接 `symbol_universe` 并过滤 `active=TRUE`。否则退市标的的
+旧台账会绕过普通失败抑制，按 cron 周期重复产生 `IB contract details empty` 失败。
+
 只改前两处不够:健康检查的覆盖率分母读的是 `watchlist.txt`,
 留在里面会让该标的在链被 prune 之后**永远计为 missing**。
 `scan_enabled=FALSE` 也不停止采集——调度器读 `WHERE active = TRUE`,

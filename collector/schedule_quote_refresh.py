@@ -190,6 +190,9 @@ SETTLEMENT_SYMBOLS_SQL = """
     )
     SELECT s.symbol
       FROM settling s
+      JOIN symbol_universe u
+        ON u.symbol = s.symbol
+       AND u.active = TRUE
      WHERE NOT EXISTS (
        SELECT 1
          FROM option_chain_snapshots o

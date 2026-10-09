@@ -1384,6 +1384,8 @@ Operational rules:
   `QUOTE_REFRESH_MAX_AGE_MINUTES=120`、`QUOTE_REFRESH_PRIORITY=30`。
   并发仍是 1、client id 仍是 42 —— 提速只来自减少串行 job 间的空等，不新增 IB 并发连接。
   另有失败抑制 `QUOTE_FAILURE_BLOCK_MIN_FAILURES=3`、`QUOTE_FAILURE_BLOCK_WINDOW_HOURS=6`（代码默认）。
+  Settlement 优先路径仍可处理不在 quote watchlist 的有效标的，但只接受
+  `symbol_universe.active=TRUE`；已退役标的即使还有未结算 ledger 行，也不得重新排入 IB。
 - 期权链归档 env（`quantrift-chain-archive`，每天 01:45 PT）：
   `CHAIN_ARCHIVE_DIR=${DATA_ROOT}/chain-archive`、`CHAIN_ARCHIVE_LOOKBACK_DAYS=10`。
   约 21 MB/会话；源表 7 天后被 prune，**漏跑超过 7 天的会话永久丢失**，脚本会点名报出。
