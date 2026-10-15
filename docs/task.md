@@ -4090,3 +4090,16 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   concurrent IB sessions or market-data lines.
 - Verification: runtime-config unit test and `git diff --check` pass. Production
   PM2 reload and a recent-failure replay are required after deployment.
+## ✅ 2026-10-15 — 健康检查阈值漂移修复
+
+告警 `31947be3` 暴露出一个运行入口不一致的问题：PM2 collector 的环境是
+`HEALTH_MAX_FAILED_24H=25`，但健康检查脚本缺少变量时默认成了 `0`，于是 4 个
+正常的短暂失败被误报为 degraded。已完成：
+
+- `collector/check_collector_health.py` 的默认失败阈值固定为 25，与生产生态配置一致；
+- 增加回归测试，确保独立运行健康检查时不会因缺失环境变量回退到 0；
+- 保留环境变量覆盖能力，显式配置仍优先；
+- 以后验证必须同时检查运行进程环境和 `collector_health_alerts.payload.threshold`，不能只看
+  `ecosystem.config.cjs`。
+
+验证记录见 `docs/validation/HEALTH_THRESHOLD_DRIFT_2026-10-15.md`。

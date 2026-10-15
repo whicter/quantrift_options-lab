@@ -1438,6 +1438,10 @@ reference 对公司行动滞后(WBD 停止交易两天后仍报 `active=True`),
 | 不完整 | 不完整**占比** > 2% | `HEALTH_MAX_INCOMPLETE_PCT` |
 | 任务失败 | **按 `job_type` 分别** > 25 **且**最近 60 分钟内仍有失败 | `HEALTH_MAX_FAILED_24H` / `HEALTH_FAILURE_RECENCY_MINUTES` |
 
+`HEALTH_MAX_FAILED_24H` 的代码默认值也是 25。健康检查入口缺少环境变量时不得回退到 0，
+否则少量 IB 瞬时超时会被误报为 degraded；修改健康检查后要重新注册 PM2 并核对告警
+payload 中的 threshold。
+
 都用**占比**而不是"任意一个"，因为常年薄的标的（FBND/SRVR 71–73% 完整度）和
 轮转中刚过线的标的（2.1 小时扫一轮对 180 分钟阈值）都是系统**正常工作**的样子。
 

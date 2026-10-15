@@ -1372,7 +1372,7 @@ Operational rules:
 - Scanner results should be precomputed and cached; avoid full-market scans in request path.
 - Secrets：`POLYGON_API_KEY` 等 provider credentials 只放在 Mac Studio `collector/.env` 或部署平台 secret store；禁止写入 `ecosystem.config.cjs`、文档或 Git。修改 secret 后使用 PM2 reload/update-env 并验证 provider health，不打印 secret 值。
 - Pre-deploy regression：`cd collector && venv311/bin/python -m unittest discover -s tests -p 'test_*.py'`，然后 `cd ../server && npm test`；后者验证 `/api/gex` fresh/missing/stale 不同步调用 provider。
-- Collector health env（2026-10-02 现行）：`COLLECTOR_HEALTH_CHECK_ENABLED=true`、`COLLECTOR_HEALTH_CHECK_SECONDS=300`、`HEALTH_MIN_COVERAGE_PCT=95`、`HEALTH_MAX_FAILED_24H=25`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES=180`、`HEALTH_MIN_COMPLETENESS_PCT=75`、`HEALTH_ALERT_COOLDOWN_MINUTES=60`、`HEALTH_MAX_INCOMPLETE_PCT=2`、`HEALTH_MAX_STALE_PCT=20`、`HEALTH_FAILURE_RECENCY_MINUTES=60`。
+- Collector health env（2026-10-15 现行）：`COLLECTOR_HEALTH_CHECK_ENABLED=true`、`COLLECTOR_HEALTH_CHECK_SECONDS=300`、`HEALTH_MIN_COVERAGE_PCT=95`、`HEALTH_MAX_FAILED_24H=25`、`HEALTH_MAX_SNAPSHOT_AGE_MINUTES=180`、`HEALTH_MIN_COMPLETENESS_PCT=75`、`HEALTH_ALERT_COOLDOWN_MINUTES=60`、`HEALTH_MAX_INCOMPLETE_PCT=2`、`HEALTH_MAX_STALE_PCT=20`、`HEALTH_FAILURE_RECENCY_MINUTES=60`。健康检查代码在缺少环境变量时也使用生产安全默认值 25，不能回退到 0；改动后必须重新注册 PM2，而不是只执行 `pm2 restart`。
 - Collector 刷新与数据源 env（2026-10-08 现行，均在 `quantrift-options-collector`）：
   `OPTION_REFRESH_MAX_AGE_SCAN=75`（universe_scan 层节奏，150→75；再降到 ~64 以下需先减每标的请求数）、
   `REFRESH_WORKER_BATCH_SIZE=30`、`REFRESH_WORKER_CONCURRENCY=6`、

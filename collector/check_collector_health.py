@@ -26,6 +26,12 @@ MARKET_TIMEZONE = ZoneInfo('America/New_York')
 _SESSION_OPEN = time(9, 30)
 _SESSION_CLOSE = time(16, 0)
 
+# A single transient job failure is normal for a collector that talks to
+# external market-data services.  Keep this production default aligned with
+# ecosystem.config.cjs so a standalone health invocation cannot silently turn
+# every failure into an incident by falling back to zero.
+DEFAULT_MAX_FAILED_24H = 25
+
 
 def staleness_reference(now: datetime) -> datetime:
     """快照「过期」的计时终点：盘中 = 现在；盘外 = 最近一次常规时段收盘（16:00 ET）。
@@ -53,7 +59,7 @@ def staleness_reference(now: datetime) -> datetime:
 @dataclass(frozen=True)
 class HealthThresholds:
     min_coverage_pct: float = 95.0
-    max_failed_24h: int = 0
+    max_failed_24h: int = DEFAULT_MAX_FAILED_24H
     max_snapshot_age_minutes: int = 180
     min_completeness_pct: float = 75.0
     # Share of usable symbols allowed below min_completeness_pct before it is an
@@ -71,7 +77,7 @@ class HealthThresholds:
 def thresholds_from_env() -> HealthThresholds:
     return HealthThresholds(
         min_coverage_pct=float(os.getenv('HEALTH_MIN_COVERAGE_PCT', '95')),
-        max_failed_24h=int(os.getenv('HEALTH_MAX_FAILED_24H', '0')),
+        max_failed_24h=int(os.getenv('HEALTH_MAX_FAILED_24H', str(DEFAULT_MAX_FAILED_24H))),
         max_snapshot_age_minutes=int(os.getenv('HEALTH_MAX_SNAPSHOT_AGE_MINUTES', '180')),
         min_completeness_pct=float(os.getenv('HEALTH_MIN_COMPLETENESS_PCT', '75')),
         max_incomplete_pct=float(os.getenv('HEALTH_MAX_INCOMPLETE_PCT', '2')),

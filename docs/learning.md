@@ -1419,3 +1419,11 @@ GEX compute job：
   single quote worker. Do not raise quote concurrency to compensate: the IB
   session and market-data line budget are account-wide, and parallel workers
   would recreate client-id/pacing contention.
+# 2026-10-15 — 配置文件写对不等于所有入口都读对
+
+- 本次 `option_quote_snapshot` 告警显示阈值为 `0`，但 PM2 collector 的运行环境已经是
+  `25`。根因不是数据库计数，而是 `check_collector_health.py` 对缺失环境变量的默认值仍为
+  `0`；任何独立入口、手工复查或错误的调度入口都会因此制造假告警。
+- 生产阈值必须有代码级安全默认值，且与生态配置一致；环境变量是覆盖，不应该是唯一保障。
+- 回归验证要查三层：脚本解析出的阈值、PM2 `pm2 env` 的实际阈值、数据库告警 payload 中记录的
+  threshold。三层不一致时，不能把问题归咎于数据采集。

@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import check_collector_health
 
@@ -22,6 +23,15 @@ class CollectorHealthTest(unittest.TestCase):
             'contract_count': contract_count,
             'provider_status': provider_status,
         }
+
+    def test_health_threshold_defaults_do_not_trip_on_one_transient_failure(self):
+        with patch.dict('os.environ', {}, clear=True):
+            thresholds = check_collector_health.thresholds_from_env()
+
+        self.assertEqual(
+            thresholds.max_failed_24h,
+            check_collector_health.DEFAULT_MAX_FAILED_24H,
+        )
 
     def test_healthy_report_has_no_issues(self):
         report = check_collector_health.evaluate_health(
