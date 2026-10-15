@@ -4079,3 +4079,14 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
 - Frontend follow-up：统一 Market formatter、简单只读 async resource、Analyze/Weekly company logo error handling 与 research-note 样式；rolling-deploy briefing fallback 保留。
 - Verification record：`docs/validation/COMMON_MODULE_REFACTOR_2026-07-30.md`。
 - Delivery state：本地完整验证已通过；尚未创建提交或推送，因此不标记独立完成 checkbox。
+# 2026-10-15 — Quote lane contract-discovery timeout hardening
+
+- ✅ `quantrift-options-quote-worker` now explicitly uses IB client id `42` and
+  `IB_TIMEOUT=60` in PM2. Previously the worker inherited the adapter default
+  of 30 seconds, so transient IB farm/pacing delays were recorded as failed
+  quote jobs even though the same request could complete shortly afterward.
+- ✅ Kept quote concurrency at 1 and `IB_OPTION_STREAM_TIMEOUT=4`; this change
+  only widens the bounded contract-discovery/connection wait and does not add
+  concurrent IB sessions or market-data lines.
+- Verification: runtime-config unit test and `git diff --check` pass. Production
+  PM2 reload and a recent-failure replay are required after deployment.

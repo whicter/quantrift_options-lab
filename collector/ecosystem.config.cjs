@@ -263,6 +263,12 @@ module.exports = {
         QUOTE_WORKER_BATCH_SIZE: '1',
         QUOTE_WORKER_CONCURRENCY: '1',
         QUOTE_ENRICHMENT_PRIORITY: '90',
+        // Contract discovery can legitimately take longer than the provider
+        // default during IB farm/pacing bursts. Keep the quote lane serial,
+        // but give discovery a bounded 60s window instead of silently falling
+        // back to the adapter's 30s default.
+        IB_OPTION_CLIENT_ID: '42',
+        IB_TIMEOUT: '60',
         IB_MARKET_DATA_TYPE: '1',
         IB_OPTION_STREAM_TIMEOUT: '4',
       },

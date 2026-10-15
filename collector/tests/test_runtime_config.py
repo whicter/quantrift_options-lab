@@ -17,6 +17,8 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertIn("name: 'quantrift-options-quote-worker'", config)
         self.assertIn("script: 'run_quote_worker_daemon.py'", config)
         self.assertIn("QUOTE_WORKER_CONCURRENCY: '1'", config)
+        self.assertIn("IB_OPTION_CLIENT_ID: '42'", config)
+        self.assertIn("IB_TIMEOUT: '60'", config)
         self.assertIn("name: 'quantrift-reddit-trends'", config)
         self.assertNotIn('REDDIT_TRENDS_ENABLED:', config)
         self.assertNotIn('REDDIT_CLIENT_SECRET:', config)

@@ -1409,3 +1409,13 @@ GEX compute job：
 - 实测一条 DXLink 记录：`Greeks(volatility/delta/gamma/theta/vega)` + `Summary(openInterest)` + `Quote(bid/ask/size)`。
 - 这正好是现在要靠 **Polygon 链(约 70 秒) + IB 报价(约 47 秒)** 两个源才能凑齐的字段集合，而且是推送的。
 - 值得记下来的不是"流比轮询快"，而是**我们一直在用两个源、两套节流、两种失败模式，去拼一个单一数据源本来就整体提供的东西**。IB 那条通道所有的痛（并发 1、client id 冲突、257 分钟中位龄、70 分钟断连）都源于它在补 Polygon 档位缺的那一块。换源之后那些问题不是被修好，是**不再存在**。
+# 2026-10-15 — IB quote timeout must be explicit per lane
+
+- The quote worker's `IB_TIMEOUT` was not present in its PM2 environment, so
+  `IbOptionChainProvider` silently used its 30-second default. Logs showed a
+  repeated pattern of `reqContractDetails`/`reqSecDefOptParams` timing out at
+  exactly 30 seconds while neighboring symbols succeeded after a longer wait.
+- Fix: set `IB_TIMEOUT=60` and `IB_OPTION_CLIENT_ID=42` explicitly for the
+  single quote worker. Do not raise quote concurrency to compensate: the IB
+  session and market-data line budget are account-wide, and parallel workers
+  would recreate client-id/pacing contention.
