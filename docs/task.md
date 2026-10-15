@@ -4103,3 +4103,7 @@ P1.2 OI-density follow-up verification（2026-07-15）：server 58/58、frontend
   `ecosystem.config.cjs`。
 
 验证记录见 `docs/validation/HEALTH_THRESHOLD_DRIFT_2026-10-15.md`。
+
+上线后审计已完成：PM2 env/trigger/instance drift 均为 0；当前只有一个 collector 和一个
+quote worker；4 个 IB 超时标的均有最新完整链和双边报价，队列没有失控增长。历史 failed
+行仍保留用于审计，不把它们伪装成成功，也不通过删除历史告警来“清零”。

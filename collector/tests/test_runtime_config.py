@@ -3,6 +3,13 @@ from pathlib import Path
 
 
 class RuntimeConfigTests(unittest.TestCase):
+    def test_env_template_matches_production_health_and_ib_timeout(self):
+        env_path = Path(__file__).resolve().parents[1] / '.env.example'
+        env = env_path.read_text(encoding='utf-8')
+
+        self.assertIn('IB_TIMEOUT=60', env)
+        self.assertIn('HEALTH_MAX_FAILED_24H=25', env)
+
     def test_pm2_config_uses_polygon_without_embedding_credentials(self):
         config_path = Path(__file__).resolve().parents[1] / 'ecosystem.config.cjs'
         config = config_path.read_text(encoding='utf-8')

@@ -36,3 +36,12 @@ could report `ok` while another invocation persisted an alert with `threshold=0`
 Any new health-check entry point must load the collector environment and must be
 covered by a test that checks the persisted threshold. A config file alone is not
 evidence that the running checker uses that config.
+
+## Post-fix production audit
+
+The Mac Studio audit found one collector daemon and one quote worker, PM2 env drift
+`0`, trigger drift `0`, and no duplicate instances. The four failed quote jobs were
+historical IB contract-detail timeouts; each affected symbol had a current complete
+Polygon chain and persisted two-sided contract rows, and the quote worker was
+succeeding again. Queue state was bounded (`25 queued`, `27 running`) and the
+threshold-0 alert was resolved rather than deleted.
