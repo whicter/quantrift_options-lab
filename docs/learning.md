@@ -1,5 +1,18 @@
 # Learning Notes
 
+## Collector / Data Quality
+
+### Positioning health must not read quote-enrichment snapshots (2026-10-15)
+
+`option_chain_snapshots` 同时承载 Polygon 定位链和 IB quote enrichment。两者字段覆盖
+不同：IB 补充快照主要服务 bid/ask，可能缺少 Greeks/OI；Polygon 快照才是 GEX、Wall、
+完整度健康检查的定位数据。健康检查按时间取最新行会把 IB 行误当成定位行，造成一批标的
+被报成低于 75% 完整度。
+
+规则：健康检查必须按 positioning provider/source 过滤；quote plane 的失败和新鲜度
+单独统计。共享表不等于共享质量口径。回归测试应覆盖“更新的 IB 行不能遮蔽较旧的完整
+Polygon 行”。
+
 ## Options Fundamentals
 
 ### Why strategies fail in practice (even with correct theory)

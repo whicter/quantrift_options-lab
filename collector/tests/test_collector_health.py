@@ -268,6 +268,36 @@ class CollectorHealthTest(unittest.TestCase):
         )
 
 
+class HealthSnapshotSourceTest(unittest.TestCase):
+    def test_health_reads_positioning_snapshots_not_quote_enrichment_rows(self):
+        class Cursor:
+            def __init__(self):
+                self.queries = []
+                self.description = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def execute(self, query, params):
+                self.queries.append(query)
+
+            def fetchall(self):
+                return []
+
+        cursor = Cursor()
+
+        class Connection:
+            def cursor(self):
+                return cursor
+
+        check_collector_health.load_health_state(Connection(), ['SPY'])
+
+        self.assertIn("source = 'polygon_licensed'", cursor.queries[0])
+
+
 class AlertDedupeAndSessionTest(unittest.TestCase):
     """2026-09-23：过期名单一变指纹就变，冷却失效，一天推 50–100 条。"""
 

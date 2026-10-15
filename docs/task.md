@@ -1,5 +1,20 @@
 # Task Tracker
 
+## ✅ 2026-10-15 — 健康检查误把 IB quote enrichment 当成定位链快照
+
+生产告警 `fingerprint=38130fbf` 报告 43 个标的链完整度低于 75%。复盘发现这些标的的
+最新 `option_chain_snapshots` 多数来自 `ib_internal`：报价补充路径为了保存 bid/ask
+写入同一张表，但它不提供定位链所需的完整 Greeks/OI。健康检查原来只按
+`snapshot_ts` 取最新行，于是用 IB quote enrichment 覆盖了较早但完整的
+`polygon_licensed` positioning snapshot，造成批量误报。
+
+**✅ 修复**：`check_collector_health.load_health_state` 现在只读取
+`source='polygon_licensed'` 的定位快照；IB quote plane 仍独立检查自己的失败任务，
+但不会再污染 GEX/链完整度健康状态。新增回归测试，锁定该 source 边界。
+
+验证：collector 单元测试 26/26；生产 reload 后需重新运行健康检查确认告警只保留真实
+quote lane 问题。
+
 ## ✅ 2026-10-09 — 报价告警复盘：退役标的绕过 settlement 抑制
 
 生产告警 `fingerprint=31947be3`（覆盖 310/310，24 小时内

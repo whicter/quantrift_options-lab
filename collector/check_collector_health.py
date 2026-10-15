@@ -243,8 +243,13 @@ def load_health_state(
               missing_greeks_ratio, missing_oi_ratio, source,
               COALESCE((raw_metadata->>'no_listed_contracts')::boolean, FALSE)
                 AS no_listed_contracts
+            -- IB quote enrichment writes a newer, quote-oriented snapshot into
+            -- the same table. It intentionally lacks the positioning Greeks/OI
+            -- coverage of the Polygon chain, so it must never become the health
+            -- row for the positioning plane.
             FROM option_chain_snapshots
             WHERE symbol = ANY(%s)
+              AND source = 'polygon_licensed'
             ORDER BY symbol, snapshot_ts DESC
             """,
             (symbols,),
